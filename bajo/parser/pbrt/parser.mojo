@@ -10,6 +10,7 @@ from bajo.parser.number import parse_f32_at
 from bajo.parser.ply import PlyMesh
 from bajo.rt.types import (
     Color,
+    Environment,
     ImageTexture,
     Integrator,
     NO_TEXTURE,
@@ -243,6 +244,8 @@ struct _Builder(
     var samples_per_pixel: Int
     var max_depth: Int
     var integrator: Integrator
+    var environment: Environment
+    var has_environment: Bool
 
     def __init__(out self):
         self.spheres = List[Sphere[.WORLD]]()
@@ -278,6 +281,8 @@ struct _Builder(
         self.samples_per_pixel = 16
         self.max_depth = 8
         self.integrator = .PATH
+        self.environment = Environment.black()
+        self.has_environment = False
 
     def add_sphere(
         mut self,
@@ -443,6 +448,7 @@ struct _Builder(
             self.triangle_instances^,
             self.triangle_instance_surfaces^,
             self.surfaces^,
+            self.environment,
         )
         var data = scene_builder^.finish()
         return SceneDescription(
@@ -969,8 +975,10 @@ def _parse_text[
             )
         elif command == "Integrator":
             var integrator_name = lexer.next().value
-            if integrator_name != "path":
-                raise Error("only the PBRT path integrator is supported")
+            if integrator_name != "path" and integrator_name != "volpath":
+                raise Error(
+                    "only the PBRT path/volpath integrators are supported"
+                )
             builder.integrator = .PATH
             var params = _parse_params(lexer)
             builder.max_depth = params.integer("integer maxdepth", 8)
@@ -1051,6 +1059,35 @@ def _parse_text[
             if name not in builder.named_materials:
                 raise Error("unknown PBRT named material: " + name)
             builder.state.surface = builder.named_materials[name].copy()
+        elif command == "LightSource":
+            var model = lexer.next().value
+            var params = _parse_params(lexer)
+            if model != "infinite":
+                raise Error("only infinite PBRT non-area lights are supported")
+            if builder.has_environment:
+                raise Error("multiple PBRT infinite lights are not supported")
+            var multiplier = params.color("L", Color(1.0)) * params.f32(
+                "float scale", 1.0
+            )
+            var filename = params.string("string filename", "")
+            if filename.byte_length() == 0:
+                builder.environment = Environment.uniform(multiplier)
+            else:
+                var image_path = std.os.path.join(
+                    std.os.path.dirname(path), filename
+                )
+                var image_index = UInt32(len(builder.image_paths))
+                builder.image_paths.append(image_path)
+                var inverse = builder.state.transform.inverse()
+                if not inverse.mask[0]:
+                    raise Error("PBRT infinite light transform is singular")
+                builder.environment = Environment.image(
+                    image_index,
+                    multiplier,
+                    inverse.inv,
+                    builder.state.transform,
+                )
+            builder.has_environment = True
         elif command == "AreaLightSource":
             var model = lexer.next().value
             if model != "diffuse":

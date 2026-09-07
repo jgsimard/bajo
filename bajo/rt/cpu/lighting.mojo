@@ -3,8 +3,17 @@
 from bajo.core import (
     Rayf32,
     Vec3,
+    Vec3f32,
+    dot,
+    normalize,
 )
 from bajo.core.random import Rng, random_unit_vector
+from bajo.bvh.constants import f32_max
+from bajo.rt.common import (
+    environment_light_pdf,
+    environment_radiance,
+    equal_area_square_to_sphere,
+)
 from bajo.rt.lighting import (
     _direct_light_scale,
     _draw_alias_column,
@@ -89,7 +98,7 @@ def light_pdf_for_emissive_hit[
     """Evaluate the triangle-light distribution in solid-angle measure."""
     if hit.surface.kind() != .EMISSIVE or not hit.front_face:
         return 0.0
-    var total_weight = world.scene_data().lights().total_weight
+    var total_weight = world.scene_data().total_light_weight()
     var radiance = (
         world.scene_data()
         .surfaces()
@@ -98,6 +107,102 @@ def light_pdf_for_emissive_hit[
     )
     return _emissive_hit_light_pdf(
         ray.d, hit.t, hit.normal, radiance, total_weight
+    )
+
+
+def environment_pdf_for_miss[
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
+](
+    world: CpuScene[world_bvh_width, instance_bvh_width],
+    direction: Vec3[.float32, .WORLD, 1],
+) -> Float32:
+    ref data = world.scene_data()
+    return environment_light_pdf(
+        data.environment(),
+        data.surfaces(),
+        data.environment_weight(),
+        data.total_light_weight(),
+        direction,
+    )[0]
+
+
+def _environment_miss_weight[
+    integrator: Integrator,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
+](
+    world: CpuScene[world_bvh_width, instance_bvh_width],
+    direction: Vec3[.float32, .WORLD, 1],
+    bounce: Int,
+    previous_bsdf_pdf: Float32,
+    previous_delta: Bool,
+) -> Float32:
+    var light_pdf = Float32(0.0)
+    comptime if integrator == .MIS:
+        if bounce > 0 and not previous_delta:
+            light_pdf = environment_pdf_for_miss(world, direction)
+    return _emissive_hit_weight_from_pdf[integrator](
+        UInt32(bounce), previous_delta, previous_bsdf_pdf, light_pdf
+    )
+
+
+def _sample_environment_candidate[
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
+](
+    world: CpuScene[world_bvh_width, instance_bvh_width],
+    point: ShadingPoint[1],
+    mut rng: Rng,
+) -> _DirectLightSample[1]:
+    ref data = world.scene_data()
+    var local_direction: Vec3f32[.LOCAL]
+    if len(data.environment_cdf()) > 0:
+        var target = rng.f32() * data.environment_cdf_total()
+        var first = 0
+        var end = len(data.environment_cdf())
+        while first < end:
+            var middle = first + (end - first) / 2
+            if target < data.environment_cdf()[middle]:
+                end = middle
+            else:
+                first = middle + 1
+        var pixel_idx = min(first, len(data.environment_cdf()) - 1)
+        ref texture = data.surfaces().image_textures[
+            Int(data.environment().texture_index)
+        ]
+        var pixel_x = pixel_idx % texture.width
+        var pixel_y = pixel_idx / texture.width
+        var u = (Float32(pixel_x) + rng.f32()) / Float32(texture.width)
+        var v = (Float32(pixel_y) + rng.f32()) / Float32(texture.height)
+        local_direction = equal_area_square_to_sphere[.LOCAL, 1](u, v)
+    else:
+        local_direction = random_unit_vector[.LOCAL](rng)
+    var direction = normalize(
+        data.environment().light_to_world.vector(local_direction)
+    )
+    var surface_cosine = max(dot(point.normal, direction), 0.0)
+    if surface_cosine <= 0.0:
+        return _empty_direct_light_sample[1]()
+    var emission = environment_radiance(
+        data.environment(), data.surfaces(), direction
+    )
+    var light_pdf = environment_light_pdf(
+        data.environment(),
+        data.surfaces(),
+        data.environment_weight(),
+        data.total_light_weight(),
+        direction,
+    )[0]
+    if light_pdf <= 0.0:
+        return _empty_direct_light_sample[1]()
+    return _DirectLightSample[1](
+        True,
+        direction,
+        emission,
+        surface_cosine,
+        light_pdf,
+        f32_max,
     )
 
 
@@ -115,12 +220,26 @@ def _sample_direct_light_candidate[
     geometric/visibility work separate lets the packet renderer evaluate BSDFs
     and MIS weights with SIMD math after collecting a batch of candidates.
     """
-    var total_weight = world.scene_data().lights().total_weight
+    var total_weight = world.scene_data().total_light_weight()
     if total_weight <= 0.0:
         return _empty_direct_light_sample[1]()
 
     ref lights = world.scene_data().lights()
-    var draw = _draw_alias_column(rng.f32(), len(lights.records))
+    var selection_u = rng.f32()
+    var environment_probability = (
+        world.scene_data().environment_weight() / total_weight
+    )
+    if selection_u < environment_probability:
+        return _sample_environment_candidate(world, point, rng)
+    if len(lights.records) == 0:
+        return _empty_direct_light_sample[1]()
+    var finite_probability = 1.0 - environment_probability
+    var finite_u = (
+        selection_u - environment_probability
+    ) / finite_probability if finite_probability > 0.0 else 0.0
+    var draw = _draw_alias_column(
+        min(finite_u, Float32(0.99999994)), len(lights.records)
+    )
     var selected_idx = _resolve_alias_draw(
         draw,
         lights.alias_probabilities[draw.column],

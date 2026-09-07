@@ -16,6 +16,7 @@ from bajo.core import (
 from bajo.rt.types import (
     BsdfSample,
     Color,
+    Environment,
     MaterialKind,
     Integrator,
     RenderSettings,
@@ -25,7 +26,11 @@ from bajo.rt.types import (
     SurfaceStore,
 )
 from ..scene import CpuScene
-from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
+from bajo.rt.common import (
+    environment_radiance,
+    path_stage_rng,
+    russian_roulette,
+)
 from bajo.rt.lighting import _direct_light_scale
 from bajo.rt.rays import spawn_surface_ray
 from bajo.rt.shading import (
@@ -46,6 +51,7 @@ from bajo.rt.wavefront_contract import wavefront_rng_light_stage
 from ..lighting import (
     _DirectLightSample,
     _empty_direct_light_sample,
+    _environment_miss_weight,
     _sample_direct_light_candidate,
     _emissive_hit_weight,
 )
@@ -356,25 +362,45 @@ def _sample_bsdf_batch[
 
 
 @always_inline
-def _accumulate_sky_packet[
-    length: SIMDLength
+def _accumulate_environment_packet[
+    length: SIMDLength,
+    integrator: Integrator,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
 ](
     pixels: MutSpan[Color, _],
     packet: PathPacket[length],
     lane_count: Int,
     misses: SIMD[.bool, length],
     samples_per_pixel: Int,
+    environment: Environment,
+    surfaces: SurfaceStore,
+    world: CpuScene[world_bvh_width, instance_bvh_width],
+    bounce: Int,
 ):
-    var sky = sky_color(
-        Vec3[.float32, .WORLD, length](packet.dx, packet.dy, packet.dz)
+    var emission = environment_radiance(
+        environment,
+        surfaces,
+        Vec3[.float32, .WORLD, length](packet.dx, packet.dy, packet.dz),
     )
-    var red = packet.tx * sky.x
-    var green = packet.ty * sky.y
-    var blue = packet.tz * sky.z
+    var red = packet.tx * emission.x
+    var green = packet.ty * emission.y
+    var blue = packet.tz * emission.z
     for lane in range(lane_count):
         if misses[lane]:
             var pixel_idx = Int(packet.path_ids[lane]) / samples_per_pixel
-            pixels[pixel_idx] += Color(red[lane], green[lane], blue[lane])
+            var weight = _environment_miss_weight[integrator](
+                world,
+                Vec3f32[.WORLD](
+                    packet.dx[lane], packet.dy[lane], packet.dz[lane]
+                ),
+                bounce,
+                packet.bsdf_pdfs[lane],
+                packet.deltas[lane],
+            )
+            pixels[pixel_idx] += (
+                Color(red[lane], green[lane], blue[lane]) * weight
+            )
 
 
 @always_inline
@@ -594,12 +620,21 @@ def _trace_path_packets[
                     world.scene_data().surfaces(),
                     settings.samples_per_pixel,
                 )
-            _accumulate_sky_packet[length](
+            _accumulate_environment_packet[
+                length,
+                integrator,
+                world_bvh_width,
+                instance_bvh_width,
+            ](
                 pixels,
                 packet,
                 lane_count,
                 misses,
                 settings.samples_per_pixel,
+                world.scene_data().environment(),
+                world.scene_data().surfaces(),
+                world,
+                bounce,
             )
 
         _shade_material_packets[.LAMBERTIAN, length](

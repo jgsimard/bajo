@@ -1,8 +1,22 @@
 from std.pathlib import Path
 
+from bajo.parser.exr import parse_exr, read_exr
 from bajo.parser.ply import PlyMesh, parse_ply, read_ply
 from bajo.parser.png import parse_png, read_png
 from bajo.rt.types import ImageTexture
+
+
+def _is_exr_path(path: String) -> Bool:
+    var bytes = StringSpan(path).as_bytes()
+    if len(bytes) < 4:
+        return False
+    var offset = len(bytes) - 4
+    return (
+        bytes[offset] == UInt8(46)
+        and (bytes[offset + 1] == UInt8(101) or bytes[offset + 1] == UInt8(69))
+        and (bytes[offset + 2] == UInt8(120) or bytes[offset + 2] == UInt8(88))
+        and (bytes[offset + 3] == UInt8(114) or bytes[offset + 3] == UInt8(82))
+    )
 
 
 trait TextLoader:
@@ -25,6 +39,8 @@ struct PathTextLoader(Copyable, TextLoader):
         return read_ply(path)
 
     def read_image_texture(self, path: String) raises -> ImageTexture:
+        if _is_exr_path(path):
+            return read_exr(path)
         return read_png(path)
 
 
@@ -59,5 +75,7 @@ struct MemoryTextLoader(TextLoader):
 
     def read_image_texture(self, path: String) raises -> ImageTexture:
         if path in self.image_files:
+            if _is_exr_path(path):
+                return parse_exr(self.image_files[path])
             return parse_png(self.image_files[path])
         raise Error("MemoryTextLoader: image file not found: " + path)

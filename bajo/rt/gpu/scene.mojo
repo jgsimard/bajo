@@ -13,7 +13,7 @@ from bajo.bvh.gpu import (
     build_gpu_tlas,
 )
 from bajo.bvh.gpu.utils import upload_list
-from bajo.core import Point3f32
+from bajo.core import Affine3f32, Point3f32
 from bajo.rt.gpu.path_shading import GpuRtLights, GpuRtMaterials
 from bajo.rt.gpu.config import (
     GpuRtBvhFormat,
@@ -86,6 +86,13 @@ struct GpuRtScene[
     var _instance_texcoords: Optional[DeviceBuffer[.float32]]
     var materials: GpuRtMaterials
     var lights: GpuRtLights
+    var environment_kind: UInt32
+    var environment_texture_index: UInt32
+    var environment_scale_x: Float32
+    var environment_scale_y: Float32
+    var environment_scale_z: Float32
+    var environment_world_to_light: Affine3f32[.WORLD, .LOCAL]
+    var environment_light_to_world: Affine3f32[.LOCAL, .WORLD]
 
     def view(self) -> GpuRtSceneView:
         """Borrow the selected owner fields through the common device ABI."""
@@ -163,6 +170,17 @@ struct GpuRtScene[
             _immut(self.lights.fields),
             Int32(self.lights.count),
             self.lights.total_weight,
+            self.lights.environment_weight,
+            self.lights.environment_cdf_total,
+            _immut(self.lights.environment_cdf),
+            Int32(self.lights.environment_cdf_count),
+            self.environment_kind,
+            self.environment_texture_index,
+            self.environment_scale_x,
+            self.environment_scale_y,
+            self.environment_scale_z,
+            self.environment_world_to_light.copy(),
+            self.environment_light_to_world.copy(),
         )
 
 
@@ -336,4 +354,11 @@ def prepare_gpu_scene[
         instance_texcoords^,
         materials^,
         lights^,
+        data.environment().kind.value,
+        data.environment().texture_index,
+        data.environment().scale.x[0],
+        data.environment().scale.y[0],
+        data.environment().scale.z[0],
+        data.environment().world_to_light.copy(),
+        data.environment().light_to_world.copy(),
     )

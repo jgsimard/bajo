@@ -7,6 +7,7 @@ from std.testing import (
     assert_false,
 )
 from std.memory import bitcast
+from std.math import pi
 
 from bajo.bvh.camera import Camera
 from bajo.bvh.host_utils import compute_bounds
@@ -27,6 +28,8 @@ from bajo.rt import (
     CpuSchedulerMode,
     Dielectric,
     Emissive,
+    Environment,
+    ImageTexture,
     Integrator,
     Instance,
     Lambertian,
@@ -49,7 +52,13 @@ from bajo.rt import (
 )
 from examples.cornell_box import make_cornell_world
 from bajo.rt.cpu import reflect, reflectance
-from bajo.rt.common import path_stage_rng, russian_roulette
+from bajo.rt.common import (
+    environment_light_pdf,
+    equal_area_square_to_sphere,
+    equal_area_sphere_to_square,
+    path_stage_rng,
+    russian_roulette,
+)
 from bajo.rt.lighting import (
     _draw_alias_column,
     _emissive_hit_light_pdf,
@@ -72,6 +81,66 @@ def _front_point() -> ShadingPoint[1]:
         Vec3f32[.WORLD](0.0, 0.0, 1.0),
         True,
     )
+
+
+def test_equal_area_sphere_to_square_is_width_generic() raises:
+    var directions = Vec3[.float32, .WORLD, 4](
+        SIMD[.float32, 4](1.0, 0.0, 0.0, -1.0),
+        SIMD[.float32, 4](0.0, 1.0, 0.0, -1.0),
+        SIMD[.float32, 4](0.0, 0.0, 1.0, -1.0),
+    )
+    var packet = equal_area_sphere_to_square(directions)
+    for lane in range(4):
+        var scalar = equal_area_sphere_to_square(
+            Vec3f32[.WORLD](
+                directions.x[lane], directions.y[lane], directions.z[lane]
+            )
+        )
+        assert_almost_equal(packet.u[lane], scalar.u[0])
+        assert_almost_equal(packet.v[lane], scalar.v[0])
+
+
+def test_environment_distribution_tracks_texel_importance() raises:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    builder.add_sphere(Point3f32[.WORLD](0.0, 0.0, -1.0), 0.5, matte)
+    var pixels: List[Float32] = [1.0, 0.0, 0.0, 0.0, 0.0, 3.0]
+    var texture_index = builder.surfaces.add_image_texture(
+        ImageTexture(2, 1, pixels^)
+    )
+    builder.set_environment(
+        Environment.image(
+            texture_index,
+            Color(1.0),
+            Affine3f32[.WORLD, .LOCAL].identity(),
+            Affine3f32[.LOCAL, .WORLD].identity(),
+        )
+    )
+    var scene = builder^.finish()
+    assert_equal(len(scene.environment_cdf()), 2)
+    assert_almost_equal(scene.environment_cdf()[0], 1.0 / 3.0)
+    assert_almost_equal(scene.environment_cdf_total(), 4.0 / 3.0)
+    assert_almost_equal(scene.environment_weight(), 8.0 * pi / 3.0)
+    assert_almost_equal(scene.total_light_weight(), scene.environment_weight())
+
+    var red_direction = equal_area_square_to_sphere[.WORLD, 1](0.25, 0.5)
+    var blue_direction = equal_area_square_to_sphere[.WORLD, 1](0.75, 0.5)
+    var red_pdf = environment_light_pdf(
+        scene.environment(),
+        scene.surfaces(),
+        scene.environment_weight(),
+        scene.total_light_weight(),
+        red_direction,
+    )[0]
+    var blue_pdf = environment_light_pdf(
+        scene.environment(),
+        scene.surfaces(),
+        scene.environment_weight(),
+        scene.total_light_weight(),
+        blue_direction,
+    )[0]
+    assert_almost_equal(red_pdf, 1.0 / (8.0 * pi), atol=1.0e-6)
+    assert_almost_equal(blue_pdf, 3.0 / (8.0 * pi), atol=1.0e-6)
 
 
 def test_orient_surface_normal_is_width_generic() raises:

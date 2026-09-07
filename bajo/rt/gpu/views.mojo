@@ -3,6 +3,7 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from max.gpu.host import DeviceBuffer
 
+from bajo.core import Affine3f32
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
 
 
@@ -91,6 +92,17 @@ struct GpuRtSceneView(Copyable, DevicePassable):
     var light_fields: Pointer[Float32, ImmUntrackedOrigin]
     var light_count: Int32
     var total_light_weight: Float32
+    var environment_weight: Float32
+    var environment_cdf_total: Float32
+    var environment_cdf: Pointer[Float32, ImmUntrackedOrigin]
+    var environment_cdf_count: Int32
+    var environment_kind: UInt32
+    var environment_texture_index: UInt32
+    var environment_scale_x: Float32
+    var environment_scale_y: Float32
+    var environment_scale_z: Float32
+    var environment_world_to_light: Affine3f32[.WORLD, .LOCAL]
+    var environment_light_to_world: Affine3f32[.LOCAL, .WORLD]
 
     comptime device_type: AnyType = Self
 

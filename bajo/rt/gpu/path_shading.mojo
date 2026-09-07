@@ -1,11 +1,13 @@
 """Shared GPU RT material, lighting, routing, and shading kernels."""
 
 from max.gpu import block_dim, global_idx, grid_dim
-from std.math import abs, ceildiv, floor, sqrt
+from std.math import abs, ceildiv, floor, pi, sqrt
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.gpu.utils import upload_list
+from bajo.bvh.constants import f32_max
 from bajo.core import (
+    Affine3f32,
     Point3f32,
     Rayf32,
     Vec3f32,
@@ -14,13 +16,19 @@ from bajo.core import (
     normalize,
 )
 from bajo.core.random import random_unit_vector
-from bajo.rt.common import path_stage_rng, russian_roulette
+from bajo.rt.common import (
+    equal_area_square_to_sphere,
+    path_stage_rng,
+    russian_roulette,
+    sky_color,
+)
 from bajo.rt.lighting import (
     _direct_light_scale,
     _draw_alias_column,
     _emissive_hit_light_pdf,
     _emissive_hit_weight_from_pdf,
     _finish_direct_light_geometry,
+    _DirectLightGeometrySample,
     _LightSurfaceSample,
     _resolve_alias_draw,
     _sample_sphere_light_surface,
@@ -35,6 +43,7 @@ from bajo.rt.shading import (
 )
 from bajo.rt.types import (
     Color,
+    EnvironmentKind,
     MaterialKind,
     NO_TEXTURE,
     PrimitiveKind,
@@ -42,6 +51,7 @@ from bajo.rt.types import (
     SceneData,
     SamplingConfig,
     SurfaceId,
+    _light_importance,
 )
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
@@ -409,6 +419,10 @@ struct GpuRtLights:
     var fields: DeviceBuffer[.float32]
     var count: Int
     var total_weight: Float32
+    var environment_weight: Float32
+    var environment_cdf_total: Float32
+    var environment_cdf: DeviceBuffer[.float32]
+    var environment_cdf_count: Int
     var uniform_sampling_kind: PrimitiveKind
 
     def __init__(
@@ -462,9 +476,16 @@ struct GpuRtLights:
         self.kinds = _upload_nonempty(ctx, kinds^)
         self.fields = _upload_nonempty(ctx, fields^)
         self.count = len(world.lights().records)
-        self.total_weight = world.lights().total_weight
+        self.total_weight = world.total_light_weight()
+        self.environment_weight = world.environment_weight()
+        self.environment_cdf_total = world.environment_cdf_total()
+        self.environment_cdf_count = len(world.environment_cdf())
+        self.environment_cdf = _upload_nonempty(
+            ctx, world.environment_cdf().copy()
+        )
         self.uniform_sampling_kind = (
-            uniform_kind if homogeneous else PrimitiveKind.UNKNOWN
+            uniform_kind if homogeneous
+            and self.environment_weight <= 0.0 else PrimitiveKind.UNKNOWN
         )
 
 
@@ -509,6 +530,14 @@ def _sample_direct_light_candidate[
     light_fields: Pointer[Float32, ImmutAnyOrigin],
     light_count: Int,
     total_light_weight: Float32,
+    environment_weight: Float32,
+    environment_cdf_total: Float32,
+    environment_cdf: Pointer[Float32, ImmutAnyOrigin],
+    environment_cdf_count: Int,
+    environment_kind: UInt32,
+    environment_texture_index: UInt32,
+    environment_scale: Color,
+    environment_light_to_world: Affine3f32[.LOCAL, .WORLD],
     sampling: SamplingConfig,
     bounce: UInt32,
 ) -> GpuDirectLightSample:
@@ -518,55 +547,99 @@ def _sample_direct_light_candidate[
         PrimitiveKind.SPHERE,
         PrimitiveKind.TRIANGLE,
     )
-    if light_count <= 0 or total_light_weight <= 0.0:
+    if total_light_weight <= 0.0:
         return _empty_direct_light_sample()
 
     var rng = path_stage_rng(
         sampling, path.path_id, wavefront_rng_light_stage(bounce)
     )
-    var draw = _draw_alias_column(rng.f32(), light_count)
-    var packed_column = light_kinds[unsafe_offset=draw.column]
-    var alias_probability = light_fields[unsafe_offset=draw.column]
-    var selected_idx = _resolve_alias_draw(
-        draw, alias_probability, packed_column >> UInt32(4)
+    var selection_u = rng.f32()
+    var environment_probability = environment_weight / total_light_weight
+    var emission = Color(0.0)
+    var geometry = _DirectLightGeometrySample(
+        False, Vec3f32[.WORLD](0.0), 0.0, 0.0, 0.0
     )
-
-    var base = light_count + selected_idx * GPU_RT_LIGHT_STRIDE
-    var p0 = Point3f32[.WORLD](
-        light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_X],
-        light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Y],
-        light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Z],
-    )
-    var surface_sample: _LightSurfaceSample
-    comptime if light_kind == .SPHERE:
-        var radius = light_fields[unsafe_offset=base + GPU_RT_LIGHT_RADIUS]
-        surface_sample = _sample_sphere_light_surface(
-            p0, radius, random_unit_vector[.WORLD](rng)
+    if selection_u < environment_probability:
+        var selected_pixel = 0
+        var local_direction: Vec3f32[.LOCAL]
+        if environment_cdf_count > 0:
+            var target = rng.f32() * environment_cdf_total
+            var first = 0
+            var end = environment_cdf_count
+            while first < end:
+                var middle = first + (end - first) / 2
+                if target < environment_cdf[unsafe_offset=middle]:
+                    end = middle
+                else:
+                    first = middle + 1
+            selected_pixel = min(first, environment_cdf_count - 1)
+            var desc_base = 3 * Int(environment_texture_index)
+            var width = Int(texture_descs[unsafe_offset=desc_base + 1])
+            var height = Int(texture_descs[unsafe_offset=desc_base + 2])
+            var pixel_x = selected_pixel % width
+            var pixel_y = selected_pixel / width
+            var sample_u = (Float32(pixel_x) + rng.f32()) / Float32(width)
+            var sample_v = (Float32(pixel_y) + rng.f32()) / Float32(height)
+            local_direction = equal_area_square_to_sphere[.LOCAL, 1](
+                sample_u, sample_v
+            )
+        else:
+            local_direction = random_unit_vector[.LOCAL](rng)
+        var direction = normalize(
+            environment_light_to_world.vector(local_direction)
         )
-    elif light_kind == .TRIANGLE:
-        var p1 = Point3f32[.WORLD](
-            light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_X],
-            light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Y],
-            light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Z],
-        )
-        var p2 = Point3f32[.WORLD](
-            light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_X],
-            light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Y],
-            light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Z],
-        )
-        surface_sample = _sample_triangle_light_surface(
-            p0, p1, p2, rng.f32(), rng.f32()
+        if environment_kind == EnvironmentKind.IMAGE.value:
+            var desc_base = 3 * Int(environment_texture_index)
+            var pixel_offset = Int(texture_descs[unsafe_offset=desc_base])
+            var base = pixel_offset + 3 * selected_pixel
+            emission = environment_scale * Color(
+                max(texture_pixels[unsafe_offset=base], 0.0),
+                max(texture_pixels[unsafe_offset=base + 1], 0.0),
+                max(texture_pixels[unsafe_offset=base + 2], 0.0),
+            )
+        elif environment_kind == EnvironmentKind.PROCEDURAL.value:
+            emission = sky_color(direction)
+        else:
+            emission = environment_scale
+        var surface_cosine = max(dot(normal, direction), 0.0)
+        var light_pdf = environment_weight / (4.0 * pi * total_light_weight)
+        if environment_kind == EnvironmentKind.IMAGE.value:
+            light_pdf = _light_importance(emission) / total_light_weight
+        geometry = _DirectLightGeometrySample(
+            surface_cosine > 0.0 and light_pdf > 0.0,
+            direction,
+            surface_cosine,
+            light_pdf,
+            f32_max,
         )
     else:
-        var kind = PrimitiveKind(
-            light_kinds[unsafe_offset=selected_idx] & UInt32(0xF)
+        if light_count <= 0:
+            return _empty_direct_light_sample()
+        var finite_probability = 1.0 - environment_probability
+        var finite_u = (
+            selection_u - environment_probability
+        ) / finite_probability if finite_probability > 0.0 else 0.0
+        var draw = _draw_alias_column(
+            min(finite_u, Float32(0.99999994)), light_count
         )
-        if kind == PrimitiveKind.SPHERE:
+        var packed_column = light_kinds[unsafe_offset=draw.column]
+        var alias_probability = light_fields[unsafe_offset=draw.column]
+        var selected_idx = _resolve_alias_draw(
+            draw, alias_probability, packed_column >> UInt32(4)
+        )
+        var base = light_count + selected_idx * GPU_RT_LIGHT_STRIDE
+        var p0 = Point3f32[.WORLD](
+            light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_X],
+            light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Y],
+            light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Z],
+        )
+        var surface_sample: _LightSurfaceSample
+        comptime if light_kind == .SPHERE:
             var radius = light_fields[unsafe_offset=base + GPU_RT_LIGHT_RADIUS]
             surface_sample = _sample_sphere_light_surface(
                 p0, radius, random_unit_vector[.WORLD](rng)
             )
-        else:
+        elif light_kind == .TRIANGLE:
             var p1 = Point3f32[.WORLD](
                 light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_X],
                 light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Y],
@@ -580,19 +653,43 @@ def _sample_direct_light_candidate[
             surface_sample = _sample_triangle_light_surface(
                 p0, p1, p2, rng.f32(), rng.f32()
             )
-
-    var emission = Color(
-        light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_X],
-        light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_Y],
-        light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_Z],
-    )
-    var geometry = _finish_direct_light_geometry(
-        incoming_ray.at(hit_t),
-        normal,
-        surface_sample,
-        emission,
-        total_light_weight,
-    )
+        else:
+            var kind = PrimitiveKind(
+                light_kinds[unsafe_offset=selected_idx] & UInt32(0xF)
+            )
+            if kind == PrimitiveKind.SPHERE:
+                var radius = light_fields[
+                    unsafe_offset=base + GPU_RT_LIGHT_RADIUS
+                ]
+                surface_sample = _sample_sphere_light_surface(
+                    p0, radius, random_unit_vector[.WORLD](rng)
+                )
+            else:
+                var p1 = Point3f32[.WORLD](
+                    light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_X],
+                    light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Y],
+                    light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Z],
+                )
+                var p2 = Point3f32[.WORLD](
+                    light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_X],
+                    light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Y],
+                    light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Z],
+                )
+                surface_sample = _sample_triangle_light_surface(
+                    p0, p1, p2, rng.f32(), rng.f32()
+                )
+        emission = Color(
+            light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_X],
+            light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_Y],
+            light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_Z],
+        )
+        geometry = _finish_direct_light_geometry(
+            incoming_ray.at(hit_t),
+            normal,
+            surface_sample,
+            emission,
+            total_light_weight,
+        )
     if not geometry.valid:
         return _empty_direct_light_sample()
     var surface_kind = SurfaceId.kind_from_raw(surface_value)

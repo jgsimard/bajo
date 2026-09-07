@@ -14,7 +14,7 @@ from bajo.parser.pbrt import (
     read_pbrt_camera,
 )
 from bajo.core import Point3f32, Rayf32, Vec3f32
-from bajo.rt import CpuScene, render_wavefront
+from bajo.rt import CpuScene, EnvironmentKind, render_wavefront
 
 
 def _append_ply_text(mut bytes: List[UInt8], text: String):
@@ -319,6 +319,7 @@ AttributeEnd
     loader.add_ply_file("scene/parts/meshes/triangle.ply", _triangle_ply())
 
     var scene = read_pbrt("scene/main.pbrt", loader)
+    assert_true(scene.data.environment().kind == EnvironmentKind.BLACK)
     assert_true(len(scene.data.triangle_meshes()) == 2)
     assert_true(len(scene.data.triangle_instances()) == 2)
     assert_true(len(scene.data.triangle_instance_surfaces()) == 2)
@@ -373,6 +374,7 @@ Camera "perspective" "float fov" 40
 Film "rgb" "integer xresolution" 4 "integer yresolution" 4
 Sampler "independent" "integer pixelsamples" 1
 WorldBegin
+LightSource "infinite" "rgb L" [1 1 1]
 Include "geometry.pbrt"
 WorldEnd
 """,
@@ -389,6 +391,8 @@ Shape "sphere" "float radius" 1
 """,
     )
     var scene = read_pbrt("scene/main.pbrt", loader)
+    assert_true(scene.data.environment().kind == EnvironmentKind.UNIFORM)
+    assert_almost_equal(scene.data.environment().scale.x[0], 1.0)
     var settings = scene.settings.copy()
     var camera = scene.camera
     var world = CpuScene[16, 16](scene^.take_data())

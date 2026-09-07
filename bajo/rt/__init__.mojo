@@ -18,6 +18,8 @@ from .types import (
     BsdfSample,
     Dielectric,
     Emissive,
+    Environment,
+    EnvironmentKind,
     HitRecord,
     ImageTexture,
     Lambertian,

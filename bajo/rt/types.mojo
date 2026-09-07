@@ -60,6 +60,72 @@ struct ImageTexture:
             + Float32(0.0722) * color.z[0]
         )
 
+    def sample_environment(self, u: Float32, v: Float32) -> Color:
+        """Nearest lookup in PBRT's top-to-bottom equal-area image domain."""
+        var x = min(max(Int(u * Float32(self.width)), 0), self.width - 1)
+        var y = min(max(Int(v * Float32(self.height)), 0), self.height - 1)
+        var base = 3 * (y * self.width + x)
+        return Color(
+            max(self.pixels[base], 0.0),
+            max(self.pixels[base + 1], 0.0),
+            max(self.pixels[base + 2], 0.0),
+        )
+
+
+@fieldwise_init
+struct EnvironmentKind(Equatable, TrivialRegisterPassable, Writable):
+    var value: UInt32
+    comptime BLACK = Self(0)
+    comptime PROCEDURAL = Self(1)
+    comptime UNIFORM = Self(2)
+    comptime IMAGE = Self(3)
+
+
+struct Environment(Copyable, Writable):
+    """Scene-owned radiance for rays that leave the world."""
+
+    var kind: EnvironmentKind
+    var texture_index: UInt32
+    var scale: Color
+    var world_to_light: Affine3f32[.WORLD, .LOCAL]
+    var light_to_world: Affine3f32[.LOCAL, .WORLD]
+
+    def __init__(out self):
+        self.kind = .PROCEDURAL
+        self.texture_index = NO_TEXTURE
+        self.scale = Color(1.0)
+        self.world_to_light = Affine3f32[.WORLD, .LOCAL].identity()
+        self.light_to_world = Affine3f32[.LOCAL, .WORLD].identity()
+
+    @staticmethod
+    def black() -> Self:
+        var result = Self()
+        result.kind = .BLACK
+        result.scale = Color(0.0)
+        return result^
+
+    @staticmethod
+    def uniform(radiance: Color) -> Self:
+        var result = Self()
+        result.kind = .UNIFORM
+        result.scale = radiance
+        return result^
+
+    @staticmethod
+    def image(
+        texture_index: UInt32,
+        scale: Color,
+        world_to_light: Affine3f32[.WORLD, .LOCAL],
+        light_to_world: Affine3f32[.LOCAL, .WORLD],
+    ) -> Self:
+        var result = Self()
+        result.kind = .IMAGE
+        result.texture_index = texture_index
+        result.scale = scale
+        result.world_to_light = world_to_light.copy()
+        result.light_to_world = light_to_world.copy()
+        return result^
+
 
 @fieldwise_init
 struct MaterialKind(Equatable, TrivialRegisterPassable, Writable):
@@ -911,6 +977,7 @@ struct SceneBuilder(
     var triangle_instances: List[Instance]
     var triangle_instance_surfaces: List[SurfaceId[1]]
     var surfaces: SurfaceStore
+    var environment: Environment
 
     def __init__(out self):
         self.spheres = List[Sphere[.WORLD]]()
@@ -923,6 +990,7 @@ struct SceneBuilder(
         self.triangle_instances = List[Instance]()
         self.triangle_instance_surfaces = List[SurfaceId[1]]()
         self.surfaces = SurfaceStore()
+        self.environment = Environment()
 
     def __init__(
         out self,
@@ -936,6 +1004,7 @@ struct SceneBuilder(
         var triangle_instances: List[Instance],
         var triangle_instance_surfaces: List[SurfaceId[1]],
         var surfaces: SurfaceStore,
+        environment: Environment,
     ):
         self.spheres = spheres^
         self.sphere_surfaces = sphere_surfaces^
@@ -947,6 +1016,10 @@ struct SceneBuilder(
         self.triangle_instances = triangle_instances^
         self.triangle_instance_surfaces = triangle_instance_surfaces^
         self.surfaces = surfaces^
+        self.environment = environment.copy()
+
+    def set_environment(mut self, environment: Environment):
+        self.environment = environment.copy()
 
     def add_lambertian(mut self, albedo: Color) -> SurfaceId[1]:
         return self.surfaces.add_lambertian(albedo)
@@ -1062,6 +1135,7 @@ struct SceneBuilder(
             self.triangle_instances^,
             self.triangle_instance_surfaces^,
             self.surfaces^,
+            self.environment,
         )
 
 
@@ -1079,6 +1153,10 @@ struct SceneData:
     var _triangle_instance_surfaces: List[SurfaceId[1]]
     var _surfaces: SurfaceStore
     var _lights: LightStore
+    var _environment: Environment
+    var _environment_weight: Float32
+    var _environment_cdf_total: Float32
+    var _environment_cdf: List[Float32]
 
     def __init__(
         out self,
@@ -1092,6 +1170,7 @@ struct SceneData:
         var triangle_instances: List[Instance],
         var triangle_instance_surfaces: List[SurfaceId[1]],
         var surfaces: SurfaceStore,
+        environment: Environment,
     ) raises:
         self._spheres = spheres^
         self._sphere_surfaces = sphere_surfaces^
@@ -1104,8 +1183,15 @@ struct SceneData:
         self._triangle_instance_surfaces = triangle_instance_surfaces^
         self._surfaces = surfaces^
         self._lights = LightStore()
+        self._environment = environment.copy()
+        self._environment_weight = 0.0
+        self._environment_cdf_total = 0.0
+        self._environment_cdf = List[Float32]()
         self._validate()
+        self._build_environment_distribution()
         self._build_light_store()
+        if not isfinite(self.total_light_weight()):
+            raise Error("combined light weight must be finite")
         self._lights.build_alias_table()
 
     def spheres(self) -> ref[self._spheres] List[Sphere[.WORLD]]:
@@ -1157,6 +1243,23 @@ struct SceneData:
     def lights(self) -> ref[self._lights] LightStore:
         return self._lights
 
+    def environment(self) -> ref[self._environment] Environment:
+        return self._environment
+
+    def environment_weight(self) -> Float32:
+        return self._environment_weight
+
+    def environment_cdf_total(self) -> Float32:
+        return self._environment_cdf_total
+
+    def environment_cdf(
+        self,
+    ) -> ref[self._environment_cdf] List[Float32]:
+        return self._environment_cdf
+
+    def total_light_weight(self) -> Float32:
+        return self._lights.total_weight + self._environment_weight
+
     def _validate(mut self) raises:
         if (
             len(self._spheres) == 0
@@ -1182,6 +1285,24 @@ struct SceneData:
             raise Error("triangle mesh texcoord sidecar lengths must match")
 
         self._validate_materials()
+
+        if not self._environment.world_to_light.is_finite()[0]:
+            raise Error("environment transform must be finite")
+        if not self._environment.light_to_world.is_finite()[0]:
+            raise Error("inverse environment transform must be finite")
+        if not self._environment.scale.is_finite()[0]:
+            raise Error("environment scale must be finite")
+        if (
+            self._environment.scale.x[0] < 0.0
+            or self._environment.scale.y[0] < 0.0
+            or self._environment.scale.z[0] < 0.0
+        ):
+            raise Error("environment scale must be non-negative")
+        if self._environment.kind == .IMAGE and (
+            self._environment.texture_index
+            >= UInt32(len(self._surfaces.image_textures))
+        ):
+            raise Error("environment texture index is out of range")
 
         for i, sphere in enumerate(self._spheres):
             if not sphere.center.is_finite()[0]:
@@ -1330,6 +1451,46 @@ struct SceneData:
                     raise Error(
                         "image texture channels must be finite and non-negative"
                     )
+
+    def _build_environment_distribution(mut self) raises:
+        if self._environment.kind == .BLACK:
+            return
+
+        if self._environment.kind == .IMAGE:
+            ref texture = self._surfaces.image_textures[
+                Int(self._environment.texture_index)
+            ]
+            var count = texture.width * texture.height
+            self._environment_cdf = List[Float32](length=count, fill=0.0)
+            var total = Float32(0.0)
+            for pixel_idx in range(count):
+                var base = 3 * pixel_idx
+                total += _light_importance(
+                    Color(
+                        texture.pixels[base],
+                        texture.pixels[base + 1],
+                        texture.pixels[base + 2],
+                    )
+                    * self._environment.scale
+                )
+                self._environment_cdf[pixel_idx] = total
+            if not isfinite(total):
+                raise Error("environment importance integral must be finite")
+            self._environment_cdf_total = total
+            if total > 0.0:
+                self._environment_weight = 4.0 * pi * total / Float32(count)
+            return
+
+        var average_radiance = self._environment.scale
+        if self._environment.kind == .PROCEDURAL:
+            # The procedural sky is linear in direction.y, whose sphere-wide
+            # average is zero.
+            average_radiance = Color(0.75, 0.85, 1.0)
+        self._environment_weight = (
+            4.0 * pi * _light_importance(average_radiance)
+        )
+        if not isfinite(self._environment_weight):
+            raise Error("environment light weight must be finite")
 
     def _build_light_store(mut self) raises:
         for idx, surface in enumerate(self._triangle_surfaces):

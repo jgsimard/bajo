@@ -20,7 +20,11 @@ from bajo.rt.types import (
 )
 from .scene import CpuScene
 from .scheduler_mode import CpuSchedulerMode
-from bajo.rt.common import path_stage_rng, russian_roulette, sky_color
+from bajo.rt.common import (
+    environment_radiance,
+    path_stage_rng,
+    russian_roulette,
+)
 from bajo.rt.rays import make_ao_ray, spawn_surface_ray
 
 
@@ -30,6 +34,7 @@ from .common import (
 )
 from .lighting import (
     _emissive_hit_weight,
+    _environment_miss_weight,
     sample_direct_lighting,
 )
 from bajo.rt.wavefront_contract import (
@@ -122,7 +127,23 @@ def _trace_path[
             throughput = roulette.throughput
             cur_ray = spawn_surface_ray(point.p, scattered.direction)
         else:
-            return radiance + throughput * sky_color(cur_ray.d)
+            var environment_weight = _environment_miss_weight[integrator](
+                world,
+                cur_ray.d,
+                _bounce,
+                previous_bsdf_pdf,
+                previous_delta,
+            )
+            return (
+                radiance
+                + throughput
+                * environment_radiance(
+                    world.scene_data().environment(),
+                    world.scene_data().surfaces(),
+                    cur_ray.d,
+                )
+                * environment_weight
+            )
 
     return radiance
 
@@ -155,7 +176,11 @@ def _trace_ao[
 ) -> Color:
     var hit = world.trace_surface(ray)
     if not hit.hit:
-        return sky_color(ray.d)
+        return environment_radiance(
+            world.scene_data().environment(),
+            world.scene_data().surfaces(),
+            ray.d,
+        )
 
     var normal = (
         world.scene_data()

@@ -1,7 +1,7 @@
 """Compile-time-specialized traversal kernel for all GPU RT scene shapes."""
 
 from max.gpu import block_dim, global_idx, grid_dim
-from std.math import ceildiv
+from std.math import ceildiv, pi
 from max.gpu.host import DeviceContext
 
 from bajo.bvh import Hit
@@ -22,10 +22,21 @@ from bajo.core import (
     Vec3f32,
     dot,
 )
-from bajo.rt.common import path_stage_rng, sky_color
+from bajo.rt.common import (
+    equal_area_sphere_to_square,
+    path_stage_rng,
+    sky_color,
+)
 from bajo.rt.geometry import orient_surface_normal
+from bajo.rt.lighting import _emissive_hit_weight_from_pdf
 from bajo.rt.rays import make_ao_ray, spawn_surface_ray
-from bajo.rt.types import Color, Integrator, SamplingConfig
+from bajo.rt.types import (
+    Color,
+    EnvironmentKind,
+    Integrator,
+    SamplingConfig,
+    _light_importance,
+)
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
@@ -55,6 +66,41 @@ from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
 
 
 comptime GPU_RT_SHADOW_BLOCK_SIZE = 128
+
+
+@always_inline
+def _gpu_environment_radiance(
+    scene: GpuRtSceneView,
+    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+    direction: Vec3f32[.WORLD],
+) -> Color:
+    if scene.environment_kind == EnvironmentKind.BLACK.value:
+        return Color(0.0)
+    if scene.environment_kind == EnvironmentKind.PROCEDURAL.value:
+        return sky_color(direction)
+    var scale = Color(
+        scene.environment_scale_x,
+        scene.environment_scale_y,
+        scene.environment_scale_z,
+    )
+    if scene.environment_kind == EnvironmentKind.UNIFORM.value:
+        return scale
+
+    var light_direction = scene.environment_world_to_light.vector(direction)
+    var uv = equal_area_sphere_to_square(light_direction)
+    var desc_base = 3 * Int(scene.environment_texture_index)
+    var pixel_offset = Int(texture_descs[unsafe_offset=desc_base])
+    var width = Int(texture_descs[unsafe_offset=desc_base + 1])
+    var height = Int(texture_descs[unsafe_offset=desc_base + 2])
+    var x = min(max(Int(uv.u * Float32(width)), 0), width - 1)
+    var y = min(max(Int(uv.v * Float32(height)), 0), height - 1)
+    var base = pixel_offset + 3 * (y * width + x)
+    return scale * Color(
+        max(texture_pixels[unsafe_offset=base], 0.0),
+        max(texture_pixels[unsafe_offset=base + 1], 0.0),
+        max(texture_pixels[unsafe_offset=base + 2], 0.0),
+    )
 
 
 @always_inline
@@ -333,12 +379,38 @@ def _gpu_rt_scene_trace_path[
 
     if not found:
         comptime if Integrator.is_path_tracing[integrator]:
+            var environment_emission = _gpu_environment_radiance(
+                scene, texture_descs, texture_pixels, ray.d
+            )
+            var environment_light_pdf = Float32(0.0)
+            comptime if integrator == .MIS:
+                if bounce > 0 and not path.delta:
+                    if scene.environment_kind == EnvironmentKind.IMAGE.value:
+                        environment_light_pdf = (
+                            _light_importance(environment_emission)
+                            / scene.total_light_weight if scene.total_light_weight
+                            > 0.0 else 0.0
+                        )
+                    elif scene.total_light_weight > 0.0:
+                        environment_light_pdf = scene.environment_weight / (
+                            4.0 * pi * scene.total_light_weight
+                        )
+            var environment_mis_weight = _emissive_hit_weight_from_pdf[
+                integrator
+            ](
+                bounce,
+                path.delta,
+                path.bsdf_pdf,
+                environment_light_pdf,
+            )
             _accumulate_sample(
                 sample_radiance,
                 capacity,
                 sample_base,
                 path.path_id,
-                Color(path.tx, path.ty, path.tz) * sky_color(ray.d),
+                Color(path.tx, path.ty, path.tz)
+                * environment_emission
+                * environment_mis_weight,
             )
         return
 
@@ -399,6 +471,18 @@ def _gpu_rt_scene_trace_path[
             light_fields,
             Int(light_count_i32),
             total_light_weight,
+            scene.environment_weight,
+            scene.environment_cdf_total,
+            scene.environment_cdf.unsafe_origin_cast[ImmutAnyOrigin](),
+            Int(scene.environment_cdf_count),
+            scene.environment_kind,
+            scene.environment_texture_index,
+            Color(
+                scene.environment_scale_x,
+                scene.environment_scale_y,
+                scene.environment_scale_z,
+            ),
+            scene.environment_light_to_world,
             sampling,
             bounce,
         )

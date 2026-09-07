@@ -35,6 +35,7 @@ from bajo.rt.gpu.render import (
 from bajo.rt.gpu.path_shading import GpuRtLights
 from bajo.rt.types import (
     Color,
+    Environment,
     ImageTexture,
     PrimitiveKind,
     Integrator,
@@ -71,6 +72,47 @@ def _sphere_world() raises -> CpuScene[4, 8]:
     return CpuScene[4, 8](_sphere_scene_data())
 
 
+def _image_environment_world() raises -> CpuScene[4, 8]:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.65, 0.55, 0.45))
+    builder.add_sphere(
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
+        0.5,
+        matte,
+    )
+    builder.add_sphere(
+        Point3f32[.WORLD](0.0, -100.5, -1.0),
+        100.0,
+        matte,
+    )
+    var pixels: List[Float32] = [
+        4.0,
+        0.2,
+        0.1,
+        0.1,
+        2.0,
+        0.2,
+        0.2,
+        0.3,
+        3.0,
+        1.0,
+        1.0,
+        1.0,
+    ]
+    var texture_index = builder.surfaces.add_image_texture(
+        ImageTexture(2, 2, pixels^)
+    )
+    builder.set_environment(
+        Environment.image(
+            texture_index,
+            Color(0.75),
+            Affine3f32[.WORLD, .LOCAL].identity(),
+            Affine3f32[.LOCAL, .WORLD].identity(),
+        )
+    )
+    return CpuScene[4, 8](builder^.finish())
+
+
 def _material_sphere_world() raises -> CpuScene[4, 8]:
     var builder = SceneBuilder()
     var ground = builder.add_lambertian(Color(0.45, 0.45, 0.45))
@@ -103,6 +145,7 @@ def _material_sphere_world() raises -> CpuScene[4, 8]:
 
 def _coated_sphere_world() raises -> CpuScene[4, 8]:
     var builder = SceneBuilder()
+    builder.set_environment(Environment.black())
     var albedo_pixels: List[Float32] = [
         0.9,
         0.2,
@@ -910,6 +953,29 @@ def test_gpu_sphere_nee_matches_cpu_wavefront() raises:
         assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-4)
 
 
+def test_gpu_image_environment_nee_and_mis_match_cpu() raises:
+    var settings = RenderSettings(4, 3, 4, UInt64(620))
+    var world = _image_environment_world()
+    var camera = _camera()
+    var cpu_nee = render_wavefront[.NEE, 1, 64, False](settings, camera, world)
+    var gpu_nee = render_gpu[.NEE, 4, 4](settings, camera, world.scene_data())
+    var cpu_mis = render_wavefront[.MIS, 1, 64, False](settings, camera, world)
+    var gpu_mis = render_gpu[.MIS, 4, 4](settings, camera, world.scene_data())
+    for i, cpu_pixel in enumerate(cpu_nee.pixels):
+        assert_almost_equal(gpu_nee.pixels[i].x, cpu_pixel.x, atol=1.0e-4)
+        assert_almost_equal(gpu_nee.pixels[i].y, cpu_pixel.y, atol=1.0e-4)
+        assert_almost_equal(gpu_nee.pixels[i].z, cpu_pixel.z, atol=1.0e-4)
+        assert_almost_equal(
+            gpu_mis.pixels[i].x, cpu_mis.pixels[i].x, atol=1.0e-4
+        )
+        assert_almost_equal(
+            gpu_mis.pixels[i].y, cpu_mis.pixels[i].y, atol=1.0e-4
+        )
+        assert_almost_equal(
+            gpu_mis.pixels[i].z, cpu_mis.pixels[i].z, atol=1.0e-4
+        )
+
+
 def test_gpu_light_sampling_kind_metadata() raises:
     var sphere_world = _material_sphere_world()
     var triangle_world = make_cornell_world()
@@ -920,12 +986,14 @@ def test_gpu_light_sampling_kind_metadata() raises:
         var triangle_lights = GpuRtLights(ctx, triangle_world.scene_data())
         var instance_lights = GpuRtLights(ctx, instance_world.scene_data())
         var mixed_lights = GpuRtLights(ctx, mixed_world.scene_data())
-        assert_equal(sphere_lights.uniform_sampling_kind, PrimitiveKind.SPHERE)
+        # The procedural environment participates in light selection, so the
+        # direct-light kernel must dynamically dispatch the mixed strategy.
+        assert_equal(sphere_lights.uniform_sampling_kind, PrimitiveKind.UNKNOWN)
         assert_equal(
-            triangle_lights.uniform_sampling_kind, PrimitiveKind.TRIANGLE
+            triangle_lights.uniform_sampling_kind, PrimitiveKind.UNKNOWN
         )
         assert_equal(
-            instance_lights.uniform_sampling_kind, PrimitiveKind.TRIANGLE
+            instance_lights.uniform_sampling_kind, PrimitiveKind.UNKNOWN
         )
         assert_equal(mixed_lights.uniform_sampling_kind, PrimitiveKind.UNKNOWN)
 

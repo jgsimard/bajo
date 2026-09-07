@@ -26,7 +26,8 @@ test = { cmd = "bash scripts/run_tests.sh test/{{suite}}", args = [
 
 test_host = { depends-on = [
   { task = "test", args = ["core"] },
-  { task = "test", args = ["obj"] },
+  { task = "test", args = ["parser/obj"] },
+  { task = "test", args = ["parser/ply"] },
   { task = "test", args = ["rt"] },
   { task = "test", args = ["bvh/cpu"] },
 ] }
@@ -49,6 +50,7 @@ plot_sort = { cmd = "bash -lc 'cd bench/sort && python plot_gpu_sort.py gpu_sort
 bench_quat = "mojo -I. bench/core/bench_quat.mojo"
 bench_aabb = "mojo -I. bench/core/bench_aabb.mojo"
 bench_obj = { cmd = "mojo -I. bench/obj/bench_obj.mojo", depends-on = ["download_assets"] }
+bench_ply = { cmd = "mojo -I. bench/ply/bench_ply.mojo", depends-on = ["download_assets"] }
 
 
 # bvh cpu
@@ -127,8 +129,9 @@ bench_bvh = { depends-on = [
 ] }
 
 [dependencies]
-mojo = ">=1.1.0.dev2026090205,<2"
-max = ">=26.6.0.dev2026090205,<27"
+libpng = ">=1.6.50,<1.7"
+mojo = ">=1.1.0.dev2026090305,<2"
+max = ">=26.6.0.dev2026090305,<27"
 python = ">=3.12.14,<3.13"
 polars = ">=1.44.1,<2"
 matplotlib = ">=3.11.1,<4"

@@ -6,18 +6,13 @@ from std.builtin.sort import (
     _heap_sort,
     _quicksort_partition_right,
 )
-from std.bit import count_leading_zeros
-from std.sys.info import bit_width_of
+from std.bit import log2_floor
 
 # https://github.com/modular/modular/blob/main/mojo/stdlib/std/builtin/sort.mojo
 
 
 def _estimate_max_iters(size: Int) -> Int:
-    # Maximum iterations before switching to Heapsort (2 * log2(n))
-    var log2: Int = (bit_width_of[DType.int]() - 1) ^ count_leading_zeros(
-        size | 1
-    )
-    return log2 * 2
+    return 2 * log2_floor(size)
 
 
 def nth_element[

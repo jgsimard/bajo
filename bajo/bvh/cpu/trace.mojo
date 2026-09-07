@@ -1,4 +1,4 @@
-from std.bit import count_leading_zeros, count_trailing_zeros
+from std.bit import count_trailing_zeros, log2_floor
 from std.memory import bitcast, pack_bits
 from std.sys.intrinsics import llvm_intrinsic
 from std.sys import size_of
@@ -65,7 +65,7 @@ def _visit_set_lanes_until[
     while remaining != 0:
         var lane: Int
         comptime if reverse:
-            lane = 31 - Int(count_leading_zeros(remaining))
+            lane = Int(log2_floor(remaining))
             remaining &= ~(UInt32(1) << UInt32(lane))
         else:
             lane = Int(count_trailing_zeros(remaining))
@@ -316,7 +316,7 @@ def _trace_bounds_bvh_impl[
                             if bits == 0 and stack_ptr == 0:
                                 break
 
-                        if bits != 0 and (bits & (bits - 1)) == 0:
+                        if bits.is_power_of_two():
                             var lane = Int(count_trailing_zeros(bits))
                             var child_t = _extract_f32_lane(aabb_hit.t, lane)
                             if child_t <= hit.t:

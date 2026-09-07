@@ -1,6 +1,6 @@
 from std.math import ceildiv, max
 from std.memory import bitcast
-from std.bit import count_leading_zeros, pop_count
+from std.bit import log2_floor, pop_count
 from std.time import perf_counter_ns
 from max.gpu import global_idx
 from max.gpu.host import DeviceBuffer, DeviceContext
@@ -1097,7 +1097,7 @@ def _trace_cwbvh8_triangles_impl[
     while True:
         if node_group_mask > UInt32(0x00FFFFFF):
             var group_imask = node_group_mask
-            var child_bit = 31 - Int(count_leading_zeros(node_group_mask))
+            var child_bit = Int(log2_floor(node_group_mask))
             node_group_mask &= ~(UInt32(1) << UInt32(child_bit))
             if node_group_mask > UInt32(0x00FFFFFF):
                 debug_assert["safe", _use_compiler_assume=True](
@@ -1149,9 +1149,7 @@ def _trace_cwbvh8_triangles_impl[
             node_group_mask = UInt32(0)
 
         while triangle_group_mask != 0:
-            var triangle_bit = 31 - Int(
-                count_leading_zeros(triangle_group_mask)
-            )
+            var triangle_bit = Int(log2_floor(triangle_group_mask))
             triangle_group_mask &= ~(UInt32(1) << UInt32(triangle_bit))
             var triangle_hit: Bool
             comptime if indexed_triangles:

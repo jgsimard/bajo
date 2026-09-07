@@ -11,10 +11,6 @@ def print_size_of[type: AnyType]():
     print(t"{name}: {size_bytes} bytes, {size_32} x 32 bits")
 
 
-def is_power_of_2(n: Int) -> Bool:
-    return n > 0 and (n & (n - 1)) == 0
-
-
 def degrees_to_radians[
     dtype: DType, size: SIMDLength
 ](degrees: SIMD[dtype, size]) -> SIMD[dtype, size]:

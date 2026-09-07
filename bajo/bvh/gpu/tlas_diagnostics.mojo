@@ -1,6 +1,6 @@
 """Diagnostic-only counters for nested GPU TLAS to CWBVH8 traversal."""
 
-from std.bit import count_leading_zeros, pop_count
+from std.bit import log2_floor, pop_count
 from std.math import ceildiv, min
 from max.gpu import global_idx
 from max.gpu.host import DeviceBuffer, DeviceContext
@@ -146,7 +146,7 @@ def _trace_cwbvh8_with_stats_in_frame[
     while True:
         if node_group_mask > UInt32(0x00FFFFFF):
             var group_imask = node_group_mask
-            var child_bit = 31 - Int(count_leading_zeros(node_group_mask))
+            var child_bit = Int(log2_floor(node_group_mask))
             node_group_mask &= ~(UInt32(1) << UInt32(child_bit))
             if node_group_mask > UInt32(0x00FFFFFF):
                 stack_base[stack_ptr] = node_group_base
@@ -182,9 +182,7 @@ def _trace_cwbvh8_with_stats_in_frame[
         if triangle_group_mask != 0:
             stats.leaf_blocks += 1
         while triangle_group_mask != 0:
-            var triangle_bit = 31 - Int(
-                count_leading_zeros(triangle_group_mask)
-            )
+            var triangle_bit = Int(log2_floor(triangle_group_mask))
             triangle_group_mask &= ~(UInt32(1) << UInt32(triangle_bit))
             stats.primitive_tests += 1
             _ = _intersect_cwbvh_triangle[frame, .CLOSEST_HIT](

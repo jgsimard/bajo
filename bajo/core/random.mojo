@@ -1,3 +1,4 @@
+from std.bit import bit_reverse
 from std.math import cos, floor, pi, sin, sqrt, cbrt
 from std.random import Random
 
@@ -28,24 +29,6 @@ struct Sampler(Equatable, TrivialRegisterPassable, Writable):
 
 
 @always_inline
-def _reverse_bits32(value: UInt32) -> UInt32:
-    var bits = value
-    bits = ((bits & UInt32(0x55555555)) << UInt32(1)) | (
-        (bits >> UInt32(1)) & UInt32(0x55555555)
-    )
-    bits = ((bits & UInt32(0x33333333)) << UInt32(2)) | (
-        (bits >> UInt32(2)) & UInt32(0x33333333)
-    )
-    bits = ((bits & UInt32(0x0F0F0F0F)) << UInt32(4)) | (
-        (bits >> UInt32(4)) & UInt32(0x0F0F0F0F)
-    )
-    bits = ((bits & UInt32(0x00FF00FF)) << UInt32(8)) | (
-        (bits >> UInt32(8)) & UInt32(0x00FF00FF)
-    )
-    return (bits << UInt32(16)) | (bits >> UInt32(16))
-
-
-@always_inline
 def _mix32(value: UInt32) -> UInt32:
     var bits = value
     bits ^= bits >> UInt32(16)
@@ -59,13 +42,13 @@ def _mix32(value: UInt32) -> UInt32:
 @always_inline
 def _owen_scramble(value: UInt32, seed: UInt32) -> UInt32:
     """Burley's fixed-cost hash-based Owen tree permutation."""
-    var bits = _reverse_bits32(value)
+    var bits = bit_reverse(value)
     bits ^= bits * UInt32(0x3D20ADEA)
     bits += seed
     bits *= (seed >> UInt32(16)) | UInt32(1)
     bits ^= bits * UInt32(0x05526C56)
     bits ^= bits * UInt32(0x53A22864)
-    return _reverse_bits32(bits)
+    return bit_reverse(bits)
 
 
 @always_inline
@@ -80,11 +63,11 @@ def _sobol_bits(index: UInt32, dimension: Int) -> UInt32:
     var dim = dimension % 4
     var result = UInt32(0)
     if dim == 0:
-        return _reverse_bits32(index)
+        return bit_reverse(index)
 
     if dim == 1:
         var direction = UInt32(0x80000000)
-        for bit in range(32):
+        comptime for bit in range(32):
             if (index & (UInt32(1) << UInt32(bit))) != 0:
                 result ^= direction
             direction ^= direction >> UInt32(1)
@@ -94,7 +77,7 @@ def _sobol_bits(index: UInt32, dimension: Int) -> UInt32:
         # Primitive polynomial x^2 + x + 1, initial values (1, 3).
         var previous_2 = UInt32(0x80000000)
         var previous_1 = UInt32(0xC0000000)
-        for bit in range(32):
+        comptime for bit in range(32):
             var direction = previous_2
             if bit == 1:
                 direction = previous_1
@@ -110,7 +93,7 @@ def _sobol_bits(index: UInt32, dimension: Int) -> UInt32:
     var previous_3 = UInt32(0x80000000)
     var previous_2 = UInt32(0xC0000000)
     var previous_1 = UInt32(0x20000000)
-    for bit in range(32):
+    comptime for bit in range(32):
         var direction = previous_3
         if bit == 1:
             direction = previous_2

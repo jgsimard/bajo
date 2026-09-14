@@ -65,7 +65,7 @@ from bajo.core import (
 
 comptime CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES = 4096
 comptime EXACT_MULTI_BLAS_MIN_PRIMITIVES = 4096
-comptime _U32_MAX_AS_INT = Int(UInt32(0xFFFFFFFF))
+comptime _U32_MAX_AS_INT = 0xFFFFFFFF
 
 
 trait AdaptiveStreamHitSink:

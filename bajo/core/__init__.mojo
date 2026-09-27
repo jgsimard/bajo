@@ -13,7 +13,6 @@ from .vec import (
     vmin,
     vmax,
     cross,
-    assert_vec_equal,
     dot,
     longest_axis,
 )

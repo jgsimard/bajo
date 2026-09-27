@@ -1,5 +1,4 @@
 from std.math import abs, cos, sin
-from std.testing import assert_almost_equal
 
 from bajo.core.vec import Vec3
 from bajo.core.frame import Frame
@@ -245,28 +244,6 @@ def _matvec[
         m[1][0] * v.x + m[1][1] * v.y + m[1][2] * v.z,
         m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z,
     )
-
-
-def assert_mat_equal[
-    dtype: DType,
-    rows: Int,
-    cols: Int,
-    frame: Frame,
-    width: SIMDLength,
-](
-    a: Mat[dtype, rows, cols, frame, width],
-    b: Mat[dtype, rows, cols, frame, width],
-    atol: Float64 = 1e-5,
-) raises:
-    comptime for i in range(rows):
-        comptime for j in range(cols):
-            comptime for lane in range(width):
-                assert_almost_equal(
-                    a[i][j][lane],
-                    b[i][j][lane],
-                    msg=String(t"[{i}][{j}][{lane}]"),
-                    atol=atol,
-                )
 
 
 ##############

@@ -1,3 +1,5 @@
+from test.helpers import assert_vec_equal
+
 from std.testing import (
     TestSuite,
     assert_almost_equal,
@@ -12,7 +14,6 @@ from bajo.core import (
     cross,
     length,
     normalize,
-    assert_vec_equal,
 )
 
 

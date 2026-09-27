@@ -47,11 +47,33 @@ from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_NODE_WORDS,
     CWBVH_TRIANGLE_WORDS,
     Cwbvh8NodeTasks,
+    GpuCwbvh8RepresentationWorkspace,
     enqueue_segmented_cwbvh8_representation,
+    pack_segmented_cwbvh_triangles_kernel,
     _intersect_cwbvh8_node_tasks,
     _intersect_cwbvh8_node_tasks_legacy,
 )
-from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
+from bajo.bvh.gpu.builder.binary_layout import (
+    GpuBinaryBoundsBvh,
+    GpuBinaryBuildWorkspace,
+    _segment_for_item,
+)
+from bajo.bvh.gpu.builder.hploc_layout import (
+    HPLOC_MERGING_THRESHOLD,
+    HPLOC_SEARCH_RADIUS,
+    HPLOC_STATUS_OK,
+)
+from bajo.bvh.gpu.builder.hploc_multi_wave import GpuHplocBuildState
+from bajo.bvh.gpu.builder.lbvh import (
+    enqueue_segmented_morton_codes,
+    enqueue_segmented_morton_sort,
+)
+from bajo.bvh.gpu.builder.wide_collapse import (
+    CWBVH_COLLAPSE_BLOCK_SIZE,
+    GpuWideCollapseWorkspace,
+    HPLOC_WIDE_STATUS_OK,
+    enqueue_collapse_binary_to_cwbvh8,
+)
 from bajo.bvh.gpu.builder.segmented_build import (
     GpuSegmentedWideBuildTicket,
     enqueue_segmented_wide_build,
@@ -366,39 +388,20 @@ def _build_segmented_triangle_blas_set[
     return adapter^.into_blas_set[layout](ctx)
 
 
-def _build_segmented_compressed_triangle_blas_set[
-    frame: Frame,
+def _finish_compressed_triangle_blas_set_via_wide[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
     build_method: GpuBvhBuildMethod,
     layout: GpuBvhLayout,
 ](
     mut ctx: DeviceContext,
-    vertex_sets: ImmSpan[List[Point3f32[frame]], _],
+    segments: SegmentOffsets,
+    var source_vertices: DeviceBuffer[.float32],
+    var leaf_bounds: DeviceBuffer[.float32],
+    var payloads: DeviceBuffer[.uint32],
 ) raises -> GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width]:
-    """Build and encode every CWBVH8 BLAS as one segmented workload."""
-    comptime assert node_width == 8 and leaf_width == 4
-
-    var inputs = _flatten_triangle_sets(vertex_sets)
-    if inputs.segments.item_count() == 0:
-        return GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width].empty(
-            ctx, len(vertex_sets)
-        )
-    ref segments = inputs.segments
-    var source_vertices = upload_list(ctx, inputs.packed_vertices)
+    """Build CWBVH8 through ordinary wide storage for segmented workloads."""
     var triangle_count = segments.item_count()
-    var leaf_bounds = ctx.enqueue_create_buffer[.float32](
-        triangle_count * AABB[frame].STRIDE
-    )
-    var payloads = ctx.enqueue_create_buffer[.uint32](triangle_count)
-    ctx.enqueue_function[compute_triangle_bounds_kernel[frame]](
-        _device_span[mut=False](source_vertices),
-        _device_span[mut=True](leaf_bounds),
-        _device_span[mut=True](payloads),
-        grid_dim=ceildiv(triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-    )
-
     var build = enqueue_segmented_wide_build[
         node_width, leaf_width, 3, build_method, True, True
     ](ctx, segments, leaf_bounds^, payloads^)
@@ -467,6 +470,187 @@ def _build_segmented_compressed_triangle_blas_set[
         triangles^,
         segments.segment_count(),
     )
+
+
+def _build_segmented_compressed_triangle_blas_set[
+    frame: Frame,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+    build_method: GpuBvhBuildMethod,
+    layout: GpuBvhLayout,
+](
+    mut ctx: DeviceContext,
+    vertex_sets: ImmSpan[List[Point3f32[frame]], _],
+) raises -> GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width]:
+    """Build and encode every CWBVH8 BLAS as one segmented workload."""
+    comptime assert node_width == 8 and leaf_width == 4
+
+    var inputs = _flatten_triangle_sets(vertex_sets)
+    if inputs.segments.item_count() == 0:
+        return GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width].empty(
+            ctx, len(vertex_sets)
+        )
+    ref segments = inputs.segments
+    var source_vertices = upload_list(ctx, inputs.packed_vertices)
+    var triangle_count = segments.item_count()
+    var leaf_bounds = ctx.enqueue_create_buffer[.float32](
+        triangle_count * AABB[frame].STRIDE
+    )
+    var payloads = ctx.enqueue_create_buffer[.uint32](triangle_count)
+    ctx.enqueue_function[compute_triangle_bounds_kernel[frame]](
+        _device_span[mut=False](source_vertices),
+        _device_span[mut=True](leaf_bounds),
+        _device_span[mut=True](payloads),
+        grid_dim=ceildiv(triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+    )
+
+    # H-PLOC exposes its compact binary topology, so collapse can quantize and
+    # emit CWBVH8 nodes directly.  This avoids materializing the ordinary wide
+    # nodes and leaf-index blocks only to read them back in a second kernel.
+    comptime if build_method == .HPLOC:
+        # The segmented collapse has better occupancy for batches of BLASes;
+        # reserve the direct, single-segment kernel for the standalone case.
+        if segments.segment_count() != 1:
+            return _finish_compressed_triangle_blas_set_via_wide[
+                node_width, leaf_width, build_method, layout
+            ](ctx, segments, source_vertices^, leaf_bounds^, payloads^)
+        var workspace = GpuBinaryBuildWorkspace(ctx, segments)
+        workspace.ensure_topology(ctx)
+        var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds^, payloads^, workspace)
+        enqueue_segmented_morton_codes(ctx, binary, workspace)
+        enqueue_segmented_morton_sort(ctx, binary, workspace)
+        ref topology = workspace.topology.value()
+        var hploc = GpuHplocBuildState[
+            HPLOC_SEARCH_RADIUS,
+            HPLOC_MERGING_THRESHOLD,
+            True,
+            True,
+            True,
+        ](
+            ctx,
+            binary.leaf_bounds.copy(),
+            topology.morton_keys.copy(),
+            binary.leaf_ids.copy(),
+            binary.segments.copy(),
+            binary.segment_offsets.copy(),
+            binary.internal_segments.copy(),
+            binary.internal_segment_offsets.copy(),
+            binary.node_meta.copy(),
+            topology.leaf_parent.copy(),
+            binary.node_bounds.copy(),
+            topology.node_flags.copy(),
+            binary.node_leaf_counts.copy(),
+        )
+        binary.roots = hploc.root.copy()
+
+        var node_segments = SegmentOffsets.single(max(triangle_count - 1, 1))
+        var leaf_block_segments = SegmentOffsets.single(triangle_count)
+        var node_segment_offsets = upload_list(ctx, node_segments.offsets)
+        var leaf_block_segment_offsets = upload_list(
+            ctx, leaf_block_segments.offsets
+        )
+        var node_counts = ctx.enqueue_create_buffer[.uint32](1)
+        var leaf_block_counts = ctx.enqueue_create_buffer[.uint32](1)
+        var collapse_workspace = GpuWideCollapseWorkspace(
+            ctx, segments, CWBVH_COLLAPSE_BLOCK_SIZE
+        )
+        var nodes = ctx.enqueue_create_buffer[.float32](
+            node_segments.item_count() * CWBVH_NODE_WORDS
+        )
+        var triangles = ctx.enqueue_create_buffer[.float32](
+            triangle_count * CWBVH_TRIANGLE_WORDS
+        )
+        var representation_workspace = GpuCwbvh8RepresentationWorkspace(
+            ctx, triangle_count, segments.segment_count()
+        )
+        var collapse = enqueue_collapse_binary_to_cwbvh8[3, True, True, True](
+            ctx,
+            binary,
+            node_segments,
+            node_segment_offsets,
+            leaf_block_segments,
+            leaf_block_segment_offsets,
+            leaf_block_counts,
+            node_counts,
+            nodes,
+            representation_workspace.compact_primitive_ids,
+            representation_workspace.triangle_counters,
+            hploc.compact_children,
+            hploc.scratch_bounds,
+            collapse_workspace,
+        )
+        ctx.enqueue_function[pack_segmented_cwbvh_triangles_kernel[True]](
+            source_vertices,
+            representation_workspace.compact_primitive_ids,
+            _device_span[mut=False](binary.segment_offsets),
+            triangles,
+            Int32(triangle_count),
+            grid_dim=ceildiv(triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+        var triangle_counters = (
+            representation_workspace.triangle_counters.copy()
+        )
+
+        ctx.synchronize()
+        var hploc_status = hploc.result_status()
+        if hploc_status != UInt32(HPLOC_STATUS_OK):
+            raise String(t"H-PLOC build status: {hploc_status}")
+        with collapse.status.map_to_host() as collapse_status, collapse.wide_node_counter.map_to_host() as encoded_nodes, collapse.leaf_block_counter.map_to_host() as encoded_leaves:
+            if collapse_status[0] != HPLOC_WIDE_STATUS_OK:
+                raise String(t"BVH2-to-CWBVH8 status: {collapse_status[0]}")
+            if encoded_nodes[0] == 0 or encoded_nodes[0] > node_segments.count(
+                0
+            ):
+                raise "CWBVH8 conversion emitted an invalid node count"
+            if encoded_leaves[0] == 0 or encoded_leaves[0] > UInt32(
+                triangle_count
+            ):
+                raise "CWBVH8 conversion emitted an invalid leaf count"
+        with triangle_counters.map_to_host() as encoded_counts:
+            for segment_idx in range(segments.segment_count()):
+                if encoded_counts[segment_idx] != segments.count(segment_idx):
+                    raise "segmented CWBVH8 encoding lost triangle records"
+
+        var compact_layout = GpuCompactWideLayout(
+            ctx,
+            node_counts,
+            leaf_block_counts,
+            segments.segment_count(),
+        )
+        var compact_nodes = enqueue_compact_segmented_buffer[
+            .float32, CWBVH_NODE_WORDS
+        ](
+            ctx,
+            nodes,
+            node_segment_offsets,
+            compact_layout.node_segment_offsets,
+            compact_layout.node_segments.item_count(),
+            segments.segment_count(),
+        )
+        var descs = enqueue_segmented_blas_descriptors[
+            CWBVH_NODE_WORDS, CWBVH_TRIANGLE_WORDS
+        ](
+            ctx,
+            compact_layout.node_segment_offsets,
+            binary.segment_offsets,
+            binary.segment_offsets,
+            node_counts,
+            triangle_counters,
+            segments.segment_count(),
+        )
+        ctx.synchronize()
+        return GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width](
+            descs^,
+            compact_nodes^,
+            triangles^,
+            segments.segment_count(),
+        )
+
+    return _finish_compressed_triangle_blas_set_via_wide[
+        node_width, leaf_width, build_method, layout
+    ](ctx, segments, source_vertices^, leaf_bounds^, payloads^)
 
 
 def build_gpu_triangle_blas_set[
@@ -765,7 +949,7 @@ def _trace_triangle_bvh_camera_ray[
             leaf_width > node_width or leaf_width == 8,
         ],
         node_width == 4,
-        node_width == 2 and leaf_width == 2,
+        node_width == 2,
         node_width == 4 and leaf_width == 2,
     ](wide_nodes, leaf_vertices, root_idx, ray)
 
@@ -800,7 +984,7 @@ def trace_triangle_bvh_rays_kernel[
             leaf_width > node_width or leaf_width == 8,
         ],
         node_width == 4,
-        mode == .CLOSEST_HIT and node_width == 2 and leaf_width == 2,
+        mode == .CLOSEST_HIT and node_width == 2,
         mode == .CLOSEST_HIT and node_width == 4 and leaf_width == 2,
     ](wide_nodes, leaf_vertices, root_idx, ray)
     _store_packed_hit[frame](hit, hits, ray_count_int, ray_idx)

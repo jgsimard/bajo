@@ -690,7 +690,7 @@ struct GpuHplocBuildState[
     merging_threshold: Int = HPLOC_MERGING_THRESHOLD,
     compact_output: Bool = False,
     single_segment: Bool = False,
-    pair_once_search: Bool = False,
+    pair_once_search: Bool = True,
 ]:
     """Scratch and completion state for a direct production-layout build."""
 

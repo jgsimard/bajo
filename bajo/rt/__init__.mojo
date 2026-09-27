@@ -12,8 +12,10 @@ from .cpu import (
 )
 from .gpu import render_gpu, render_gpu_viewer
 from .scene_description import SceneDescription
-from .types import (
+from .render_types import (
     Color,
+)
+from .types import (
     BsdfEvaluation,
     BsdfSample,
     Dielectric,

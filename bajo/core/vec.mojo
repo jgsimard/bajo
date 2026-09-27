@@ -1,6 +1,5 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import abs, fma, sqrt
-from std.testing import assert_almost_equal
 from std.utils.numerics import max_finite
 
 from bajo.core.utils import fmin, fmax
@@ -123,9 +122,9 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
 
     def __init__(
         out self,
-        x: Scalar[Self.dtype],
-        y: Scalar[Self.dtype],
-        z: Scalar[Self.dtype],
+        x: SIMD[Self.dtype, Self.width],
+        y: SIMD[Self.dtype, Self.width],
+        z: SIMD[Self.dtype, Self.width],
         __list_literal__: NoneType,
     ):
         self.x = x
@@ -548,33 +547,6 @@ def normalize[
     var mask = l.gt(threshold)
     var inv_l = mask.select(1.0 / l, 0.0)
     return v * inv_l
-
-
-def assert_vec_equal[
-    dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength
-](
-    a: Geo3[dtype, kind, frame, width],
-    b: Geo3[dtype, kind, frame, width],
-    atol: Float64 = 1e-5,
-) raises:
-    assert_almost_equal(
-        a.x,
-        b.x,
-        msg=String("x"),
-        atol=atol,
-    )
-    assert_almost_equal(
-        a.y,
-        b.y,
-        msg=String("y"),
-        atol=atol,
-    )
-    assert_almost_equal(
-        a.z,
-        b.z,
-        msg=String("z"),
-        atol=atol,
-    )
 
 
 def longest_axis[

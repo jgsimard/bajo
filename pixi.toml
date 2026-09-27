@@ -9,6 +9,7 @@ version = "0.1.0"
 download_assets = "bash scripts/download_assets.sh"
 install_prek = "prek install"
 fmt = "mojo format ."
+clean = "bash scripts/clean.sh"
 
 # examples
 example_lbvh = { cmd = "mojo -I . examples/lbvh_normals.mojo", depends-on = ["download_assets"] }
@@ -26,14 +27,14 @@ test = { cmd = "bash scripts/run_tests.sh test/{{suite}}", args = [
 
 test_host = { depends-on = [
   { task = "test", args = ["core"] },
-  { task = "test", args = ["parser/obj"] },
-  { task = "test", args = ["parser/ply"] },
-  { task = "test", args = ["rt"] },
+  { task = "test", args = ["parser"] },
+  { task = "test", args = ["rt/cpu"] },
   { task = "test", args = ["bvh/cpu"] },
 ] }
 test_gpu = { depends-on = [
   { task = "test", args = ["sort"] },
   { task = "test", args = ["bvh/gpu"] },
+  { task = "test", args = ["rt/gpu"] },
 ] }
 
 ############
@@ -112,7 +113,7 @@ bench_rt_cpu = { depends-on = [
 
 
 
-bench_all = { depends-on = [
+bench_smoke = { depends-on = [
   "bench_quat",
   "bench_aabb",
   "bench_obj",
@@ -121,7 +122,7 @@ bench_all = { depends-on = [
   "bench_bvh_gpu",
   "bench_bvh_gpu_tlas"
 ] }
-bench_bvh = { depends-on = [
+bench_bvh_smoke = { depends-on = [
   "bench_bvh_cpu_grid",
   "bench_bvh_cpu_dragon",
   "bench_bvh_gpu",
@@ -130,9 +131,10 @@ bench_bvh = { depends-on = [
 
 [dependencies]
 libpng = ">=1.6.58,<2"
-mojo = ">=1.2.0.dev2026091405,<2"
-max = ">=26.7.0.dev2026091405,<27"
+mojo = ">=1.2.0.dev2026092705,<2"
+max = ">=26.7.0.dev2026092705,<27"
 python = ">=3.12.14,<3.13"
 polars = ">=1.44.2,<2"
-matplotlib = ">=3.11.1,<4"
+matplotlib = ">=3.11.2,<4"
 numpy = ">=2.5.3,<3"
+pillow = ">=12.3,<13"

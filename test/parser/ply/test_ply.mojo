@@ -1,5 +1,11 @@
 from std.memory import bitcast
-from std.testing import assert_almost_equal, assert_raises, assert_true
+from std.testing import (
+    assert_almost_equal,
+    assert_raises,
+    assert_true,
+    TestSuite,
+    assert_equal,
+)
 
 from bajo.parser.ply import parse_ply
 
@@ -15,10 +21,6 @@ def _append_u32(mut bytes: List[UInt8], value: UInt32):
     bytes.append(UInt8((value >> UInt32(8)) & UInt32(0xFF)))
     bytes.append(UInt8((value >> UInt32(16)) & UInt32(0xFF)))
     bytes.append(UInt8(value >> UInt32(24)))
-
-
-def _append_i32(mut bytes: List[UInt8], value: Int32):
-    _append_u32(bytes, bitcast[.uint32](value))
 
 
 def _append_f32(mut bytes: List[UInt8], value: Float32):
@@ -54,42 +56,35 @@ def _fixture(with_uv: Bool = True, quad: Bool = False) -> List[UInt8]:
 
     bytes.append(UInt8(vertex_count))
     for i in range(vertex_count):
-        _append_i32(bytes, Int32(i))
+        _append_u32(bytes, UInt32(i))
     return bytes^
 
 
 def test_binary_triangle_with_normals_and_uvs() raises:
     var bytes = _fixture()
     var mesh = parse_ply(bytes)
-    assert_true(mesh.vertex_count() == 3)
-    assert_true(mesh.face_count() == 1)
-    assert_true(mesh.triangle_count() == 1)
+    assert_equal(mesh.vertex_count(), 3)
+    assert_equal(mesh.face_count(), 1)
+    assert_equal(mesh.triangle_count(), 1)
     assert_true(mesh.has_normals())
     assert_true(mesh.has_texcoords())
     assert_almost_equal(mesh.positions[3], 1.0)
     assert_almost_equal(mesh.positions[7], 1.0)
     assert_almost_equal(mesh.normals[8], 1.0)
     assert_almost_equal(mesh.texcoords[2], 1.0)
-    assert_true(mesh.indices[0] == UInt32(0))
-    assert_true(mesh.indices[1] == UInt32(1))
-    assert_true(mesh.indices[2] == UInt32(2))
+    assert_equal(mesh.indices, [0, 1, 2])
 
 
 def test_quad_is_fan_triangulated_without_uvs() raises:
     var bytes = _fixture(with_uv=False, quad=True)
     var mesh = parse_ply(bytes)
-    assert_true(mesh.vertex_count() == 4)
-    assert_true(mesh.face_count() == 1)
-    assert_true(mesh.triangle_count() == 2)
+    assert_equal(mesh.vertex_count(), 4)
+    assert_equal(mesh.face_count(), 1)
+    assert_equal(mesh.triangle_count(), 2)
     assert_true(mesh.has_normals())
     assert_true(not mesh.has_texcoords())
-    assert_true(len(mesh.indices) == 6)
-    assert_true(mesh.indices[0] == UInt32(0))
-    assert_true(mesh.indices[1] == UInt32(1))
-    assert_true(mesh.indices[2] == UInt32(2))
-    assert_true(mesh.indices[3] == UInt32(0))
-    assert_true(mesh.indices[4] == UInt32(2))
-    assert_true(mesh.indices[5] == UInt32(3))
+    assert_equal(len(mesh.indices), 6)
+    assert_equal(mesh.indices, [0, 1, 2, 0, 2, 3])
 
 
 def test_rejects_unsupported_format() raises:
@@ -115,8 +110,4 @@ def test_rejects_truncated_payload() raises:
 
 
 def main() raises:
-    test_binary_triangle_with_normals_and_uvs()
-    test_quad_is_fan_triangulated_without_uvs()
-    test_rejects_unsupported_format()
-    test_rejects_out_of_range_face_index()
-    test_rejects_truncated_payload()
+    TestSuite.discover_tests[__functions_in_module()]().run()

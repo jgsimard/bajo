@@ -1,3 +1,5 @@
+from test.helpers import assert_vec_equal
+
 from std.math import sqrt
 from std.testing import (
     TestSuite,
@@ -10,7 +12,6 @@ from bajo.core import (
     AABB,
     Quat,
     Vec3W,
-    assert_vec_equal,
     Affine3,
     Point3W,
     Point3f32,

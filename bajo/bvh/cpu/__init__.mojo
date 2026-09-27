@@ -3,10 +3,12 @@
 from .blas_storage import CpuBlasSet
 from .build_method import CpuBvhBuildMethod
 from .traversal_mode import CpuTraversalMode
-from .blas_set import (
-    AdaptiveStreamHitSink,
+from .blas_build import (
     build_cpu_sphere_blas_set,
     build_cpu_triangle_blas_set,
+)
+from .blas_set import (
+    AdaptiveStreamHitSink,
     trace_blas_set,
     trace_blas_set_adaptive_stream,
     trace_blas_set_packet,

@@ -1,16 +1,17 @@
+from test.helpers import assert_mat_equal, assert_vec_equal
+
 from std.testing import (
     TestSuite,
     assert_equal,
     assert_almost_equal,
 )
 
-from bajo.core import Vec3W, assert_vec_equal, Quat, Mat22, Mat33, Mat44
+from bajo.core import Vec3W, Quat, Mat22, Mat33, Mat44
 from bajo.core.mat import (
     inverse,
     determinant,
     _matmul,
     _matvec,
-    assert_mat_equal,
 )
 from bajo.core.utils import degrees_to_radians
 

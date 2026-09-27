@@ -1,3 +1,5 @@
+from test.helpers import assert_vec_equal
+
 from std.testing import (
     TestSuite,
     assert_almost_equal,
@@ -25,7 +27,6 @@ from bajo.core import (
     AABB,
     Rayf32,
     Vec3,
-    assert_vec_equal,
     Point3,
     Vec3W,
     Point3W,

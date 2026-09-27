@@ -6,7 +6,7 @@ from bajo.bvh.host_utils import compute_bounds
 from bajo.core import (
     AABB,
     Affine3f32,
-    Point3f32,
+    Point3,
     Point3W,
     Rayf32,
     Vec3f32,
@@ -35,8 +35,8 @@ def weekend_camera(aperture: Float32 = 0.6) -> Camera:
     )
 
 
-def make_mixed_triangle_mesh() -> List[Point3f32[.LOCAL]]:
-    var vertices = List[Point3f32[.LOCAL]](
+def make_mixed_triangle_mesh() -> List[Point3[.float32, .LOCAL]]:
+    var vertices = List[Point3[.float32, .LOCAL]](
         capacity=TRIANGLE_GRID * TRIANGLE_GRID * 6
     )
     var inv_grid = 1.0 / Float32(TRIANGLE_GRID)
@@ -50,10 +50,10 @@ def make_mixed_triangle_mesh() -> List[Point3f32[.LOCAL]]:
             var y10 = Float32(0.08) if (x + 1 + z) % 7 == 0 else Float32(0.0)
             var y01 = Float32(0.08) if (x + z + 1) % 7 == 0 else Float32(0.0)
             var y11 = Float32(0.08) if (x + z + 2) % 7 == 0 else Float32(0.0)
-            var p00 = Point3f32[.LOCAL](x0, y00, z0)
-            var p10 = Point3f32[.LOCAL](x1, y10, z0)
-            var p01 = Point3f32[.LOCAL](x0, y01, z1)
-            var p11 = Point3f32[.LOCAL](x1, y11, z1)
+            var p00 = Point3[.float32, .LOCAL](x0, y00, z0)
+            var p10 = Point3[.float32, .LOCAL](x1, y10, z0)
+            var p01 = Point3[.float32, .LOCAL](x0, y01, z1)
+            var p11 = Point3[.float32, .LOCAL](x1, y11, z1)
             vertices.append(p00)
             vertices.append(p11)
             vertices.append(p10)

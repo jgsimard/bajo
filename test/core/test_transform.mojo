@@ -1,3 +1,5 @@
+from test.helpers import assert_vec_equal
+
 from std.testing import TestSuite, assert_almost_equal, assert_true
 from std.memory.alloc import alloc, dealloc, Layout
 
@@ -12,7 +14,6 @@ from bajo.core import (
     Point3W,
     Normal3f32,
     Ray,
-    assert_vec_equal,
     normalize,
     Quat,
     Frame,

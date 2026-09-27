@@ -1,3 +1,5 @@
+from test.helpers import assert_vec_equal
+
 from std.testing import (
     TestSuite,
     assert_almost_equal,
@@ -5,7 +7,7 @@ from std.testing import (
 
 from bajo.core.utils import degrees_to_radians
 from bajo.core.quat import Quaternion
-from bajo.core.vec import Vec3, assert_vec_equal
+from bajo.core.vec import Vec3
 from bajo.core.frame import Frame
 
 

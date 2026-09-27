@@ -1,3 +1,5 @@
+from test.helpers import assert_vec_equal
+
 from std.testing import (
     TestSuite,
     assert_almost_equal,
@@ -16,7 +18,6 @@ from bajo.core import (
     Affine3f32,
     Vec3,
     Vec3f32,
-    assert_vec_equal,
     dot,
     length,
     Point3f32,

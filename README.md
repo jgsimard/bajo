@@ -34,7 +34,7 @@ Launch the CPU viewer with its default RTIAW scene:
 pixi run viewer
 ```
 
-![renderer_viwer](renders/renderer_viwer.png)
+![renderer viewer](renders/renderer_viewer.png)
 
 The viewer supports CPU and GPU backends, the `PATH`, `NEE`, `MIS`, `NORMALS`,
 and `AO` algorithms, linear progressive accumulation, independent, Halton, R2,
@@ -42,8 +42,9 @@ Owen-Sobol, SZ, and procedural STBN sample sequences, Cornell/Veach/RTIAW scenes
 an emissive triangle-instance showcase, the built-in PBRT showcase, and custom
 PBRT files.
 
-Useful command-line options:
-
+Useful command-line options include `--backend`, `--scene`, `--sampler`,
+`--max-spp`, `--max-depth`, `--gpu-arch`, and `--pbrt`. Run
+`pixi run viewer --help` for the complete list.
 
 Use `W/S`, `A/D`, and `Q/E` to move; drag with the left mouse button to look
 around. `R` resets the camera, `B` toggles CPU/GPU, `1`–`5` select an algorithm,
@@ -105,8 +106,8 @@ the downloaded OBJ assets and produces CPU and GPU outputs. The source files in
 Common benchmark tasks include:
 
 ```bash
-pixi run bench_all
-pixi run bench_bvh
+pixi run bench_smoke
+pixi run bench_bvh_smoke
 pixi run bench_bvh_cpu_report
 pixi run bench_bvh_gpu_nexus_compare
 pixi run bench_rt_cpu
@@ -125,7 +126,7 @@ The NexusBVH comparison writes its [result table](bench/results/bvh_gpu_nexus/co
 ## Repository layout
 
 - [`bajo/core`](bajo/core/) — vectors, matrices, quaternions, transforms, rays, and intersections
-- [`bajo/parser`](bajo/parser/) — pure-Mojo OBJ/MTL/prt loading
+- [`bajo/parser`](bajo/parser/) — pure-Mojo OBJ/MTL/PBRT loading
 - [`bajo/bvh`](bajo/bvh/) — CPU/GPU BVH construction and traversal
 - [`bajo/rt`](bajo/rt/) — CPU and GPU ray-tracing and shading pipelines
 - [`bajo/sort`](bajo/sort/) — CPU and GPU sorting implementations

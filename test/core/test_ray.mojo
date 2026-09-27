@@ -1,6 +1,8 @@
+from test.helpers import assert_vec_equal
+
 from std.testing import TestSuite, assert_almost_equal
 
-from bajo.core import Rayf32, Point3W, Vec3W, assert_vec_equal
+from bajo.core import Rayf32, Point3W, Vec3W
 
 
 def test_load_packed_ray_span() raises:

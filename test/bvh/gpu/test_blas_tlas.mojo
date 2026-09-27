@@ -197,6 +197,31 @@ def test_gpu_triangle_tlas_cwbvh8_camera_matches_expected_hit() raises:
         _assert_hit(_download_single_hit(d_hits), 6.0, 0, 1)
 
 
+def test_gpu_triangle_tlas_single_cwbvh8_direct_build_matches_expected_hit() raises:
+    var verts = _make_triangle_at_z(2.0)
+    var bounds = compute_bounds(verts)
+
+    with DeviceContext() as ctx:
+        var blases = build_gpu_triangle_blas_set[
+            8, 4, .HPLOC, GpuBvhLayout.CWBVH8
+        ](ctx, [verts^])
+        var origin = Point3f32[.WORLD](0.0, 0.0, 0.0)
+        var instances: List = [_triangle_instance(0, origin, bounds)]
+        var tlas = build_gpu_tlas[
+            .TRIANGLE, 2, 8, 2, 4, .LBVH, GpuBvhLayout.CWBVH8
+        ](ctx, instances)
+        var camera = _make_camera_ray(
+            origin,
+            Vec3f32[.WORLD](0.0, 0.0, 1.0),
+        )
+        var d_camera = upload_camera(ctx, camera)
+        var d_hits = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
+
+        tlas.launch_camera(ctx, blases, d_camera, d_hits, 1, 1, 1)
+        ctx.synchronize()
+        _assert_hit(_download_single_hit(d_hits), 2.0, 0, 0)
+
+
 def test_gpu_triangle_tlas_closest_hit_across_different_blas() raises:
     var far_verts = _make_triangle_at_z(8.0)
     var near_verts = _make_triangle_at_z(3.0)

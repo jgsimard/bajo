@@ -4,14 +4,16 @@ from std.math import abs, cos, pi, sin, sqrt
 
 from bajo.core import Frame, Vec3, normalize
 from bajo.core.random import Rng, Sampler
-from bajo.rt.types import (
+from bajo.rt.render_types import (
     Color,
+    SamplingConfig,
+)
+from bajo.rt.material_types import (
     Environment,
     EnvironmentKind,
-    SamplingConfig,
     SurfaceStore,
-    _light_importance,
 )
+from bajo.rt.lighting_types import _light_importance
 from bajo.rt.wavefront_contract import (
     wavefront_rng_roulette_stage,
     wavefront_rng_subsequence,

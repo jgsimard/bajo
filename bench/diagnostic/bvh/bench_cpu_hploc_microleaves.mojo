@@ -12,7 +12,7 @@ from bajo.benchmark.bvh_fixtures import (
 from bajo.benchmark.timing import summarize_timings
 from bajo.bvh.constants import f32_max
 from bajo.bvh.cpu import CpuBlasSet, CpuBvhBuildMethod
-from bajo.bvh.cpu.blas_set import build_cpu_triangle_blas_set, trace_blas_set
+from bajo.bvh.cpu import build_cpu_triangle_blas_set, trace_blas_set
 from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.types import BlasDesc
 from bajo.core import Point3f32, Rayf32

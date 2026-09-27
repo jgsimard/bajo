@@ -72,7 +72,9 @@ from bajo.rt.geometry import (
     triangle_area,
     triangle_is_valid,
 )
-from bajo.rt.types import MaterialKind, PrimitiveKind, SamplingConfig
+from bajo.bvh.constants import PrimitiveKind
+from bajo.rt.render_types import SamplingConfig
+from bajo.rt.material_types import MaterialKind
 from bajo.rt.wavefront_contract import wavefront_rng_roulette_stage
 
 

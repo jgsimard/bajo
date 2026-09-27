@@ -5,11 +5,13 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh import Camera
 from bajo.bvh.gpu.utils import upload_camera, upload_list
-from bajo.rt.types import (
+from bajo.rt.render_types import (
     Color,
-    Integrator,
     RenderSettings,
     SamplingConfig,
+)
+from bajo.rt.material_types import (
+    Integrator,
     SurfaceId,
 )
 from bajo.rt.wavefront_contract import WAVE_PATH_ID_MASK

@@ -3,7 +3,7 @@ from std.testing import TestSuite, assert_almost_equal, assert_true
 
 from bajo.core import Vec3f32
 from bajo.rt.coated_diffuse import _sample_coated_diffuse
-from bajo.rt.types import BsdfSample
+from bajo.rt.shading_types import BsdfSample
 
 
 def _coated_sample() -> BsdfSample[1]:

@@ -25,6 +25,8 @@ from bajo.bvh.gpu.cwbvh8_builder import GpuCwbvh8BuildArena
 from bajo.bvh.gpu.builder.hploc_layout import HPLOC_MERGING_THRESHOLD
 from bajo.bvh.gpu.triangle_bvh import (
     compute_triangle_bounds_kernel,
+)
+from bajo.bvh.gpu.triangle_trace import (
     trace_cwbvh8_indexed_triangles,
     trace_cwbvh8_triangles,
 )

@@ -19,7 +19,8 @@ from bajo.rt import (
 )
 from bajo.rt.cpu import sample_bsdf
 from bajo.rt.common import russian_roulette
-from bajo.rt.types import MaterialKind, PrimitiveKind
+from bajo.bvh.constants import PrimitiveKind
+from bajo.rt.material_types import MaterialKind
 from examples.rtiaw import make_weekend_world
 from bajo.benchmark.cpu_harness import pixel_checksum
 from bajo.benchmark.rt_fixtures import (

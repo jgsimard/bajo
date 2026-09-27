@@ -29,14 +29,16 @@ from bajo.core import (
     dot,
 )
 from bajo.rt.geometry import orient_surface_normal
-from bajo.rt.types import (
-    Color,
-    HitRecord,
+from bajo.rt.render_types import Color
+from bajo.rt.material_types import (
     PrimitiveId,
-    SceneData,
-    SurfaceHit,
     SurfaceId,
 )
+from bajo.rt.shading_types import (
+    HitRecord,
+    SurfaceHit,
+)
+from bajo.rt.scene_data import SceneData
 
 
 @fieldwise_init

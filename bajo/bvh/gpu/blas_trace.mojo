@@ -3,7 +3,7 @@
 from bajo.bvh.constants import TraceMode
 from bajo.bvh.gpu.blas_storage import GpuBvhLayout
 from bajo.bvh.gpu.trace import GpuLeafFn, trace_bounds_bvh
-from bajo.bvh.gpu.triangle_bvh import trace_cwbvh8_triangles
+from bajo.bvh.gpu.triangle_trace import trace_cwbvh8_triangles
 from bajo.bvh.types import Hit
 from bajo.core import Frame, Rayf32
 

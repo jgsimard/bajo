@@ -20,7 +20,7 @@ from bajo.bvh.gpu import GpuBvhLayout
 from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_blas_set
 from bajo.bvh.gpu.sphere_bvh import build_gpu_sphere_blas_set
 from bajo.bvh.gpu.tlas import build_gpu_tlas
-from bajo.bvh.cpu.blas_set import build_cpu_triangle_blas_set
+from bajo.bvh.cpu import build_cpu_triangle_blas_set
 from bajo.bvh.cpu.tlas import CpuTlas
 from test.bvh.fixtures import (
     _camera_for_bounds,

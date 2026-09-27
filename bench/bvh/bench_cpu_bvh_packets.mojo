@@ -5,7 +5,7 @@ from std.time import perf_counter_ns
 
 from bajo.bvh.constants import f32_max
 from bajo.core import Ray
-from bajo.bvh.cpu.blas_set import (
+from bajo.bvh.cpu import (
     AdaptiveStreamHitSink,
     build_cpu_triangle_blas_set,
     trace_blas_set,

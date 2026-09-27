@@ -33,14 +33,18 @@ from bajo.rt.gpu.render import (
     _prefer_cwbvh8_triangles,
 )
 from bajo.rt.gpu.path_shading import GpuRtLights
-from bajo.rt.types import (
+from bajo.bvh.constants import PrimitiveKind
+from bajo.rt.render_types import (
     Color,
-    Environment,
-    ImageTexture,
-    PrimitiveKind,
-    Integrator,
     RenderResult,
     RenderSettings,
+)
+from bajo.rt.material_types import (
+    Environment,
+    ImageTexture,
+    Integrator,
+)
+from bajo.rt.scene_data import (
     SceneBuilder,
     SceneData,
 )

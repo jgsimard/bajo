@@ -6,11 +6,11 @@ from std.time import perf_counter_ns
 
 from bajo.bvh.constants import f32_max
 from bajo.bvh.cpu import CpuBlasSet, CpuBvhBuildMethod
-from bajo.bvh.cpu.blas_set import (
-    _trace_blas_set_packet_policy,
+from bajo.bvh.cpu import (
     build_cpu_triangle_blas_set,
     trace_blas_set,
 )
+from bajo.bvh.cpu.blas_set import _trace_blas_set_packet_policy
 from bajo.bvh.cpu.triangle_bvh import TrianglePacketConfig
 from bajo.bvh.types import Hit
 from bajo.core import Point3, Point3f32, Ray, Rayf32, Vec3, Vec3f32

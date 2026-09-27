@@ -8,7 +8,7 @@ from bajo.bvh.constants import (
     WideNode,
     f32_max,
 )
-from bajo.bvh.cpu.blas_set import (
+from bajo.bvh.cpu import (
     build_cpu_triangle_blas_set,
     trace_blas_set,
 )

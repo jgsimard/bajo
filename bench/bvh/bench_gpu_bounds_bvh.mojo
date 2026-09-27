@@ -16,7 +16,7 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.cpu import CpuBlasSet
 from bajo.bvh.types import Hit, Sphere
-from bajo.bvh.cpu.blas_set import (
+from bajo.bvh.cpu import (
     build_cpu_sphere_blas_set,
     build_cpu_triangle_blas_set,
     trace_blas_set,
@@ -31,8 +31,8 @@ from bajo.bvh.gpu.triangle_bvh import (
     build_gpu_triangle_bvh,
     build_gpu_triangle_bvh_measured,
     compute_triangle_bounds_kernel,
-    trace_cwbvh8_triangles,
 )
+from bajo.bvh.gpu.triangle_trace import trace_cwbvh8_triangles
 from bajo.bvh.gpu.builder.segmented_build import enqueue_segmented_wide_build
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.compressed_bounds_bvh import (

@@ -1,7 +1,9 @@
 """Backend-neutral authored scene and render inputs."""
 
 from bajo.bvh import Camera
-from bajo.rt.types import Integrator, RenderSettings, SceneData
+from bajo.rt.render_types import RenderSettings
+from bajo.rt.material_types import Integrator
+from bajo.rt.scene_data import SceneData
 
 
 struct SceneDescription:

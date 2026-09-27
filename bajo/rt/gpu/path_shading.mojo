@@ -41,18 +41,20 @@ from bajo.rt.shading import (
     _sample_coated_diffuse,
     _sample_material,
 )
-from bajo.rt.types import (
+from bajo.bvh.constants import PrimitiveKind
+from bajo.rt.render_types import (
     Color,
+    SamplingConfig,
+)
+from bajo.rt.material_types import (
     EnvironmentKind,
     MaterialKind,
     NO_TEXTURE,
-    PrimitiveKind,
     Integrator,
-    SceneData,
-    SamplingConfig,
     SurfaceId,
-    _light_importance,
 )
+from bajo.rt.lighting_types import _light_importance
+from bajo.rt.scene_data import SceneData
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
     DeviceWaveShade,

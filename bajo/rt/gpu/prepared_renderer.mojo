@@ -19,13 +19,13 @@ from bajo.rt.gpu.resources import (
     update_gpu_camera,
 )
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
-from bajo.rt.types import (
-    Integrator,
+from bajo.rt.render_types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
-    SceneData,
 )
+from bajo.rt.material_types import Integrator
+from bajo.rt.scene_data import SceneData
 
 
 struct GpuRtPreparedRenderer[

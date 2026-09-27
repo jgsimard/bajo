@@ -11,7 +11,9 @@ from bajo.core import (
     normalize,
 )
 from bajo.rt.rays import RT_RAY_T_MIN, RT_SHADOW_END_OFFSET
-from bajo.rt.types import Color, Integrator, _light_importance
+from bajo.rt.render_types import Color
+from bajo.rt.material_types import Integrator
+from bajo.rt.lighting_types import _light_importance
 
 
 @fieldwise_init

@@ -13,17 +13,21 @@ from bajo.core import (
     dot,
     normalize,
 )
-from bajo.rt.types import (
-    BsdfSample,
+from bajo.rt.render_types import (
     Color,
+    RenderSettings,
+    SamplingConfig,
+)
+from bajo.rt.material_types import (
     Environment,
     MaterialKind,
     Integrator,
-    RenderSettings,
-    SamplingConfig,
-    ShadingPoint,
     SurfaceId,
     SurfaceStore,
+)
+from bajo.rt.shading_types import (
+    BsdfSample,
+    ShadingPoint,
 )
 from ..scene import CpuScene
 from bajo.rt.common import (

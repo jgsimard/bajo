@@ -9,7 +9,7 @@ from bajo.bvh.constants import PrimitiveKind
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.tlas import _trace_tlas_ray
 from bajo.bvh.gpu.trace import trace_bounds_bvh
-from bajo.bvh.gpu.triangle_bvh import (
+from bajo.bvh.gpu.triangle_trace import (
     _intersect_triangle_leaf,
 )
 from bajo.bvh.gpu.blas_trace import trace_gpu_blas
@@ -30,13 +30,15 @@ from bajo.rt.common import (
 from bajo.rt.geometry import orient_surface_normal
 from bajo.rt.lighting import _emissive_hit_weight_from_pdf
 from bajo.rt.rays import make_ao_ray, spawn_surface_ray
-from bajo.rt.types import (
+from bajo.rt.render_types import (
     Color,
+    SamplingConfig,
+)
+from bajo.rt.material_types import (
     EnvironmentKind,
     Integrator,
-    SamplingConfig,
-    _light_importance,
 )
+from bajo.rt.lighting_types import _light_importance
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,

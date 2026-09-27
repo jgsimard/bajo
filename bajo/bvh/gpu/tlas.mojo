@@ -29,7 +29,7 @@ from bajo.bvh.gpu.camera_launch import (
 )
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.blas_trace import trace_gpu_blas
-from bajo.bvh.gpu.triangle_bvh import (
+from bajo.bvh.gpu.triangle_trace import (
     _intersect_triangle_leaf,
 )
 from bajo.bvh.gpu.trace import (

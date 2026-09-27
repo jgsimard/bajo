@@ -26,14 +26,16 @@ from bajo.rt.lighting import (
     _sample_triangle_light_surface,
 )
 from bajo.rt.rays import spawn_surface_ray
-from bajo.rt.types import (
-    Color,
-    PrimitiveKind,
+from bajo.bvh.constants import PrimitiveKind
+from bajo.rt.render_types import Color
+from bajo.rt.material_types import (
     Integrator,
-    ShadingPoint,
     SurfaceId,
-    SurfaceHit,
     SurfaceStore,
+)
+from bajo.rt.shading_types import (
+    ShadingPoint,
+    SurfaceHit,
 )
 from .scene import CpuScene
 from .bsdf import evaluate_bsdf

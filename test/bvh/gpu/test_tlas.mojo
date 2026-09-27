@@ -16,7 +16,7 @@ from bajo.bvh.gpu import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import Hit, Instance, Sphere
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
 from bajo.bvh.cpu.tlas import CpuTlas
-from bajo.bvh.cpu.blas_set import (
+from bajo.bvh.cpu import (
     build_cpu_sphere_blas_set,
     build_cpu_triangle_blas_set,
     trace_blas_set,

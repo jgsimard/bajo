@@ -60,7 +60,7 @@ from bajo.bvh.cpu.builder.lbvh import (
     _radix_sort_morton_pairs_parallel,
 )
 from bajo.bvh.cpu.builder.sah import _find_sah_split, _partition_items_by_bin
-from bajo.bvh.cpu.blas_set import (
+from bajo.bvh.cpu import (
     AdaptiveStreamHitSink,
     build_cpu_sphere_blas_set,
     build_cpu_triangle_blas_set,

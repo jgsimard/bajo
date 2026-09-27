@@ -5,11 +5,9 @@ from bajo.bvh.cpu.blas_set import trace_blas_set
 from bajo.core import GeoKind, Rayf32, cross, dot, normalize
 from bajo.core.utils import ns_to_mrays_per_s
 from bajo.rt import CpuScene
-from bajo.rt.types import (
-    HitRecord,
-    PrimitiveKind,
-    PrimitiveId,
-)
+from bajo.bvh.constants import PrimitiveKind
+from bajo.rt.material_types import PrimitiveId
+from bajo.rt.shading_types import HitRecord
 from bajo.benchmark.rt_fixtures import (
     make_bounded_grid_rays,
     make_grid_triangle_world,

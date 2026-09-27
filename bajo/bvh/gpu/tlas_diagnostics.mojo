@@ -18,7 +18,7 @@ from bajo.bvh.gpu.trace import (
     GpuTraversalStats,
     _intersect_trace_node_precomputed,
 )
-from bajo.bvh.gpu.triangle_bvh import _intersect_cwbvh_triangle
+from bajo.bvh.gpu.triangle_trace import _intersect_cwbvh_triangle
 from bajo.bvh.gpu.tlas import GpuTlas
 from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
 from bajo.bvh.tlas_common import (

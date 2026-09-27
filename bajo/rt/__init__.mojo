@@ -14,30 +14,30 @@ from .gpu import render_gpu, render_gpu_viewer
 from .scene_description import SceneDescription
 from .render_types import (
     Color,
+    RenderResult,
+    RenderSettings,
+    RenderTimings,
 )
-from .types import (
-    BsdfEvaluation,
-    BsdfSample,
+from .material_types import (
     Dielectric,
     Emissive,
     Environment,
     EnvironmentKind,
-    HitRecord,
     ImageTexture,
+    Integrator,
     Lambertian,
-    LightRecord,
-    LightStore,
     MaterialKind,
     Metal,
     PrimitiveId,
-    Integrator,
-    RenderResult,
-    RenderSettings,
-    RenderTimings,
-    SceneBuilder,
-    SceneData,
-    ShadingPoint,
     SurfaceId,
-    SurfaceHit,
     SurfaceStore,
 )
+from .lighting_types import LightRecord, LightStore
+from .shading_types import (
+    BsdfEvaluation,
+    BsdfSample,
+    HitRecord,
+    ShadingPoint,
+    SurfaceHit,
+)
+from .scene_data import SceneBuilder, SceneData

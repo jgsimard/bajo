@@ -1,7 +1,8 @@
 """Packet queues and host/device wavefront boundary records."""
 
 from bajo.core import Rayf32
-from bajo.rt.types import Color, SurfaceHit
+from bajo.rt.render_types import Color
+from bajo.rt.shading_types import SurfaceHit
 
 
 comptime FRONT_FACE_BIT = UInt32(0x80000000)

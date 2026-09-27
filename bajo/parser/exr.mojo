@@ -5,7 +5,7 @@ from std.memory import bitcast
 from std.utils.numerics import isfinite
 
 from bajo.parser.obj.mmap import MMap
-from bajo.rt.types import ImageTexture
+from bajo.rt.material_types import ImageTexture
 
 
 comptime _EXR_MAGIC = UInt32(20000630)

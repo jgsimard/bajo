@@ -30,7 +30,7 @@ from bajo.rt.gpu.views import (
     GpuRtTriangleView,
     _immut,
 )
-from bajo.rt.types import SceneData
+from bajo.rt.scene_data import SceneData
 
 
 @fieldwise_init

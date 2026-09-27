@@ -7,14 +7,14 @@ from std.time import perf_counter_ns
 
 from bajo.bvh import Camera
 from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
-from bajo.rt.types import (
+from bajo.rt.render_types import (
     Color,
-    Integrator,
     RenderResult,
     RenderSettings,
     RenderTimings,
     SamplingConfig,
 )
+from bajo.rt.material_types import Integrator
 from ..scene import CpuScene
 from ..scheduler_mode import CpuSchedulerMode
 from bajo.rt.wavefront_queue import PacketPathQueue, PacketShadeQueue

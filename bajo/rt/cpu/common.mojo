@@ -4,7 +4,7 @@ from bajo.core import Rayf32
 from bajo.core.random import Rng, random_in_unit_disk
 from bajo.bvh import Camera
 from bajo.rt.rays import make_camera_ray_from_samples
-from bajo.rt.types import RenderSettings
+from bajo.rt.render_types import RenderSettings
 
 
 def _make_primary_ray(

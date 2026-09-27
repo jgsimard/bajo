@@ -24,15 +24,15 @@ from bajo.rt.gpu.resources import (
 )
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
-from bajo.rt.types import (
+from bajo.rt.render_types import (
     Color,
-    Integrator,
     RenderResult,
     RenderSettings,
     RenderTimings,
     SamplingConfig,
-    SceneData,
 )
+from bajo.rt.material_types import Integrator
+from bajo.rt.scene_data import SceneData
 
 
 comptime GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD = 32

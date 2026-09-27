@@ -7,7 +7,11 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import f32_max
 from bajo.rt.rays import RT_RAY_T_MIN
-from bajo.rt.types import Integrator, MaterialKind, SurfaceId
+from bajo.rt.material_types import (
+    Integrator,
+    MaterialKind,
+    SurfaceId,
+)
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
     DeviceWaveShade,

@@ -13,7 +13,7 @@ from bajo.rt import (
     ShadingPoint,
     CpuScene,
 )
-from bajo.rt.types import SamplingConfig
+from bajo.rt.render_types import SamplingConfig
 from bajo.rt.cpu import render_wavefront, sample_bsdf
 from bajo.rt.common import path_stage_rng, russian_roulette
 from bajo.rt.cpu.wavefront.primary import _initialize_path_packets_range

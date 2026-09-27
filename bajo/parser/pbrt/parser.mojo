@@ -8,17 +8,19 @@ from bajo.bvh.host_utils import compute_bounds
 from bajo.core import Affine3f32, Point3f32, Vec3f32
 from bajo.parser.number import parse_f32_at
 from bajo.parser.ply import PlyMesh
-from bajo.rt.types import (
+from bajo.rt.render_types import (
     Color,
+    RenderSettings,
+)
+from bajo.rt.material_types import (
     Environment,
     ImageTexture,
     Integrator,
     NO_TEXTURE,
-    RenderSettings,
-    SceneBuilder,
     SurfaceId,
     SurfaceStore,
 )
+from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.scene_description import SceneDescription
 
 from bajo.parser.text_loader import TextLoader

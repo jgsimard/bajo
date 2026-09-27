@@ -7,7 +7,11 @@ from bajo.rt.coated_diffuse import (
     _evaluate_coated_diffuse,
     _sample_coated_diffuse,
 )
-from bajo.rt.types import BsdfEvaluation, BsdfSample, MaterialKind
+from bajo.rt.material_types import MaterialKind
+from bajo.rt.shading_types import (
+    BsdfEvaluation,
+    BsdfSample,
+)
 
 
 comptime BSDF_INV_PI = Float32(0.3183098861837907)

@@ -10,7 +10,10 @@ from std.math import abs, cos, exp, log, pi, sin, sqrt
 from std.memory import bitcast
 
 from bajo.core import cross, dot, length2, normalize, Vec3
-from bajo.rt.types import BsdfEvaluation, BsdfSample
+from bajo.rt.shading_types import (
+    BsdfEvaluation,
+    BsdfSample,
+)
 
 
 comptime _INV_PI = Float32(0.3183098861837907)

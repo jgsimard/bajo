@@ -4,7 +4,8 @@ from std.math import ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import PrimitiveKind
-from bajo.rt.types import Integrator, SamplingConfig
+from bajo.rt.render_types import SamplingConfig
+from bajo.rt.material_types import Integrator
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.path_shading import GpuRtMaterials, _enqueue_material_shading

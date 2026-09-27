@@ -10,13 +10,15 @@ from bajo.rt.shading import (
     _sample_coated_diffuse,
     _sample_material,
 )
-from bajo.rt.types import (
-    BsdfEvaluation,
-    BsdfSample,
-    Color,
-    ShadingPoint,
+from bajo.rt.render_types import Color
+from bajo.rt.material_types import (
     SurfaceId,
     SurfaceStore,
+)
+from bajo.rt.shading_types import (
+    BsdfEvaluation,
+    BsdfSample,
+    ShadingPoint,
 )
 
 

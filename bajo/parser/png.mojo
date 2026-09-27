@@ -6,7 +6,7 @@ from std.math import ceildiv, pow
 from std.sys import num_logical_cores, simd_width_of
 
 from bajo.parser.obj.mmap import MMap
-from bajo.rt.types import ImageTexture
+from bajo.rt.material_types import ImageTexture
 
 
 comptime _SRGB_SIMD_WIDTH = simd_width_of[Float32]()

@@ -6,7 +6,8 @@ from bajo.bvh import Camera
 from bajo.core.random import random_in_unit_disk
 from bajo.rt.common import path_stage_rng
 from bajo.rt.rays import make_camera_ray_from_samples
-from bajo.rt.types import Integrator, SamplingConfig
+from bajo.rt.render_types import SamplingConfig
+from bajo.rt.material_types import Integrator
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
     WaveSampleFloatAbi,

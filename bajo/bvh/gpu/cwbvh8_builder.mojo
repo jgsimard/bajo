@@ -1,6 +1,7 @@
 """Reusable fixed-capacity CWBVH8 construction."""
 
 from std.math import ceildiv
+from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import GPU_BOUNDS_BVH_BLOCK_SIZE
@@ -33,7 +34,7 @@ from bajo.bvh.gpu.compressed_bounds_bvh import (
     enqueue_segmented_cwbvh8_representation_with_workspace,
     pack_segmented_cwbvh_triangles_kernel,
 )
-from bajo.bvh.gpu.utils import _device_span
+from bajo.bvh.gpu.utils import GpuBuildTimings, _device_span
 from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvhBatch
 from bajo.core import SegmentOffsets
 
@@ -224,14 +225,34 @@ struct GpuCwbvh8BuildArena[
         self.triangles = triangles^
         self.encoded_counts = encoded_counts^
 
-    def enqueue_rebuild(
+    def enqueue_rebuild[
+        measure_stages: Bool = False,
+    ](
         mut self,
         mut ctx: DeviceContext,
         vertices: DeviceBuffer[.float32],
-    ) raises:
-        """Rebuild into retained output and scratch buffers."""
+    ) raises -> GpuBuildTimings:
+        """Rebuild into retained buffers, optionally timing GPU stages."""
+        var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
+        var stage_start = Int(0)
+        comptime if measure_stages:
+            ctx.synchronize()
+            stage_start = perf_counter_ns()
+
         enqueue_segmented_morton_codes(ctx, self.binary, self.workspace)
+        comptime if measure_stages:
+            ctx.synchronize()
+            var stage_end = perf_counter_ns()
+            timings.morton_ns = Int(stage_end - stage_start)
+            stage_start = stage_end
+
         enqueue_segmented_morton_sort(ctx, self.binary, self.workspace)
+        comptime if measure_stages:
+            ctx.synchronize()
+            var stage_end = perf_counter_ns()
+            timings.sort_ns = Int(stage_end - stage_start)
+            stage_start = stage_end
+
         ref topology = self.workspace.topology.value()
         self.hploc.enqueue(
             ctx,
@@ -244,6 +265,12 @@ struct GpuCwbvh8BuildArena[
             topology.node_flags,
             self.binary.node_leaf_counts,
         )
+        comptime if measure_stages:
+            ctx.synchronize()
+            var stage_end = perf_counter_ns()
+            timings.topology_ns = Int(stage_end - stage_start)
+            stage_start = stage_end
+
         comptime if Self.direct_conversion:
             self.collapse = enqueue_collapse_binary_to_cwbvh8[
                 Self.max_leaf_size,
@@ -266,6 +293,12 @@ struct GpuCwbvh8BuildArena[
                 self.hploc.scratch_bounds,
                 self.collapse_workspace,
             )
+            comptime if measure_stages:
+                ctx.synchronize()
+                var stage_end = perf_counter_ns()
+                timings.collapse_ns = Int(stage_end - stage_start)
+                stage_start = stage_end
+
             comptime if not Self.indexed_triangle_layout:
                 ctx.enqueue_function[
                     pack_segmented_cwbvh_triangles_kernel[True]
@@ -280,6 +313,9 @@ struct GpuCwbvh8BuildArena[
                     ),
                     block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
                 )
+                comptime if measure_stages:
+                    ctx.synchronize()
+                    timings.leaf_pack_ns = Int(perf_counter_ns() - stage_start)
             self.encoded_counts = (
                 self.representation_workspace.triangle_counters.copy()
             )
@@ -304,6 +340,12 @@ struct GpuCwbvh8BuildArena[
                 self.wide.node_counts,
                 self.collapse_workspace,
             )
+            comptime if measure_stages:
+                ctx.synchronize()
+                var stage_end = perf_counter_ns()
+                timings.collapse_ns = Int(stage_end - stage_start)
+                stage_start = stage_end
+
             self.encoded_counts = (
                 enqueue_segmented_cwbvh8_representation_with_workspace[
                     CWBVH_LEAF_STORAGE_WIDTH
@@ -321,6 +363,10 @@ struct GpuCwbvh8BuildArena[
                     self.representation_workspace,
                 )
             )
+            comptime if measure_stages:
+                ctx.synchronize()
+                timings.leaf_pack_ns = Int(perf_counter_ns() - stage_start)
+        return timings
 
     def finish_synchronized(self) raises:
         """Validate a rebuild after its stream has synchronized."""

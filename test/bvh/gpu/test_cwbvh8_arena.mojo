@@ -54,7 +54,7 @@ def _assert_rebuild_is_stable[
         var triangle_checksum = _buffer_word_checksum(arena.triangles)
 
         for _ in range(3):
-            arena.enqueue_rebuild(ctx, d_vertices)
+            _ = arena.enqueue_rebuild(ctx, d_vertices)
             ctx.synchronize()
             arena.finish_synchronized()
             assert_equal(_buffer_word_checksum(arena.nodes), node_checksum)

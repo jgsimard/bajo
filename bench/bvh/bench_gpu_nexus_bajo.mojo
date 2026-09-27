@@ -11,6 +11,7 @@ from bajo.bvh.constants import GPU_BOUNDS_BVH_BLOCK_SIZE
 from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_bvh
 from bajo.bvh.gpu.trace import GpuTraversalStats
 from bajo.bvh.gpu.utils import (
+    GpuBuildTimings,
     _download_full_hit_checksum,
     upload_list,
     upload_vertices,
@@ -42,6 +43,21 @@ def _median_ns(timings: List[Int]) -> Int:
     var values = timings.copy()
     sort(values)
     return values[(len(values) - 1) >> 1]
+
+
+def _median_build_stages(
+    samples: List[GpuBuildTimings],
+) raises -> GpuBuildTimings:
+    if len(samples) == 0:
+        raise "GPU build stage samples are empty"
+    var totals = List[Int](capacity=len(samples))
+    for sample in samples:
+        totals.append(sample.total())
+    var median_total = _median_ns(totals)
+    for sample in samples:
+        if sample.total() == median_total:
+            return sample
+    raise "median GPU build stage sample was not found"
 
 
 def _run_case[
@@ -174,10 +190,28 @@ def _run_cwbvh8_case[
         arena.finish_synchronized()
         for _ in range(BENCH_REPEATS):
             var start = perf_counter_ns()
-            arena.enqueue_rebuild(ctx, d_vertices)
+            _ = arena.enqueue_rebuild(ctx, d_vertices)
             ctx.synchronize()
             build_timings.append(Int(perf_counter_ns() - start))
         arena.finish_synchronized()
+
+        # Synchronization barriers perturb the headline path, so collect stage
+        # attribution in separate warm rebuilds after its timing samples.
+        _ = arena.enqueue_rebuild[True](ctx, d_vertices)
+        arena.finish_synchronized()
+        var stage_samples = List[GpuBuildTimings](capacity=BENCH_REPEATS)
+        for _ in range(BENCH_REPEATS):
+            var stages = arena.enqueue_rebuild[True](ctx, d_vertices)
+            arena.finish_synchronized()
+            stage_samples.append(stages)
+        var stages = _median_build_stages(stage_samples)
+        print(
+            t"PROFILE_BUILD_STAGES\tbajo\t{label}\t"
+            t"{stages.morton_ns}\t{stages.sort_ns}\t"
+            t"{stages.topology_ns}\t{stages.refit_ns}\t"
+            t"{stages.collapse_ns}\t{stages.bounds_pack_ns}\t"
+            t"{stages.leaf_pack_ns}\t{stages.total()}"
+        )
         with arena.wide.node_counts.map_to_host() as node_counts:
             emitted_node_count = Int(node_counts[0])
         warm = Cwbvh8BenchBvh(

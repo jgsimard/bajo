@@ -282,7 +282,8 @@ def render_depth_first[
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var init_t0 = perf_counter_ns()
-    var pixels = List[Color](length=pixel_count, fill=Color(0.0))
+    var pixels = List[Color](capacity=pixel_count)
+    pixels.resize(unsafe_uninit_length=pixel_count)
     var init_t1 = perf_counter_ns()
 
     var tiles_x = ceildiv(settings.image_width, TILE_WIDTH)

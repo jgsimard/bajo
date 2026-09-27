@@ -105,19 +105,18 @@ struct GpuRtRenderTarget:
 
 
 def update_gpu_camera(
-    ctx: DeviceContext,
+    mut ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
     camera: Camera,
 ) raises:
-    """Update camera parameters while retaining all render allocations."""
+    """Queue a camera upload while retaining all render allocations."""
     var values = camera.flatten()
     debug_assert["safe", _use_compiler_assume=True](
         len(values) == len(target.camera)
     )
-    ctx.synchronize()
-    with target.camera.map_to_host() as mapped:
-        for i, value in enumerate(values):
-            mapped[i] = value
+    var host_camera = ctx.enqueue_create_host_buffer[.float32](len(values))
+    host_camera.enqueue_copy_from(values)
+    host_camera.enqueue_copy_to(target.camera)
 
 
 def _enqueue_gpu_primary[
@@ -333,7 +332,8 @@ def download_gpu_pixels(
     with target.arena.counters.map_to_host() as counters:
         if counters[WAVE_COUNTER.STATUS] != WAVE_STATUS.OK:
             raise "GPU RT wavefront queue overflow"
-    var pixels = List[Color](length=target.pixel_count, fill=Color(0.0))
+    var pixels = List[Color](capacity=target.pixel_count)
+    pixels.resize(unsafe_uninit_length=target.pixel_count)
     with target.pixels.map_to_host() as mapped:
         for pixel_idx in range(target.pixel_count):
             pixels[pixel_idx] = Color(

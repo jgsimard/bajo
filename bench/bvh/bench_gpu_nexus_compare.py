@@ -62,6 +62,20 @@ class TraversalProfile:
     max_stack: int
 
 
+@dataclass(frozen=True)
+class BuildProfile:
+    implementation: str
+    label: str
+    morton_ns: int
+    sort_ns: int
+    topology_ns: int
+    refit_ns: int
+    collapse_ns: int
+    bounds_pack_ns: int
+    leaf_pack_ns: int
+    total_ns: int
+
+
 def run(command: list[str], *, capture: bool = False) -> str:
     process = subprocess.run(
         command,
@@ -146,6 +160,31 @@ def parse_traversal_profiles(output: str) -> list[TraversalProfile]:
     return profiles
 
 
+def parse_build_profiles(output: str) -> list[BuildProfile]:
+    profiles: list[BuildProfile] = []
+    for line in output.splitlines():
+        if not line.startswith("PROFILE_BUILD_STAGES\t"):
+            continue
+        fields = line.split("\t")
+        if len(fields) != 11:
+            raise RuntimeError(f"Malformed build profile: {line!r}")
+        profiles.append(
+            BuildProfile(
+                implementation=fields[1],
+                label=fields[2],
+                morton_ns=int(fields[3]),
+                sort_ns=int(fields[4]),
+                topology_ns=int(fields[5]),
+                refit_ns=int(fields[6]),
+                collapse_ns=int(fields[7]),
+                bounds_pack_ns=int(fields[8]),
+                leaf_pack_ns=int(fields[9]),
+                total_ns=int(fields[10]),
+            )
+        )
+    return profiles
+
+
 def validate_results(
     bajo_results: list[Result], nexus: Result
 ) -> list[Validation]:
@@ -206,6 +245,7 @@ def write_report(
     nexus: Result,
     validations: list[Validation],
     traversal_profiles: list[TraversalProfile],
+    build_profiles: list[BuildProfile],
     nexusbvh_dir: Path,
 ) -> None:
     all_results = [nexus, *bajo_results]
@@ -260,6 +300,31 @@ def write_report(
             f"{result.build_minimum_ms:.3f}–{result.build_maximum_ms:.3f} | "
             f"{result.build_median_ms / nexus.build_median_ms:.3f}x |"
         )
+
+    if build_profiles:
+        lines.extend(
+            [
+                "",
+                "## Bajo build stages",
+                "",
+                "Stage timings use separately instrumented warm rebuilds; "
+                "the synchronization barriers are excluded from the headline "
+                "build results above.",
+                "",
+                "| Configuration | Morton ms | Sort ms | H-PLOC ms | "
+                "Collapse ms | Pack ms | Instrumented ms |",
+                "|---|---:|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for profile in build_profiles:
+            lines.append(
+                f"| `{profile.label}` | {profile.morton_ns / 1e6:.3f} | "
+                f"{profile.sort_ns / 1e6:.3f} | "
+                f"{(profile.topology_ns + profile.refit_ns) / 1e6:.3f} | "
+                f"{(profile.collapse_ns + profile.bounds_pack_ns) / 1e6:.3f} | "
+                f"{profile.leaf_pack_ns / 1e6:.3f} | "
+                f"{profile.total_ns / 1e6:.3f} |"
+            )
 
     lines.extend(
         [
@@ -408,6 +473,7 @@ def main() -> None:
         *parse_traversal_profiles(nexus_output),
         *parse_traversal_profiles(bajo_output),
     ]
+    build_profiles = parse_build_profiles(bajo_output)
     if len(nexus_results) != 1:
         raise RuntimeError(
             f"Expected one NexusBVH result, got {len(nexus_results)}"
@@ -420,6 +486,7 @@ def main() -> None:
         nexus,
         validations,
         traversal_profiles,
+        build_profiles,
         nexusbvh_dir,
     )
 

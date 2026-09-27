@@ -36,7 +36,7 @@ struct MMap:
         if self._data:
             _ = external_call["munmap", Int](self._data, self._size)
 
-    def byte_length(ref self) -> Int:
+    def byte_length(self) -> Int:
         return self._size
 
     def as_bytes_span(self) -> Span[UInt8, origin_of(self)]:

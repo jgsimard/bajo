@@ -27,6 +27,7 @@ from bajo.rt.gpu import (
     render_gpu,
     render_gpu_configured,
     render_gpu_viewer,
+    update_gpu_camera,
 )
 from bajo.rt.gpu.render import (
     _prefer_cwbvh8_blases,
@@ -715,6 +716,34 @@ def test_prepared_gpu_scene_is_stable_across_repeated_renders() raises:
             assert_equal(after[i].x, pixel.x)
             assert_equal(after[i].y, pixel.y)
             assert_equal(after[i].z, pixel.z)
+
+
+def test_gpu_camera_update_is_ordered_before_render() raises:
+    var settings = RenderSettings(5, 3, 1, UInt64(238))
+    var data = _sphere_scene_data()
+    var initial_camera = _camera()
+    var updated_camera = Camera.from_vfov(
+        Point3f32[.WORLD](0.4, 0.0, 0.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
+        70.0,
+    )
+    with DeviceContext() as ctx:
+        var scene = prepare_gpu_scene[.SPHERES](ctx, data)
+
+        var updated = GpuRtRenderTarget(ctx, settings, initial_camera)
+        update_gpu_camera(ctx, updated, updated_camera)
+        enqueue_render_gpu[.NORMALS](ctx, updated, scene, settings)
+        var updated_pixels = download_gpu_pixels(ctx, updated)
+
+        var reference = GpuRtRenderTarget(ctx, settings, updated_camera)
+        enqueue_render_gpu[.NORMALS](ctx, reference, scene, settings)
+        var reference_pixels = download_gpu_pixels(ctx, reference)
+
+        for i, pixel in enumerate(reference_pixels):
+            assert_equal(updated_pixels[i].x, pixel.x)
+            assert_equal(updated_pixels[i].y, pixel.y)
+            assert_equal(updated_pixels[i].z, pixel.z)
 
 
 def test_common_prepared_api_instantiates_every_scene_kind() raises:

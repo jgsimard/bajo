@@ -547,16 +547,16 @@ def _render_frame_for_config(
         sample_sequence_length,
         linear_output,
     )
-    comptime if VIEWER_INTEGRATOR == 0:
-        return _render_scene_for_policy[.PATH](request)
-    elif VIEWER_INTEGRATOR == 1:
-        return _render_scene_for_policy[.NEE](request)
-    elif VIEWER_INTEGRATOR == 2:
-        return _render_scene_for_policy[.MIS](request)
-    elif VIEWER_INTEGRATOR == 3:
-        return _render_scene_for_policy[.NORMALS](request)
-    else:
-        return _render_scene_for_policy[.AO](request)
+    comptime integrators = {
+        0: Integrator.PATH,
+        1: Integrator.NEE,
+        2: Integrator.MIS,
+        3: Integrator.NORMALS,
+        4: Integrator.AO,
+    }
+    comptime assert VIEWER_INTEGRATOR in [0, 1, 2, 3, 4]
+    comptime integrator = integrators.get(VIEWER_INTEGRATOR).value()
+    return _render_scene_for_policy[integrator](request)
 
 
 def render_frame(

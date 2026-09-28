@@ -265,17 +265,18 @@ def _write_direct_cwbvh8_node[
             var q = UInt32(0)
             if child_counts[lane] != EMPTY_LANE:
                 var bounds = child_bounds[lane]
-                comptime if plane == 0:
+                comptime __match plane:
+                case 0:
                     q = _quantize_lower(bounds._min.x, lo_x, scale_x)
-                elif plane == 1:
+                case 1:
                     q = _quantize_lower(bounds._min.y, lo_y, scale_y)
-                elif plane == 2:
+                case 2:
                     q = _quantize_lower(bounds._min.z, lo_z, scale_z)
-                elif plane == 3:
+                case 3:
                     q = _quantize_upper(bounds._max.x, lo_x, scale_x)
-                elif plane == 4:
+                case 4:
                     q = _quantize_upper(bounds._max.y, lo_y, scale_y)
-                else:
+                case _:
                     q = _quantize_upper(bounds._max.z, lo_z, scale_z)
             quantized[lane] = UInt8(q)
         var packed = bitcast[.uint32, 2](quantized)

@@ -75,25 +75,27 @@ def _evaluate_material[
     out_direction: Vec3[.float32, .WORLD, length],
 ) -> BsdfEvaluation[length]:
     """Evaluate one homogeneous material group at compile time."""
-    comptime if MATERIAL_KIND == .LAMBERTIAN:
+    comptime __match MATERIAL_KIND:
+    case .LAMBERTIAN:
         return _evaluate_lambertian(normal, albedo, out_direction)
-    elif MATERIAL_KIND == .METAL:
+    case .METAL:
         return _evaluate_metal(
             ray_direction, normal, albedo, parameter, out_direction
         )
-    elif MATERIAL_KIND == .DIELECTRIC:
+    case .DIELECTRIC:
         return BsdfEvaluation[length](
             Vec3[.float32, .WORLD, length](0.0),
             SIMD[.float32, length](0.0),
             SIMD[.bool, length](fill=True),
         )
-    else:
-        comptime assert MATERIAL_KIND == .EMISSIVE
+    case .EMISSIVE:
         return BsdfEvaluation[length](
             Vec3[.float32, .WORLD, length](0.0),
             SIMD[.float32, length](0.0),
             SIMD[.bool, length](fill=False),
         )
+    case .COATED_DIFFUSE:
+        comptime assert False  # TODO
 
 
 @always_inline
@@ -219,13 +221,14 @@ def _sample_material[
     random_v: SIMD[.float32, length],
 ) -> BsdfSample[length]:
     """Dispatch one homogeneous SIMD material group at compile time."""
-    comptime if MATERIAL_KIND == .LAMBERTIAN:
+    comptime __match MATERIAL_KIND:
+    case .LAMBERTIAN:
         return _sample_lambertian(normal, albedo, random_u, random_v)
-    elif MATERIAL_KIND == .METAL:
+    case .METAL:
         return _sample_metal(
             ray_direction, normal, albedo, parameter, random_u, random_v
         )
-    else:
+    case _:
         comptime assert MATERIAL_KIND == .DIELECTRIC
         return _sample_dielectric(
             ray_direction, normal, parameter, front_face, random_u

@@ -115,19 +115,40 @@ struct Environment(Copyable, Writable):
 
 
 @fieldwise_init
-struct MaterialKind(Equatable, TrivialRegisterPassable, Writable):
+struct MaterialKind(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     var value: UInt32
     comptime LAMBERTIAN = Self(0)
     comptime METAL = Self(1)
     comptime DIELECTRIC = Self(2)
     comptime EMISSIVE = Self(3)
     comptime COATED_DIFFUSE = Self(4)
+    comptime _enum_case_names = ParameterList.of[
+        "LAMBERTIAN".value,
+        "METAL".value,
+        "DIELECTRIC".value,
+        "EMISSIVE".value,
+        "COATED_DIFFUSE".value,
+    ].values
+    comptime _enum_case_types = TypeList.of[
+        Trait=AnyType, NoneType, NoneType, NoneType, NoneType, NoneType
+    ].values
     comptime has_bsdf[kind: Self] = (
         kind.value == Self.LAMBERTIAN.value
         or kind.value == Self.METAL.value
         or kind.value == Self.DIELECTRIC.value
         or kind.value == Self.COATED_DIFFUSE.value
     )
+
+    def _get_enum_discriminant(self) -> Int:
+        return Int(self.value)
+
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        while True:
+            pass
 
 
 comptime SURFACE_KIND_BITS = UInt32(4)
@@ -141,13 +162,23 @@ comptime PRIMITIVE_INDEX_MASK = UInt32((1 << PRIMITIVE_INDEX_BITS) - 1)
 
 
 @fieldwise_init
-struct Integrator(Equatable, TrivialRegisterPassable, Writable):
+struct Integrator(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     var value: UInt32
     comptime PATH = Self(0)
     comptime NORMALS = Self(1)
     comptime AO = Self(2)
     comptime NEE = Self(3)
     comptime MIS = Self(4)
+    comptime _enum_case_names = ParameterList.of[
+        "PATH".value,
+        "NORMALS".value,
+        "AO".value,
+        "NEE".value,
+        "MIS".value,
+    ].values
+    comptime _enum_case_types = TypeList.of[
+        Trait=AnyType, NoneType, NoneType, NoneType, NoneType, NoneType
+    ].values
     comptime is_path_tracing[integrator: Self] = (
         integrator.value == Self.PATH.value
         or integrator.value == Self.NEE.value
@@ -160,6 +191,17 @@ struct Integrator(Equatable, TrivialRegisterPassable, Writable):
         integrator.value == Self.AO.value
         or Self.uses_direct_lighting[integrator]
     )
+
+    def _get_enum_discriminant(self) -> Int:
+        return Int(self.value)
+
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        while True:
+            pass
 
     def is_valid(self) -> Bool:
         return self in (

@@ -313,12 +313,15 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
     def __getitem_param__[i: Int](self) -> SIMD[Self.dtype, Self.width]:
         comptime assert i >= 0 and i < 3
 
-        comptime if i == 0:
+        comptime __match i:
+        case 0:
             return self.x
-        elif i == 1:
+        case 1:
             return self.y
-        else:
+        case 2:
             return self.z
+        case _:
+            comptime assert False
 
     def __setitem__(
         mut self,
@@ -335,32 +338,41 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
     def __setitem__[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
         comptime assert i >= 0 and i < 3
 
-        comptime if i == 0:
+        comptime __match i:
+        case 0:
             self.x = value
-        elif i == 1:
+        case 1:
             self.y = value
-        else:
+        case 2:
             self.z = value
+        case _:
+            comptime assert False
 
     def set_axis[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
         comptime assert i >= 0 and i < 3
 
-        comptime if i == 0:
+        comptime __match i:
+        case 0:
             self.x = value
-        elif i == 1:
+        case 1:
             self.y = value
-        else:
+        case 2:
             self.z = value
+        case _:
+            comptime assert False
 
     def add_axis[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
         comptime assert i >= 0 and i < 3
 
-        comptime if i == 0:
+        comptime __match i:
+        case 0:
             self.x += value
-        elif i == 1:
+        case 1:
             self.y += value
-        else:
+        case 2:
             self.z += value
+        case _:
+            comptime assert False
 
     def is_near_zero(
         self,

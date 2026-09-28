@@ -248,104 +248,106 @@ def _benchmark[
     rays: List[Rayf32[.WORLD]],
 ) -> Timing:
     var summary: Tuple[Float64, Int]
-    comptime if method == 0:
+    comptime __match method:
+    case 0:
         summary = _trace_scalar(bvh, rays)
-    elif method == 1:
+    case 1:
         summary = _trace_packet16_noncoherent(bvh, rays)
-    elif method == 2:
+    case 2:
         summary = _trace_octant_queues[64, False](bvh, rays)
-    elif method == 3:
+    case 3:
         summary = _trace_octant_queues[64, True](bvh, rays)
-    elif method == 4:
+    case 4:
         summary = _trace_octant_queues[256, False](bvh, rays)
-    elif method == 5:
+    case 5:
         summary = _trace_octant_queues[256, True](bvh, rays)
-    elif method == 6:
+    case 6:
         summary = _trace_octant_queues[1024, False](bvh, rays)
-    elif method == 7:
+    case 7:
         summary = _trace_octant_queues[1024, True](bvh, rays)
-    elif method == 8:
+    case 8:
         summary = _trace_octant_queues[8192, False](bvh, rays)
-    elif method == 9:
+    case 9:
         summary = _trace_octant_queues[8192, True](bvh, rays)
-    elif method == 10:
+    case 10:
         summary = _trace_octant_queues[RAY_COUNT, False](bvh, rays)
-    elif method == 11:
+    case 11:
         summary = _trace_octant_queues[RAY_COUNT, True](bvh, rays)
-    elif method == 12:
+    case 12:
         summary = _trace_packet16_noncoherent[TrianglePacketConfig.PRODUCTION](
             bvh, rays
         )
-    elif method == 13:
+    case 13:
         summary = _trace_packet16_noncoherent[
             TrianglePacketConfig.scalar_continuation[4]()
         ](bvh, rays)
-    elif method == 14:
+    case 14:
         summary = _trace_packet16_noncoherent[
             TrianglePacketConfig.scalar_continuation[8]()
         ](bvh, rays)
-    elif method == 15:
+    case 15:
         summary = _trace_packet16_noncoherent[
             TrianglePacketConfig.scalar_continuation[12]()
         ](bvh, rays)
-    elif method == 16:
+    case 16:
         summary = _trace_packet16_noncoherent[
             TrianglePacketConfig.scalar_continuation[15]()
         ](bvh, rays)
-    elif method == 17:
+    case 17:
         summary = _trace_packet16_noncoherent[
             TrianglePacketConfig.scalar_both[8]()
         ](bvh, rays)
-    else:
+    case _:
         comptime assert False
     var best = Int.MAX
     for _ in range(REPEATS):
         var start = perf_counter_ns()
-        comptime if method == 0:
+        comptime __match method:
+        case 0:
             summary = _trace_scalar(bvh, rays)
-        elif method == 1:
+        case 1:
             summary = _trace_packet16_noncoherent(bvh, rays)
-        elif method == 2:
+        case 2:
             summary = _trace_octant_queues[64, False](bvh, rays)
-        elif method == 3:
+        case 3:
             summary = _trace_octant_queues[64, True](bvh, rays)
-        elif method == 4:
+        case 4:
             summary = _trace_octant_queues[256, False](bvh, rays)
-        elif method == 5:
+        case 5:
             summary = _trace_octant_queues[256, True](bvh, rays)
-        elif method == 6:
+        case 6:
             summary = _trace_octant_queues[1024, False](bvh, rays)
-        elif method == 7:
+        case 7:
             summary = _trace_octant_queues[1024, True](bvh, rays)
-        elif method == 8:
+        case 8:
             summary = _trace_octant_queues[8192, False](bvh, rays)
-        elif method == 9:
+        case 9:
             summary = _trace_octant_queues[8192, True](bvh, rays)
-        elif method == 10:
+        case 10:
             summary = _trace_octant_queues[RAY_COUNT, False](bvh, rays)
-        elif method == 11:
+        case 11:
             summary = _trace_octant_queues[RAY_COUNT, True](bvh, rays)
-        elif method == 12:
+        case 12:
             summary = _trace_packet16_noncoherent[
                 TrianglePacketConfig.PRODUCTION
             ](bvh, rays)
-        elif method == 13:
+        case 13:
             summary = _trace_packet16_noncoherent[
                 TrianglePacketConfig.scalar_continuation[4]()
             ](bvh, rays)
-        elif method == 14:
+        case 14:
             summary = _trace_packet16_noncoherent[
                 TrianglePacketConfig.scalar_continuation[8]()
             ](bvh, rays)
-        elif method == 15:
+        case 15:
             summary = _trace_packet16_noncoherent[
                 TrianglePacketConfig.scalar_continuation[12]()
             ](bvh, rays)
-        elif method == 16:
+        case 16:
             summary = _trace_packet16_noncoherent[
                 TrianglePacketConfig.scalar_continuation[15]()
             ](bvh, rays)
-        elif method == 17:
+        case 17:
             summary = _trace_packet16_noncoherent[
                 TrianglePacketConfig.scalar_both[8]()
             ](bvh, rays)

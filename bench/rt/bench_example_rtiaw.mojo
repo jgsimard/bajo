@@ -46,17 +46,17 @@ def _render_mode[
 ](
     settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
 ) raises -> RenderResult:
-    comptime if MODE == MODE_DEPTH_FIRST:
+    comptime __match MODE:
+    case 0:
         return render_depth_first[.PATH](settings, camera, world)
-    elif MODE == MODE_WAVEFRONT_SERIAL:
+    case 1:
         return render_wavefront[
             .PATH,
             16,
             CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
             False,
         ](settings, camera, world)
-    else:
-        comptime assert MODE == MODE_WAVEFRONT_PARALLEL
+    case 2:
         comptime assert CHUNK_PATHS > 0
         return render_wavefront[
             .PATH,
@@ -65,6 +65,8 @@ def _render_mode[
             True,
             CpuSchedulerMode.TASK_PARTITIONS,
         ](settings, camera, world)
+    case _:
+        comptime assert False
 
 
 def _warmup[

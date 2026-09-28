@@ -761,33 +761,45 @@ def test_world_hit_maps_material_and_normal() raises:
     )
     assert_true(world.scene_data().lights().total_weight > 0.0)
 
-    var hit = (
-        world.trace(
-            Rayf32[.WORLD](
-                Point3f32[.WORLD](0.0),
-                Vec3f32[.WORLD](0.0, 0.0, -1.0),
-            )
-        )
-        .value()
-        .copy()
-    )
-    assert_equal(hit.primitive.kind(), PrimitiveKind.SPHERE)
-    assert_equal(hit.primitive.index(), UInt32(0))
-    assert_equal(hit.surface.kind(), matte.kind())
-    assert_equal(hit.surface.index(), matte.index())
-    assert_true(hit.front_face)
-    assert_vec_equal(hit.normal, Vec3f32[.WORLD](0.0, 0.0, 1.0))
-    assert_almost_equal(hit.t, 0.5)
-    var compact = world.trace_surface(
+    var trace_result = world.trace(
         Rayf32[.WORLD](
             Point3f32[.WORLD](0.0),
             Vec3f32[.WORLD](0.0, 0.0, -1.0),
         )
     )
-    assert_true(compact.hit)
-    assert_equal(compact.surface.value, hit.surface.value)
-    assert_vec_equal(compact.normal, hit.normal)
-    assert_almost_equal(compact.t, hit.t)
+    __match trace_result:
+    case .Some(ref hit):
+        assert_equal(hit.primitive.kind(), PrimitiveKind.SPHERE)
+        assert_equal(hit.primitive.index(), UInt32(0))
+        assert_equal(hit.surface.kind(), matte.kind())
+        assert_equal(hit.surface.index(), matte.index())
+        assert_true(hit.front_face)
+        assert_vec_equal(hit.normal, Vec3f32[.WORLD](0.0, 0.0, 1.0))
+        assert_almost_equal(hit.t, 0.5)
+        var compact = world.trace_surface(
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](0.0),
+                Vec3f32[.WORLD](0.0, 0.0, -1.0),
+            )
+        )
+        assert_true(compact.hit)
+        assert_equal(compact.surface.value, hit.surface.value)
+        assert_vec_equal(compact.normal, hit.normal)
+        assert_almost_equal(compact.t, hit.t)
+    case .None:
+        raise Error("expected ray hit")
+
+    var miss_result = world.trace(
+        Rayf32[.WORLD](
+            Point3f32[.WORLD](0.0),
+            Vec3f32[.WORLD](0.0, 1.0, 0.0),
+        )
+    )
+    __match miss_result:
+    case .Some(_):
+        raise Error("expected ray miss")
+    case .None:
+        pass
 
 
 def test_world_preserves_signed_radius_normals() raises:

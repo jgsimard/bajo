@@ -192,12 +192,15 @@ def _emissive_hit_weight_from_pdf[
     light_pdf: Float32,
 ) -> Float32:
     """Apply the shared NEE/MIS policy to an emissive surface hit."""
-    comptime if integrator == .NEE:
+    comptime __match integrator:
+    case .NEE:
         if bounce > 0 and not previous_delta:
             return 0.0
-    elif integrator == .MIS:
+    case .MIS:
         if bounce > 0 and not previous_delta:
             return power_heuristic[1](previous_bsdf_pdf, light_pdf)
+    case .PATH | .AO | .NORMALS:
+        pass
     return 1.0
 
 

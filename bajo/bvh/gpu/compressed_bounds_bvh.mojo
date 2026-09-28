@@ -220,17 +220,18 @@ def _encode_cwbvh8_node[
         comptime for lane in range(CWBVH_WIDTH):
             var q = UInt32(0)
             if _wide_meta_count(metadata[lane]) != EMPTY_LANE:
-                comptime if plane == 0:
+                comptime __match plane:
+                case 0:
                     q = _quantize_lower(min_x[lane], lo_x, scale_x)
-                elif plane == 1:
+                case 1:
                     q = _quantize_lower(min_y[lane], lo_y, scale_y)
-                elif plane == 2:
+                case 2:
                     q = _quantize_lower(min_z[lane], lo_z, scale_z)
-                elif plane == 3:
+                case 3:
                     q = _quantize_upper(max_x[lane], lo_x, scale_x)
-                elif plane == 4:
+                case 4:
                     q = _quantize_upper(max_y[lane], lo_y, scale_y)
-                else:
+                case _:
                     q = _quantize_upper(max_z[lane], lo_z, scale_z)
             quantized[lane] = UInt8(q)
         var packed = bitcast[.uint32, 2](quantized)
@@ -492,18 +493,21 @@ def _intersect_cwbvh8_node_tasks_legacy[
                 unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2 + qgroup
             ]
             var q = Float32((packed >> qshift) & UInt32(0xFF))
-            comptime if plane == 0:
+            comptime __match plane:
+            case 0:
                 qlo_x[lane] = q
-            elif plane == 1:
+            case 1:
                 qlo_y[lane] = q
-            elif plane == 2:
+            case 2:
                 qlo_z[lane] = q
-            elif plane == 3:
+            case 3:
                 qhi_x[lane] = q
-            elif plane == 4:
+            case 4:
                 qhi_y[lane] = q
-            else:
+            case 5:
                 qhi_z[lane] = q
+            case _:
+                comptime assert False
 
     var near_x = qlo_x
     var near_y = qlo_y

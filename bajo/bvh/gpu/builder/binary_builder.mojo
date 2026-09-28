@@ -10,12 +10,29 @@ from bajo.bvh.gpu.utils import GpuBuildTimings
 
 
 @fieldwise_init
-struct GpuBvhBuildMethod(Equatable):
+struct GpuBvhBuildMethod(EnumLike, Equatable):
     """Compile-time GPU binary builder selector; LBVH remains the default."""
 
     comptime LBVH = Self(0)
     comptime HPLOC = Self(1)
+    comptime _enum_case_names = ParameterList.of[
+        "LBVH".value, "HPLOC".value
+    ].values
+    comptime _enum_case_types = TypeList.of[
+        Trait=AnyType, NoneType, NoneType
+    ].values
     var value: Int
+
+    def _get_enum_discriminant(self) -> Int:
+        return self.value
+
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        while True:
+            pass
 
 
 def build_binary_bvh[
@@ -28,13 +45,12 @@ def build_binary_bvh[
 ) raises -> GpuBuildTimings:
     """Select the binary topology builder at compile time; LBVH is default."""
 
-    comptime if method == .LBVH:
+    comptime __match method:
+    case .LBVH:
         return build_binary_bvh_with_lbvh(
             ctx, binary, workspace, measure_stages
         )
-    elif method == .HPLOC:
+    case .HPLOC:
         return build_binary_bvh_with_hploc(
             ctx, binary, workspace, measure_stages
         )
-    else:
-        comptime assert False, "unknown GPU BVH build method"

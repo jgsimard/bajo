@@ -636,12 +636,13 @@ def _sample_direct_light_candidate[
             light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Z],
         )
         var surface_sample: _LightSurfaceSample
-        comptime if light_kind == .SPHERE:
+        comptime __match light_kind:
+        case .SPHERE:
             var radius = light_fields[unsafe_offset=base + GPU_RT_LIGHT_RADIUS]
             surface_sample = _sample_sphere_light_surface(
                 p0, radius, random_unit_vector[.WORLD](rng)
             )
-        elif light_kind == .TRIANGLE:
+        case .TRIANGLE:
             var p1 = Point3f32[.WORLD](
                 light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_X],
                 light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Y],
@@ -655,7 +656,7 @@ def _sample_direct_light_candidate[
             surface_sample = _sample_triangle_light_surface(
                 p0, p1, p2, rng.f32(), rng.f32()
             )
-        else:
+        case _:
             var kind = PrimitiveKind(
                 light_kinds[unsafe_offset=selected_idx] & UInt32(0xF)
             )
@@ -1196,7 +1197,8 @@ def _gpu_rt_shade_one[
         sampling, path.path_id, wavefront_rng_stage(bounce)
     )
 
-    comptime if MATERIAL_KIND == .LAMBERTIAN:
+    comptime __match MATERIAL_KIND:
+    case .LAMBERTIAN:
         var base = 3 * material_idx
         albedo = Color(
             material_data[unsafe_offset=base + 0],
@@ -1205,7 +1207,7 @@ def _gpu_rt_shade_one[
         )
         random_u = rng.f32()
         random_v = rng.f32()
-    elif MATERIAL_KIND == .METAL:
+    case .METAL:
         var base = 4 * material_idx
         albedo = Color(
             material_data[unsafe_offset=base + 0],
@@ -1216,7 +1218,7 @@ def _gpu_rt_shade_one[
         if parameter > 1.0e-4:
             random_u = rng.f32()
             random_v = rng.f32()
-    else:
+    case _:
         parameter = material_data[unsafe_offset=material_idx]
         var ri = Float32(1.0) / parameter if work.front_face else parameter
         var unit_direction = normalize(ray_direction)

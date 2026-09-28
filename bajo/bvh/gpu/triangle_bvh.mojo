@@ -641,17 +641,16 @@ def build_gpu_triangle_blas_set[
 ) raises -> GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width]:
     """Select the representation around the shared triangle input adapter."""
     debug_assert["safe", _use_compiler_assume=True](len(vertex_sets) > 0)
-    comptime if layout == GpuBvhLayout.CWBVH8:
+    comptime __match layout:
+    case .CWBVH8:
         comptime assert node_width == 8 and leaf_width == 4
         return _build_segmented_compressed_triangle_blas_set[
             frame, node_width, leaf_width, build_method, layout
         ](ctx, vertex_sets)
-    elif layout == GpuBvhLayout.WIDE:
+    case .WIDE:
         return _build_segmented_triangle_blas_set[
             frame, node_width, leaf_width, build_method, layout
         ](ctx, vertex_sets)
-    else:
-        comptime assert False, "unknown GPU BVH layout"
 
 
 @fieldwise_init

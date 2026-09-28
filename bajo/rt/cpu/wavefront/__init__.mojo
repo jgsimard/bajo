@@ -158,13 +158,14 @@ def render_wavefront_configured[
                 queues,
             )
 
-        comptime if scheduler_mode == .LOGICAL_CORES:
+        comptime __match scheduler_mode:
+        case .LOGICAL_CORES:
             parallelize(
                 worker, chunk_count, min(num_logical_cores(), chunk_count)
             )
-        elif scheduler_mode == .TASK_PARTITIONS:
+        case .TASK_PARTITIONS:
             parallelize(worker, chunk_count, chunk_count)
-        else:
+        case .RUNTIME_DEFAULT:
             parallelize(worker, chunk_count)
     else:
         var queues = _PacketQueueArena[length](paths_per_chunk)

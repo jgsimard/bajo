@@ -131,10 +131,10 @@ bench_bvh_smoke = { depends-on = [
 
 [dependencies]
 libpng = ">=1.6.58,<2"
-mojo = ">=1.2.0.dev2026092705,<2"
-max = ">=26.7.0.dev2026092705,<27"
+mojo = ">=1.2.0.dev2026092805,<2"
+max = ">=26.7.0.dev2026092805,<27"
 python = ">=3.12.14,<3.13"
 polars = ">=1.44.2,<2"
 matplotlib = ">=3.11.2,<4"
 numpy = ">=2.5.3,<3"
-pillow = ">=12.3,<13"
+pillow = ">=12.3.0,<13"

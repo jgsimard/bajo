@@ -29,12 +29,34 @@ comptime SPHERE_LEAF_PACKED_STRIDE = 5
 
 
 @fieldwise_init
-struct PrimitiveKind(Equatable, TrivialRegisterPassable, Writable):
+struct PrimitiveKind(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     comptime UNKNOWN = Self(UInt32(0xFFFFFFFF))
     comptime TRIANGLE = Self(0)
     comptime SPHERE = Self(1)
     comptime TRIANGLE_INSTANCE = Self(2)
+    comptime _enum_case_names = ParameterList.of[
+        "TRIANGLE".value,
+        "SPHERE".value,
+        "TRIANGLE_INSTANCE".value,
+        "UNKNOWN".value,
+    ].values
+    comptime _enum_case_types = TypeList.of[
+        Trait=AnyType, NoneType, NoneType, NoneType, NoneType
+    ].values
     var value: UInt32
+
+    def _get_enum_discriminant(self) -> Int:
+        if self == Self.UNKNOWN:
+            return 3
+        return Int(self.value)
+
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        while True:
+            pass
 
 
 struct BinaryBvhNode:

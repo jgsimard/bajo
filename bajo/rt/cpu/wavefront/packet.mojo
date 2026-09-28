@@ -243,7 +243,8 @@ def _sample_bsdf_batch[
     var active = SIMD[.bool, length](fill=False)
     for lane in range(lane_count):
         active[lane] = True
-        comptime if MATERIAL_KIND == .LAMBERTIAN:
+        comptime __match MATERIAL_KIND:
+        case .LAMBERTIAN:
             var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
             var sampled = surfaces.sample_albedo(
                 SurfaceId(.LAMBERTIAN, batch.surface_indices[lane]),
@@ -255,7 +256,7 @@ def _sample_bsdf_batch[
             albedo.z[lane] = sampled.z
             random_u[lane] = rng.f32()
             random_v[lane] = rng.f32()
-        elif MATERIAL_KIND == .METAL:
+        case .METAL:
             var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
             ref material = surfaces.metals[Int(batch.surface_indices[lane])]
             var sampled = surfaces.sample_albedo(
@@ -270,12 +271,12 @@ def _sample_bsdf_batch[
             if material.fuzz > 1.0e-4:
                 random_u[lane] = rng.f32()
                 random_v[lane] = rng.f32()
-        elif MATERIAL_KIND == .DIELECTRIC:
+        case .DIELECTRIC:
             ref material = surfaces.dielectrics[
                 Int(batch.surface_indices[lane])
             ]
             parameter[lane] = material.refraction_index
-        else:
+        case _:
             comptime assert MATERIAL_KIND == .COATED_DIFFUSE
             var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
             ref material = surfaces.coated_diffuses[

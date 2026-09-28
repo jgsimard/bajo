@@ -40,13 +40,12 @@ struct MMap:
         return self._size
 
     def as_bytes_span(self) -> Span[UInt8, origin_of(self)]:
-        comptime T = Span[UInt8, origin_of(self)]
         if self._size == 0:
-            return T()
+            return {}
         var data = self._data.unsafe_value().unsafe_origin_cast[
             origin_of(self)
         ]()
-        return T(unsafe_ptr=data, length=self._size)
+        return {unsafe_ptr = data, length = self._size}
 
     def as_string_span(self) -> StringSpan[origin_of(self)]:
         return StringSpan(unsafe_from_utf8=self.as_bytes_span())

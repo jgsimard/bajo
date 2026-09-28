@@ -205,25 +205,24 @@ def _trace_integrator[
     ray: Rayf32[.WORLD],
     path_id: UInt32,
 ) -> Color:
-    comptime if integrator == .PATH:
+    comptime __match integrator:
+    case .PATH:
         return _trace_path[.PATH, world_bvh_width, instance_bvh_width](
             settings, sampling, world, ray, path_id
         )
-    elif integrator == .NORMALS:
+    case .NORMALS:
         return _trace_normals(world, ray)
-    elif integrator == .AO:
+    case .AO:
         var ao_rng = path_stage_rng(sampling, path_id, UInt32(1))
         return _trace_ao(world, ray, ao_rng)
-    elif integrator == .NEE:
+    case .NEE:
         return _trace_path[.NEE, world_bvh_width, instance_bvh_width](
             settings, sampling, world, ray, path_id
         )
-    elif integrator == .MIS:
+    case .MIS:
         return _trace_path[.MIS, world_bvh_width, instance_bvh_width](
             settings, sampling, world, ray, path_id
         )
-    else:
-        comptime assert False, "unknown RT integrator"
 
 
 def _render_pixel[
@@ -314,11 +313,12 @@ def render_depth_first[
                 )
 
     var render_t0 = perf_counter_ns()
-    comptime if scheduler_mode == .LOGICAL_CORES:
+    comptime __match scheduler_mode:
+    case .LOGICAL_CORES:
         parallelize(worker, tile_count, min(num_logical_cores(), tile_count))
-    elif scheduler_mode == .TASK_PARTITIONS:
+    case .TASK_PARTITIONS:
         parallelize(worker, tile_count, tile_count)
-    else:
+    case .RUNTIME_DEFAULT:
         parallelize(worker, tile_count)
     var render_t1 = perf_counter_ns()
     var total_t1 = perf_counter_ns()

@@ -13,13 +13,30 @@ from bajo.bvh.types import BlasDesc, BlasDescLayout
 
 
 @fieldwise_init
-struct GpuBvhLayout(Equatable, ImplicitlyCopyable):
+struct GpuBvhLayout(EnumLike, Equatable, ImplicitlyCopyable):
     """Enum-like compile-time selector for GPU BLAS byte layout."""
 
     comptime WIDE = Self(False)
     comptime CWBVH8 = Self(True)
+    comptime _enum_case_names = ParameterList.of[
+        "WIDE".value, "CWBVH8".value
+    ].values
+    comptime _enum_case_types = TypeList.of[
+        Trait=AnyType, NoneType, NoneType
+    ].values
 
     var compressed: Bool
+
+    def _get_enum_discriminant(self) -> Int:
+        return Int(self.compressed)
+
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        while True:
+            pass
 
 
 @fieldwise_init

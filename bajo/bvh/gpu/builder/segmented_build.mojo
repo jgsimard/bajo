@@ -60,10 +60,13 @@ struct GpuSegmentedWideBuildTicket[
     var collapse_start_ns: Int
 
     def finish_synchronized(mut self) raises:
-        if self.hploc:
-            var status = self.hploc.value().result_status()
+        __match self.hploc:
+        case .Some(ref hploc):
+            var status = hploc.result_status()
             if status != UInt32(HPLOC_STATUS_OK):
                 raise String(t"H-PLOC build status: {status}")
+        case .None:
+            pass
         self.collapse.finish_batch_synchronized(self.wide, Self.fat_leaves)
         if self.collapse_start_ns != 0:
             self.timings.collapse_ns = Int(
@@ -146,7 +149,8 @@ struct GpuWideBuildArena[
             ctx, leaf_bounds^, leaf_payloads^, workspace
         )
         var hploc = Optional[GpuHplocBuildState[]]()
-        comptime if Self.build_method == .HPLOC:
+        comptime __match Self.build_method:
+        case .HPLOC:
             enqueue_segmented_morton_codes(ctx, binary, workspace)
             enqueue_segmented_morton_sort(ctx, binary, workspace)
             ref topology = workspace.topology.value()
@@ -168,10 +172,8 @@ struct GpuWideBuildArena[
                 )
             )
             binary.roots = hploc.value().root.copy()
-        elif Self.build_method == .LBVH:
+        case .LBVH:
             _ = build_binary_bvh_with_lbvh(ctx, binary, workspace)
-        else:
-            comptime assert False, "unknown GPU BVH build method"
         var wide = GpuWideBoundsBvhBatch[
             Self.node_width, Self.leaf_width, Self.max_leaf_size
         ](ctx, segments)
@@ -283,19 +285,18 @@ def _enqueue_segmented_wide_build[
     )
     var hploc = Optional[GpuHplocBuildState[]]()
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    comptime if build_method == .LBVH:
+    comptime __match build_method:
+    case .LBVH:
         timings = build_binary_bvh_with_lbvh(
             ctx, binary, workspace, measure_stages
         )
-    elif build_method == .HPLOC:
+    case .HPLOC:
         if measure_stages:
             timings = build_binary_bvh_with_hploc(ctx, binary, workspace, True)
         else:
             hploc = Optional[GpuHplocBuildState[]](
                 enqueue_binary_bvh_with_hploc(ctx, binary, workspace)
             )
-    else:
-        comptime assert False, "unknown GPU BVH build method"
 
     var wide = GpuWideBoundsBvhBatch[node_width, leaf_width, max_leaf_size](
         ctx, segments

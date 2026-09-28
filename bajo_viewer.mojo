@@ -442,16 +442,19 @@ def render_gpu_state(
 ) raises -> PythonObject:
     var address = Int(py=handle)
     var state_tag = Int(py=tag)
-    comptime if VIEWER_INTEGRATOR == 0:
+    comptime __match VIEWER_INTEGRATOR:
+    case 0:
         return _dispatch_render[.PATH](address, state_tag, config)
-    elif VIEWER_INTEGRATOR == 1:
+    case 1:
         return _dispatch_render[.NEE](address, state_tag, config)
-    elif VIEWER_INTEGRATOR == 2:
+    case 2:
         return _dispatch_render[.MIS](address, state_tag, config)
-    elif VIEWER_INTEGRATOR == 3:
+    case 3:
         return _dispatch_render[.NORMALS](address, state_tag, config)
-    else:
+    case 4:
         return _dispatch_render[.AO](address, state_tag, config)
+    case _:
+        comptime assert False
 
 
 def _destroy_kind[

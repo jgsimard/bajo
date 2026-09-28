@@ -247,7 +247,8 @@ def _run_narrow_sweep[
         _benchmark[TrianglePacketConfig.PURE, True, packet_width](bvh, rays),
         len(rays),
     )
-    comptime if packet_width == 8:
+    comptime __match packet_width:
+    case 8:
         comptime for threshold in [2, 4, 6, 7]:
             _print(
                 String(t"scalar-leaves-{threshold}"),
@@ -267,7 +268,7 @@ def _run_narrow_sweep[
                 ](bvh, rays),
                 len(rays),
             )
-    elif packet_width == 4:
+    case 4:
         comptime for threshold in [1, 2, 3]:
             _print(
                 String(t"scalar-leaves-{threshold}"),
@@ -297,6 +298,8 @@ def _run_narrow_sweep[
                 ](bvh, rays),
                 len(rays),
             )
+    case _:
+        pass
 
 
 def _run_narrow_selected(

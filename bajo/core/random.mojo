@@ -6,7 +6,7 @@ from bajo.core import Vec3f32, dot, Frame
 
 
 @fieldwise_init
-struct Sampler(Equatable, TrivialRegisterPassable, Writable):
+struct Sampler(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     """Runtime-selectable sample sequence used by the ray tracers."""
 
     var value: UInt32
@@ -16,6 +16,34 @@ struct Sampler(Equatable, TrivialRegisterPassable, Writable):
     comptime OWEN_SOBOL = Self(3)
     comptime SZ = Self(4)
     comptime STBN = Self(5)
+    comptime _enum_case_names = ParameterList.of[
+        "INDEPENDENT".value,
+        "HALTON".value,
+        "R2".value,
+        "OWEN_SOBOL".value,
+        "SZ".value,
+        "STBN".value,
+    ].values
+    comptime _enum_case_types = TypeList.of[
+        Trait=AnyType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+    ].values
+
+    def _get_enum_discriminant(self) -> Int:
+        return Int(self.value)
+
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        while True:
+            pass
 
     def is_valid(self) -> Bool:
         return self in (
@@ -281,13 +309,16 @@ struct Rng:
         var shift = self._buffer[self._consumed]
         self._consumed += 1
         var val = shift
-        if self._sampler == .HALTON:
+        __match self._sampler:
+        case .INDEPENDENT:
+            pass
+        case .HALTON:
             val = _halton(self._sample_index, self._dimension) + shift
             val -= floor(val)
-        elif self._sampler == .R2:
+        case .R2:
             val = _r2(self._sample_index, self._dimension) + shift
             val -= floor(val)
-        elif self._sampler == .OWEN_SOBOL or self._sampler == .SZ:
+        case .OWEN_SOBOL | .SZ:
             var scramble = _mix32(
                 self._scramble_seed
                 ^ UInt32(self._dimension) * UInt32(0x9E3779B9)
@@ -296,7 +327,7 @@ struct Rng:
             if self._sampler == .SZ:
                 bits = _sz_bits(UInt32(self._sample_index), self._dimension)
             val = _u32_to_unit_float(_owen_scramble(bits, scramble))
-        elif self._sampler == .STBN:
+        case .STBN:
             val = _stbn(
                 self._sample_index,
                 self._dimension,

@@ -7,10 +7,27 @@ comptime LBVH_SENTINEL = UInt32(0xFFFFFFFF)
 
 
 @fieldwise_init
-struct TraceMode(Equatable):
+struct TraceMode(EnumLike, Equatable):
     comptime CLOSEST_HIT = Self(0)
     comptime ANY_HIT = Self(1)
+    comptime _enum_case_names = ParameterList.of[
+        "CLOSEST_HIT".value, "ANY_HIT".value
+    ].values
+    comptime _enum_case_types = TypeList.of[
+        Trait=AnyType, NoneType, NoneType
+    ].values
     var value: Int
+
+    def _get_enum_discriminant(self) -> Int:
+        return self.value
+
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        while True:
+            pass
 
 
 comptime GPU_STACK_SIZE = 24

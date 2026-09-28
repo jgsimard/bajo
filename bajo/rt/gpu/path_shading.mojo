@@ -590,7 +590,8 @@ def _sample_direct_light_candidate[
         var direction = normalize(
             environment_light_to_world.vector(local_direction)
         )
-        if environment_kind == EnvironmentKind.IMAGE.value:
+        __match EnvironmentKind(environment_kind):
+        case .IMAGE:
             var desc_base = 3 * Int(environment_texture_index)
             var pixel_offset = Int(texture_descs[unsafe_offset=desc_base])
             var base = pixel_offset + 3 * selected_pixel
@@ -599,14 +600,17 @@ def _sample_direct_light_candidate[
                 max(texture_pixels[unsafe_offset=base + 1], 0.0),
                 max(texture_pixels[unsafe_offset=base + 2], 0.0),
             )
-        elif environment_kind == EnvironmentKind.PROCEDURAL.value:
+        case .PROCEDURAL:
             emission = sky_color(direction)
-        else:
+        case .BLACK | .UNIFORM:
             emission = environment_scale
         var surface_cosine = max(dot(normal, direction), 0.0)
         var light_pdf = environment_weight / (4.0 * pi * total_light_weight)
-        if environment_kind == EnvironmentKind.IMAGE.value:
+        __match EnvironmentKind(environment_kind):
+        case .IMAGE:
             light_pdf = _light_importance(emission) / total_light_weight
+        case .BLACK | .PROCEDURAL | .UNIFORM:
+            pass
         geometry = _DirectLightGeometrySample(
             surface_cosine > 0.0 and light_pdf > 0.0,
             direction,

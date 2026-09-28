@@ -77,17 +77,20 @@ def _gpu_environment_radiance(
     texture_pixels: Pointer[Float32, ImmutAnyOrigin],
     direction: Vec3f32[.WORLD],
 ) -> Color:
-    if scene.environment_kind == EnvironmentKind.BLACK.value:
-        return Color(0.0)
-    if scene.environment_kind == EnvironmentKind.PROCEDURAL.value:
-        return sky_color(direction)
     var scale = Color(
         scene.environment_scale_x,
         scene.environment_scale_y,
         scene.environment_scale_z,
     )
-    if scene.environment_kind == EnvironmentKind.UNIFORM.value:
+    __match EnvironmentKind(scene.environment_kind):
+    case .BLACK:
+        return Color(0.0)
+    case .PROCEDURAL:
+        return sky_color(direction)
+    case .UNIFORM:
         return scale
+    case .IMAGE:
+        pass
 
     var light_direction = scene.environment_world_to_light.vector(direction)
     var uv = equal_area_sphere_to_square(light_direction)
@@ -387,16 +390,18 @@ def _gpu_rt_scene_trace_path[
             var environment_light_pdf = Float32(0.0)
             comptime if integrator == .MIS:
                 if bounce > 0 and not path.delta:
-                    if scene.environment_kind == EnvironmentKind.IMAGE.value:
+                    __match EnvironmentKind(scene.environment_kind):
+                    case .IMAGE:
                         environment_light_pdf = (
                             _light_importance(environment_emission)
                             / scene.total_light_weight if scene.total_light_weight
                             > 0.0 else 0.0
                         )
-                    elif scene.total_light_weight > 0.0:
-                        environment_light_pdf = scene.environment_weight / (
-                            4.0 * pi * scene.total_light_weight
-                        )
+                    case .BLACK | .PROCEDURAL | .UNIFORM:
+                        if scene.total_light_weight > 0.0:
+                            environment_light_pdf = scene.environment_weight / (
+                                4.0 * pi * scene.total_light_weight
+                            )
             var environment_mis_weight = _emissive_hit_weight_from_pdf[
                 integrator
             ](

@@ -1057,13 +1057,12 @@ def trace_blas_set_packet_selected[
 ) -> Hit[frame, length]:
     """Trace triangles with fixed or automatically coherent packet dispatch."""
     comptime assert length > 1
-    comptime assert mode == .FIXED_PACKET or mode == .AUTO_COHERENT
-
-    comptime if mode == .FIXED_PACKET:
+    comptime __match mode:
+    case .FIXED_PACKET:
         return trace_blas_set_packet[
             node_width, leaf_width, length, False, frame
         ](blases, blas_idx, rays, valid)
-    else:
+    case .AUTO_COHERENT:
         if _packet_range_has_common_octant[frame, length, length](
             rays, valid, 0
         ):
@@ -1073,6 +1072,10 @@ def trace_blas_set_packet_selected[
         return trace_blas_set_packet[
             node_width, leaf_width, length, False, frame
         ](blases, blas_idx, rays, valid)
+    case .ADAPTIVE:
+        comptime assert (
+            False
+        ), "adaptive traversal uses the adaptive entry point"
 
 
 @always_inline

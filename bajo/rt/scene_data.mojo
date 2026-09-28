@@ -346,17 +346,22 @@ struct SceneData:
             raise Error("inverse environment transform must be finite")
         if not self._environment.scale.is_finite()[0]:
             raise Error("environment scale must be finite")
+        if not self._environment.kind.is_valid():
+            raise Error("unknown environment kind")
         if (
             self._environment.scale.x[0] < 0.0
             or self._environment.scale.y[0] < 0.0
             or self._environment.scale.z[0] < 0.0
         ):
             raise Error("environment scale must be non-negative")
-        if self._environment.kind == .IMAGE and (
-            self._environment.texture_index
-            >= UInt32(len(self._surfaces.image_textures))
-        ):
-            raise Error("environment texture index is out of range")
+        __match self._environment.kind:
+        case .IMAGE:
+            if self._environment.texture_index >= UInt32(
+                len(self._surfaces.image_textures)
+            ):
+                raise Error("environment texture index is out of range")
+        case .BLACK | .PROCEDURAL | .UNIFORM:
+            pass
 
         for i, sphere in enumerate(self._spheres):
             if not sphere.center.is_finite()[0]:
@@ -507,10 +512,11 @@ struct SceneData:
                     )
 
     def _build_environment_distribution(mut self) raises:
-        if self._environment.kind == .BLACK:
+        var average_radiance = self._environment.scale
+        __match self._environment.kind:
+        case .BLACK:
             return
-
-        if self._environment.kind == .IMAGE:
+        case .IMAGE:
             ref texture = self._surfaces.image_textures[
                 Int(self._environment.texture_index)
             ]
@@ -534,12 +540,12 @@ struct SceneData:
             if total > 0.0:
                 self._environment_weight = 4.0 * pi * total / Float32(count)
             return
-
-        var average_radiance = self._environment.scale
-        if self._environment.kind == .PROCEDURAL:
+        case .PROCEDURAL:
             # The procedural sky is linear in direction.y, whose sphere-wide
             # average is zero.
             average_radiance = Color(0.75, 0.85, 1.0)
+        case .UNIFORM:
+            pass
         self._environment_weight = (
             4.0 * pi * _light_importance(average_radiance)
         )

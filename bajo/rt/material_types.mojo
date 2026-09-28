@@ -60,12 +60,35 @@ struct ImageTexture:
 
 
 @fieldwise_init
-struct EnvironmentKind(Equatable, TrivialRegisterPassable, Writable):
+struct EnvironmentKind(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     var value: UInt32
     comptime BLACK = Self(0)
     comptime PROCEDURAL = Self(1)
     comptime UNIFORM = Self(2)
     comptime IMAGE = Self(3)
+    comptime _enum_case_names = ParameterList.of[
+        "BLACK".value,
+        "PROCEDURAL".value,
+        "UNIFORM".value,
+        "IMAGE".value,
+    ].values
+    comptime _enum_case_types = TypeList.of[
+        Trait=AnyType, NoneType, NoneType, NoneType, NoneType
+    ].values
+
+    def _get_enum_discriminant(self) -> Int:
+        return Int(self.value)
+
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        while True:
+            pass
+
+    def is_valid(self) -> Bool:
+        return self.value <= Self.IMAGE.value
 
 
 struct Environment(Copyable, Writable):

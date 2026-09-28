@@ -325,7 +325,8 @@ struct CpuScene[
         valid: SIMD[.bool, length],
     ) -> Hit[.WORLD, length]:
         """Instantiate the viewer-selected triangle packet traversal."""
-        comptime if traversal_mode == .ADAPTIVE:
+        comptime __match traversal_mode:
+        case .ADAPTIVE:
             comptime assert len(adaptive_packet_sizes) > 0
             return trace_blas_set_packet_adaptive[
                 Self.world_bvh_width,
@@ -334,7 +335,7 @@ struct CpuScene[
                 *adaptive_packet_sizes,
                 frame=.WORLD,
             ](self.triangle_bvh.value(), UInt32(0), rays, valid)
-        else:
+        case .FIXED_PACKET | .AUTO_COHERENT:
             return trace_blas_set_packet_selected[
                 Self.world_bvh_width,
                 Self.world_bvh_width,

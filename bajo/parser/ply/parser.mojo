@@ -6,7 +6,7 @@ from bajo.parser.ply.types import PlyMesh
 
 
 @fieldwise_init
-struct _ScalarType(Equatable, TrivialRegisterPassable):
+struct _ScalarType(EnumLike, Equatable, TrivialRegisterPassable):
     var value: UInt8
 
     comptime I8 = Self(0)
@@ -17,18 +17,56 @@ struct _ScalarType(Equatable, TrivialRegisterPassable):
     comptime U32 = Self(5)
     comptime F32 = Self(6)
     comptime F64 = Self(7)
+    comptime _enum_case_names = ParameterList.of[
+        "I8".value,
+        "U8".value,
+        "I16".value,
+        "U16".value,
+        "I32".value,
+        "U32".value,
+        "F32".value,
+        "F64".value,
+    ].values
+    comptime _enum_case_types = TypeList.of[
+        Trait=AnyType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+    ].values
+
+    def _get_enum_discriminant(self) -> Int:
+        return Int(self.value)
+
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        while True:
+            pass
 
     def byte_width(self) -> Int:
-        if self == .I8 or self == .U8:
+        __match self:
+        case .I8 | .U8:
             return 1
-        if self == .I16 or self == .U16:
+        case .I16 | .U16:
             return 2
-        if self == .I32 or self == .U32 or self == .F32:
+        case .I32 | .U32 | .F32:
             return 4
-        return 8
+        case .F64:
+            return 8
 
     def is_integer(self) -> Bool:
-        return self != .F32 and self != .F64
+        __match self:
+        case .I8 | .U8 | .I16 | .U16 | .I32 | .U32:
+            return True
+        case .F32 | .F64:
+            return False
 
 
 @fieldwise_init
@@ -175,26 +213,30 @@ struct _BinaryCursor[origin: ImmOrigin]:
         return value
 
     def read_integer(mut self, kind: _ScalarType) raises -> Int:
-        if kind == .I8:
+        __match kind:
+        case .I8:
             return Int(bitcast[.int8](self.read_u8()))
-        if kind == .U8:
+        case .U8:
             return Int(self.read_u8())
-        if kind == .I16:
+        case .I16:
             return Int(bitcast[.int16](self.read_u16()))
-        if kind == .U16:
+        case .U16:
             return Int(self.read_u16())
-        if kind == .I32:
+        case .I32:
             return Int(bitcast[.int32](self.read_u32()))
-        if kind == .U32:
+        case .U32:
             return Int(self.read_u32())
-        raise Error("PLY list sizes and indices must use integer types")
+        case .F32 | .F64:
+            raise Error("PLY list sizes and indices must use integer types")
 
     def read_number(mut self, kind: _ScalarType) raises -> Float32:
-        if kind == .F32:
+        __match kind:
+        case .F32:
             return bitcast[.float32](self.read_u32())
-        if kind == .F64:
+        case .F64:
             return Float32(bitcast[.float64](self.read_u64()))
-        return Float32(self.read_integer(kind))
+        case .I8 | .U8 | .I16 | .U16 | .I32 | .U32:
+            return Float32(self.read_integer(kind))
 
 
 def _parse_nonnegative_int(text: ImmStringSpan) raises -> Int:

@@ -32,12 +32,29 @@ struct WAVE_STATUS(Equatable, TrivialRegisterPassable, Writable):
 
 
 @fieldwise_init
-struct WAVE_RNG_DOMAIN(Equatable, TrivialRegisterPassable, Writable):
+struct WAVE_RNG_DOMAIN(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     var v: UInt32
     comptime SHIFT = UInt32(30)
     comptime BSDF = Self(0)
     comptime ROULETTE = Self(1)
     comptime LIGHT = Self(2)
+    comptime _enum_case_names = ParameterList.of[
+        "BSDF".value, "ROULETTE".value, "LIGHT".value
+    ].values
+    comptime _enum_case_types = TypeList.of[
+        Trait=AnyType, NoneType, NoneType, NoneType
+    ].values
+
+    def _get_enum_discriminant(self) -> Int:
+        return Int(self.v)
+
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        while True:
+            pass
 
 
 struct WavePathFloatAbi:

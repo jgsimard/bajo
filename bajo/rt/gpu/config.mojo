@@ -4,7 +4,7 @@ from bajo.bvh.gpu import GpuBvhLayout
 
 
 @fieldwise_init
-struct GpuRtSceneKind(Equatable, ImplicitlyCopyable):
+struct GpuRtSceneKind(EnumLike, Equatable, ImplicitlyCopyable):
     """Enum-like geometry-presence mask used as one specialization value."""
 
     comptime SPHERES = Self(UInt8(1))
@@ -14,8 +14,38 @@ struct GpuRtSceneKind(Equatable, ImplicitlyCopyable):
     comptime SPHERES_INSTANCES = Self(UInt8(5))
     comptime TRIANGLES_INSTANCES = Self(UInt8(6))
     comptime ALL = Self(UInt8(7))
+    comptime _enum_case_names = ParameterList.of[
+        "SPHERES".value,
+        "TRIANGLES".value,
+        "SPHERES_TRIANGLES".value,
+        "INSTANCES".value,
+        "SPHERES_INSTANCES".value,
+        "TRIANGLES_INSTANCES".value,
+        "ALL".value,
+    ].values
+    comptime _enum_case_types = TypeList.of[
+        Trait=AnyType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+    ].values
 
     var bits: UInt8
+
+    def _get_enum_discriminant(self) -> Int:
+        return Int(self.bits) - 1
+
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        while True:
+            pass
 
     def has_spheres(self) -> Bool:
         return Bool(self.bits & UInt8(1))

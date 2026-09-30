@@ -949,33 +949,37 @@ def _parse_text[
         var command_token = lexer.next()
         if command_token.quoted:
             raise Error(t"expected PBRT directive at line {command_token.line}")
-        var command = command_token.value
 
-        if command == "LookAt":
+        __match command_token.value:
+        case "LookAt":
             var v = _fixed_f32(lexer, 9)
             builder.camera_origin = _PointW(v[0], v[1], v[2])
             builder.camera_target = _PointW(v[3], v[4], v[5])
             builder.camera_up = _VecW(v[6], v[7], v[8])
-        elif command == "Camera":
+
+        case "Camera":
             var kind = lexer.next().value
             if kind != "perspective":
                 raise Error("only PBRT perspective cameras are supported")
             var params = _parse_params(lexer)
             builder.camera_fov = params.f32("float fov", 45.0)
-        elif command == "Film":
+
+        case "Film":
             _ = (
                 lexer.next()
             )  # Film implementation; rgb/image are equivalent here.
             var params = _parse_params(lexer)
             builder.image_width = params.integer("integer xresolution", 640)
             builder.image_height = params.integer("integer yresolution", 480)
-        elif command == "Sampler":
+
+        case "Sampler":
             _ = lexer.next()
             var params = _parse_params(lexer)
             builder.samples_per_pixel = params.integer(
                 "integer pixelsamples", 16
             )
-        elif command == "Integrator":
+
+        case "Integrator":
             var integrator_name = lexer.next().value
             if integrator_name != "path" and integrator_name != "volpath":
                 raise Error(
@@ -984,60 +988,76 @@ def _parse_text[
             builder.integrator = .PATH
             var params = _parse_params(lexer)
             builder.max_depth = params.integer("integer maxdepth", 8)
-        elif command == "PixelFilter" or command == "Accelerator":
+
+        case "PixelFilter" | "Accelerator":
             # Bajo supplies these implementation details itself, but consuming
             # their declarations keeps ordinary PBRT scene headers portable.
             _ = lexer.next()
             _ = _parse_params(lexer)
-        elif command == "ColorSpace":
+
+        case "ColorSpace":
             var color_space = lexer.next().value
             if color_space != "srgb":
                 raise Error("only the PBRT sRGB color space is supported")
-        elif command == "Option":
+
+        case "Option":
             # Options affect pbrt's runtime rather than the scene description.
             _ = _parse_params(lexer)
-        elif command == "WorldBegin":
+
+        case "WorldBegin":
             builder.state.transform = _Transform.identity()
-        elif command == "AttributeBegin":
+
+        case "AttributeBegin":
             builder.attribute_stack.append(builder.state.copy())
-        elif command == "AttributeEnd":
+
+        case "AttributeEnd":
             if len(builder.attribute_stack) == 0:
                 raise Error("PBRT AttributeEnd without AttributeBegin")
             builder.state = builder.attribute_stack.pop()
-        elif command == "TransformBegin":
+
+        case "TransformBegin":
             builder.transform_stack.append(builder.state.transform.copy())
-        elif command == "TransformEnd":
+
+        case "TransformEnd":
             if len(builder.transform_stack) == 0:
                 raise Error("PBRT TransformEnd without TransformBegin")
             builder.state.transform = builder.transform_stack.pop()
-        elif command == "Identity":
+
+        case "Identity":
             builder.state.transform = _Transform.identity()
-        elif command == "Translate":
+
+        case "Translate":
             var v = _fixed_f32(lexer, 3)
             builder.state.transform = _compose(
                 builder.state.transform, _translation(v[0], v[1], v[2])
             )
-        elif command == "Scale":
+
+        case "Scale":
             var v = _fixed_f32(lexer, 3)
             builder.state.transform = _compose(
                 builder.state.transform, _scale(v[0], v[1], v[2])
             )
-        elif command == "Rotate":
+
+        case "Rotate":
             var v = _fixed_f32(lexer, 4)
             builder.state.transform = _compose(
                 builder.state.transform, _rotation(v[0], v[1], v[2], v[3])
             )
-        elif command == "Transform":
+
+        case "Transform":
             builder.state.transform = _matrix(_bracket_values(lexer))
-        elif command == "ConcatTransform":
+
+        case "ConcatTransform":
             builder.state.transform = _compose(
                 builder.state.transform, _matrix(_bracket_values(lexer))
             )
-        elif command == "ReverseOrientation":
+
+        case "ReverseOrientation":
             builder.state.reverse_orientation = (
                 not builder.state.reverse_orientation
             )
-        elif command == "Texture":
+
+        case "Texture":
             _texture(
                 builder,
                 lexer.next().value,
@@ -1046,22 +1066,26 @@ def _parse_text[
                 _parse_params(lexer),
                 path,
             )
-        elif command == "Material":
+
+        case "Material":
             var model = lexer.next().value
             builder.state.surface = _surface(
                 builder, model, _parse_params(lexer)
             )
-        elif command == "MakeNamedMaterial":
+
+        case "MakeNamedMaterial":
             var name = lexer.next().value
             var params = _parse_params(lexer)
             var model = params.string("string type", "diffuse")
             builder.named_materials[name] = _surface(builder, model, params)
-        elif command == "NamedMaterial":
+
+        case "NamedMaterial":
             var name = lexer.next().value
             if name not in builder.named_materials:
                 raise Error("unknown PBRT named material: " + name)
             builder.state.surface = builder.named_materials[name].copy()
-        elif command == "LightSource":
+
+        case "LightSource":
             var model = lexer.next().value
             var params = _parse_params(lexer)
             if model != "infinite":
@@ -1090,7 +1114,8 @@ def _parse_text[
                     builder.state.transform,
                 )
             builder.has_environment = True
-        elif command == "AreaLightSource":
+
+        case "AreaLightSource":
             var model = lexer.next().value
             if model != "diffuse":
                 raise Error("only diffuse PBRT area lights are supported")
@@ -1099,7 +1124,8 @@ def _parse_text[
             builder.state.emission = params.color("L", Color(1.0)) * params.f32(
                 "float scale", 1.0
             )
-        elif command == "Shape":
+
+        case "Shape":
             _shape(
                 builder,
                 lexer.next().value,
@@ -1107,7 +1133,8 @@ def _parse_text[
                 path,
                 loader,
             )
-        elif command == "Include":
+
+        case "Include":
             var include_name = lexer.next().value
             var include_path = std.os.path.join(
                 std.os.path.dirname(path), include_name
@@ -1119,11 +1146,13 @@ def _parse_text[
                 loader,
                 depth + 1,
             )
-        elif command == "WorldEnd":
+
+        case "WorldEnd":
             pass
-        else:
+
+        case _:
             raise Error(
-                t"unsupported PBRT directive '{command}' at line"
+                t"unsupported PBRT directive '{command_token.value}' at line"
                 t" {command_token.line}"
             )
 
@@ -1158,45 +1187,59 @@ def _parse_camera_text[
         var command_token = lexer.next()
         if command_token.quoted:
             raise Error(t"expected PBRT directive at line {command_token.line}")
-        var command = command_token.value
-        if command == "WorldBegin":
+
+        __match command_token.value:
+        case "WorldBegin":
             return True
-        if command == "LookAt":
+
+        case "LookAt":
             var values = _fixed_f32(lexer, 9)
             builder.camera_origin = _PointW(values[0], values[1], values[2])
             builder.camera_target = _PointW(values[3], values[4], values[5])
             builder.camera_up = _VecW(values[6], values[7], values[8])
-        elif command == "Camera":
+
+        case "Camera":
             var kind = lexer.next().value
             if kind != "perspective":
                 raise Error("only PBRT perspective cameras are supported")
             var params = _parse_params(lexer)
             builder.camera_fov = params.f32("float fov", 45.0)
-        elif command == "Film":
+
+        case "Film":
             _ = lexer.next()
             _ = _parse_params(lexer)
-        elif command == "Sampler":
+
+        case "Sampler":
             _ = lexer.next()
             _ = _parse_params(lexer)
-        elif command == "Integrator":
+
+        case "Integrator":
             _ = lexer.next()
             _ = _parse_params(lexer)
-        elif command == "PixelFilter" or command == "Accelerator":
+
+        case "PixelFilter" | "Accelerator":
             _ = lexer.next()
             _ = _parse_params(lexer)
-        elif command == "ColorSpace":
+
+        case "ColorSpace":
             _ = lexer.next()
-        elif command == "Option":
+
+        case "Option":
             _ = _parse_params(lexer)
-        elif command == "Identity":
+
+        case "Identity":
             pass
-        elif command == "Translate" or command == "Scale":
+
+        case "Translate" | "Scale":
             _ = _fixed_f32(lexer, 3)
-        elif command == "Rotate":
+
+        case "Rotate":
             _ = _fixed_f32(lexer, 4)
-        elif command == "Transform" or command == "ConcatTransform":
+
+        case "Transform" | "ConcatTransform":
             _ = _bracket_values(lexer)
-        elif command == "Include":
+
+        case "Include":
             var include_name = lexer.next().value
             var include_path = std.os.path.join(
                 std.os.path.dirname(path), include_name
@@ -1209,10 +1252,10 @@ def _parse_camera_text[
                 depth + 1,
             ):
                 return True
-        else:
+        case _:
             raise Error(
-                t"unsupported PBRT options directive '{command}' at line"
-                t" {command_token.line}"
+                t"unsupported PBRT options directive '{command_token.value}' at"
+                t" line {command_token.line}"
             )
     return False
 

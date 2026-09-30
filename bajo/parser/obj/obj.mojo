@@ -213,14 +213,15 @@ def _parse_face_cursor(
     mesh.indices.append(first.idx)
     count += 1
 
-    if shape == 1:
+    __match shape:
+    case 1:
         while True:
             cur.skip_ws()
             if cur.pos >= len(cur.bytes):
                 break
             mesh.indices.append(cur.next_index_p_only_at_token(position_limit))
             count += 1
-    elif shape == 2:
+    case 2:
         while True:
             cur.skip_ws()
             if cur.pos >= len(cur.bytes):
@@ -229,7 +230,7 @@ def _parse_face_cursor(
                 cur.next_index_p_t_at_token(position_limit, texcoord_limit)
             )
             count += 1
-    elif shape == 3:
+    case 3:
         while True:
             cur.skip_ws()
             if cur.pos >= len(cur.bytes):
@@ -238,7 +239,7 @@ def _parse_face_cursor(
                 cur.next_index_p_n_at_token(position_limit, normal_limit)
             )
             count += 1
-    else:
+    case _:
         while True:
             cur.skip_ws()
             if cur.pos >= len(cur.bytes):

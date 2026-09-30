@@ -132,7 +132,7 @@ struct _HeaderCursor[origin: ImmOrigin]:
                 self.line += 1
             self.pos += 1
 
-    def next(mut self) raises -> StringSpan[Self.origin]:
+    def next(mut self) raises -> ImmStringSpan[Self.origin]:
         self._skip_space()
         if self.pos >= len(self.bytes):
             raise Error("unexpected end of PLY header")
@@ -141,9 +141,7 @@ struct _HeaderCursor[origin: ImmOrigin]:
             self.bytes.unsafe_get(self.pos)
         ):
             self.pos += 1
-        return StringSpan[Self.origin](
-            unsafe_from_utf8=self.bytes[start : self.pos]
-        )
+        return {unsafe_from_utf8 = self.bytes[start : self.pos]}
 
     def skip_line(mut self):
         while self.pos < len(self.bytes):
@@ -252,42 +250,60 @@ def _parse_nonnegative_int(text: ImmStringSpan) raises -> Int:
 
 
 def _parse_scalar_type(name: ImmStringSpan) raises -> _ScalarType:
-    if name == "char" or name == "int8":
+    __match name:
+    case "char" | "int8":
         return .I8
-    if name == "uchar" or name == "uint8":
+
+    case "uchar" | "uint8":
         return .U8
-    if name == "short" or name == "int16":
+
+    case "short" | "int16":
         return .I16
-    if name == "ushort" or name == "uint16":
+
+    case "ushort" | "uint16":
         return .U16
-    if name == "int" or name == "int32":
+
+    case "int" | "int32":
         return .I32
-    if name == "uint" or name == "uint32":
+
+    case "uint" | "uint32":
         return .U32
-    if name == "float" or name == "float32":
+
+    case "float" | "float32":
         return .F32
-    if name == "double" or name == "float64":
+
+    case "double" | "float64":
         return .F64
+
     raise Error("unsupported PLY scalar type: " + String(name))
 
 
 def _vertex_semantic(name: ImmStringSpan) -> UInt8:
-    if name == "x":
+    __match name:
+    case "x":
         return _X
-    if name == "y":
+
+    case "y":
         return _Y
-    if name == "z":
+
+    case "z":
         return _Z
-    if name == "nx":
+
+    case "nx":
         return _NX
-    if name == "ny":
+
+    case "ny":
         return _NY
-    if name == "nz":
+
+    case "nz":
         return _NZ
-    if name == "u" or name == "s" or name == "texture_u":
+
+    case "u" | "s" | "texture_u":
         return _U
-    if name == "v" or name == "t" or name == "texture_v":
+
+    case "v" | "t" | "texture_v":
         return _V
+
     return _IGNORE
 
 
@@ -312,10 +328,12 @@ def _parse_property(
         if is_list:
             raise Error("PLY vertex list properties are not supported")
         semantic = _vertex_semantic(name)
+
     elif name == "vertex_indices" or name == "vertex_index":
         if not is_list:
             raise Error("PLY vertex_indices must be a list property")
         semantic = _VERTEX_INDICES
+
     return _Property(scalar_type, list_item_type, semantic, is_list)
 
 

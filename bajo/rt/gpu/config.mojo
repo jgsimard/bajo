@@ -3,17 +3,16 @@
 from bajo.bvh.gpu import GpuBvhLayout
 
 
-@fieldwise_init
 struct GpuRtSceneKind(EnumLike, Equatable, ImplicitlyCopyable):
     """Enum-like geometry-presence mask used as one specialization value."""
 
-    comptime SPHERES = Self(UInt8(1))
-    comptime TRIANGLES = Self(UInt8(2))
-    comptime SPHERES_TRIANGLES = Self(UInt8(3))
-    comptime INSTANCES = Self(UInt8(4))
-    comptime SPHERES_INSTANCES = Self(UInt8(5))
-    comptime TRIANGLES_INSTANCES = Self(UInt8(6))
-    comptime ALL = Self(UInt8(7))
+    comptime SPHERES = Self.__init__[1]()
+    comptime TRIANGLES = Self.__init__[2]()
+    comptime SPHERES_TRIANGLES = Self.__init__[3]()
+    comptime INSTANCES = Self.__init__[4]()
+    comptime SPHERES_INSTANCES = Self.__init__[5]()
+    comptime TRIANGLES_INSTANCES = Self.__init__[6]()
+    comptime ALL = Self.__init__[7]()
     comptime _enum_case_names = ParameterList.of[
         "SPHERES".value,
         "TRIANGLES".value,
@@ -35,6 +34,19 @@ struct GpuRtSceneKind(EnumLike, Equatable, ImplicitlyCopyable):
     ].values
 
     var bits: UInt8
+
+    def __init__[bits: Int](out self):
+        """Construct a scene kind from a compile-time geometry mask."""
+        comptime assert 1 <= bits <= 7
+        self.bits = UInt8(bits)
+
+    def __init__(out self, bits: Int) raises:
+        """Construct a scene kind from a nonempty geometry mask."""
+        if bits < 1 or bits > 7:
+            raise Error(
+                "invalid GPU scene kind: expected a geometry mask from 1 to 7"
+            )
+        self.bits = UInt8(bits)
 
     def _get_enum_discriminant(self) -> Int:
         return Int(self.bits) - 1

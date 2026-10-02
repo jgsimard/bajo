@@ -772,76 +772,129 @@ def _shape[
     if builder.state.area_light:
         surface = builder.surfaces.add_emissive(builder.state.emission)
 
-    if kind == "sphere":
-        var center = builder.state.transform.point(_PointL(0.0))
-        var x_axis = builder.state.transform.vector(_VecL(1.0, 0.0, 0.0))
-        var y_axis = builder.state.transform.vector(_VecL(0.0, 1.0, 0.0))
-        var z_axis = builder.state.transform.vector(_VecL(0.0, 0.0, 1.0))
-        var sx = sqrt(
-            x_axis.x * x_axis.x + x_axis.y * x_axis.y + x_axis.z * x_axis.z
-        )
-        var sy = sqrt(
-            y_axis.x * y_axis.x + y_axis.y * y_axis.y + y_axis.z * y_axis.z
-        )
-        var sz = sqrt(
-            z_axis.x * z_axis.x + z_axis.y * z_axis.y + z_axis.z * z_axis.z
-        )
-        if abs(sx - sy) > 1e-5 or abs(sx - sz) > 1e-5:
-            raise Error(
-                "non-uniformly transformed PBRT spheres are not supported"
+    __match kind:
+        case "sphere":
+            var center = builder.state.transform.point(_PointL(0.0))
+            var x_axis = builder.state.transform.vector(_VecL(1.0, 0.0, 0.0))
+            var y_axis = builder.state.transform.vector(_VecL(0.0, 1.0, 0.0))
+            var z_axis = builder.state.transform.vector(_VecL(0.0, 0.0, 1.0))
+            var sx = sqrt(
+                x_axis.x * x_axis.x + x_axis.y * x_axis.y + x_axis.z * x_axis.z
             )
-        builder.add_sphere(
-            center,
-            params.f32("float radius", 1.0) * sx,
-            surface,
-        )
-        return
-
-    if kind == "plymesh":
-        var filename = params.string("string filename", "")
-        if filename.byte_length() == 0:
-            raise Error("PBRT plymesh requires a string filename")
-        var mesh_path = std.os.path.join(
-            std.os.path.dirname(source_path), filename
-        )
-        var mesh = loader.read_ply_mesh(mesh_path)
-        builder.add_ply_mesh(mesh, surface)
-        return
-
-    if kind == "trianglemesh" or kind == "loopsubdiv":
-        # The control cage is already an indexed triangle mesh. Full Loop
-        # refinement can be added later without changing scene ingestion.
-        var points = params.values("point3 P")
-        if len(points) == 0:
-            points = params.values("point P")
-        if len(points) % 3 != 0:
-            raise Error("PBRT trianglemesh P must contain xyz triples")
-        var indices = params.values("integer indices")
-        if len(indices) == 0:
-            if len(points) % 9 != 0:
+            var sy = sqrt(
+                y_axis.x * y_axis.x + y_axis.y * y_axis.y + y_axis.z * y_axis.z
+            )
+            var sz = sqrt(
+                z_axis.x * z_axis.x + z_axis.y * z_axis.y + z_axis.z * z_axis.z
+            )
+            if abs(sx - sy) > 1e-5 or abs(sx - sz) > 1e-5:
                 raise Error(
-                    "unindexed PBRT trianglemesh must contain triangles"
+                    "non-uniformly transformed PBRT spheres are not supported"
                 )
-            for base in range(0, len(points), 9):
+            builder.add_sphere(
+                center,
+                params.f32("float radius", 1.0) * sx,
+                surface,
+            )
+            return
+
+        case "plymesh":
+            var filename = params.string("string filename", "")
+            if filename.byte_length() == 0:
+                raise Error("PBRT plymesh requires a string filename")
+            var mesh_path = std.os.path.join(
+                std.os.path.dirname(source_path), filename
+            )
+            var mesh = loader.read_ply_mesh(mesh_path)
+            builder.add_ply_mesh(mesh, surface)
+            return
+
+        case "trianglemesh" | "loopsubdiv":
+            # The control cage is already an indexed triangle mesh. Full Loop
+            # refinement can be added later without changing scene ingestion.
+            var points = params.values("point3 P")
+            if len(points) == 0:
+                points = params.values("point P")
+            if len(points) % 3 != 0:
+                raise Error("PBRT trianglemesh P must contain xyz triples")
+            var indices = params.values("integer indices")
+            if len(indices) == 0:
+                if len(points) % 9 != 0:
+                    raise Error(
+                        "unindexed PBRT trianglemesh must contain triangles"
+                    )
+                for base in range(0, len(points), 9):
+                    var p0 = builder.state.transform.point(
+                        _PointL(
+                            _parse_f32(points[base]),
+                            _parse_f32(points[base + 1]),
+                            _parse_f32(points[base + 2]),
+                        )
+                    )
+                    var p1 = builder.state.transform.point(
+                        _PointL(
+                            _parse_f32(points[base + 3]),
+                            _parse_f32(points[base + 4]),
+                            _parse_f32(points[base + 5]),
+                        )
+                    )
+                    var p2 = builder.state.transform.point(
+                        _PointL(
+                            _parse_f32(points[base + 6]),
+                            _parse_f32(points[base + 7]),
+                            _parse_f32(points[base + 8]),
+                        )
+                    )
+                    if builder.state.reverse_orientation:
+                        builder.add_triangle(
+                            p0,
+                            p2,
+                            p1,
+                            surface,
+                        )
+                    else:
+                        builder.add_triangle(
+                            p0,
+                            p1,
+                            p2,
+                            surface,
+                        )
+                return
+            if len(indices) % 3 != 0:
+                raise Error("PBRT trianglemesh indices must contain triples")
+            var point_count = len(points) / 3
+            for base in range(0, len(indices), 3):
+                var i0 = _parse_int(indices[base])
+                var i1 = _parse_int(indices[base + 1])
+                var i2 = _parse_int(indices[base + 2])
+                if (
+                    i0 < 0
+                    or i0 >= point_count
+                    or i1 < 0
+                    or i1 >= point_count
+                    or i2 < 0
+                    or i2 >= point_count
+                ):
+                    raise Error("PBRT trianglemesh index is out of range")
                 var p0 = builder.state.transform.point(
                     _PointL(
-                        _parse_f32(points[base]),
-                        _parse_f32(points[base + 1]),
-                        _parse_f32(points[base + 2]),
+                        _parse_f32(points[3 * i0]),
+                        _parse_f32(points[3 * i0 + 1]),
+                        _parse_f32(points[3 * i0 + 2]),
                     )
                 )
                 var p1 = builder.state.transform.point(
                     _PointL(
-                        _parse_f32(points[base + 3]),
-                        _parse_f32(points[base + 4]),
-                        _parse_f32(points[base + 5]),
+                        _parse_f32(points[3 * i1]),
+                        _parse_f32(points[3 * i1 + 1]),
+                        _parse_f32(points[3 * i1 + 2]),
                     )
                 )
                 var p2 = builder.state.transform.point(
                     _PointL(
-                        _parse_f32(points[base + 6]),
-                        _parse_f32(points[base + 7]),
-                        _parse_f32(points[base + 8]),
+                        _parse_f32(points[3 * i2]),
+                        _parse_f32(points[3 * i2 + 1]),
+                        _parse_f32(points[3 * i2 + 2]),
                     )
                 )
                 if builder.state.reverse_orientation:
@@ -859,58 +912,6 @@ def _shape[
                         surface,
                     )
             return
-        if len(indices) % 3 != 0:
-            raise Error("PBRT trianglemesh indices must contain triples")
-        var point_count = len(points) / 3
-        for base in range(0, len(indices), 3):
-            var i0 = _parse_int(indices[base])
-            var i1 = _parse_int(indices[base + 1])
-            var i2 = _parse_int(indices[base + 2])
-            if (
-                i0 < 0
-                or i0 >= point_count
-                or i1 < 0
-                or i1 >= point_count
-                or i2 < 0
-                or i2 >= point_count
-            ):
-                raise Error("PBRT trianglemesh index is out of range")
-            var p0 = builder.state.transform.point(
-                _PointL(
-                    _parse_f32(points[3 * i0]),
-                    _parse_f32(points[3 * i0 + 1]),
-                    _parse_f32(points[3 * i0 + 2]),
-                )
-            )
-            var p1 = builder.state.transform.point(
-                _PointL(
-                    _parse_f32(points[3 * i1]),
-                    _parse_f32(points[3 * i1 + 1]),
-                    _parse_f32(points[3 * i1 + 2]),
-                )
-            )
-            var p2 = builder.state.transform.point(
-                _PointL(
-                    _parse_f32(points[3 * i2]),
-                    _parse_f32(points[3 * i2 + 1]),
-                    _parse_f32(points[3 * i2 + 2]),
-                )
-            )
-            if builder.state.reverse_orientation:
-                builder.add_triangle(
-                    p0,
-                    p2,
-                    p1,
-                    surface,
-                )
-            else:
-                builder.add_triangle(
-                    p0,
-                    p1,
-                    p2,
-                    surface,
-                )
-        return
     raise Error("unsupported PBRT shape: " + kind)
 
 
@@ -951,210 +952,216 @@ def _parse_text[
             raise Error(t"expected PBRT directive at line {command_token.line}")
 
         __match command_token.value:
-        case "LookAt":
-            var v = _fixed_f32(lexer, 9)
-            builder.camera_origin = _PointW(v[0], v[1], v[2])
-            builder.camera_target = _PointW(v[3], v[4], v[5])
-            builder.camera_up = _VecW(v[6], v[7], v[8])
+            case "LookAt":
+                var v = _fixed_f32(lexer, 9)
+                builder.camera_origin = _PointW(v[0], v[1], v[2])
+                builder.camera_target = _PointW(v[3], v[4], v[5])
+                builder.camera_up = _VecW(v[6], v[7], v[8])
 
-        case "Camera":
-            var kind = lexer.next().value
-            if kind != "perspective":
-                raise Error("only PBRT perspective cameras are supported")
-            var params = _parse_params(lexer)
-            builder.camera_fov = params.f32("float fov", 45.0)
+            case "Camera":
+                var kind = lexer.next().value
+                if kind != "perspective":
+                    raise Error("only PBRT perspective cameras are supported")
+                var params = _parse_params(lexer)
+                builder.camera_fov = params.f32("float fov", 45.0)
 
-        case "Film":
-            _ = (
-                lexer.next()
-            )  # Film implementation; rgb/image are equivalent here.
-            var params = _parse_params(lexer)
-            builder.image_width = params.integer("integer xresolution", 640)
-            builder.image_height = params.integer("integer yresolution", 480)
+            case "Film":
+                _ = (
+                    lexer.next()
+                )  # Film implementation; rgb/image are equivalent here.
+                var params = _parse_params(lexer)
+                builder.image_width = params.integer("integer xresolution", 640)
+                builder.image_height = params.integer(
+                    "integer yresolution", 480
+                )
 
-        case "Sampler":
-            _ = lexer.next()
-            var params = _parse_params(lexer)
-            builder.samples_per_pixel = params.integer(
-                "integer pixelsamples", 16
-            )
+            case "Sampler":
+                _ = lexer.next()
+                var params = _parse_params(lexer)
+                builder.samples_per_pixel = params.integer(
+                    "integer pixelsamples", 16
+                )
 
-        case "Integrator":
-            var integrator_name = lexer.next().value
-            if integrator_name != "path" and integrator_name != "volpath":
+            case "Integrator":
+                var integrator_name = lexer.next().value
+                if integrator_name != "path" and integrator_name != "volpath":
+                    raise Error(
+                        "only the PBRT path/volpath integrators are supported"
+                    )
+                builder.integrator = .PATH
+                var params = _parse_params(lexer)
+                builder.max_depth = params.integer("integer maxdepth", 8)
+
+            case "PixelFilter" | "Accelerator":
+                # Bajo supplies these implementation details itself, but consuming
+                # their declarations keeps ordinary PBRT scene headers portable.
+                _ = lexer.next()
+                _ = _parse_params(lexer)
+
+            case "ColorSpace":
+                var color_space = lexer.next().value
+                if color_space != "srgb":
+                    raise Error("only the PBRT sRGB color space is supported")
+
+            case "Option":
+                # Options affect pbrt's runtime rather than the scene description.
+                _ = _parse_params(lexer)
+
+            case "WorldBegin":
+                builder.state.transform = _Transform.identity()
+
+            case "AttributeBegin":
+                builder.attribute_stack.append(builder.state.copy())
+
+            case "AttributeEnd":
+                if len(builder.attribute_stack) == 0:
+                    raise Error("PBRT AttributeEnd without AttributeBegin")
+                builder.state = builder.attribute_stack.pop()
+
+            case "TransformBegin":
+                builder.transform_stack.append(builder.state.transform.copy())
+
+            case "TransformEnd":
+                if len(builder.transform_stack) == 0:
+                    raise Error("PBRT TransformEnd without TransformBegin")
+                builder.state.transform = builder.transform_stack.pop()
+
+            case "Identity":
+                builder.state.transform = _Transform.identity()
+
+            case "Translate":
+                var v = _fixed_f32(lexer, 3)
+                builder.state.transform = _compose(
+                    builder.state.transform, _translation(v[0], v[1], v[2])
+                )
+
+            case "Scale":
+                var v = _fixed_f32(lexer, 3)
+                builder.state.transform = _compose(
+                    builder.state.transform, _scale(v[0], v[1], v[2])
+                )
+
+            case "Rotate":
+                var v = _fixed_f32(lexer, 4)
+                builder.state.transform = _compose(
+                    builder.state.transform, _rotation(v[0], v[1], v[2], v[3])
+                )
+
+            case "Transform":
+                builder.state.transform = _matrix(_bracket_values(lexer))
+
+            case "ConcatTransform":
+                builder.state.transform = _compose(
+                    builder.state.transform, _matrix(_bracket_values(lexer))
+                )
+
+            case "ReverseOrientation":
+                builder.state.reverse_orientation = (
+                    not builder.state.reverse_orientation
+                )
+
+            case "Texture":
+                _texture(
+                    builder,
+                    lexer.next().value,
+                    lexer.next().value,
+                    lexer.next().value,
+                    _parse_params(lexer),
+                    path,
+                )
+
+            case "Material":
+                var model = lexer.next().value
+                builder.state.surface = _surface(
+                    builder, model, _parse_params(lexer)
+                )
+
+            case "MakeNamedMaterial":
+                var name = lexer.next().value
+                var params = _parse_params(lexer)
+                var model = params.string("string type", "diffuse")
+                builder.named_materials[name] = _surface(builder, model, params)
+
+            case "NamedMaterial":
+                var name = lexer.next().value
+                if name not in builder.named_materials:
+                    raise Error("unknown PBRT named material: " + name)
+                builder.state.surface = builder.named_materials[name].copy()
+
+            case "LightSource":
+                var model = lexer.next().value
+                var params = _parse_params(lexer)
+                if model != "infinite":
+                    raise Error(
+                        "only infinite PBRT non-area lights are supported"
+                    )
+                if builder.has_environment:
+                    raise Error(
+                        "multiple PBRT infinite lights are not supported"
+                    )
+                var multiplier = params.color("L", Color(1.0)) * params.f32(
+                    "float scale", 1.0
+                )
+                var filename = params.string("string filename", "")
+                if filename.byte_length() == 0:
+                    builder.environment = Environment.uniform(multiplier)
+                else:
+                    var image_path = std.os.path.join(
+                        std.os.path.dirname(path), filename
+                    )
+                    var image_index = UInt32(len(builder.image_paths))
+                    builder.image_paths.append(image_path)
+                    var inverse = builder.state.transform.inverse()
+                    if not inverse.mask[0]:
+                        raise Error("PBRT infinite light transform is singular")
+                    builder.environment = Environment.image(
+                        image_index,
+                        multiplier,
+                        inverse.inv,
+                        builder.state.transform,
+                    )
+                builder.has_environment = True
+
+            case "AreaLightSource":
+                var model = lexer.next().value
+                if model != "diffuse":
+                    raise Error("only diffuse PBRT area lights are supported")
+                var params = _parse_params(lexer)
+                builder.state.area_light = True
+                builder.state.emission = params.color(
+                    "L", Color(1.0)
+                ) * params.f32("float scale", 1.0)
+
+            case "Shape":
+                _shape(
+                    builder,
+                    lexer.next().value,
+                    _parse_params(lexer),
+                    path,
+                    loader,
+                )
+
+            case "Include":
+                var include_name = lexer.next().value
+                var include_path = std.os.path.join(
+                    std.os.path.dirname(path), include_name
+                )
+                _parse_text(
+                    builder,
+                    loader.read_text(include_path),
+                    include_path,
+                    loader,
+                    depth + 1,
+                )
+
+            case "WorldEnd":
+                pass
+
+            case _:
                 raise Error(
-                    "only the PBRT path/volpath integrators are supported"
+                    t"unsupported PBRT directive '{command_token.value}' at"
+                    t" line {command_token.line}"
                 )
-            builder.integrator = .PATH
-            var params = _parse_params(lexer)
-            builder.max_depth = params.integer("integer maxdepth", 8)
-
-        case "PixelFilter" | "Accelerator":
-            # Bajo supplies these implementation details itself, but consuming
-            # their declarations keeps ordinary PBRT scene headers portable.
-            _ = lexer.next()
-            _ = _parse_params(lexer)
-
-        case "ColorSpace":
-            var color_space = lexer.next().value
-            if color_space != "srgb":
-                raise Error("only the PBRT sRGB color space is supported")
-
-        case "Option":
-            # Options affect pbrt's runtime rather than the scene description.
-            _ = _parse_params(lexer)
-
-        case "WorldBegin":
-            builder.state.transform = _Transform.identity()
-
-        case "AttributeBegin":
-            builder.attribute_stack.append(builder.state.copy())
-
-        case "AttributeEnd":
-            if len(builder.attribute_stack) == 0:
-                raise Error("PBRT AttributeEnd without AttributeBegin")
-            builder.state = builder.attribute_stack.pop()
-
-        case "TransformBegin":
-            builder.transform_stack.append(builder.state.transform.copy())
-
-        case "TransformEnd":
-            if len(builder.transform_stack) == 0:
-                raise Error("PBRT TransformEnd without TransformBegin")
-            builder.state.transform = builder.transform_stack.pop()
-
-        case "Identity":
-            builder.state.transform = _Transform.identity()
-
-        case "Translate":
-            var v = _fixed_f32(lexer, 3)
-            builder.state.transform = _compose(
-                builder.state.transform, _translation(v[0], v[1], v[2])
-            )
-
-        case "Scale":
-            var v = _fixed_f32(lexer, 3)
-            builder.state.transform = _compose(
-                builder.state.transform, _scale(v[0], v[1], v[2])
-            )
-
-        case "Rotate":
-            var v = _fixed_f32(lexer, 4)
-            builder.state.transform = _compose(
-                builder.state.transform, _rotation(v[0], v[1], v[2], v[3])
-            )
-
-        case "Transform":
-            builder.state.transform = _matrix(_bracket_values(lexer))
-
-        case "ConcatTransform":
-            builder.state.transform = _compose(
-                builder.state.transform, _matrix(_bracket_values(lexer))
-            )
-
-        case "ReverseOrientation":
-            builder.state.reverse_orientation = (
-                not builder.state.reverse_orientation
-            )
-
-        case "Texture":
-            _texture(
-                builder,
-                lexer.next().value,
-                lexer.next().value,
-                lexer.next().value,
-                _parse_params(lexer),
-                path,
-            )
-
-        case "Material":
-            var model = lexer.next().value
-            builder.state.surface = _surface(
-                builder, model, _parse_params(lexer)
-            )
-
-        case "MakeNamedMaterial":
-            var name = lexer.next().value
-            var params = _parse_params(lexer)
-            var model = params.string("string type", "diffuse")
-            builder.named_materials[name] = _surface(builder, model, params)
-
-        case "NamedMaterial":
-            var name = lexer.next().value
-            if name not in builder.named_materials:
-                raise Error("unknown PBRT named material: " + name)
-            builder.state.surface = builder.named_materials[name].copy()
-
-        case "LightSource":
-            var model = lexer.next().value
-            var params = _parse_params(lexer)
-            if model != "infinite":
-                raise Error("only infinite PBRT non-area lights are supported")
-            if builder.has_environment:
-                raise Error("multiple PBRT infinite lights are not supported")
-            var multiplier = params.color("L", Color(1.0)) * params.f32(
-                "float scale", 1.0
-            )
-            var filename = params.string("string filename", "")
-            if filename.byte_length() == 0:
-                builder.environment = Environment.uniform(multiplier)
-            else:
-                var image_path = std.os.path.join(
-                    std.os.path.dirname(path), filename
-                )
-                var image_index = UInt32(len(builder.image_paths))
-                builder.image_paths.append(image_path)
-                var inverse = builder.state.transform.inverse()
-                if not inverse.mask[0]:
-                    raise Error("PBRT infinite light transform is singular")
-                builder.environment = Environment.image(
-                    image_index,
-                    multiplier,
-                    inverse.inv,
-                    builder.state.transform,
-                )
-            builder.has_environment = True
-
-        case "AreaLightSource":
-            var model = lexer.next().value
-            if model != "diffuse":
-                raise Error("only diffuse PBRT area lights are supported")
-            var params = _parse_params(lexer)
-            builder.state.area_light = True
-            builder.state.emission = params.color("L", Color(1.0)) * params.f32(
-                "float scale", 1.0
-            )
-
-        case "Shape":
-            _shape(
-                builder,
-                lexer.next().value,
-                _parse_params(lexer),
-                path,
-                loader,
-            )
-
-        case "Include":
-            var include_name = lexer.next().value
-            var include_path = std.os.path.join(
-                std.os.path.dirname(path), include_name
-            )
-            _parse_text(
-                builder,
-                loader.read_text(include_path),
-                include_path,
-                loader,
-                depth + 1,
-            )
-
-        case "WorldEnd":
-            pass
-
-        case _:
-            raise Error(
-                t"unsupported PBRT directive '{command_token.value}' at line"
-                t" {command_token.line}"
-            )
 
 
 def _parse_pbrt[
@@ -1189,74 +1196,74 @@ def _parse_camera_text[
             raise Error(t"expected PBRT directive at line {command_token.line}")
 
         __match command_token.value:
-        case "WorldBegin":
-            return True
-
-        case "LookAt":
-            var values = _fixed_f32(lexer, 9)
-            builder.camera_origin = _PointW(values[0], values[1], values[2])
-            builder.camera_target = _PointW(values[3], values[4], values[5])
-            builder.camera_up = _VecW(values[6], values[7], values[8])
-
-        case "Camera":
-            var kind = lexer.next().value
-            if kind != "perspective":
-                raise Error("only PBRT perspective cameras are supported")
-            var params = _parse_params(lexer)
-            builder.camera_fov = params.f32("float fov", 45.0)
-
-        case "Film":
-            _ = lexer.next()
-            _ = _parse_params(lexer)
-
-        case "Sampler":
-            _ = lexer.next()
-            _ = _parse_params(lexer)
-
-        case "Integrator":
-            _ = lexer.next()
-            _ = _parse_params(lexer)
-
-        case "PixelFilter" | "Accelerator":
-            _ = lexer.next()
-            _ = _parse_params(lexer)
-
-        case "ColorSpace":
-            _ = lexer.next()
-
-        case "Option":
-            _ = _parse_params(lexer)
-
-        case "Identity":
-            pass
-
-        case "Translate" | "Scale":
-            _ = _fixed_f32(lexer, 3)
-
-        case "Rotate":
-            _ = _fixed_f32(lexer, 4)
-
-        case "Transform" | "ConcatTransform":
-            _ = _bracket_values(lexer)
-
-        case "Include":
-            var include_name = lexer.next().value
-            var include_path = std.os.path.join(
-                std.os.path.dirname(path), include_name
-            )
-            if _parse_camera_text(
-                builder,
-                loader.read_text(include_path),
-                include_path,
-                loader,
-                depth + 1,
-            ):
+            case "WorldBegin":
                 return True
-        case _:
-            raise Error(
-                t"unsupported PBRT options directive '{command_token.value}' at"
-                t" line {command_token.line}"
-            )
+
+            case "LookAt":
+                var values = _fixed_f32(lexer, 9)
+                builder.camera_origin = _PointW(values[0], values[1], values[2])
+                builder.camera_target = _PointW(values[3], values[4], values[5])
+                builder.camera_up = _VecW(values[6], values[7], values[8])
+
+            case "Camera":
+                var kind = lexer.next().value
+                if kind != "perspective":
+                    raise Error("only PBRT perspective cameras are supported")
+                var params = _parse_params(lexer)
+                builder.camera_fov = params.f32("float fov", 45.0)
+
+            case "Film":
+                _ = lexer.next()
+                _ = _parse_params(lexer)
+
+            case "Sampler":
+                _ = lexer.next()
+                _ = _parse_params(lexer)
+
+            case "Integrator":
+                _ = lexer.next()
+                _ = _parse_params(lexer)
+
+            case "PixelFilter" | "Accelerator":
+                _ = lexer.next()
+                _ = _parse_params(lexer)
+
+            case "ColorSpace":
+                _ = lexer.next()
+
+            case "Option":
+                _ = _parse_params(lexer)
+
+            case "Identity":
+                pass
+
+            case "Translate" | "Scale":
+                _ = _fixed_f32(lexer, 3)
+
+            case "Rotate":
+                _ = _fixed_f32(lexer, 4)
+
+            case "Transform" | "ConcatTransform":
+                _ = _bracket_values(lexer)
+
+            case "Include":
+                var include_name = lexer.next().value
+                var include_path = std.os.path.join(
+                    std.os.path.dirname(path), include_name
+                )
+                if _parse_camera_text(
+                    builder,
+                    loader.read_text(include_path),
+                    include_path,
+                    loader,
+                    depth + 1,
+                ):
+                    return True
+            case _:
+                raise Error(
+                    t"unsupported PBRT options directive"
+                    t" '{command_token.value}' at line {command_token.line}"
+                )
     return False
 
 

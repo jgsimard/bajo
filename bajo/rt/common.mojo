@@ -124,18 +124,18 @@ def environment_radiance[
 ) -> Vec3[.float32, .WORLD, length]:
     """Evaluate scene-owned miss radiance on the CPU."""
     __match environment.kind:
-    case .BLACK:
-        return Vec3[.float32, .WORLD, length](0.0)
-    case .PROCEDURAL:
-        return sky_color(direction)
-    case .UNIFORM:
-        return Vec3[.float32, .WORLD, length](
-            environment.scale.x[0],
-            environment.scale.y[0],
-            environment.scale.z[0],
-        )
-    case .IMAGE:
-        pass
+        case .BLACK:
+            return Vec3[.float32, .WORLD, length](0.0)
+        case .PROCEDURAL:
+            return sky_color(direction)
+        case .UNIFORM:
+            return Vec3[.float32, .WORLD, length](
+                environment.scale.x[0],
+                environment.scale.y[0],
+                environment.scale.z[0],
+            )
+        case .IMAGE:
+            pass
     var transform = environment.world_to_light.copy()
     var light_direction = Vec3[.float32, .LOCAL, length](
         transform.m00[0] * direction.x
@@ -177,10 +177,10 @@ def environment_light_pdf[
     if environment_weight <= 0.0 or total_light_weight <= 0.0:
         return 0.0
     __match environment.kind:
-    case .BLACK | .PROCEDURAL | .UNIFORM:
-        return environment_weight / (4.0 * pi * total_light_weight)
-    case .IMAGE:
-        pass
+        case .BLACK | .PROCEDURAL | .UNIFORM:
+            return environment_weight / (4.0 * pi * total_light_weight)
+        case .IMAGE:
+            pass
 
     var transform = environment.world_to_light.copy()
     var light_direction = Vec3[.float32, .LOCAL, length](
@@ -225,18 +225,18 @@ def path_stage_rng(
     var batch_spp = sampling.samples_per_pixel
     var pixel_id = path_id / batch_spp
     var sample_index = sampling.sample_offset + path_id % batch_spp
-    var sampler = Sampler(sampling.sampler_value)
+    var sampler = Sampler(unsafe_from_value=sampling.sampler_value)
     __match sampler:
-    case .INDEPENDENT:
-        var canonical_path_id = (
-            pixel_id * sampling.sequence_length + sample_index
-        )
-        return Rng(
-            seed=sampling.seed,
-            id=wavefront_rng_subsequence(canonical_path_id, stage),
-        )
-    case .HALTON | .R2 | .OWEN_SOBOL | .SZ | .STBN:
-        pass
+        case .INDEPENDENT:
+            var canonical_path_id = (
+                pixel_id * sampling.sequence_length + sample_index
+            )
+            return Rng(
+                seed=sampling.seed,
+                id=wavefront_rng_subsequence(canonical_path_id, stage),
+            )
+        case .HALTON | .R2 | .OWEN_SOBOL | .SZ | .STBN:
+            pass
     return Rng(
         seed=sampling.seed,
         id=wavefront_rng_subsequence(pixel_id, stage),

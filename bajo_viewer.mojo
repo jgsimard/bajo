@@ -68,7 +68,7 @@ def _settings(config: PythonObject) raises -> RenderSettings:
         Int(py=config["samples"]),
         UInt64(1234),
         Int(py=config["max_depth"]),
-        Sampler(UInt32(Int(py=config["sampler"]))),
+        Sampler(Int(py=config["sampler"])),
         Int(py=config["sample_offset"]),
         Int(py=config["sample_sequence_length"]),
     )
@@ -417,44 +417,44 @@ def _render_kind[
 def _dispatch_render[
     integrator: Integrator
 ](handle: Int, tag: Int, config: PythonObject) raises -> PythonObject:
-    var kind = tag & STATE_KIND_MASK
-    if kind == 1:
-        return _render_kind[integrator, .SPHERES](handle, tag, config)
-    if kind == 2:
-        return _render_kind[integrator, .TRIANGLES](handle, tag, config)
-    if kind == 3:
-        return _render_kind[integrator, .SPHERES_TRIANGLES](handle, tag, config)
-    if kind == 4:
-        return _render_kind[integrator, .INSTANCES](handle, tag, config)
-    if kind == 5:
-        return _render_kind[integrator, .SPHERES_INSTANCES](handle, tag, config)
-    if kind == 6:
-        return _render_kind[integrator, .TRIANGLES_INSTANCES](
-            handle, tag, config
-        )
-    if kind == 7:
-        return _render_kind[integrator, .ALL](handle, tag, config)
-    raise Error("unknown persistent GPU viewer state")
+    var kind = GpuRtSceneKind(tag & STATE_KIND_MASK)
+    __match kind:
+        case .SPHERES:
+            return _render_kind[integrator, .SPHERES](handle, tag, config)
+        case .TRIANGLES:
+            return _render_kind[integrator, .TRIANGLES](handle, tag, config)
+        case .SPHERES_TRIANGLES:
+            return _render_kind[integrator, .SPHERES_TRIANGLES](
+                handle, tag, config
+            )
+        case .INSTANCES:
+            return _render_kind[integrator, .INSTANCES](handle, tag, config)
+        case .SPHERES_INSTANCES:
+            return _render_kind[integrator, .SPHERES_INSTANCES](
+                handle, tag, config
+            )
+        case .TRIANGLES_INSTANCES:
+            return _render_kind[integrator, .TRIANGLES_INSTANCES](
+                handle, tag, config
+            )
+        case .ALL:
+            return _render_kind[integrator, .ALL](handle, tag, config)
 
 
 def render_gpu_state(
     handle: PythonObject, tag: PythonObject, config: PythonObject
 ) raises -> PythonObject:
-    var address = Int(py=handle)
-    var state_tag = Int(py=tag)
-    comptime __match VIEWER_INTEGRATOR:
-    case 0:
-        return _dispatch_render[.PATH](address, state_tag, config)
-    case 1:
-        return _dispatch_render[.NEE](address, state_tag, config)
-    case 2:
-        return _dispatch_render[.MIS](address, state_tag, config)
-    case 3:
-        return _dispatch_render[.NORMALS](address, state_tag, config)
-    case 4:
-        return _dispatch_render[.AO](address, state_tag, config)
-    case _:
-        comptime assert False
+    comptime integrators = (
+        Integrator.PATH,
+        Integrator.NEE,
+        Integrator.MIS,
+        Integrator.NORMALS,
+        Integrator.AO,
+    )
+    comptime assert 0 <= VIEWER_INTEGRATOR < len(integrators)
+    return _dispatch_render[integrators[VIEWER_INTEGRATOR]](
+        Int(py=handle), Int(py=tag), config
+    )
 
 
 def _destroy_kind[
@@ -483,22 +483,22 @@ def _destroy_kind[
 def destroy_gpu_state(handle: PythonObject, tag: PythonObject) raises:
     var address = Int(py=handle)
     var state_tag = Int(py=tag)
-    var kind = state_tag & STATE_KIND_MASK
-    if kind == 1:
-        return _destroy_kind[.SPHERES](address, state_tag)
-    if kind == 2:
-        return _destroy_kind[.TRIANGLES](address, state_tag)
-    if kind == 3:
-        return _destroy_kind[.SPHERES_TRIANGLES](address, state_tag)
-    if kind == 4:
-        return _destroy_kind[.INSTANCES](address, state_tag)
-    if kind == 5:
-        return _destroy_kind[.SPHERES_INSTANCES](address, state_tag)
-    if kind == 6:
-        return _destroy_kind[.TRIANGLES_INSTANCES](address, state_tag)
-    if kind == 7:
-        return _destroy_kind[.ALL](address, state_tag)
-    raise Error("unknown persistent GPU viewer state")
+    var kind = GpuRtSceneKind(state_tag & STATE_KIND_MASK)
+    __match kind:
+        case .SPHERES:
+            return _destroy_kind[.SPHERES](address, state_tag)
+        case .TRIANGLES:
+            return _destroy_kind[.TRIANGLES](address, state_tag)
+        case .SPHERES_TRIANGLES:
+            return _destroy_kind[.SPHERES_TRIANGLES](address, state_tag)
+        case .INSTANCES:
+            return _destroy_kind[.INSTANCES](address, state_tag)
+        case .SPHERES_INSTANCES:
+            return _destroy_kind[.SPHERES_INSTANCES](address, state_tag)
+        case .TRIANGLES_INSTANCES:
+            return _destroy_kind[.TRIANGLES_INSTANCES](address, state_tag)
+        case .ALL:
+            return _destroy_kind[.ALL](address, state_tag)
 
 
 def render_frame(config: PythonObject) raises -> PythonObject:
@@ -527,7 +527,7 @@ def render_frame(config: PythonObject) raises -> PythonObject:
         Float32(py=config["vfov"]),
         scene,
         scene_path,
-        Sampler(UInt32(Int(py=config["sampler"]))),
+        Sampler(Int(py=config["sampler"])),
         Int(py=config["sample_offset"]),
         Int(py=config["sample_sequence_length"]),
         True,

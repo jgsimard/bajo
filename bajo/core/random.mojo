@@ -5,17 +5,16 @@ from std.random import Random
 from bajo.core import Vec3f32, dot, Frame
 
 
-@fieldwise_init
 struct Sampler(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     """Runtime-selectable sample sequence used by the ray tracers."""
 
     var value: UInt32
-    comptime INDEPENDENT = Self(0)
-    comptime HALTON = Self(1)
-    comptime R2 = Self(2)
-    comptime OWEN_SOBOL = Self(3)
-    comptime SZ = Self(4)
-    comptime STBN = Self(5)
+    comptime INDEPENDENT = Self.__init__[0]()
+    comptime HALTON = Self.__init__[1]()
+    comptime R2 = Self.__init__[2]()
+    comptime OWEN_SOBOL = Self.__init__[3]()
+    comptime SZ = Self.__init__[4]()
+    comptime STBN = Self.__init__[5]()
     comptime _enum_case_names = ParameterList.of[
         "INDEPENDENT".value,
         "HALTON".value,
@@ -33,6 +32,25 @@ struct Sampler(EnumLike, Equatable, TrivialRegisterPassable, Writable):
         NoneType,
         NoneType,
     ].values
+
+    def __init__[value: Int](out self):
+        """Construct a sampler from a compile-time sequence ID."""
+        comptime assert 0 <= value <= 5
+        self.value = UInt32(value)
+
+    def __init__(out self, value: Int) raises:
+        """Construct a sampler from an external sequence ID."""
+        if value < 0 or value > 5:
+            raise Error("unknown sampler: expected a sequence ID from 0 to 5")
+        self.value = UInt32(value)
+
+    def __init__(out self, value: UInt32) raises:
+        """Construct a sampler from a 32-bit sequence ID."""
+        self = Self(Int(value))
+
+    def __init__(out self, *, unsafe_from_value: UInt32):
+        """Reconstruct a sampler from an already-validated sequence ID."""
+        self.value = unsafe_from_value
 
     def _get_enum_discriminant(self) -> Int:
         return Int(self.value)
@@ -310,32 +328,34 @@ struct Rng:
         self._consumed += 1
         var val = shift
         __match self._sampler:
-        case .INDEPENDENT:
-            pass
-        case .HALTON:
-            val = _halton(self._sample_index, self._dimension) + shift
-            val -= floor(val)
-        case .R2:
-            val = _r2(self._sample_index, self._dimension) + shift
-            val -= floor(val)
-        case .OWEN_SOBOL | .SZ:
-            var scramble = _mix32(
-                self._scramble_seed
-                ^ UInt32(self._dimension) * UInt32(0x9E3779B9)
-            )
-            var bits = _sobol_bits(UInt32(self._sample_index), self._dimension)
-            if self._sampler == .SZ:
-                bits = _sz_bits(UInt32(self._sample_index), self._dimension)
-            val = _u32_to_unit_float(_owen_scramble(bits, scramble))
-        case .STBN:
-            val = _stbn(
-                self._sample_index,
-                self._dimension,
-                self._pixel_id,
-                self._image_width,
-                self._stage,
-                self._global_seed,
-            )
+            case .INDEPENDENT:
+                pass
+            case .HALTON:
+                val = _halton(self._sample_index, self._dimension) + shift
+                val -= floor(val)
+            case .R2:
+                val = _r2(self._sample_index, self._dimension) + shift
+                val -= floor(val)
+            case .OWEN_SOBOL | .SZ:
+                var scramble = _mix32(
+                    self._scramble_seed
+                    ^ UInt32(self._dimension) * UInt32(0x9E3779B9)
+                )
+                var bits = _sobol_bits(
+                    UInt32(self._sample_index), self._dimension
+                )
+                if self._sampler == .SZ:
+                    bits = _sz_bits(UInt32(self._sample_index), self._dimension)
+                val = _u32_to_unit_float(_owen_scramble(bits, scramble))
+            case .STBN:
+                val = _stbn(
+                    self._sample_index,
+                    self._dimension,
+                    self._pixel_id,
+                    self._image_width,
+                    self._stage,
+                    self._global_seed,
+                )
         self._dimension += 1
         return val * (upper_bound - lower_bound) + lower_bound
 

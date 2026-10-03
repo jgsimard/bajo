@@ -1,6 +1,4 @@
-from std.math import cos, sin
-from std.io.file_descriptor import FileDescriptor
-from std.memory import bitcast
+from bajo.viewer.common import _viewer_camera, _write_linear_frame
 from std.sys.arg import argv
 from std.sys import has_accelerator, simd_width_of
 from std.sys.defines import get_defined_int
@@ -11,7 +9,7 @@ from bajo.core import (
     Vec3W,
 )
 from bajo.core.random import Sampler
-from bajo.core.utils import degrees_to_radians, ns_to_ms
+from bajo.core.utils import ns_to_ms
 from bajo.bvh.cpu import CpuBvhBuildMethod, CpuTraversalMode
 from bajo.parser.number import parse_f32_at
 from bajo.rt import (
@@ -63,24 +61,6 @@ struct ViewerRenderStats(Copyable):
     var bvh_stats: String
 
 
-def _write_linear_frame(path: String, pixels: ImmSpan[Vec3W, _]) raises:
-    var bytes = List[UInt8](length=len(pixels) * 12, fill=0)
-    var out_idx = 0
-    for pixel in pixels:
-        var values = SIMD[.float32, 4](pixel.x, pixel.y, pixel.z, 0.0)
-        for channel in range(3):
-            var value = values[channel]
-            var word = bitcast[.uint32](value)
-            bytes[out_idx + 0] = UInt8(word & UInt32(0xFF))
-            bytes[out_idx + 1] = UInt8((word >> UInt32(8)) & UInt32(0xFF))
-            bytes[out_idx + 2] = UInt8((word >> UInt32(16)) & UInt32(0xFF))
-            bytes[out_idx + 3] = UInt8(word >> UInt32(24))
-            out_idx += 4
-    with open(path, "w") as f:
-        var fd = FileDescriptor(f)
-        fd.write_bytes(bytes)
-
-
 def _write_viewer_frame(
     path: String,
     width: Int,
@@ -116,7 +96,7 @@ def _viewer_bvh_stats[
     instance_bvh_width: SIMDLength = 16,
     build_method: CpuBvhBuildMethod = .SAH,
     traversal_mode: CpuTraversalMode = .AUTO_COHERENT,
-](data: SceneData) -> String:
+](data: SceneData, include_traversal: Bool = True) -> String:
     var result: String
     if BACKEND == 0:
         result = "CPU W" + String(Int(world_bvh_width))
@@ -146,10 +126,11 @@ def _viewer_bvh_stats[
                 + String(Int(instance_bvh_width))
                 + "/1 LBVH"
             )
-        comptime if traversal_mode == .ADAPTIVE:
-            result += " | traversal adaptive-16-8-4-scalar"
-        else:
-            result += " | traversal " + traversal_mode.name()
+        if include_traversal:
+            comptime if traversal_mode == .ADAPTIVE:
+                result += " | traversal adaptive-16-8-4-scalar"
+            else:
+                result += " | traversal " + traversal_mode.name()
     else:
         result = "GPU | "
         if len(data.spheres()) > 0:
@@ -178,30 +159,6 @@ def _viewer_bvh_stats[
     result += " T" + String(len(data.triangle_vertices()) / 3)
     result += " I" + String(len(data.triangle_instances()))
     return result
-
-
-def _viewer_camera(
-    origin: Point3W,
-    yaw_degrees: Float32,
-    pitch_degrees: Float32,
-    vfov: Float32,
-) -> Camera:
-    var yaw = degrees_to_radians(yaw_degrees)
-    var pitch = degrees_to_radians(pitch_degrees)
-    var cos_pitch = cos(pitch)
-    var forward = Vec3W(
-        sin(yaw) * cos_pitch,
-        sin(pitch),
-        -cos(yaw) * cos_pitch,
-    )
-    return Camera.from_vfov(
-        origin,
-        origin + forward,
-        Vec3W(0.0, 1.0, 0.0),
-        vfov,
-        10.0,
-        0.0,
-    )
 
 
 def _make_viewer_world[

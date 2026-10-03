@@ -66,6 +66,20 @@ The built-in stress scenes isolate different renderer limits:
 For a GPU target other than the default, pass `--gpu-arch` or set
 `BAJO_GPU_ARCH`.
 
+The viewer caches scene preparation separately from rendering in
+`__mojocache__/`. Preparation is shared across integrators and traversal
+policies; CPU builder changes rebuild preparation but reuse rendering.
+Switching integrator or traversal retains the prepared scene. Rendering keeps
+its existing compile-time specialization. Both extensions share a compiler and
+source fingerprint, and the preparation extension owns scene cleanup.
+
+Run the extension cache tests and the headless CPU ownership/rendering test with:
+
+```bash
+pixi run python test/viewer/test_viewer_extensions.py
+pixi run python test/viewer/test_viewer_cpu.py
+```
+
 
 ## Tests
 

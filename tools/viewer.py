@@ -2,11 +2,8 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
-import importlib.util
 import math
 import os
-import shutil
-import subprocess
 import sys
 import tempfile
 import threading
@@ -16,6 +13,8 @@ import tkinter as tk
 import numpy as np
 from PIL import Image, ImageTk
 
+
+from viewer_extensions import ExtensionLoader
 
 from viewer_config import (
     BACKENDS,
@@ -87,6 +86,7 @@ class Viewer:
         self.cpu_state: CpuState | None = None
         self.temp_dir = tempfile.TemporaryDirectory(prefix="bajo-viewer-")
         self.output_path = Path(self.temp_dir.name) / "frame.rgb32"
+        self.extension_loader = ExtensionLoader(ROOT, gpu_arch)
         self.renderer = self._load_renderer(
             self.backend_index,
             self.integrator_index,
@@ -104,7 +104,7 @@ class Viewer:
             and self.pbrt_path
         ):
             self.camera = camera_from_pbrt(
-                self.renderer.pbrt_camera(self.pbrt_path)
+                self.renderer.preparation.pbrt_camera(self.pbrt_path)
             )
             self.initial_camera = self.camera.copy()
 
@@ -353,76 +353,9 @@ class Viewer:
         traversal_index: int,
         build_index: int,
     ):
-        """Build and load the Mojo renderer as a Python extension module."""
-        mojo = shutil.which("mojo")
-        if mojo is None:
-            raise RuntimeError(
-                "could not find mojo; run the viewer with `pixi run viewer`"
-            )
-
-        cache_dir = ROOT / "__mojocache__"
-        cache_dir.mkdir(exist_ok=True)
-        cache_path = cache_dir / (
-            f"bajo_viewer-{self.gpu_arch}-b{backend_index}"
-            f"-i{integrator_index}-t{traversal_index}-u{build_index}.so"
+        return self.extension_loader.load(
+            backend_index, integrator_index, traversal_index, build_index
         )
-        sources = [ROOT / "bajo_viewer.mojo"]
-        sources.extend((ROOT / "bajo").rglob("*.mojo"))
-        sources.extend((ROOT / "examples").rglob("*.mojo"))
-        needs_build = not cache_path.exists()
-        if not needs_build:
-            cache_mtime = cache_path.stat().st_mtime_ns
-            needs_build = any(
-                source.stat().st_mtime_ns > cache_mtime for source in sources
-            )
-        if needs_build:
-            command = [
-                mojo,
-                "build",
-                "-I",
-                str(ROOT),
-                "-D",
-                f"VIEWER_BACKEND={backend_index}",
-                "-D",
-                f"VIEWER_INTEGRATOR={integrator_index}",
-                "-D",
-                f"VIEWER_TRAVERSAL={traversal_index}",
-                "-D",
-                f"VIEWER_BUILD={build_index}",
-                "--emit",
-                "shared-lib",
-                "-o",
-                str(cache_path),
-                str(ROOT / "bajo_viewer.mojo"),
-            ]
-            if backend_index == 1:
-                command[command.index("--emit") : command.index("--emit")] = [
-                    "--target-accelerator",
-                    self.gpu_arch,
-                ]
-            result = subprocess.run(
-                command,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                details = (result.stderr or result.stdout).strip()
-                raise RuntimeError(
-                    "could not build viewer for "
-                    f"backend {backend_index}, integrator {integrator_index}, "
-                    f"traversal {traversal_index}, build {build_index}: {details}"
-                )
-
-        spec = importlib.util.spec_from_file_location("bajo_viewer", cache_path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError(
-                f"could not load Mojo viewer extension: {cache_path}"
-            )
-        module = importlib.util.module_from_spec(spec)
-        sys.modules["bajo_viewer"] = module
-        spec.loader.exec_module(module)
-        return module
 
     def snapshot(self) -> RenderSnapshot:
         with self.lock:
@@ -512,17 +445,16 @@ class Viewer:
         self,
         renderer,
         work: RenderSnapshot,
-        renderer_config: tuple[int, int, int, int],
         render_config: dict[str, object],
     ) -> RenderStats:
         if work.backend_index == 1:
             self._destroy_cpu_state()
-            state_key = (renderer_config, work.scene_index, work.scene_path)
+            state_key = (renderer.preparation, work.scene_index, work.scene_path)
             if self.gpu_state is None or self.gpu_state.key != state_key:
                 self._destroy_gpu_state()
-                created = renderer.create_gpu_state(render_config)
+                created = renderer.preparation.create_gpu_state(render_config)
                 self.gpu_state = GpuState(
-                    renderer=renderer,
+                    preparation=renderer.preparation,
                     handle=int(created[0]),
                     tag=int(created[1]),
                     key=state_key,
@@ -532,7 +464,7 @@ class Viewer:
                 )
             state = self.gpu_state
             assert state is not None
-            raw_stats = renderer.render_gpu_state(
+            raw_stats = renderer.rendering.render_gpu_state(
                 state.handle, state.tag, render_config
             )
             return RenderStats(
@@ -545,12 +477,12 @@ class Viewer:
             )
 
         self._destroy_gpu_state()
-        state_key = (renderer_config, work.scene_index, work.scene_path)
+        state_key = (renderer.preparation, work.scene_index, work.scene_path)
         if self.cpu_state is None or self.cpu_state.key != state_key:
             self._destroy_cpu_state()
-            created = renderer.create_cpu_state(render_config)
+            created = renderer.preparation.create_cpu_state(render_config)
             self.cpu_state = CpuState(
-                renderer=renderer,
+                preparation=renderer.preparation,
                 handle=int(created[0]),
                 key=state_key,
                 bvh_stats=str(created[3]),
@@ -559,14 +491,16 @@ class Viewer:
             )
         state = self.cpu_state
         assert state is not None
-        raw_stats = renderer.render_cpu_state(state.handle, render_config)
+        raw_stats = renderer.rendering.render_cpu_state(state.handle, render_config)
         return RenderStats(
             render_ms=float(raw_stats[0]),
             parse_ms=state.parse_ms,
             bvh_ms=state.bvh_ms,
             init_ms=float(raw_stats[1]),
             mrays=float(raw_stats[2]),
-            bvh_stats=state.bvh_stats,
+            bvh_stats=state.bvh_stats + " | traversal " + (
+                "auto-coherent", "fixed-packet", "adaptive-16-8-4-scalar"
+            )[work.traversal_index],
         )
 
     def _read_frame(self, options: RenderOptions) -> np.ndarray:
@@ -607,8 +541,6 @@ class Viewer:
                     work.build_index,
                 )
                 if self.renderer_config != requested_config:
-                    self._destroy_gpu_state()
-                    self._destroy_cpu_state()
                     self.root.after(
                         0,
                         lambda backend=work.backend_index, integrator=work.integrator_index, traversal=work.traversal_index, build=work.build_index: self.update_status(
@@ -631,7 +563,7 @@ class Viewer:
                             continue
                 render_config = self._render_config(work)
                 stats = self._render_batch(
-                    renderer, work, requested_config, render_config
+                    renderer, work, render_config
                 )
                 error = None
             except Exception as exc:  # surface Mojo/Python errors in the UI
@@ -724,14 +656,14 @@ class Viewer:
         if state is None:
             return
         self.gpu_state = None
-        state.renderer.destroy_gpu_state(state.handle, state.tag)
+        state.preparation.destroy_gpu_state(state.handle, state.tag)
 
     def _destroy_cpu_state(self) -> None:
         state = self.cpu_state
         if state is None:
             return
         self.cpu_state = None
-        state.renderer.destroy_cpu_state(state.handle)
+        state.preparation.destroy_cpu_state(state.handle)
 
     def show_frame(
         self,
@@ -940,7 +872,7 @@ class Viewer:
             self.pbrt_path = str(BUILTIN_PBRT_PATH)
             try:
                 self.camera = camera_from_pbrt(
-                    self.renderer.pbrt_camera(self.pbrt_path)
+                    self.renderer.preparation.pbrt_camera(self.pbrt_path)
                 )
             except Exception as exc:
                 self.pbrt_path = None
@@ -1040,7 +972,7 @@ class Viewer:
             self.scene_var.set(current)
             return
         try:
-            camera = camera_from_pbrt(self.renderer.pbrt_camera(path))
+            camera = camera_from_pbrt(self.renderer.preparation.pbrt_camera(path))
         except Exception as exc:
             self.update_status(f"PBRT load error: {exc}")
             self.scene_var.set(SCENES[self.scene_index])

@@ -1,24 +1,19 @@
+"""Specialized rendering extension: borrows preparation-owned handles."""
+
 from std.python import Python, PythonObject
 from std.python.bindings import PythonModuleBuilder
 from std.memory import Pointer
-from std.memory.alloc import unsafe_alloc
 from std.os import abort
 from std.sys.defines import get_defined_int
 from std.time import perf_counter_ns
-
-from bajo.bvh.cpu import CpuBvhBuildMethod, CpuTraversalMode
-from bajo.core import Point3W
-from bajo.core.random import Sampler
+from bajo.bvh.cpu import CpuTraversalMode
 from bajo.core.utils import ns_to_ms
-from bajo.parser.pbrt import read_pbrt, read_pbrt_camera
-from bajo.rt import (
-    Camera,
-    CpuScene,
-    Integrator,
-    RenderSettings,
-    SceneData,
-)
-from bajo.rt.gpu import GpuRtPreparedRenderer
+from bajo.rt.render_types import RenderResult
+from bajo.rt.material_types import Integrator
+from bajo.rt.cpu.depth_first import render_depth_first
+from bajo.rt.cpu.wavefront import render_wavefront_configured
+from bajo.rt.cpu.scheduler_mode import CpuSchedulerMode
+from bajo.rt.gpu.prepared_renderer import GpuRtPreparedRenderer
 from bajo.rt.gpu.config import (
     GpuRtBvhFormat,
     GpuRtSceneKind,
@@ -26,247 +21,24 @@ from bajo.rt.gpu.config import (
     GPU_RT_BVH_TLAS2,
     GPU_RT_BVH_WIDE4,
 )
-from bajo.rt.gpu.render import (
-    _prefer_cwbvh8_blases,
-    _prefer_cwbvh8_triangles,
-)
-from examples.viewer import (
-    _render_frame as _render_cpu_frame,
+from bajo.viewer.common import (
+    CpuViewerState,
+    _settings,
+    _camera,
     _write_linear_frame,
-    _viewer_bvh_stats,
-    _viewer_camera,
-    _make_viewer_world,
-    load_viewer_scene_data,
-    render_frame as _render_frame,
+    STATE_KIND_MASK,
+    STATE_COMPRESSED_TRIANGLES,
+    STATE_COMPRESSED_BLASES,
 )
-
 
 comptime VIEWER_BACKEND = get_defined_int["VIEWER_BACKEND", 0]()
 comptime VIEWER_INTEGRATOR = get_defined_int["VIEWER_INTEGRATOR", 0]()
-comptime VIEWER_BUILD = get_defined_int["VIEWER_BUILD", 0]()
 comptime VIEWER_TRAVERSAL = get_defined_int["VIEWER_TRAVERSAL", 0]()
-comptime CPU_VIEWER_BUILD_METHOD = (
-    CpuBvhBuildMethod.SAH if VIEWER_BUILD
-    == 0 else CpuBvhBuildMethod.LBVH if VIEWER_BUILD
-    == 1 else CpuBvhBuildMethod.HPLOC if VIEWER_BUILD
-    == 2 else CpuBvhBuildMethod.MEDIAN
-)
 comptime CPU_VIEWER_TRAVERSAL_MODE = (
     CpuTraversalMode.AUTO_COHERENT if VIEWER_TRAVERSAL
     == 0 else CpuTraversalMode.FIXED_PACKET if VIEWER_TRAVERSAL
     == 1 else CpuTraversalMode.ADAPTIVE
 )
-comptime STATE_KIND_MASK = 7
-comptime STATE_COMPRESSED_TRIANGLES = 8
-comptime STATE_COMPRESSED_BLASES = 16
-
-
-def _settings(config: PythonObject) raises -> RenderSettings:
-    return RenderSettings(
-        Int(py=config["width"]),
-        Int(py=config["height"]),
-        Int(py=config["samples"]),
-        UInt64(1234),
-        Int(py=config["max_depth"]),
-        Sampler(Int(py=config["sampler"])),
-        Int(py=config["sample_offset"]),
-        Int(py=config["sample_sequence_length"]),
-    )
-
-
-def _camera(config: PythonObject) raises -> Camera:
-    return _viewer_camera(
-        Point3W(
-            Float32(py=config["x"]),
-            Float32(py=config["y"]),
-            Float32(py=config["z"]),
-        ),
-        Float32(py=config["yaw"]),
-        Float32(py=config["pitch"]),
-        Float32(py=config["vfov"]),
-    )
-
-
-def _state_tag[
-    kind: GpuRtSceneKind,
-    triangle_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
-]() -> Int:
-    comptime triangle_bit = (
-        STATE_COMPRESSED_TRIANGLES if triangle_format.layout.compressed else 0
-    )
-    comptime blas_bit = (
-        STATE_COMPRESSED_BLASES if blas_format.layout.compressed else 0
-    )
-    return Int(kind.bits) | triangle_bit | blas_bit
-
-
-def _allocate_state[
-    kind: GpuRtSceneKind,
-    triangle_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
-](
-    settings: RenderSettings,
-    camera: Camera,
-    data: SceneData,
-) raises -> Tuple[
-    Int, Int
-]:
-    comptime State = GpuRtPreparedRenderer[
-        kind,
-        GPU_RT_BVH_WIDE4,
-        triangle_format,
-        GPU_RT_BVH_TLAS2,
-        blas_format,
-    ]
-    var ptr = unsafe_alloc[State](1)
-    ptr.unsafe_write(State(settings, camera, data))
-    return (Int(ptr), _state_tag[kind, triangle_format, blas_format]())
-
-
-def _allocate_kind[
-    kind: GpuRtSceneKind,
-](
-    settings: RenderSettings,
-    camera: Camera,
-    data: SceneData,
-    compressed_triangles: Bool,
-    compressed_blases: Bool,
-) raises -> Tuple[Int, Int]:
-    comptime if kind.has_triangles():
-        if compressed_triangles:
-            comptime if kind.has_instances():
-                if compressed_blases:
-                    return _allocate_state[
-                        kind, GPU_RT_BVH_CWBVH8, GPU_RT_BVH_CWBVH8
-                    ](settings, camera, data)
-                return _allocate_state[
-                    kind, GPU_RT_BVH_CWBVH8, GPU_RT_BVH_WIDE4
-                ](settings, camera, data)
-            return _allocate_state[kind, GPU_RT_BVH_CWBVH8, GPU_RT_BVH_WIDE4](
-                settings, camera, data
-            )
-        comptime if kind.has_instances():
-            if compressed_blases:
-                return _allocate_state[
-                    kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_CWBVH8
-                ](settings, camera, data)
-        return _allocate_state[kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_WIDE4](
-            settings, camera, data
-        )
-
-    comptime if kind.has_instances():
-        if compressed_blases:
-            return _allocate_state[kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_CWBVH8](
-                settings, camera, data
-            )
-    return _allocate_state[kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_WIDE4](
-        settings, camera, data
-    )
-
-
-def _create_gpu_state(
-    settings: RenderSettings,
-    camera: Camera,
-    data: SceneData,
-) raises -> Tuple[Int, Int]:
-    var compressed_triangles = _prefer_cwbvh8_triangles(data)
-    var compressed_blases = _prefer_cwbvh8_blases(data)
-    if len(data.triangle_instances()) > 0:
-        if len(data.spheres()) > 0:
-            if len(data.triangle_vertices()) > 0:
-                return _allocate_kind[.ALL](
-                    settings,
-                    camera,
-                    data,
-                    compressed_triangles,
-                    compressed_blases,
-                )
-            return _allocate_kind[.SPHERES_INSTANCES](
-                settings, camera, data, False, compressed_blases
-            )
-        if len(data.triangle_vertices()) > 0:
-            return _allocate_kind[.TRIANGLES_INSTANCES](
-                settings,
-                camera,
-                data,
-                compressed_triangles,
-                compressed_blases,
-            )
-        return _allocate_kind[.INSTANCES](
-            settings, camera, data, False, compressed_blases
-        )
-    if len(data.spheres()) > 0:
-        if len(data.triangle_vertices()) > 0:
-            return _allocate_kind[.SPHERES_TRIANGLES](
-                settings, camera, data, compressed_triangles, False
-            )
-        return _allocate_kind[.SPHERES](settings, camera, data, False, False)
-    return _allocate_kind[.TRIANGLES](
-        settings, camera, data, compressed_triangles, False
-    )
-
-
-def create_gpu_state(config: PythonObject) raises -> PythonObject:
-    comptime if VIEWER_BACKEND != 1:
-        raise Error("persistent GPU state requires the GPU viewer backend")
-    var settings = _settings(config)
-    var camera = _camera(config)
-    var scene = Int(py=config["scene"])
-    var scene_path = String(py=config["scene_path"])
-    var parse_ms = Float64(0.0)
-    var data: SceneData
-    var build_t0 = perf_counter_ns()
-    if scene == 8 or scene == 9:
-        var parse_t0 = perf_counter_ns()
-        data = load_viewer_scene_data(scene, scene_path)
-        parse_ms = ns_to_ms(Int(perf_counter_ns() - parse_t0))
-        build_t0 = perf_counter_ns()
-    else:
-        data = load_viewer_scene_data(scene, scene_path)
-    var bvh_stats = _viewer_bvh_stats[1](data)
-    var state = _create_gpu_state(settings, camera, data)
-    var build_ms = ns_to_ms(Int(perf_counter_ns() - build_t0))
-    return Python.list(state[0], state[1], parse_ms, build_ms, bvh_stats)
-
-
-struct CpuViewerState:
-    var world: CpuScene[16, 16]
-
-    def __init__(out self, var world: CpuScene[16, 16]):
-        self.world = world^
-
-
-def create_cpu_state(config: PythonObject) raises -> PythonObject:
-    comptime if VIEWER_BACKEND != 0:
-        raise Error("persistent CPU state requires the CPU viewer backend")
-    var scene = Int(py=config["scene"])
-    var scene_path = String(py=config["scene_path"])
-    var parse_ms = Float64(0.0)
-    var world: CpuScene[16, 16]
-    var build_t0: Int
-    if scene == 8 or scene == 9:
-        var parse_t0 = perf_counter_ns()
-        var parsed = read_pbrt(scene_path)
-        parse_ms = ns_to_ms(Int(perf_counter_ns() - parse_t0))
-        build_t0 = perf_counter_ns()
-        world = CpuScene[16, 16].__init__[CPU_VIEWER_BUILD_METHOD](
-            parsed^.take_data()
-        )
-    else:
-        build_t0 = perf_counter_ns()
-        world = _make_viewer_world[16, 16, CPU_VIEWER_BUILD_METHOD](scene)
-    var bvh_stats = _viewer_bvh_stats[
-        0,
-        16,
-        16,
-        CPU_VIEWER_BUILD_METHOD,
-        CPU_VIEWER_TRAVERSAL_MODE,
-    ](world.scene_data())
-    var ptr = unsafe_alloc[CpuViewerState](1)
-    ptr.unsafe_write(CpuViewerState(world^))
-    var build_ms = ns_to_ms(Int(perf_counter_ns() - build_t0))
-    return Python.list(Int(ptr), parse_ms, build_ms, bvh_stats)
 
 
 def _render_cpu_state[
@@ -276,45 +48,37 @@ def _render_cpu_state[
         unsafe_from_address=handle
     )
     var settings = _settings(config)
-    var result = _render_cpu_frame[
-        integrator,
-        0,
-        16,
-        16,
-        CPU_VIEWER_BUILD_METHOD,
-        CPU_VIEWER_TRAVERSAL_MODE,
-        16,
-        8,
-        4,
-    ](
-        String(py=config["output"]),
-        settings.image_width,
-        settings.image_height,
-        settings.samples_per_pixel,
-        settings.max_depth,
-        Point3W(
-            Float32(py=config["x"]),
-            Float32(py=config["y"]),
-            Float32(py=config["z"]),
-        ),
-        Float32(py=config["yaw"]),
-        Float32(py=config["pitch"]),
-        Float32(py=config["vfov"]),
-        ptr[].world,
-        settings.sampler,
-        settings.sample_offset,
-        settings.sample_sequence_length,
-        True,
-    )
+    var camera = _camera(config)
+    var result: RenderResult
+    var render_t0 = perf_counter_ns()
+    comptime if Integrator.is_path_tracing[integrator]:
+        result = render_wavefront_configured[
+            CPU_VIEWER_TRAVERSAL_MODE,
+            integrator,
+            16,
+            1024,
+            True,
+            CpuSchedulerMode.TASK_PARTITIONS,
+            16,
+            16,
+            16,
+            8,
+            4,
+        ](settings, camera, ptr[].world)
+    else:
+        result = render_depth_first[integrator](settings, camera, ptr[].world)
+    var render_ns = Int(perf_counter_ns() - render_t0)
+    _write_linear_frame(String(py=config["output"]), result.pixels)
+    var render_ms = ns_to_ms(render_ns)
     var primary_rays = (
         settings.image_width
         * settings.image_height
         * settings.samples_per_pixel
     )
     var mrays = Float64(0.0)
-    if result.render_ms > 0.0:
-        mrays = Float64(primary_rays) / (result.render_ms * 1000.0)
-    return Python.list(result.render_ms, Float64(0.0), mrays)
+    if render_ms > 0.0:
+        mrays = Float64(primary_rays) / (render_ms * 1000.0)
+    return Python.list(render_ms, Float64(0.0), mrays)
 
 
 def render_cpu_state(
@@ -331,14 +95,6 @@ def render_cpu_state(
         return _render_cpu_state[.NORMALS](address, config)
     else:
         return _render_cpu_state[.AO](address, config)
-
-
-def destroy_cpu_state(handle: PythonObject) raises:
-    var ptr = Pointer[CpuViewerState, MutUntrackedOrigin](
-        unsafe_from_address=Int(py=handle)
-    )
-    ptr.unsafe_deinit_pointee()
-    ptr.unsafe_free()
 
 
 def _render_state[
@@ -369,23 +125,6 @@ def _render_state[
     if render_ms > 0.0:
         mrays = Float64(primary_rays) / (render_ms * 1000.0)
     return Python.list(render_ms, init_ms, mrays)
-
-
-def _destroy_state[
-    kind: GpuRtSceneKind,
-    triangle_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
-](handle: Int):
-    comptime State = GpuRtPreparedRenderer[
-        kind,
-        GPU_RT_BVH_WIDE4,
-        triangle_format,
-        GPU_RT_BVH_TLAS2,
-        blas_format,
-    ]
-    var ptr = Pointer[State, MutUntrackedOrigin](unsafe_from_address=handle)
-    ptr.unsafe_deinit_pointee()
-    ptr.unsafe_free()
 
 
 def _render_kind[
@@ -457,124 +196,14 @@ def render_gpu_state(
     )
 
 
-def _destroy_kind[
-    kind: GpuRtSceneKind,
-](handle: Int, tag: Int):
-    var compressed_triangles = Bool(tag & STATE_COMPRESSED_TRIANGLES)
-    var compressed_blases = Bool(tag & STATE_COMPRESSED_BLASES)
-    comptime if kind.has_triangles():
-        if compressed_triangles:
-            comptime if kind.has_instances():
-                if compressed_blases:
-                    return _destroy_state[
-                        kind, GPU_RT_BVH_CWBVH8, GPU_RT_BVH_CWBVH8
-                    ](handle)
-            return _destroy_state[kind, GPU_RT_BVH_CWBVH8, GPU_RT_BVH_WIDE4](
-                handle
-            )
-    comptime if kind.has_instances():
-        if compressed_blases:
-            return _destroy_state[kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_CWBVH8](
-                handle
-            )
-    return _destroy_state[kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_WIDE4](handle)
-
-
-def destroy_gpu_state(handle: PythonObject, tag: PythonObject) raises:
-    var address = Int(py=handle)
-    var state_tag = Int(py=tag)
-    var kind = GpuRtSceneKind(state_tag & STATE_KIND_MASK)
-    __match kind:
-        case .SPHERES:
-            return _destroy_kind[.SPHERES](address, state_tag)
-        case .TRIANGLES:
-            return _destroy_kind[.TRIANGLES](address, state_tag)
-        case .SPHERES_TRIANGLES:
-            return _destroy_kind[.SPHERES_TRIANGLES](address, state_tag)
-        case .INSTANCES:
-            return _destroy_kind[.INSTANCES](address, state_tag)
-        case .SPHERES_INSTANCES:
-            return _destroy_kind[.SPHERES_INSTANCES](address, state_tag)
-        case .TRIANGLES_INSTANCES:
-            return _destroy_kind[.TRIANGLES_INSTANCES](address, state_tag)
-        case .ALL:
-            return _destroy_kind[.ALL](address, state_tag)
-
-
-def render_frame(config: PythonObject) raises -> PythonObject:
-    var output = String(py=config["output"])
-    var width = Int(py=config["width"])
-    var height = Int(py=config["height"])
-    var samples = Int(py=config["samples"])
-    var max_depth = Int(py=config["max_depth"])
-    var scene = Int(py=config["scene"])
-    var scene_path = String(py=config["scene_path"])
-    var origin = Point3W(
-        Float32(py=config["x"]),
-        Float32(py=config["y"]),
-        Float32(py=config["z"]),
-    )
-    var total_t0 = perf_counter_ns()
-    var render_stats = _render_frame(
-        output,
-        width,
-        height,
-        samples,
-        max_depth,
-        origin,
-        Float32(py=config["yaw"]),
-        Float32(py=config["pitch"]),
-        Float32(py=config["vfov"]),
-        scene,
-        scene_path,
-        Sampler(Int(py=config["sampler"])),
-        Int(py=config["sample_offset"]),
-        Int(py=config["sample_sequence_length"]),
-        True,
-    )
-    var total_ms = ns_to_ms(Int(perf_counter_ns() - total_t0))
-    var build_ms = total_ms - render_stats.render_ms
-    if build_ms < 0.0:
-        build_ms = 0.0
-    var primary_rays = width * height * samples
-    var mrays = 0.0
-    if render_stats.render_ms > 0.0:
-        mrays = Float64(primary_rays) / (render_stats.render_ms * 1000.0)
-    return Python.list(
-        render_stats.render_ms,
-        build_ms,
-        mrays,
-        render_stats.bvh_stats,
-    )
-
-
-def pbrt_camera(path: PythonObject) raises -> PythonObject:
-    var camera = read_pbrt_camera(String(py=path))
-    return Python.list(
-        camera.origin.x,
-        camera.origin.y,
-        camera.origin.z,
-        camera.forward.x,
-        camera.forward.y,
-        camera.forward.z,
-        camera.fov_scale,
-    )
-
-
 @export
 def PyInit_bajo_viewer() abi("C") -> PythonObject:
     try:
         var module = PythonModuleBuilder("bajo_viewer")
-        module.def_function[render_frame]("render_frame")
         comptime if VIEWER_BACKEND == 1:
-            module.def_function[create_gpu_state]("create_gpu_state")
             module.def_function[render_gpu_state]("render_gpu_state")
-            module.def_function[destroy_gpu_state]("destroy_gpu_state")
         else:
-            module.def_function[create_cpu_state]("create_cpu_state")
             module.def_function[render_cpu_state]("render_cpu_state")
-            module.def_function[destroy_cpu_state]("destroy_cpu_state")
-        module.def_function[pbrt_camera]("pbrt_camera")
         return module.finalize()
     except e:
-        abort(String("could not initialize bajo_viewer: ", e))
+        abort(String("could not initialize viewer rendering: ", e))

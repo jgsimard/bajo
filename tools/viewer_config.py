@@ -115,7 +115,7 @@ class RenderOptions:
 
 @dataclass
 class GpuState:
-    renderer: object
+    preparation: object
     handle: int
     tag: int
     key: tuple[object, ...]
@@ -126,7 +126,7 @@ class GpuState:
 
 @dataclass
 class CpuState:
-    renderer: object
+    preparation: object
     handle: int
     key: tuple[object, ...]
     bvh_stats: str

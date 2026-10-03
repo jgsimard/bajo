@@ -14,7 +14,8 @@ from bajo.bvh.gpu import (
 )
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core import Affine3f32, Point3f32
-from bajo.rt.gpu.path_shading import GpuRtLights, GpuRtMaterials
+from bajo.rt.gpu.lighting import GpuRtLights
+from bajo.rt.gpu.materials import GpuRtMaterials
 from bajo.rt.gpu.config import (
     GpuRtBvhFormat,
     GpuRtSceneKind,

@@ -11,6 +11,12 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.cpu.sphere_bvh import _SphereBuild
 from bajo.bvh.cpu.blas_storage import CpuBlasSet
+from bajo.bvh.cpu.blas_assembly import (
+    _assemble_exact_blases,
+    _BlasBuildLayout,
+    _store_empty_blas_desc,
+    _finish_blas_workspace,
+)
 from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
 from bajo.bvh.cpu.triangle_bvh import (
     PARALLEL_TRIANGLE_BUILD_MIN_ITEMS,
@@ -33,66 +39,6 @@ from bajo.core import (
 
 comptime CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES = 4096
 comptime EXACT_MULTI_BLAS_MIN_PRIMITIVES = 4096
-comptime _U32_MAX_AS_INT = 0xFFFFFFFF
-
-
-def _store_empty_blas_desc(
-    descs: MutPointer[UInt32, _],
-    blas_idx: Int,
-    node_f32_base: Int,
-    leaf_f32_base: Int,
-):
-    BlasDesc.empty(UInt32(node_f32_base), UInt32(leaf_f32_base)).store(
-        descs, blas_idx
-    )
-
-
-def _compact_blas_storage[
-    node_f32_stride: Int,
-    leaf_f32_stride: Int,
-](
-    mut descs: List[UInt32],
-    nodes: ImmSpan[Float32, _],
-    leaves: ImmSpan[Float32, _],
-    blas_count: Int,
-    mut compact_nodes: List[Float32],
-    mut compact_leaves: List[Float32],
-):
-    """Copy completed BLAS ranges out of conservative build workspace."""
-    var exact_node_count = 0
-    var exact_leaf_count = 0
-    for blas_idx in range(blas_count):
-        var desc = BlasDesc.load(descs.unsafe_ptr(), UInt32(blas_idx))
-        exact_node_count += Int(desc.node_count) * node_f32_stride
-        exact_leaf_count += Int(desc.leaf_block_count) * leaf_f32_stride
-
-    compact_nodes.resize(unsafe_uninit_length=exact_node_count)
-    compact_leaves.resize(unsafe_uninit_length=exact_leaf_count)
-    var node_out = 0
-    var leaf_out = 0
-    for blas_idx in range(blas_count):
-        var desc = BlasDesc.load(descs.unsafe_ptr(), UInt32(blas_idx))
-        var old_node_base = Int(desc.node_f32_base)
-        var old_leaf_base = Int(desc.leaf_f32_base)
-        var node_count = Int(desc.node_count) * node_f32_stride
-        var leaf_count = Int(desc.leaf_block_count) * leaf_f32_stride
-        if node_count > 0:
-            unsafe_memcpy(
-                dest=compact_nodes.unsafe_ptr().unsafe_offset(node_out),
-                src=nodes.unsafe_ptr().unsafe_offset(old_node_base),
-                count=node_count,
-            )
-        if leaf_count > 0:
-            unsafe_memcpy(
-                dest=compact_leaves.unsafe_ptr().unsafe_offset(leaf_out),
-                src=leaves.unsafe_ptr().unsafe_offset(old_leaf_base),
-                count=leaf_count,
-            )
-        desc.node_f32_base = UInt32(node_out)
-        desc.leaf_f32_base = UInt32(leaf_out)
-        desc.store(descs.unsafe_ptr(), blas_idx)
-        node_out += node_count
-        leaf_out += leaf_count
 
 
 @always_inline
@@ -396,49 +342,7 @@ def _build_exact_triangle_blas_batch[
         for blas_idx in range(len(vertex_sets)):
             build_one(blas_idx)
 
-    var node_count = 0
-    var leaf_count = 0
-    for blas_idx in range(len(built)):
-        node_count += len(built[blas_idx].nodes)
-        leaf_count += len(built[blas_idx].leaves)
-    debug_assert["safe", _use_compiler_assume=True](
-        node_count <= _U32_MAX_AS_INT and leaf_count <= _U32_MAX_AS_INT,
-        "CPU triangle BLAS packed offsets exceed UInt32",
-    )
-
-    var descs = List[UInt32](
-        length=len(vertex_sets) * BlasDescLayout.STRIDE, fill=0
-    )
-    var nodes = List[Float32](capacity=node_count)
-    var leaves = List[Float32](capacity=leaf_count)
-    nodes.resize(unsafe_uninit_length=node_count)
-    leaves.resize(unsafe_uninit_length=leaf_count)
-    var node_base = 0
-    var leaf_base = 0
-    for blas_idx in range(len(built)):
-        ref local = built[blas_idx]
-        var desc = BlasDesc.load(local.descs.unsafe_ptr(), UInt32(0))
-        if len(local.nodes) > 0:
-            unsafe_memcpy(
-                dest=nodes.unsafe_ptr().unsafe_offset(node_base),
-                src=local.nodes.unsafe_ptr(),
-                count=len(local.nodes),
-            )
-        if len(local.leaves) > 0:
-            unsafe_memcpy(
-                dest=leaves.unsafe_ptr().unsafe_offset(leaf_base),
-                src=local.leaves.unsafe_ptr(),
-                count=len(local.leaves),
-            )
-        desc.node_f32_base = UInt32(node_base)
-        desc.leaf_f32_base = UInt32(leaf_base)
-        desc.store(descs.unsafe_ptr(), blas_idx)
-        node_base += len(local.nodes)
-        leaf_base += len(local.leaves)
-
-    return CpuBlasSet[.TRIANGLE, node_width, leaf_width](
-        descs^, nodes^, leaves^, len(vertex_sets)
-    )
+    return _assemble_exact_blases[.TRIANGLE, node_width, leaf_width](built)
 
 
 def build_cpu_triangle_blas_set[
@@ -482,42 +386,20 @@ def build_cpu_triangle_blas_set[
             use_dp_collapse,
         ](vertex_sets)
 
-    var node_bases = List[Int](capacity=len(vertex_sets))
-    var leaf_bases = List[Int](capacity=len(vertex_sets))
-    var node_f32_count = 0
-    var leaf_f32_count = 0
-    var allow_across_blas_parallelism = len(vertex_sets) > 1
-    var total_triangle_count = 0
-    for vertices in vertex_sets:
-        debug_assert["safe", _use_compiler_assume=True](
-            len(vertices) % 3 == 0,
-            "each CPU triangle BLAS must contain complete triangles",
-        )
-        var tri_count = len(vertices) / 3
-        total_triangle_count += tri_count
-        node_bases.append(node_f32_count)
-        leaf_bases.append(leaf_f32_count)
-        if tri_count > 0:
-            node_f32_count += (
-                max(tri_count - 1, 1) * node_width * WideNode.CHILD_STRIDE
-            )
-        leaf_f32_count += tri_count * leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
-        if tri_count >= PARALLEL_TRIANGLE_BUILD_MIN_ITEMS:
-            allow_across_blas_parallelism = False
-
-    allow_across_blas_parallelism &= (
-        total_triangle_count >= CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES
+    var layout = _BlasBuildLayout[
+        node_width * WideNode.CHILD_STRIDE,
+        leaf_width * CPU_TRI_LEAF_PACKED_STRIDE,
+    ].__init__[Point3f32[frame], 3](vertex_sets)
+    var allow_across_blas_parallelism = (
+        len(vertex_sets) > 1
+        and layout.max_primitive_count < PARALLEL_TRIANGLE_BUILD_MIN_ITEMS
+        and layout.primitive_count >= CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES
     )
-    debug_assert["safe", _use_compiler_assume=True](
-        node_f32_count <= _U32_MAX_AS_INT and leaf_f32_count <= _U32_MAX_AS_INT,
-        "CPU triangle BLAS packed offsets exceed UInt32",
-    )
-
     var descs = List[UInt32](
         length=len(vertex_sets) * BlasDescLayout.STRIDE, fill=0
     )
-    var nodes = List[Float32](length=node_f32_count, fill=0.0)
-    var leaves = List[Float32](length=leaf_f32_count, fill=0.0)
+    var nodes = List[Float32](length=layout.node_f32_count, fill=0.0)
+    var leaves = List[Float32](length=layout.leaf_f32_count, fill=0.0)
     var descs_ptr = descs.unsafe_ptr()
     var nodes_ptr = nodes.unsafe_ptr()
     var leaves_ptr = leaves.unsafe_ptr()
@@ -527,8 +409,8 @@ def build_cpu_triangle_blas_set[
             _store_empty_blas_desc(
                 descs_ptr,
                 blas_idx,
-                node_bases[blas_idx],
-                leaf_bases[blas_idx],
+                layout.node_bases[blas_idx],
+                layout.leaf_bases[blas_idx],
             )
             return
         _pack_triangle_blas[
@@ -544,8 +426,8 @@ def build_cpu_triangle_blas_set[
             nodes_ptr,
             leaves_ptr,
             blas_idx,
-            node_bases[blas_idx],
-            leaf_bases[blas_idx],
+            layout.node_bases[blas_idx],
+            layout.leaf_bases[blas_idx],
         )
 
     if allow_across_blas_parallelism:
@@ -554,22 +436,13 @@ def build_cpu_triangle_blas_set[
         for blas_idx in range(len(vertex_sets)):
             build_one(blas_idx)
 
-    var compact_nodes = List[Float32]()
-    var compact_leaves = List[Float32]()
-    _compact_blas_storage[
+    return _finish_blas_workspace[
+        .TRIANGLE,
+        node_width,
+        leaf_width,
         node_width * WideNode.CHILD_STRIDE,
         leaf_width * CPU_TRI_LEAF_PACKED_STRIDE,
-    ](
-        descs,
-        nodes,
-        leaves,
-        len(vertex_sets),
-        compact_nodes,
-        compact_leaves,
-    )
-    return CpuBlasSet[.TRIANGLE, node_width, leaf_width](
-        descs^, compact_nodes^, compact_leaves^, len(vertex_sets)
-    )
+    ](descs^, nodes, leaves)
 
 
 def _sphere_leaf_count[
@@ -737,47 +610,7 @@ def _build_exact_sphere_blas_batch[
 
     parallelize(build_one, len(sphere_sets))
 
-    var node_count = 0
-    var leaf_count = 0
-    for blas_idx in range(len(built)):
-        node_count += len(built[blas_idx].nodes)
-        leaf_count += len(built[blas_idx].leaves)
-    debug_assert["safe", _use_compiler_assume=True](
-        node_count <= _U32_MAX_AS_INT and leaf_count <= _U32_MAX_AS_INT,
-        "CPU sphere BLAS packed offsets exceed UInt32",
-    )
-
-    var descs = List[UInt32](
-        length=len(sphere_sets) * BlasDescLayout.STRIDE, fill=0
-    )
-    var nodes = List[Float32](capacity=node_count)
-    var leaves = List[Float32](capacity=leaf_count)
-    nodes.resize(unsafe_uninit_length=node_count)
-    leaves.resize(unsafe_uninit_length=leaf_count)
-    var node_base = 0
-    var leaf_base = 0
-    for blas_idx in range(len(built)):
-        ref local = built[blas_idx]
-        var desc = BlasDesc.load(local.descs.unsafe_ptr(), UInt32(0))
-        if len(local.nodes) > 0:
-            unsafe_memcpy(
-                dest=nodes.unsafe_ptr().unsafe_offset(node_base),
-                src=local.nodes.unsafe_ptr(),
-                count=len(local.nodes),
-            )
-        if len(local.leaves) > 0:
-            unsafe_memcpy(
-                dest=leaves.unsafe_ptr().unsafe_offset(leaf_base),
-                src=local.leaves.unsafe_ptr(),
-                count=len(local.leaves),
-            )
-        desc.node_f32_base = UInt32(node_base)
-        desc.leaf_f32_base = UInt32(leaf_base)
-        desc.store(descs.unsafe_ptr(), blas_idx)
-        node_base += len(local.nodes)
-        leaf_base += len(local.leaves)
-
-    return CpuBlasSet[.SPHERE, width](descs^, nodes^, leaves^, len(sphere_sets))
+    return _assemble_exact_blases[.SPHERE, width, width](built)
 
 
 def build_cpu_sphere_blas_set[
@@ -790,34 +623,7 @@ def build_cpu_sphere_blas_set[
     )
 
     if len(sphere_sets) == 1:
-        var descs = List[UInt32](length=BlasDescLayout.STRIDE, fill=0)
-        if len(sphere_sets[0]) == 0:
-            _store_empty_blas_desc(descs.unsafe_ptr(), 0, 0, 0)
-            return CpuBlasSet[.SPHERE, width](
-                descs^, List[Float32](), List[Float32](), 1
-            )
-
-        var bvh = _SphereBuild[frame, width].__init__[method](sphere_sets[0])
-        var exact_node_count = (
-            len(bvh.tree.nodes) * width * WideNode.CHILD_STRIDE
-        )
-        var exact_leaf_count = (
-            len(bvh.leaf_blocks) * width * SPHERE_LEAF_PACKED_STRIDE
-        )
-        var nodes = List[Float32](capacity=exact_node_count)
-        var leaves = List[Float32](capacity=exact_leaf_count)
-        nodes.resize(unsafe_uninit_length=exact_node_count)
-        leaves.resize(unsafe_uninit_length=exact_leaf_count)
-        _pack_built_sphere_blas[frame, width](
-            bvh,
-            descs.unsafe_ptr(),
-            nodes.unsafe_ptr(),
-            leaves.unsafe_ptr(),
-            0,
-            0,
-            0,
-        )
-        return CpuBlasSet[.SPHERE, width](descs^, nodes^, leaves^, 1)
+        return _build_single_sphere_blas[width, method, frame](sphere_sets[0])
 
     var exact_candidate_count = 0
     for spheres in sphere_sets:
@@ -825,32 +631,14 @@ def build_cpu_sphere_blas_set[
     if exact_candidate_count >= EXACT_MULTI_BLAS_MIN_PRIMITIVES:
         return _build_exact_sphere_blas_batch[width, method, frame](sphere_sets)
 
-    var node_bases = List[Int](capacity=len(sphere_sets))
-    var leaf_bases = List[Int](capacity=len(sphere_sets))
-    var node_f32_count = 0
-    var leaf_f32_count = 0
-    var total_sphere_count = 0
-    for spheres in sphere_sets:
-        var sphere_count = len(spheres)
-        total_sphere_count += sphere_count
-        node_bases.append(node_f32_count)
-        leaf_bases.append(leaf_f32_count)
-        if sphere_count > 0:
-            node_f32_count += (
-                max(sphere_count - 1, 1) * width * WideNode.CHILD_STRIDE
-            )
-        leaf_f32_count += sphere_count * width * SPHERE_LEAF_PACKED_STRIDE
-
-    debug_assert["safe", _use_compiler_assume=True](
-        node_f32_count <= _U32_MAX_AS_INT and leaf_f32_count <= _U32_MAX_AS_INT,
-        "CPU sphere BLAS packed offsets exceed UInt32",
-    )
-
+    var layout = _BlasBuildLayout[
+        width * WideNode.CHILD_STRIDE, width * SPHERE_LEAF_PACKED_STRIDE
+    ].__init__[Sphere[frame], 1](sphere_sets)
     var descs = List[UInt32](
         length=len(sphere_sets) * BlasDescLayout.STRIDE, fill=0
     )
-    var nodes = List[Float32](length=node_f32_count, fill=0.0)
-    var leaves = List[Float32](length=leaf_f32_count, fill=0.0)
+    var nodes = List[Float32](length=layout.node_f32_count, fill=0.0)
+    var leaves = List[Float32](length=layout.leaf_f32_count, fill=0.0)
     var descs_ptr = descs.unsafe_ptr()
     var nodes_ptr = nodes.unsafe_ptr()
     var leaves_ptr = leaves.unsafe_ptr()
@@ -860,8 +648,8 @@ def build_cpu_sphere_blas_set[
             _store_empty_blas_desc(
                 descs_ptr,
                 blas_idx,
-                node_bases[blas_idx],
-                leaf_bases[blas_idx],
+                layout.node_bases[blas_idx],
+                layout.leaf_bases[blas_idx],
             )
             return
         _pack_sphere_blas[frame, width, method](
@@ -870,32 +658,23 @@ def build_cpu_sphere_blas_set[
             nodes_ptr,
             leaves_ptr,
             blas_idx,
-            node_bases[blas_idx],
-            leaf_bases[blas_idx],
+            layout.node_bases[blas_idx],
+            layout.leaf_bases[blas_idx],
         )
 
     if (
         len(sphere_sets) > 1
-        and total_sphere_count >= CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES
+        and layout.primitive_count >= CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES
     ):
         parallelize(build_one, len(sphere_sets))
     else:
         for blas_idx in range(len(sphere_sets)):
             build_one(blas_idx)
 
-    var compact_nodes = List[Float32]()
-    var compact_leaves = List[Float32]()
-    _compact_blas_storage[
+    return _finish_blas_workspace[
+        .SPHERE,
+        width,
+        width,
         width * WideNode.CHILD_STRIDE,
         width * SPHERE_LEAF_PACKED_STRIDE,
-    ](
-        descs,
-        nodes,
-        leaves,
-        len(sphere_sets),
-        compact_nodes,
-        compact_leaves,
-    )
-    return CpuBlasSet[.SPHERE, width](
-        descs^, compact_nodes^, compact_leaves^, len(sphere_sets)
-    )
+    ](descs^, nodes, leaves)

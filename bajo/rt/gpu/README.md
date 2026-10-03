@@ -32,6 +32,23 @@ targets process complete-pixel path chunks and default to a 256K-path working
 set; callers can override capacity without changing global path IDs, RNG
 streams, or output order.
 
+## Source boundaries
+
+| Module | Responsibility |
+| --- | --- |
+| `materials.mojo` | Prepare and own device material and texture tables |
+| `textures.mojo` | Device-safe texture lookup, material albedo, and coated shading normals |
+| `lighting.mojo` | Prepare light tables and sample direct-light candidates |
+| `upload.mojo` | Upload nonempty device tables shared by preparation code |
+| `path_shading.mojo` | Route surface hits, shade BSDFs, and append path continuations |
+
+Scene preparation imports the material and light owners directly. Traversal
+imports texture and lighting operations from their respective modules.
+Diffuse, coated-diffuse, and deferred material shading share one inline
+continuation operation for roulette, bounded queue reservation, secondary-ray
+construction, and integrator-specific path storage. Material sampling retains
+its own RNG draws, and the fused and deferred kernel stages remain separate.
+
 ## Stage sequence
 
 1. PATH primary generation writes the active path queue with a lean standalone

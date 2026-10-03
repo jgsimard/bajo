@@ -57,12 +57,12 @@ from bajo.rt.gpu.common_kernels import (
     clear_gpu_rt_sample,
     make_gpu_rt_primary_path,
 )
+from bajo.rt.gpu.lighting import _sample_direct_light_candidate
+from bajo.rt.gpu.textures import _gpu_coated_shading_normal
 from bajo.rt.gpu.path_shading import (
     _accumulate_sample,
     _append_shadow,
-    _gpu_coated_shading_normal,
     _route_surface_hit,
-    _sample_direct_light_candidate,
 )
 from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
 
@@ -83,14 +83,14 @@ def _gpu_environment_radiance(
         scene.environment_scale_z,
     )
     __match EnvironmentKind(scene.environment_kind):
-    case .BLACK:
-        return Color(0.0)
-    case .PROCEDURAL:
-        return sky_color(direction)
-    case .UNIFORM:
-        return scale
-    case .IMAGE:
-        pass
+        case .BLACK:
+            return Color(0.0)
+        case .PROCEDURAL:
+            return sky_color(direction)
+        case .UNIFORM:
+            return scale
+        case .IMAGE:
+            pass
 
     var light_direction = scene.environment_world_to_light.vector(direction)
     var uv = equal_area_sphere_to_square(light_direction)
@@ -391,17 +391,18 @@ def _gpu_rt_scene_trace_path[
             comptime if integrator == .MIS:
                 if bounce > 0 and not path.delta:
                     __match EnvironmentKind(scene.environment_kind):
-                    case .IMAGE:
-                        environment_light_pdf = (
-                            _light_importance(environment_emission)
-                            / scene.total_light_weight if scene.total_light_weight
-                            > 0.0 else 0.0
-                        )
-                    case .BLACK | .PROCEDURAL | .UNIFORM:
-                        if scene.total_light_weight > 0.0:
-                            environment_light_pdf = scene.environment_weight / (
-                                4.0 * pi * scene.total_light_weight
+                        case .IMAGE:
+                            environment_light_pdf = (
+                                _light_importance(environment_emission)
+                                / scene.total_light_weight if scene.total_light_weight
+                                > 0.0 else 0.0
                             )
+                        case .BLACK | .PROCEDURAL | .UNIFORM:
+                            if scene.total_light_weight > 0.0:
+                                environment_light_pdf = (
+                                    scene.environment_weight
+                                    / (4.0 * pi * scene.total_light_weight)
+                                )
             var environment_mis_weight = _emissive_hit_weight_from_pdf[
                 integrator
             ](

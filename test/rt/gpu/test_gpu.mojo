@@ -33,7 +33,7 @@ from bajo.rt.gpu.render import (
     _prefer_cwbvh8_blases,
     _prefer_cwbvh8_triangles,
 )
-from bajo.rt.gpu.path_shading import GpuRtLights
+from bajo.rt.gpu.lighting import GpuRtLights
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.render_types import (
     Color,

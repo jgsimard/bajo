@@ -8,7 +8,8 @@ from bajo.rt.render_types import SamplingConfig
 from bajo.rt.material_types import Integrator
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
-from bajo.rt.gpu.path_shading import GpuRtMaterials, _enqueue_material_shading
+from bajo.rt.gpu.materials import GpuRtMaterials
+from bajo.rt.gpu.path_shading import _enqueue_material_shading
 from bajo.rt.gpu.scene_trace import (
     enqueue_gpu_shadows,
     gpu_rt_primary_scene_trace_kernel,

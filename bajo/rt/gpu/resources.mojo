@@ -239,32 +239,6 @@ def enqueue_gpu_wavefront[
             _enqueue_gpu_primary[integrator](
                 ctx, target, sampling, sample_begin, chunk_sample_count
             )
-            for bounce in range(settings.max_depth):
-                if bounce % 2 == 0:
-                    bounce_fn(
-                        ctx,
-                        target.arena,
-                        scene,
-                        target.arena.path_a.path_ids,
-                        target.arena.path_a.fields,
-                        target.arena.path_b.path_ids,
-                        target.arena.path_b.fields,
-                        sampling,
-                        UInt32(bounce),
-                    )
-                else:
-                    bounce_fn(
-                        ctx,
-                        target.arena,
-                        scene,
-                        target.arena.path_b.path_ids,
-                        target.arena.path_b.fields,
-                        target.arena.path_a.path_ids,
-                        target.arena.path_a.fields,
-                        sampling,
-                        UInt32(bounce),
-                    )
-                enqueue_wavefront_advance(ctx, target.arena)
         else:
             if (
                 Integrator.uses_direct_lighting[integrator]
@@ -292,33 +266,34 @@ def enqueue_gpu_wavefront[
                     sampling,
                 )
                 enqueue_wavefront_advance(ctx, target.arena)
-                comptime if Integrator.is_path_tracing[integrator]:
-                    for bounce in range(1, settings.max_depth):
-                        if bounce % 2 == 0:
-                            bounce_fn(
-                                ctx,
-                                target.arena,
-                                scene,
-                                target.arena.path_a.path_ids,
-                                target.arena.path_a.fields,
-                                target.arena.path_b.path_ids,
-                                target.arena.path_b.fields,
-                                sampling,
-                                UInt32(bounce),
-                            )
-                        else:
-                            bounce_fn(
-                                ctx,
-                                target.arena,
-                                scene,
-                                target.arena.path_b.path_ids,
-                                target.arena.path_b.fields,
-                                target.arena.path_a.path_ids,
-                                target.arena.path_a.fields,
-                                sampling,
-                                UInt32(bounce),
-                            )
-                        enqueue_wavefront_advance(ctx, target.arena)
+        comptime if Integrator.is_path_tracing[integrator]:
+            comptime first_bounce = 0 if integrator == .PATH else 1
+            for bounce in range(first_bounce, settings.max_depth):
+                if bounce % 2 == 0:
+                    bounce_fn(
+                        ctx,
+                        target.arena,
+                        scene,
+                        target.arena.path_a.path_ids,
+                        target.arena.path_a.fields,
+                        target.arena.path_b.path_ids,
+                        target.arena.path_b.fields,
+                        sampling,
+                        UInt32(bounce),
+                    )
+                else:
+                    bounce_fn(
+                        ctx,
+                        target.arena,
+                        scene,
+                        target.arena.path_b.path_ids,
+                        target.arena.path_b.fields,
+                        target.arena.path_a.path_ids,
+                        target.arena.path_a.fields,
+                        sampling,
+                        UInt32(bounce),
+                    )
+                enqueue_wavefront_advance(ctx, target.arena)
         _enqueue_gpu_resolve(ctx, target, sample_begin, chunk_sample_count)
         sample_begin += chunk_sample_count
 

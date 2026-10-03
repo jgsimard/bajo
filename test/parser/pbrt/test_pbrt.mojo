@@ -429,5 +429,35 @@ def test_rejects_unsupported_and_invalid_geometry() raises:
         _ = parse_pbrt('WorldBegin\nShape "sphere" "float radius" [0]')
 
 
+def test_indexed_mesh_reuses_vertices_and_preserves_unused_values() raises:
+    var scene = parse_pbrt(
+        "WorldBegin\nTranslate 1 2 3\nReverseOrientation\n"
+        'Shape "trianglemesh" "point P" [0 0 0 1 0 0 0 1 0 bad bad bad]'
+        ' "integer indices" [0 1 2 0 1 2]'
+    )
+    ref vertices = scene.data.triangle_vertices()
+    assert_true(len(vertices) == 6)
+    for base in [0, 3]:
+        assert_almost_equal(vertices[base].x, 1.0)
+        assert_almost_equal(vertices[base].y, 2.0)
+        assert_almost_equal(vertices[base].z, 3.0)
+        assert_almost_equal(vertices[base + 1].x, 1.0)
+        assert_almost_equal(vertices[base + 1].y, 3.0)
+        assert_almost_equal(vertices[base + 2].x, 2.0)
+        assert_almost_equal(vertices[base + 2].y, 2.0)
+    with assert_raises():
+        _ = parse_pbrt(
+            'WorldBegin\nShape "trianglemesh" "point3 P" [0 0 0 bad 0 0 0 1 0]'
+            ' "integer indices" [0 1 2]'
+        )
+    with assert_raises():
+        _ = parse_pbrt('WorldBegin\nAttributeBegin\nShape "sphere"')
+    with assert_raises():
+        _ = parse_pbrt(
+            'WorldBegin\nTexture "bad" "spectrum" "imagemap" '
+            '"string filename" "missing.png"\nShape "sphere"'
+        )
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

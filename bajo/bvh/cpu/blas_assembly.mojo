@@ -79,8 +79,6 @@ struct _BlasBuildLayout[node_f32_stride: Int, leaf_f32_stride: Int]:
     var leaf_bases: List[Int]
     var node_f32_count: Int
     var leaf_f32_count: Int
-    var primitive_count: Int
-    var max_primitive_count: Int
 
     def __init__[
         T: Copyable, items_per_primitive: Int
@@ -88,8 +86,6 @@ struct _BlasBuildLayout[node_f32_stride: Int, leaf_f32_stride: Int]:
         comptime assert items_per_primitive > 0
         self.node_bases = List[Int](capacity=len(sets))
         self.leaf_bases = List[Int](capacity=len(sets))
-        self.primitive_count = 0
-        self.max_primitive_count = 0
         var node_count = 0
         var leaf_count = 0
         for items in sets:
@@ -98,8 +94,6 @@ struct _BlasBuildLayout[node_f32_stride: Int, leaf_f32_stride: Int]:
                 "each CPU BLAS must contain complete primitives",
             )
             var count = len(items) / items_per_primitive
-            self.primitive_count += count
-            self.max_primitive_count = max(self.max_primitive_count, count)
             self.node_bases.append(node_count)
             self.leaf_bases.append(leaf_count)
             if count > 0:

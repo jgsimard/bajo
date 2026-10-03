@@ -873,6 +873,7 @@ def _evaluate_coated_diffuse[
     max_depth: SIMD[.float32, length],
     n_samples: SIMD[.float32, length],
     out_direction: Vec3[.float32, .WORLD, length],
+    active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
 ) -> BsdfEvaluation[length]:
     var result = BsdfEvaluation[length](
         Vec3[.float32, .WORLD, length](0.0),
@@ -880,6 +881,8 @@ def _evaluate_coated_diffuse[
         SIMD[.bool, length](fill=False),
     )
     for lane in range(Int(length)):
+        if not active[lane]:
+            continue
         var evaluated = _evaluate_coated_diffuse_scalar(
             Vec3[.float32, .WORLD](
                 ray_direction.x[lane],
@@ -932,6 +935,7 @@ def _sample_coated_diffuse[
     n_samples: SIMD[.float32, length],
     random_u: SIMD[.float32, length],
     random_v: SIMD[.float32, length],
+    active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
 ) -> BsdfSample[length]:
     var result = BsdfSample[length](
         normal,
@@ -941,6 +945,8 @@ def _sample_coated_diffuse[
         SIMD[.bool, length](fill=False),
     )
     for lane in range(Int(length)):
+        if not active[lane]:
+            continue
         var sampled = _sample_coated_diffuse_scalar(
             Vec3[.float32, .WORLD](
                 ray_direction.x[lane],

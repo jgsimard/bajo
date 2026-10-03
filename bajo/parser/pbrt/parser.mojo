@@ -3,7 +3,7 @@ from max.algorithm import parallelize
 from std.math import abs, cos, pi, sin, sqrt
 from std.sys import num_logical_cores
 
-from bajo.bvh import Camera, Instance, Sphere
+from bajo.bvh import Camera
 from bajo.bvh.host_utils import compute_bounds
 from bajo.core import Affine3f32, Point3f32, Vec3f32
 from bajo.parser.number import parse_f32_at
@@ -18,7 +18,6 @@ from bajo.rt.material_types import (
     Integrator,
     NO_TEXTURE,
     SurfaceId,
-    SurfaceStore,
 )
 from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.scene_description import SceneDescription
@@ -187,11 +186,17 @@ struct _Parameters:
                 )
         return default
 
-    def values(self, declaration: String) -> List[String]:
+    def values(self, declaration: String) -> ImmSpan[String, origin_of(self)]:
         for entry in self.entries:
             if entry.declaration == declaration:
-                return entry.values.copy()
-        return List[String]()
+                # The enclosing parameter set owns each entry's storage.
+                return Span(
+                    unsafe_ptr=entry.values.unsafe_ptr().unsafe_origin_cast[
+                        origin_of(self)
+                    ](),
+                    length=len(entry.values),
+                )
+        return ImmSpan[String, origin_of(self)]()
 
 
 @fieldwise_init
@@ -220,16 +225,7 @@ struct _FloatTexture(Copyable):
 struct _Builder(
     Deinitable where (False, "call finish() or abort() to consume the parser")
 ):
-    var spheres: List[Sphere[.WORLD]]
-    var sphere_surfaces: List[SurfaceId[1]]
-    var triangle_vertices: List[_PointW]
-    var triangle_surfaces: List[SurfaceId[1]]
-    var triangle_meshes: List[List[_PointL]]
-    var triangle_mesh_normals: List[List[Float32]]
-    var triangle_mesh_texcoords: List[List[Float32]]
-    var triangle_instances: List[Instance]
-    var triangle_instance_surfaces: List[SurfaceId[1]]
-    var surfaces: SurfaceStore
+    var scene: SceneBuilder
     var named_materials: Dict[String, SurfaceId[1]]
     var color_textures: Dict[String, _ColorTexture]
     var scalar_textures: Dict[String, _FloatTexture]
@@ -250,21 +246,12 @@ struct _Builder(
     var has_environment: Bool
 
     def __init__(out self):
-        self.spheres = List[Sphere[.WORLD]]()
-        self.sphere_surfaces = List[SurfaceId[1]]()
-        self.triangle_vertices = List[_PointW]()
-        self.triangle_surfaces = List[SurfaceId[1]]()
-        self.triangle_meshes = List[List[_PointL]]()
-        self.triangle_mesh_normals = List[List[Float32]]()
-        self.triangle_mesh_texcoords = List[List[Float32]]()
-        self.triangle_instances = List[Instance]()
-        self.triangle_instance_surfaces = List[SurfaceId[1]]()
-        self.surfaces = SurfaceStore()
+        self.scene = SceneBuilder()
         self.named_materials = Dict[String, SurfaceId[1]]()
         self.color_textures = Dict[String, _ColorTexture]()
         self.scalar_textures = Dict[String, _FloatTexture]()
         self.image_paths = List[String]()
-        var default_surface = self.surfaces.add_lambertian(Color(0.5))
+        var default_surface = self.scene.surfaces.add_lambertian(Color(0.5))
         self.state = _GraphicsState(
             _Transform.identity(),
             default_surface.copy(),
@@ -285,27 +272,6 @@ struct _Builder(
         self.integrator = .PATH
         self.environment = Environment.black()
         self.has_environment = False
-
-    def add_sphere(
-        mut self,
-        center: _PointW,
-        radius: Float32,
-        surface: SurfaceId[1],
-    ):
-        self.spheres.append(Sphere[.WORLD](center, radius))
-        self.sphere_surfaces.append(surface.copy())
-
-    def add_triangle(
-        mut self,
-        v0: _PointW,
-        v1: _PointW,
-        v2: _PointW,
-        surface: SurfaceId[1],
-    ):
-        self.triangle_vertices.append(v0)
-        self.triangle_vertices.append(v1)
-        self.triangle_vertices.append(v2)
-        self.triangle_surfaces.append(surface.copy())
 
     def add_ply_mesh(
         mut self,
@@ -356,29 +322,25 @@ struct _Builder(
                     texcoords.append(mesh.texcoords[texcoord_base])
                     texcoords.append(mesh.texcoords[texcoord_base + 1])
 
-        var mesh_idx = UInt32(len(self.triangle_meshes))
         var bounds = compute_bounds(vertices)
-        self.triangle_meshes.append(vertices^)
-        self.triangle_mesh_normals.append(normals^)
-        self.triangle_mesh_texcoords.append(texcoords^)
+        _ = self.scene.add_owned_triangle_mesh_instance(
+            vertices^,
+            normals^,
+            texcoords^,
+            self.state.transform,
+            bounds,
+            surface,
+        )
 
-        var instance = Instance()
-        instance.transform = self.state.transform.copy()
-        instance.bounds = bounds.apply_transform(self.state.transform)
-        instance.blas_idx = mesh_idx
-        instance.kind = .TRIANGLE
-        self.triangle_instances.append(instance^)
-        self.triangle_instance_surfaces.append(surface.copy())
-
-    def finish[
+    def _prepare_finish[
         Loader: TextLoader
-    ](deinit self, loader: Loader) raises -> SceneDescription:
+    ](mut self, loader: Loader) raises -> Tuple[Camera, RenderSettings]:
         if len(self.attribute_stack) != 0 or len(self.transform_stack) != 0:
             raise Error("unclosed PBRT attribute or transform scope")
         if (
-            len(self.spheres) == 0
-            and len(self.triangle_vertices) == 0
-            and len(self.triangle_instances) == 0
+            len(self.scene.spheres) == 0
+            and len(self.scene.triangle_vertices) == 0
+            and len(self.scene.triangle_instances) == 0
         ):
             raise Error("PBRT scene contains no supported shapes")
         var loaded_images = List[Optional[ImageTexture]](
@@ -419,7 +381,7 @@ struct _Builder(
                 )
             if not loaded_images[image_idx]:
                 raise Error("PBRT image loader returned no image")
-            var stored_idx = self.surfaces.add_image_texture(
+            var stored_idx = self.scene.surfaces.add_image_texture(
                 loaded_images[image_idx].take()
             )
             debug_assert(stored_idx == UInt32(image_idx))
@@ -437,32 +399,29 @@ struct _Builder(
             UInt64(2026),
             self.max_depth,
         )
-        # PBRT owns these authoring buffers exclusively. Transfer them through
-        # SceneBuilder so finalization validates in place without cloning data.
-        var scene_builder = SceneBuilder(
-            self.spheres^,
-            self.sphere_surfaces^,
-            self.triangle_vertices^,
-            self.triangle_surfaces^,
-            self.triangle_meshes^,
-            self.triangle_mesh_normals^,
-            self.triangle_mesh_texcoords^,
-            self.triangle_instances^,
-            self.triangle_instance_surfaces^,
-            self.surfaces^,
-            self.environment,
-        )
-        var data = scene_builder^.finish()
+        self.scene.set_environment(self.environment)
+        return (camera, settings^)
+
+    def finish[
+        Loader: TextLoader
+    ](deinit self, loader: Loader) raises -> SceneDescription:
+        var prepared: Tuple[Camera, RenderSettings]
+        try:
+            prepared = self._prepare_finish(loader)
+        except error:
+            self.scene^.abort()
+            raise error
+        var data = self.scene^.finish()
         return SceneDescription(
             data^,
-            camera,
-            settings,
+            prepared[0],
+            prepared[1].copy(),
             self.integrator,
         )
 
     def abort(deinit self):
         """Consume and release a partially parsed scene after an error."""
-        pass
+        self.scene^.abort()
 
 
 def _parse_f32(text: String) raises -> Float32:
@@ -724,7 +683,7 @@ def _surface(
         )
         if params.string("bool remaproughness", "true") != "false":
             roughness = _roughness_to_alpha(roughness)
-        return builder.surfaces.add_coated_diffuse(
+        return builder.scene.surfaces.add_coated_diffuse(
             reflectance.scale,
             roughness,
             params.f32("float eta", 1.5),
@@ -743,7 +702,7 @@ def _surface(
         var reflectance = _color_texture_parameter(
             builder, params, "reflectance", Color(0.5)
         )
-        return builder.surfaces.add_lambertian(
+        return builder.scene.surfaces.add_lambertian(
             reflectance.scale, reflectance.image_index
         )
     if model == "conductor" or model == "metal":
@@ -751,11 +710,13 @@ def _surface(
         var reflectance = _color_texture_parameter(
             builder, params, "reflectance", Color(0.9)
         )
-        return builder.surfaces.add_metal(
+        return builder.scene.surfaces.add_metal(
             reflectance.scale, roughness, reflectance.image_index
         )
     if model == "dielectric" or model == "glass":
-        return builder.surfaces.add_dielectric(params.f32("float eta", 1.5))
+        return builder.scene.surfaces.add_dielectric(
+            params.f32("float eta", 1.5)
+        )
     raise Error("unsupported PBRT material: " + model)
 
 
@@ -770,7 +731,7 @@ def _shape[
 ) raises:
     var surface = builder.state.surface.copy()
     if builder.state.area_light:
-        surface = builder.surfaces.add_emissive(builder.state.emission)
+        surface = builder.scene.surfaces.add_emissive(builder.state.emission)
 
     __match kind:
         case "sphere":
@@ -791,7 +752,7 @@ def _shape[
                 raise Error(
                     "non-uniformly transformed PBRT spheres are not supported"
                 )
-            builder.add_sphere(
+            builder.scene.add_sphere(
                 center,
                 params.f32("float radius", 1.0) * sx,
                 surface,
@@ -818,55 +779,46 @@ def _shape[
             if len(points) % 3 != 0:
                 raise Error("PBRT trianglemesh P must contain xyz triples")
             var indices = params.values("integer indices")
-            if len(indices) == 0:
-                if len(points) % 9 != 0:
-                    raise Error(
-                        "unindexed PBRT trianglemesh must contain triangles"
-                    )
-                for base in range(0, len(points), 9):
-                    var p0 = builder.state.transform.point(
-                        _PointL(
-                            _parse_f32(points[base]),
-                            _parse_f32(points[base + 1]),
-                            _parse_f32(points[base + 2]),
-                        )
-                    )
-                    var p1 = builder.state.transform.point(
-                        _PointL(
-                            _parse_f32(points[base + 3]),
-                            _parse_f32(points[base + 4]),
-                            _parse_f32(points[base + 5]),
-                        )
-                    )
-                    var p2 = builder.state.transform.point(
-                        _PointL(
-                            _parse_f32(points[base + 6]),
-                            _parse_f32(points[base + 7]),
-                            _parse_f32(points[base + 8]),
-                        )
-                    )
-                    if builder.state.reverse_orientation:
-                        builder.add_triangle(
-                            p0,
-                            p2,
-                            p1,
-                            surface,
-                        )
-                    else:
-                        builder.add_triangle(
-                            p0,
-                            p1,
-                            p2,
-                            surface,
-                        )
-                return
-            if len(indices) % 3 != 0:
+            var indexed = len(indices) != 0
+            if indexed and len(indices) % 3 != 0:
                 raise Error("PBRT trianglemesh indices must contain triples")
+            if not indexed and len(points) % 9 != 0:
+                raise Error(
+                    "unindexed PBRT trianglemesh must contain triangles"
+                )
             var point_count = len(points) / 3
-            for base in range(0, len(indices), 3):
-                var i0 = _parse_int(indices[base])
-                var i1 = _parse_int(indices[base + 1])
-                var i2 = _parse_int(indices[base + 2])
+            # Leave unused point strings unevaluated and retain the original
+            # index-before-coordinate validation order.
+            var vertices = List[Optional[_PointW]](
+                length=point_count if indexed else 0,
+                fill=Optional[_PointW](),
+            )
+            var transform = builder.state.transform.copy()
+
+            @always_inline
+            def decode_vertex(index: Int) raises {imm} -> _PointW:
+                var base = 3 * index
+                return transform.point(
+                    _PointL(
+                        _parse_f32(points[base]),
+                        _parse_f32(points[base + 1]),
+                        _parse_f32(points[base + 2]),
+                    )
+                )
+
+            @always_inline
+            def vertex(index: Int) raises {imm, mut vertices} -> _PointW:
+                if not indexed:
+                    return decode_vertex(index)
+                if not vertices[index]:
+                    vertices[index] = decode_vertex(index)
+                return vertices[index].value()
+
+            var element_count = len(indices) if indexed else point_count
+            for base in range(0, element_count, 3):
+                var i0 = _parse_int(indices[base]) if indexed else base
+                var i1 = _parse_int(indices[base + 1]) if indexed else base + 1
+                var i2 = _parse_int(indices[base + 2]) if indexed else base + 2
                 if (
                     i0 < 0
                     or i0 >= point_count
@@ -876,41 +828,13 @@ def _shape[
                     or i2 >= point_count
                 ):
                     raise Error("PBRT trianglemesh index is out of range")
-                var p0 = builder.state.transform.point(
-                    _PointL(
-                        _parse_f32(points[3 * i0]),
-                        _parse_f32(points[3 * i0 + 1]),
-                        _parse_f32(points[3 * i0 + 2]),
-                    )
-                )
-                var p1 = builder.state.transform.point(
-                    _PointL(
-                        _parse_f32(points[3 * i1]),
-                        _parse_f32(points[3 * i1 + 1]),
-                        _parse_f32(points[3 * i1 + 2]),
-                    )
-                )
-                var p2 = builder.state.transform.point(
-                    _PointL(
-                        _parse_f32(points[3 * i2]),
-                        _parse_f32(points[3 * i2 + 1]),
-                        _parse_f32(points[3 * i2 + 2]),
-                    )
-                )
+                var p0 = vertex(i0)
+                var p1 = vertex(i1)
+                var p2 = vertex(i2)
                 if builder.state.reverse_orientation:
-                    builder.add_triangle(
-                        p0,
-                        p2,
-                        p1,
-                        surface,
-                    )
+                    builder.scene.add_triangle(p0, p2, p1, surface)
                 else:
-                    builder.add_triangle(
-                        p0,
-                        p1,
-                        p2,
-                        surface,
-                    )
+                    builder.scene.add_triangle(p0, p1, p2, surface)
             return
     raise Error("unsupported PBRT shape: " + kind)
 

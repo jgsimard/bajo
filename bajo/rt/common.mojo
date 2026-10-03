@@ -182,28 +182,36 @@ def environment_light_pdf[
         case .IMAGE:
             pass
 
-    var transform = environment.world_to_light.copy()
-    var light_direction = Vec3[.float32, .LOCAL, length](
-        transform.m00[0] * direction.x
-        + transform.m01[0] * direction.y
-        + transform.m02[0] * direction.z,
-        transform.m10[0] * direction.x
-        + transform.m11[0] * direction.y
-        + transform.m12[0] * direction.z,
-        transform.m20[0] * direction.x
-        + transform.m21[0] * direction.y
-        + transform.m22[0] * direction.z,
+    return environment_pdf_from_radiance(
+        environment,
+        environment_weight,
+        total_light_weight,
+        environment_radiance(environment, surfaces, direction),
     )
-    var uv = equal_area_sphere_to_square(light_direction)
+
+
+@always_inline
+def environment_pdf_from_radiance[
+    length: SIMDLength
+](
+    environment: Environment,
+    environment_weight: Float32,
+    total_light_weight: Float32,
+    emission: Vec3[.float32, .WORLD, length],
+) -> SIMD[.float32, length]:
+    """Reuse evaluated emission when computing the image-light density."""
+    if environment_weight <= 0.0 or total_light_weight <= 0.0:
+        return 0.0
+    if environment.kind != .IMAGE:
+        return environment_weight / (4.0 * pi * total_light_weight)
     var result = SIMD[.float32, length](0.0)
     for lane in range(length):
-        var emission = (
-            surfaces.image_textures[
-                Int(environment.texture_index)
-            ].sample_environment(uv.u[lane], uv.v[lane])
-            * environment.scale
+        result[lane] = (
+            _light_importance(
+                Color(emission.x[lane], emission.y[lane], emission.z[lane])
+            )
+            / total_light_weight
         )
-        result[lane] = _light_importance(emission) / total_light_weight
     return result
 
 

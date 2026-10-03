@@ -1,6 +1,7 @@
 """CPU wavefront renderer orchestration and public entry points."""
 
 from max.algorithm import parallelize
+from std.atomic import Atomic, Ordering
 from std.math import ceildiv
 from std.sys import num_logical_cores
 from std.time import perf_counter_ns
@@ -14,7 +15,7 @@ from bajo.rt.render_types import (
     RenderTimings,
     SamplingConfig,
 )
-from bajo.rt.material_types import Integrator
+from bajo.rt.material_types import Integrator, SurfaceStore
 from ..scene import CpuScene
 from ..scheduler_mode import CpuSchedulerMode
 from bajo.rt.wavefront_queue import PacketPathQueue, PacketShadeQueue
@@ -43,15 +44,23 @@ struct _PacketQueueArena[length: SIMDLength]:
     var dielectric: PacketShadeQueue[Self.length]
     var coated_diffuse: PacketShadeQueue[Self.length]
 
-    def __init__(out self, capacity: Int):
+    def __init__(out self, capacity: Int, surfaces: SurfaceStore):
         # Two path buffers ping-pong between bounces. Material queues reserve
         # their worst-case size once so appends never grow storage mid-bounce.
         self.active_paths = PacketPathQueue[Self.length](capacity)
         self.next_paths = PacketPathQueue[Self.length](capacity)
-        self.lambertian = PacketShadeQueue[Self.length](capacity)
-        self.metal = PacketShadeQueue[Self.length](capacity)
-        self.dielectric = PacketShadeQueue[Self.length](capacity)
-        self.coated_diffuse = PacketShadeQueue[Self.length](capacity)
+        self.lambertian = PacketShadeQueue[Self.length](
+            capacity if len(surfaces.lambertians) > 0 else 0
+        )
+        self.metal = PacketShadeQueue[Self.length](
+            capacity if len(surfaces.metals) > 0 else 0
+        )
+        self.dielectric = PacketShadeQueue[Self.length](
+            capacity if len(surfaces.dielectrics) > 0 else 0
+        )
+        self.coated_diffuse = PacketShadeQueue[Self.length](
+            capacity if len(surfaces.coated_diffuses) > 0 else 0
+        )
 
 
 def _trace_packet_range[
@@ -126,6 +135,7 @@ def render_wavefront_configured[
     var paths_per_chunk = _whole_pixel_chunk_paths(
         settings.samples_per_pixel, CHUNK_PATHS
     )
+    var arena_capacity = min(paths_per_chunk, path_count)
     var init_t0 = perf_counter_ns()
     var pixels = List[Color](length=pixel_count, fill=Color(0.0))
     var init_t1 = perf_counter_ns()
@@ -136,39 +146,57 @@ def render_wavefront_configured[
         # Global path IDs retain their Philox streams regardless of task order.
         var chunk_count = ceildiv(path_count, paths_per_chunk)
 
-        def worker(chunk_idx: Int) {imm, mut pixels}:
-            var path_begin = chunk_idx * paths_per_chunk
-            var path_end = min(path_begin + paths_per_chunk, path_count)
-            var queues = _PacketQueueArena[length](path_end - path_begin)
-            _trace_packet_range[
-                length,
-                integrator,
-                world_bvh_width,
-                instance_bvh_width,
-                traversal_mode,
-                *adaptive_packet_sizes,
-            ](
-                settings,
-                sampling,
-                camera,
-                world,
-                pixels,
-                path_begin,
-                path_end,
-                queues,
-            )
+        # Bounded workers claim whole-pixel chunks dynamically and retain a
+        # private arena. The atomic counter publishes no data; relaxed ordering
+        # suffices to assign distinct chunks and therefore distinct pixels.
+        var worker_count = min(num_logical_cores(), chunk_count)
+        var next_chunk = List[Int](length=1, fill=0)
+        var next_chunk_ptr = next_chunk.unsafe_ptr()
 
-        comptime __match scheduler_mode:
-        case .LOGICAL_CORES:
-            parallelize(
-                worker, chunk_count, min(num_logical_cores(), chunk_count)
+        def worker(_worker_idx: Int) {imm, mut pixels}:
+            var chunk_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
+                next_chunk_ptr, 1
             )
-        case .TASK_PARTITIONS:
-            parallelize(worker, chunk_count, chunk_count)
-        case .RUNTIME_DEFAULT:
-            parallelize(worker, chunk_count)
+            if chunk_idx >= chunk_count:
+                return
+            var queues = _PacketQueueArena[length](
+                arena_capacity, world.scene_data().surfaces()
+            )
+            while chunk_idx < chunk_count:
+                var path_begin = chunk_idx * paths_per_chunk
+                var path_end = min(path_begin + paths_per_chunk, path_count)
+                _trace_packet_range[
+                    length,
+                    integrator,
+                    world_bvh_width,
+                    instance_bvh_width,
+                    traversal_mode,
+                    *adaptive_packet_sizes,
+                ](
+                    settings,
+                    sampling,
+                    camera,
+                    world,
+                    pixels,
+                    path_begin,
+                    path_end,
+                    queues,
+                )
+                chunk_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
+                    next_chunk_ptr, 1
+                )
+
+        # Explicit core/task partitions both map one callback per arena;
+        # runtime-default mode retains the runtime's partitioning choice.
+        comptime if scheduler_mode == .RUNTIME_DEFAULT:
+            parallelize(worker, worker_count)
+        else:
+            parallelize(worker, worker_count, worker_count)
+
     else:
-        var queues = _PacketQueueArena[length](paths_per_chunk)
+        var queues = _PacketQueueArena[length](
+            arena_capacity, world.scene_data().surfaces()
+        )
         var path_begin = 0
         while path_begin < path_count:
             var path_end = min(path_begin + paths_per_chunk, path_count)

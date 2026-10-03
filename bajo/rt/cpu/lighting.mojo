@@ -11,6 +11,7 @@ from bajo.core.random import Rng, random_unit_vector
 from bajo.bvh.constants import f32_max
 from bajo.rt.common import (
     environment_light_pdf,
+    environment_pdf_from_radiance,
     environment_radiance,
     equal_area_square_to_sphere,
 )
@@ -135,7 +136,7 @@ def _environment_miss_weight[
     instance_bvh_width: SIMDLength,
 ](
     world: CpuScene[world_bvh_width, instance_bvh_width],
-    direction: Vec3[.float32, .WORLD, 1],
+    emission: Color,
     bounce: Int,
     previous_bsdf_pdf: Float32,
     previous_delta: Bool,
@@ -143,7 +144,13 @@ def _environment_miss_weight[
     var light_pdf = Float32(0.0)
     comptime if integrator == .MIS:
         if bounce > 0 and not previous_delta:
-            light_pdf = environment_pdf_for_miss(world, direction)
+            ref data = world.scene_data()
+            light_pdf = environment_pdf_from_radiance(
+                data.environment(),
+                data.environment_weight(),
+                data.total_light_weight(),
+                emission,
+            )[0]
     return _emissive_hit_weight_from_pdf[integrator](
         UInt32(bounce), previous_delta, previous_bsdf_pdf, light_pdf
     )
@@ -189,12 +196,11 @@ def _sample_environment_candidate[
     var emission = environment_radiance(
         data.environment(), data.surfaces(), direction
     )
-    var light_pdf = environment_light_pdf(
+    var light_pdf = environment_pdf_from_radiance(
         data.environment(),
-        data.surfaces(),
         data.environment_weight(),
         data.total_light_weight(),
-        direction,
+        emission,
     )[0]
     if light_pdf <= 0.0:
         return _empty_direct_light_sample[1]()

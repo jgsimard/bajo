@@ -6,9 +6,10 @@ from std.testing import (
     assert_true,
 )
 
-from bajo.core import dot, Vec3f32
+from bajo.core import dot, Vec3, Vec3f32
 from bajo.rt.coated_diffuse import (
     _dielectric_f,
+    _evaluate_coated_diffuse,
     _fresnel_dielectric,
     _sample_coated_diffuse,
     _sample_dielectric,
@@ -79,6 +80,105 @@ def test_layered_samples_are_finite_and_leave_the_coating() raises:
         assert_true(sampled.weight.z[0] >= 0.0)
     # Some substrate paths legitimately fail to leave within maxDepth.
     assert_true(successful > 150)
+
+
+def test_coated_packet_evaluation_skips_inactive_lanes() raises:
+    var rays = Vec3[.float32, .WORLD, 4](0.0, 0.0, -1.0)
+    var normals = Vec3[.float32, .WORLD, 4](0.0, 0.0, 1.0)
+    var albedo = Vec3[.float32, .WORLD, 4](0.7, 0.5, 0.25)
+    var out_direction = Vec3[.float32, .WORLD, 4](0.0, 0.0, 1.0)
+    var active = SIMD[.bool, 4](True, False, True, False)
+    var original = _evaluate_coated_diffuse(
+        rays,
+        normals,
+        albedo,
+        SIMD[.float32, 4](0.2),
+        SIMD[.float32, 4](1.5),
+        SIMD[.float32, 4](0.01),
+        Vec3[.float32, .WORLD, 4](0.0),
+        SIMD[.float32, 4](0.0),
+        SIMD[.float32, 4](10.0),
+        SIMD[.float32, 4](1.0),
+        out_direction,
+    )
+    var masked = _evaluate_coated_diffuse(
+        rays,
+        normals,
+        albedo,
+        SIMD[.float32, 4](0.2),
+        SIMD[.float32, 4](1.5),
+        SIMD[.float32, 4](0.01),
+        Vec3[.float32, .WORLD, 4](0.0),
+        SIMD[.float32, 4](0.0),
+        SIMD[.float32, 4](10.0),
+        SIMD[.float32, 4](1.0),
+        out_direction,
+        active,
+    )
+    for lane in range(4):
+        if active[lane]:
+            assert_almost_equal(masked.pdf[lane], original.pdf[lane])
+            assert_almost_equal(masked.value.x[lane], original.value.x[lane])
+            assert_almost_equal(masked.value.y[lane], original.value.y[lane])
+            assert_almost_equal(masked.value.z[lane], original.value.z[lane])
+            assert_true(masked.pdf[lane] > 0.0)
+        else:
+            assert_almost_equal(masked.pdf[lane], 0.0)
+            assert_almost_equal(masked.value.x[lane], 0.0)
+            assert_almost_equal(masked.value.y[lane], 0.0)
+            assert_almost_equal(masked.value.z[lane], 0.0)
+
+
+def test_coated_packet_sampling_skips_inactive_lanes() raises:
+    var rays = Vec3[.float32, .WORLD, 4](0.0, 0.0, -1.0)
+    var normals = Vec3[.float32, .WORLD, 4](0.0, 0.0, 1.0)
+    var albedo = Vec3[.float32, .WORLD, 4](0.7, 0.5, 0.25)
+    var active = SIMD[.bool, 4](True, False, True, False)
+    var original = _sample_coated_diffuse(
+        rays,
+        normals,
+        albedo,
+        SIMD[.float32, 4](0.2),
+        SIMD[.float32, 4](1.5),
+        SIMD[.float32, 4](0.01),
+        Vec3[.float32, .WORLD, 4](0.0),
+        SIMD[.float32, 4](0.0),
+        SIMD[.float32, 4](10.0),
+        SIMD[.float32, 4](1.0),
+        SIMD[.float32, 4](0.0),
+        SIMD[.float32, 4](0.3),
+    )
+    var masked = _sample_coated_diffuse(
+        rays,
+        normals,
+        albedo,
+        SIMD[.float32, 4](0.2),
+        SIMD[.float32, 4](1.5),
+        SIMD[.float32, 4](0.01),
+        Vec3[.float32, .WORLD, 4](0.0),
+        SIMD[.float32, 4](0.0),
+        SIMD[.float32, 4](10.0),
+        SIMD[.float32, 4](1.0),
+        SIMD[.float32, 4](0.0),
+        SIMD[.float32, 4](0.3),
+        active,
+    )
+    for lane in range(4):
+        if active[lane]:
+            assert_true(masked.ok[lane] == original.ok[lane])
+            assert_almost_equal(masked.pdf[lane], original.pdf[lane])
+            assert_almost_equal(
+                masked.direction.z[lane], original.direction.z[lane]
+            )
+            assert_almost_equal(masked.weight.x[lane], original.weight.x[lane])
+            assert_almost_equal(masked.weight.y[lane], original.weight.y[lane])
+            assert_almost_equal(masked.weight.z[lane], original.weight.z[lane])
+        else:
+            assert_false(masked.ok[lane])
+            assert_almost_equal(masked.pdf[lane], 0.0)
+            assert_almost_equal(masked.weight.x[lane], 0.0)
+            assert_almost_equal(masked.weight.y[lane], 0.0)
+            assert_almost_equal(masked.weight.z[lane], 0.0)
 
 
 def main() raises:

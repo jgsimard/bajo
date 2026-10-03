@@ -8,8 +8,10 @@ from std.testing import (
     assert_true,
     assert_false,
 )
+from std.sys import num_logical_cores
+from std.math import ceildiv
 from std.memory import bitcast
-from std.math import pi
+from std.math import pi, sqrt
 
 from bajo.bvh.camera import Camera
 from bajo.bvh.host_utils import compute_bounds
@@ -21,6 +23,8 @@ from bajo.core import (
     dot,
     length,
     Point3f32,
+    Point3,
+    Ray,
     Rayf32,
 )
 from bajo.core.random import Rng, Sampler, _sobol_bits, _sz_bits
@@ -55,6 +59,8 @@ from examples.cornell_box import make_cornell_world
 from bajo.rt.cpu import reflect, reflectance
 from bajo.rt.common import (
     environment_light_pdf,
+    environment_pdf_from_radiance,
+    environment_radiance,
     equal_area_square_to_sphere,
     equal_area_sphere_to_square,
     path_stage_rng,
@@ -76,6 +82,13 @@ from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.render_types import SamplingConfig
 from bajo.rt.material_types import MaterialKind
 from bajo.rt.wavefront_contract import wavefront_rng_roulette_stage
+from bajo.rt.wavefront_queue import PathPacket, ShadePacket
+from bajo.rt.cpu.wavefront.packet import (
+    _DirectLightBatch,
+    _accumulate_direct_light_packet,
+    _accumulate_environment_packet,
+    _sample_bsdf_batch,
+)
 
 
 def _front_point() -> ShadingPoint[1]:
@@ -768,26 +781,26 @@ def test_world_hit_maps_material_and_normal() raises:
         )
     )
     __match trace_result:
-    case .Some(ref hit):
-        assert_equal(hit.primitive.kind(), PrimitiveKind.SPHERE)
-        assert_equal(hit.primitive.index(), UInt32(0))
-        assert_equal(hit.surface.kind(), matte.kind())
-        assert_equal(hit.surface.index(), matte.index())
-        assert_true(hit.front_face)
-        assert_vec_equal(hit.normal, Vec3f32[.WORLD](0.0, 0.0, 1.0))
-        assert_almost_equal(hit.t, 0.5)
-        var compact = world.trace_surface(
-            Rayf32[.WORLD](
-                Point3f32[.WORLD](0.0),
-                Vec3f32[.WORLD](0.0, 0.0, -1.0),
+        case .Some(ref hit):
+            assert_equal(hit.primitive.kind(), PrimitiveKind.SPHERE)
+            assert_equal(hit.primitive.index(), UInt32(0))
+            assert_equal(hit.surface.kind(), matte.kind())
+            assert_equal(hit.surface.index(), matte.index())
+            assert_true(hit.front_face)
+            assert_vec_equal(hit.normal, Vec3f32[.WORLD](0.0, 0.0, 1.0))
+            assert_almost_equal(hit.t, 0.5)
+            var compact = world.trace_surface(
+                Rayf32[.WORLD](
+                    Point3f32[.WORLD](0.0),
+                    Vec3f32[.WORLD](0.0, 0.0, -1.0),
+                )
             )
-        )
-        assert_true(compact.hit)
-        assert_equal(compact.surface.value, hit.surface.value)
-        assert_vec_equal(compact.normal, hit.normal)
-        assert_almost_equal(compact.t, hit.t)
-    case .None:
-        raise Error("expected ray hit")
+            assert_true(compact.hit)
+            assert_equal(compact.surface.value, hit.surface.value)
+            assert_vec_equal(compact.normal, hit.normal)
+            assert_almost_equal(compact.t, hit.t)
+        case .None:
+            raise Error("expected ray hit")
 
     var miss_result = world.trace(
         Rayf32[.WORLD](
@@ -796,10 +809,10 @@ def test_world_hit_maps_material_and_normal() raises:
         )
     )
     __match miss_result:
-    case .Some(_):
-        raise Error("expected ray miss")
-    case .None:
-        pass
+        case .Some(_):
+            raise Error("expected ray miss")
+        case .None:
+            pass
 
 
 def test_world_preserves_signed_radius_normals() raises:
@@ -1434,6 +1447,317 @@ def test_direct_light_integrators_render_cornell() raises:
     assert_true(depth_first_total > 0.0)
     assert_true(mis_total > 0.0)
     assert_true(depth_first_mis_total > 0.0)
+
+
+def test_environment_pdf_reuses_rotated_packet_radiance() raises:
+    var surfaces = SurfaceStore()
+    var pixels: List[Float32] = [1.0, 0.0, 0.0, 0.0, 0.0, 3.0]
+    var texture = surfaces.add_image_texture(ImageTexture(2, 1, pixels^))
+    var rotation = Affine3f32[.WORLD, .LOCAL].identity()
+    rotation.m00 = -1.0
+    rotation.m22 = -1.0
+    var inverse = Affine3f32[.LOCAL, .WORLD].identity()
+    inverse.m00 = -1.0
+    inverse.m22 = -1.0
+    var environment = Environment.image(
+        texture, Color(2.0, 1.0, 0.5), rotation, inverse
+    )
+    var directions = Vec3[.float32, .WORLD, 4](
+        SIMD[.float32, 4](1.0, -1.0, 0.0, 0.0),
+        SIMD[.float32, 4](0.0, 0.0, 1.0, -1.0),
+        SIMD[.float32, 4](0.0),
+    )
+    var emission = environment_radiance(environment, surfaces, directions)
+    var pdf = environment_pdf_from_radiance(environment, 2.0, 5.0, emission)
+    var original = environment_light_pdf(
+        environment, surfaces, 2.0, 5.0, directions
+    )
+    for lane in range(4):
+        assert_equal(pdf[lane], original[lane])
+        assert_almost_equal(
+            pdf[lane],
+            max(
+                (emission.x[lane] + emission.y[lane] + emission.z[lane]) / 3.0,
+                0.0,
+            )
+            / 5.0,
+        )
+    assert_equal(
+        environment_pdf_from_radiance(environment, 0.0, 5.0, emission),
+        SIMD[.float32, 4](0.0),
+    )
+    assert_equal(
+        environment_pdf_from_radiance(environment, 2.0, 0.0, emission),
+        SIMD[.float32, 4](0.0),
+    )
+    var uniform = environment_pdf_from_radiance(
+        Environment.uniform(Color(2.0)), 2.0, 5.0, emission
+    )
+    for lane in range(4):
+        assert_almost_equal(uniform[lane], 2.0 / (20.0 * pi))
+
+
+def test_instance_packet_matches_scalar_normals_and_uvs() raises:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    var vertices: List[Point3f32[.LOCAL]] = [
+        Point3f32[.LOCAL](0.0, 0.0, 0.0),
+        Point3f32[.LOCAL](1.0, 0.0, 0.0),
+        Point3f32[.LOCAL](0.0, 1.0, 0.0),
+    ]
+    var normals: List[Float32] = [0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 1.0]
+    var texcoords: List[Float32] = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0]
+    var transform = Affine3f32[.LOCAL, .WORLD].identity()
+    transform.m00 = 2.0
+    var bounds = compute_bounds(vertices)
+    _ = builder.add_owned_triangle_mesh_instance(
+        vertices^, normals^, texcoords^, transform, bounds, matte
+    )
+    var world = CpuScene[4, 4](builder^.finish())
+    var rays = Ray[.float32, .WORLD, 4](
+        Point3[.float32, .WORLD, 4](
+            SIMD[.float32, 4](0.5, 3.0, 0.5, 0.5),
+            SIMD[.float32, 4](0.25),
+            SIMD[.float32, 4](1.0, 1.0, -1.0, 1.0),
+        ),
+        Vec3[.float32, .WORLD, 4](
+            SIMD[.float32, 4](0.0),
+            SIMD[.float32, 4](0.0),
+            SIMD[.float32, 4](-1.0, -1.0, 1.0, -1.0),
+        ),
+        SIMD[.float32, 4](0.001),
+        SIMD[.float32, 4](10.0),
+    )
+    var valid = SIMD[.bool, 4](True, True, True, False)
+    var packet = world.trace_surface(rays, valid)
+    assert_true(packet.hit[0])
+    assert_false(packet.hit[1])
+    assert_true(packet.hit[2])
+    assert_false(packet.hit[3])
+    for lane in range(3):
+        var scalar_ray = Rayf32[.WORLD](
+            Point3f32[.WORLD](rays.o.x[lane], rays.o.y[lane], rays.o.z[lane]),
+            Vec3f32[.WORLD](rays.d.x[lane], rays.d.y[lane], rays.d.z[lane]),
+            rays.t_min[lane],
+            rays.t_max[lane],
+        )
+        var scalar = world.trace_surface(scalar_ray)
+        var hit = packet.get(lane)
+        assert_equal(hit.hit, scalar.hit)
+        if not hit.hit:
+            continue
+        assert_vec_equal(hit.normal, scalar.normal)
+        assert_equal(hit.surface.value, scalar.surface.value)
+        assert_equal(hit.front_face, scalar.front_face)
+        assert_equal(hit.t, scalar.t)
+        assert_almost_equal(hit.uv_u[0], 0.25)
+        assert_almost_equal(hit.uv_v[0], 0.25)
+    assert_almost_equal(packet.normal.x[0], 1.0 / sqrt(Float32(69.0)))
+    assert_almost_equal(packet.normal.y[0], 2.0 / sqrt(Float32(69.0)))
+    assert_almost_equal(packet.normal.z[0], 8.0 / sqrt(Float32(69.0)))
+    assert_true(packet.front_face[0])
+    assert_false(packet.front_face[2])
+
+
+def test_direct_light_packet_matches_scalar_for_mixed_materials() raises:
+    var surfaces = SurfaceStore()
+    var texture_pixels: List[Float32] = [0.25, 0.5, 0.75, 0.8, 0.6, 0.4]
+    var texture = surfaces.add_image_texture(
+        ImageTexture(2, 1, texture_pixels^)
+    )
+    var ids = List[SurfaceId[1]]()
+    ids.append(surfaces.add_lambertian(Color(0.7, 0.5, 0.25), texture))
+    ids.append(surfaces.add_metal(Color(0.8), 0.25, texture))
+    ids.append(surfaces.add_coated_diffuse(Color(0.6), 0.2, 1.5, texture))
+    ids.append(ids[2].copy())
+    var paths = PathPacket[4]()
+    paths.path_ids = SIMD[.uint32, 4](0, 1, 2, 3)
+    paths.dz = -1.0
+    paths.tx = 1.0
+    paths.ty = 1.0
+    paths.tz = 1.0
+    var direct = _DirectLightBatch[4]()
+    direct.point.uv_u = 0.2
+    direct.point.uv_v = 0.4
+    direct.point.normal.z = 1.0
+    direct.sample.direction.z = 1.0
+    direct.sample.emission = Vec3[.float32, .WORLD, 4](2.0)
+    direct.sample.light_pdf = 0.4
+    direct.sample.surface_cosine = 1.0
+    direct.sample.valid = SIMD[.bool, 4](True, True, True, False)
+    for lane in range(4):
+        direct.surface_kinds[lane] = ids[lane].kind().value
+        direct.surface_indices[lane] = ids[lane].index()
+    var pixels = List[Color](length=4, fill=Color(0.0))
+    _accumulate_direct_light_packet[.MIS, 4](
+        pixels, paths, direct, 4, surfaces, 1
+    )
+    var ray = Rayf32[.WORLD](
+        Point3f32[.WORLD](0.0), Vec3f32[.WORLD](0.0, 0.0, -1.0), 0.001, 10.0
+    )
+    var point = ShadingPoint(
+        Point3f32[.WORLD](0.0), Vec3f32[.WORLD](0.0, 0.0, 1.0), True, 0.2, 0.4
+    )
+    for lane in range(3):
+        var evaluated = evaluate_bsdf(
+            ids[lane], surfaces, ray, point, Vec3f32[.WORLD](0.0, 0.0, 1.0)
+        )
+        var light_pdf = Float32(0.4)
+        var scale = light_pdf / (
+            light_pdf * light_pdf + evaluated.pdf[0] * evaluated.pdf[0]
+        )
+        assert_vec_equal(pixels[lane], evaluated.value * (2.0 * scale))
+        assert_true(pixels[lane].x > 0.0)
+    assert_vec_equal(pixels[3], Color(0.0))
+
+
+def test_wavefront_workers_reuse_chunks_without_changing_pixels() raises:
+    # Several chunks per logical core force reuse, including a final partial
+    # chunk and three samples per pixel (target chunk size is not divisible).
+    var settings = RenderSettings(
+        17, max(2, ceildiv(num_logical_cores() * 6 + 5, 17)), 3, UInt64(2026)
+    )
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    builder.add_sphere(Point3f32[.WORLD](0.0, 0.0, -1.0), 0.5, matte)
+    var world = CpuScene[16, 16](builder^.finish())
+    var camera = Camera.from_vfov(
+        Point3f32[.WORLD](0.0),
+        Point3f32[.WORLD](0.0, 0.0, -1.0),
+        Vec3f32[.WORLD](0.0, 1.0, 0.0),
+        90.0,
+    )
+    var serial = render_wavefront[.PATH, 4, 7, False](settings, camera, world)
+    comptime for mode_idx in range(3):
+        comptime mode = CpuSchedulerMode(mode_idx)
+        var parallel = render_wavefront[.PATH, 4, 7, True, mode](
+            settings, camera, world
+        )
+        for lane in range(len(serial.pixels)):
+            assert_equal(parallel.pixels[lane].x, serial.pixels[lane].x)
+            assert_equal(parallel.pixels[lane].y, serial.pixels[lane].y)
+            assert_equal(parallel.pixels[lane].z, serial.pixels[lane].z)
+
+
+def test_environment_packet_accumulates_only_misses() raises:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    builder.add_sphere(Point3f32[.WORLD](0.0, 0.0, -2.0), 0.5, matte)
+    var texels: List[Float32] = [1.0, 0.25, 0.5, 0.1, 0.8, 0.2]
+    var texture = builder.surfaces.add_image_texture(
+        ImageTexture(2, 1, texels^)
+    )
+    builder.environment = Environment.image(
+        texture,
+        Color(1.0),
+        Affine3f32[.WORLD, .LOCAL].identity(),
+        Affine3f32[.LOCAL, .WORLD].identity(),
+    )
+    var world = CpuScene[16, 16](builder^.finish())
+    ref scene = world.scene_data()
+    var paths = PathPacket[4]()
+    paths.path_ids = SIMD[.uint32, 4](0, 1, 2, 3)
+    paths.dz = 1.0
+    paths.tx = 0.5
+    paths.ty = 0.75
+    paths.tz = 1.0
+    var pixels = List[Color](length=4, fill=Color(0.25))
+    _accumulate_environment_packet[4, .PATH, 16, 16](
+        pixels,
+        paths,
+        4,
+        SIMD[.bool, 4](fill=False),
+        1,
+        scene.environment(),
+        scene.surfaces(),
+        world,
+        0,
+    )
+    for pixel in pixels:
+        assert_vec_equal(pixel, Color(0.25))
+    _accumulate_environment_packet[4, .PATH, 16, 16](
+        pixels,
+        paths,
+        3,
+        SIMD[.bool, 4](True, False, True, False),
+        1,
+        scene.environment(),
+        scene.surfaces(),
+        world,
+        0,
+    )
+    var radiance = environment_radiance(
+        scene.environment(), scene.surfaces(), Vec3f32[.WORLD](0.0, 0.0, 1.0)
+    )
+    var expected = Color(0.25) + Color(0.5, 0.75, 1.0) * radiance
+    assert_vec_equal(pixels[0], expected)
+    assert_vec_equal(pixels[1], Color(0.25))
+    assert_vec_equal(pixels[2], expected)
+    assert_vec_equal(pixels[3], Color(0.25))
+
+
+def test_textured_coated_packet_scattering_matches_scalar() raises:
+    var surfaces = SurfaceStore()
+    var texels: List[Float32] = [0.25, 0.5, 0.75, 0.8, 0.6, 0.4]
+    var texture = surfaces.add_image_texture(ImageTexture(2, 1, texels^))
+    var first = surfaces.add_coated_diffuse(Color(0.7), 0.2, 1.3, texture)
+    var second = surfaces.add_coated_diffuse(
+        Color(0.6),
+        0.4,
+        1.6,
+        texture,
+        thickness=0.2,
+        layer_albedo=Color(0.1, 0.3, 0.5),
+        g=0.2,
+        max_depth=4,
+        n_samples=2,
+    )
+    var settings = RenderSettings(2, 2, 1, UInt64(2026))
+    var sampling = SamplingConfig.from_settings(settings)
+    var batch = ShadePacket[4]()
+    batch.surface_indices = SIMD[.uint32, 4](
+        first.index(), second.index(), 12345, 12345
+    )
+    batch.path_ids = SIMD[.uint32, 4](1, 2, 3, 4)
+    batch.dz = -1.0
+    batch.nz = 1.0
+    batch.front_faces = SIMD[.bool, 4](fill=True)
+    batch.uv_u = SIMD[.float32, 4](0.2, 0.7, 0.0, 0.0)
+    batch.uv_v = 0.4
+    batch.tx = 1.0
+    batch.ty = 1.0
+    batch.tz = 1.0
+    var packet = _sample_bsdf_batch[.COATED_DIFFUSE, 4](
+        batch, 2, surfaces, sampling, UInt32(1)
+    )
+    for lane in range(2):
+        var rng = path_stage_rng(sampling, batch.path_ids[lane], UInt32(1))
+        var scalar = sample_bsdf(
+            SurfaceId(.COATED_DIFFUSE, batch.surface_indices[lane]),
+            surfaces,
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](0.0), Vec3f32[.WORLD](0.0, 0.0, -1.0)
+            ),
+            ShadingPoint(
+                Point3f32[.WORLD](0.0),
+                Vec3f32[.WORLD](0.0, 0.0, 1.0),
+                True,
+                batch.uv_u[lane],
+                batch.uv_v[lane],
+            ),
+            rng,
+        )
+        assert_equal(packet.ok[lane], scalar.ok[0])
+        assert_almost_equal(packet.paths.dx[lane], scalar.direction.x[0])
+        assert_almost_equal(packet.paths.dy[lane], scalar.direction.y[0])
+        assert_almost_equal(packet.paths.dz[lane], scalar.direction.z[0])
+        assert_almost_equal(packet.paths.tx[lane], scalar.weight.x[0])
+        assert_almost_equal(packet.paths.ty[lane], scalar.weight.y[0])
+        assert_almost_equal(packet.paths.tz[lane], scalar.weight.z[0])
+        assert_almost_equal(packet.paths.bsdf_pdfs[lane], scalar.pdf[0])
+        assert_equal(packet.paths.deltas[lane], scalar.delta[0])
+    assert_false(packet.ok[2])
+    assert_false(packet.ok[3])
 
 
 def main() raises:

@@ -136,16 +136,27 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                 self._compute_collapse_dp_parallel(bvh, dp)
             else:
                 self._compute_collapse_dp(bvh, 0, dp)
-            comptime if parallel_emit:
-                self._collapse_dp_parallel_root(bvh, dp, pack_leaf_fn)
-            else:
-                _ = self._collapse_dp(bvh, 0, dp, pack_leaf_fn)
 
-        else:
+            def dp_frontier(
+                bin_idx: UInt32,
+            ) {imm} -> Tuple[Array[UInt32, Self.width], Int]:
+                return Self._dp_frontier(bvh, bin_idx, dp)
+
             comptime if parallel_emit:
-                self._collapse_greedy_parallel_root(bvh, pack_leaf_fn)
+                self._collapse_parallel_root(bvh, dp_frontier, pack_leaf_fn)
             else:
-                _ = self._collapse_greedy(bvh, 0, pack_leaf_fn)
+                _ = self._collapse(bvh, 0, dp_frontier, pack_leaf_fn)
+        else:
+
+            def greedy_frontier(
+                bin_idx: UInt32,
+            ) {imm} -> Tuple[Array[UInt32, Self.width], Int]:
+                return Self._greedy_frontier(bvh, bin_idx)
+
+            comptime if parallel_emit:
+                self._collapse_parallel_root(bvh, greedy_frontier, pack_leaf_fn)
+            else:
+                _ = self._collapse(bvh, 0, greedy_frontier, pack_leaf_fn)
 
     def _compute_collapse_dp(
         self,
@@ -304,8 +315,8 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         dp.best_slots[node_i] = UInt8(best_k)
         dp.costs[base] = node.surface_area() + best_children_cost
 
+    @staticmethod
     def _dp_frontier(
-        self,
         bvh: BinaryBoundsBvh,
         bin_idx: UInt32,
         ref dp: _WideCollapseDp,
@@ -363,19 +374,20 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
 
         return (pool^, p_size)
 
-    def _collapse_dp[
+    def _collapse[
+        FrontierFn: def(UInt32) -> Tuple[Array[UInt32, Self.width], Int],
         PackLeafFn: def(UInt32, UInt32) -> UInt32,
     ](
         mut self,
         bvh: BinaryBoundsBvh,
         bin_idx: UInt32,
-        ref dp: _WideCollapseDp,
+        ref frontier_fn: FrontierFn,
         ref pack_leaf_fn: PackLeafFn,
     ) -> UInt32:
         var wide_idx = len(self.nodes)
         self.nodes.append(WideBvhNode[Self.frame, Self.width]())
 
-        var frontier = self._dp_frontier(bvh, bin_idx, dp)
+        var frontier = frontier_fn(bin_idx)
         var pool = frontier[0].copy()
         var p_size = frontier[1]
 
@@ -408,18 +420,19 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                 ref n = bvh.nodes[Int(pool[i])]
                 if not n.is_leaf():
                     node.data[i] = encode_internal_ref(
-                        self._collapse_dp(bvh, pool[i], dp, pack_leaf_fn)
+                        self._collapse(bvh, pool[i], frontier_fn, pack_leaf_fn)
                     )
 
         self.nodes[wide_idx] = node^
         return UInt32(wide_idx)
 
-    def _collapse_dp_parallel_root[
+    def _collapse_parallel_root[
+        FrontierFn: def(UInt32) -> Tuple[Array[UInt32, Self.width], Int],
         PackLeafFn: def(UInt32, UInt32) -> UInt32,
     ](
         mut self,
         bvh: BinaryBoundsBvh,
-        ref dp: _WideCollapseDp,
+        ref frontier_fn: FrontierFn,
         ref pack_leaf_fn: PackLeafFn,
     ):
         """Emit independent root subtrees concurrently into pre-sized nodes."""
@@ -427,12 +440,11 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         # node, so the binary internal count is a tight safe upper bound.
         var max_wide_nodes = max(1, (Int(bvh.nodes_used) - 1) // 2)
         self.nodes.resize(unsafe_uninit_length=max_wide_nodes)
-        var frontier = self._dp_frontier(bvh, 0, dp)
+        var frontier = frontier_fn(0)
         var pool = frontier[0].copy()
         var p_size = frontier[1]
         var root = WideBvhNode[Self.frame, Self.width]()
         var task_bins = List[UInt32](capacity=Int(Self.width))
-        var task_wide_indices = List[UInt32](capacity=Int(Self.width))
 
         comptime for lane in range(Self.width):
             if lane < p_size:
@@ -451,17 +463,16 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                     var child_wide_idx = UInt32(len(task_bins) + 1)
                     root.data[lane] = encode_internal_ref(child_wide_idx)
                     task_bins.append(pool[lane])
-                    task_wide_indices.append(child_wide_idx)
 
         self.nodes[0] = root^
         var next_node = [UInt32(len(task_bins) + 1)]
 
         def emit_worker(task_idx: Int) {imm, mut self, mut next_node}:
-            self._collapse_dp_parallel_subtree(
+            self._collapse_parallel_subtree(
                 bvh,
                 task_bins[task_idx],
-                task_wide_indices[task_idx],
-                dp,
+                UInt32(task_idx + 1),
+                frontier_fn,
                 next_node.unsafe_ptr(),
                 pack_leaf_fn,
             )
@@ -470,19 +481,20 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
             parallelize(emit_worker, len(task_bins))
         self.nodes.shrink(Int(next_node[0]))
 
-    def _collapse_dp_parallel_subtree[
+    def _collapse_parallel_subtree[
         next_node_origin: MutOrigin,
+        FrontierFn: def(UInt32) -> Tuple[Array[UInt32, Self.width], Int],
         PackLeafFn: def(UInt32, UInt32) -> UInt32,
     ](
         mut self,
         bvh: BinaryBoundsBvh,
         bin_idx: UInt32,
         wide_idx: UInt32,
-        ref dp: _WideCollapseDp,
+        ref frontier_fn: FrontierFn,
         next_node: Pointer[UInt32, next_node_origin],
         ref pack_leaf_fn: PackLeafFn,
     ):
-        var frontier = self._dp_frontier(bvh, bin_idx, dp)
+        var frontier = frontier_fn(bin_idx)
         var pool = frontier[0].copy()
         var p_size = frontier[1]
         var node = WideBvhNode[Self.frame, Self.width]()
@@ -511,19 +523,20 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                         ordering=Ordering.RELAXED
                     ](next_node, UInt32(1))
                     node.data[lane] = encode_internal_ref(child_wide_idx)
-                    self._collapse_dp_parallel_subtree(
+                    self._collapse_parallel_subtree(
                         bvh,
                         pool[lane],
                         child_wide_idx,
-                        dp,
+                        frontier_fn,
                         next_node,
                         pack_leaf_fn,
                     )
 
         self.nodes[Int(wide_idx)] = node^
 
+    @staticmethod
     def _greedy_frontier(
-        self, bvh: BinaryBoundsBvh, bin_idx: UInt32
+        bvh: BinaryBoundsBvh, bin_idx: UInt32
     ) -> Tuple[Array[UInt32, Self.width], Int]:
         var pool = Array[UInt32, Self.width](fill=bin_idx)
         var p_size = 1
@@ -553,154 +566,6 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
             p_size += 1
 
         return (pool^, p_size)
-
-    def _collapse_greedy_parallel_root[
-        PackLeafFn: def(UInt32, UInt32) -> UInt32,
-    ](mut self, bvh: BinaryBoundsBvh, ref pack_leaf_fn: PackLeafFn,):
-        """Emit greedy root subtrees concurrently into stable node storage."""
-        var max_wide_nodes = max(1, (Int(bvh.nodes_used) - 1) // 2)
-        self.nodes.resize(unsafe_uninit_length=max_wide_nodes)
-        var frontier = self._greedy_frontier(bvh, 0)
-        var pool = frontier[0].copy()
-        var p_size = frontier[1]
-        var root = WideBvhNode[Self.frame, Self.width]()
-        var task_bins = List[UInt32](capacity=Int(Self.width))
-        var task_wide_indices = List[UInt32](capacity=Int(Self.width))
-
-        comptime for lane in range(Self.width):
-            if lane < p_size:
-                ref node = bvh.nodes[Int(pool[lane])]
-                root.aabb._min.x[lane] = node.aabb._min.x
-                root.aabb._min.y[lane] = node.aabb._min.y
-                root.aabb._min.z[lane] = node.aabb._min.z
-                root.aabb._max.x[lane] = node.aabb._max.x
-                root.aabb._max.y[lane] = node.aabb._max.y
-                root.aabb._max.z[lane] = node.aabb._max.z
-                if node.is_leaf():
-                    root.data[lane] = encode_leaf_ref(
-                        pack_leaf_fn(node.first_item(), node.item_count)
-                    )
-                else:
-                    var child_wide_idx = UInt32(len(task_bins) + 1)
-                    root.data[lane] = encode_internal_ref(child_wide_idx)
-                    task_bins.append(pool[lane])
-                    task_wide_indices.append(child_wide_idx)
-
-        self.nodes[0] = root^
-        var next_node = [UInt32(len(task_bins) + 1)]
-
-        def emit_worker(task_idx: Int) {imm, mut self, mut next_node}:
-            self._collapse_greedy_parallel_subtree(
-                bvh,
-                task_bins[task_idx],
-                task_wide_indices[task_idx],
-                next_node.unsafe_ptr(),
-                pack_leaf_fn,
-            )
-
-        if len(task_bins) > 0:
-            parallelize(emit_worker, len(task_bins))
-        self.nodes.shrink(Int(next_node[0]))
-
-    def _collapse_greedy_parallel_subtree[
-        next_node_origin: MutOrigin,
-        PackLeafFn: def(UInt32, UInt32) -> UInt32,
-    ](
-        mut self,
-        bvh: BinaryBoundsBvh,
-        bin_idx: UInt32,
-        wide_idx: UInt32,
-        next_node: Pointer[UInt32, next_node_origin],
-        ref pack_leaf_fn: PackLeafFn,
-    ):
-        var frontier = self._greedy_frontier(bvh, bin_idx)
-        var pool = frontier[0].copy()
-        var p_size = frontier[1]
-        var node = WideBvhNode[Self.frame, Self.width]()
-
-        comptime for lane in range(Self.width):
-            if lane < p_size:
-                ref binary_node = bvh.nodes[Int(pool[lane])]
-                node.aabb._min.x[lane] = binary_node.aabb._min.x
-                node.aabb._min.y[lane] = binary_node.aabb._min.y
-                node.aabb._min.z[lane] = binary_node.aabb._min.z
-                node.aabb._max.x[lane] = binary_node.aabb._max.x
-                node.aabb._max.y[lane] = binary_node.aabb._max.y
-                node.aabb._max.z[lane] = binary_node.aabb._max.z
-                if binary_node.is_leaf():
-                    node.data[lane] = encode_leaf_ref(
-                        pack_leaf_fn(
-                            binary_node.first_item(), binary_node.item_count
-                        )
-                    )
-
-        comptime for lane in range(Self.width):
-            if lane < p_size:
-                ref binary_node = bvh.nodes[Int(pool[lane])]
-                if not binary_node.is_leaf():
-                    var child_wide_idx = Atomic.fetch_add[
-                        ordering=Ordering.RELAXED
-                    ](next_node, UInt32(1))
-                    node.data[lane] = encode_internal_ref(child_wide_idx)
-                    self._collapse_greedy_parallel_subtree(
-                        bvh,
-                        pool[lane],
-                        child_wide_idx,
-                        next_node,
-                        pack_leaf_fn,
-                    )
-
-        self.nodes[Int(wide_idx)] = node^
-
-    def _collapse_greedy[
-        PackLeafFn: def(UInt32, UInt32) -> UInt32,
-    ](
-        mut self,
-        bvh: BinaryBoundsBvh,
-        bin_idx: UInt32,
-        ref pack_leaf_fn: PackLeafFn,
-    ) -> UInt32:
-        """Original largest-area greedy collapse, retained for A/B tests."""
-        var wide_idx = len(self.nodes)
-        self.nodes.append(WideBvhNode[Self.frame, Self.width]())
-        var frontier = self._greedy_frontier(bvh, bin_idx)
-        var pool = frontier[0].copy()
-        var p_size = frontier[1]
-
-        var node = WideBvhNode[Self.frame, Self.width]()
-
-        comptime for i in range(Self.width):
-            if i < p_size:
-                ref n = bvh.nodes[Int(pool[i])]
-
-                node.aabb._min.x[i] = n.aabb._min.x
-                node.aabb._min.y[i] = n.aabb._min.y
-                node.aabb._min.z[i] = n.aabb._min.z
-
-                node.aabb._max.x[i] = n.aabb._max.x
-                node.aabb._max.y[i] = n.aabb._max.y
-                node.aabb._max.z[i] = n.aabb._max.z
-
-        # Pack every leaf in this node before descending, preserving node-order
-        # leaf-block indices for field-major payload storage.
-        comptime for i in range(Self.width):
-            if i < p_size:
-                ref n = bvh.nodes[Int(pool[i])]
-                if n.is_leaf():
-                    node.data[i] = encode_leaf_ref(
-                        pack_leaf_fn(n.first_item(), n.item_count)
-                    )
-
-        comptime for i in range(Self.width):
-            if i < p_size:
-                ref n = bvh.nodes[Int(pool[i])]
-                if not n.is_leaf():
-                    node.data[i] = encode_internal_ref(
-                        self._collapse_greedy(bvh, pool[i], pack_leaf_fn)
-                    )
-
-        self.nodes[wide_idx] = node^
-        return UInt32(wide_idx)
 
     def root_bounds(self) -> AABB[Self.frame]:
         var out = AABB[Self.frame].invalid()

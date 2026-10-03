@@ -41,6 +41,58 @@ from bajo.rt.shading_types import (
 from bajo.rt.scene_data import SceneData
 
 
+@always_inline
+def _triangle_instance_shading(
+    data: SceneData,
+    instance_idx: Int,
+    triangle_idx: Int,
+    hit_u: Float32,
+    hit_v: Float32,
+    geometric_normal: Vec3f32[.WORLD],
+) -> Tuple[Vec3f32[.WORLD], Float32, Float32]:
+    var outward_normal = geometric_normal
+    ref instance = data.triangle_instances()[instance_idx]
+    var mesh_idx = Int(instance.blas_idx)
+    var b0 = Float32(1.0) - hit_u - hit_v
+    var b1 = hit_u
+    var b2 = hit_v
+    ref normals = data.triangle_mesh_normals()[mesh_idx]
+    if len(normals) != 0:
+        var base = 9 * triangle_idx
+        var local_normal = Normal3f32[.LOCAL](
+            b0 * normals[base]
+            + b1 * normals[base + 3]
+            + b2 * normals[base + 6],
+            b0 * normals[base + 1]
+            + b1 * normals[base + 4]
+            + b2 * normals[base + 7],
+            b0 * normals[base + 2]
+            + b1 * normals[base + 5]
+            + b2 * normals[base + 8],
+        )
+        outward_normal = instance.transform.normal(
+            local_normal, instance.inv_transform
+        ).unsafe_convert[new_kind=GeoKind.VECTOR]()
+        if dot(outward_normal, geometric_normal) < 0.0:
+            outward_normal = -outward_normal
+    var texture_u = Float32(0.0)
+    var texture_v = Float32(0.0)
+    ref texcoords = data.triangle_mesh_texcoords()[mesh_idx]
+    if len(texcoords) != 0:
+        var base = 6 * triangle_idx
+        texture_u = (
+            b0 * texcoords[base]
+            + b1 * texcoords[base + 2]
+            + b2 * texcoords[base + 4]
+        )
+        texture_v = (
+            b0 * texcoords[base + 1]
+            + b1 * texcoords[base + 3]
+            + b2 * texcoords[base + 5]
+        )
+    return (outward_normal, texture_u, texture_v)
+
+
 @fieldwise_init
 struct _WorldHit(Copyable, Writable):
     """Canonical closest-hit record shared by public and renderer queries."""
@@ -326,23 +378,23 @@ struct CpuScene[
     ) -> Hit[.WORLD, length]:
         """Instantiate the viewer-selected triangle packet traversal."""
         comptime __match traversal_mode:
-        case .ADAPTIVE:
-            comptime assert len(adaptive_packet_sizes) > 0
-            return trace_blas_set_packet_adaptive[
-                Self.world_bvh_width,
-                Self.world_bvh_width,
-                length,
-                *adaptive_packet_sizes,
-                frame=.WORLD,
-            ](self.triangle_bvh.value(), UInt32(0), rays, valid)
-        case .FIXED_PACKET | .AUTO_COHERENT:
-            return trace_blas_set_packet_selected[
-                Self.world_bvh_width,
-                Self.world_bvh_width,
-                length,
-                traversal_mode,
-                .WORLD,
-            ](self.triangle_bvh.value(), UInt32(0), rays, valid)
+            case .ADAPTIVE:
+                comptime assert len(adaptive_packet_sizes) > 0
+                return trace_blas_set_packet_adaptive[
+                    Self.world_bvh_width,
+                    Self.world_bvh_width,
+                    length,
+                    *adaptive_packet_sizes,
+                    frame=.WORLD,
+                ](self.triangle_bvh.value(), UInt32(0), rays, valid)
+            case .FIXED_PACKET | .AUTO_COHERENT:
+                return trace_blas_set_packet_selected[
+                    Self.world_bvh_width,
+                    Self.world_bvh_width,
+                    length,
+                    traversal_mode,
+                    .WORLD,
+                ](self.triangle_bvh.value(), UInt32(0), rays, valid)
 
     def _trace_surface_shared_stack[
         length: SIMDLength,
@@ -452,60 +504,23 @@ struct CpuScene[
             for lane in range(length):
                 if instance_mask[lane]:
                     var instance_idx = Int(instance_hits.inst[lane])
-                    ref instance = self._scene.triangle_instances()[
-                        instance_idx
-                    ]
-                    var mesh_idx = Int(instance.blas_idx)
-                    var triangle_idx = Int(instance_hits.prim[lane])
-                    var b0 = (
-                        Float32(1.0)
-                        - instance_hits.u[lane]
-                        - instance_hits.v[lane]
-                    )
-                    var b1 = instance_hits.u[lane]
-                    var b2 = instance_hits.v[lane]
-                    ref texcoords = self._scene.triangle_mesh_texcoords()[
-                        mesh_idx
-                    ]
-                    if len(texcoords) != 0:
-                        var base = 6 * triangle_idx
-                        texture_u[lane] = (
-                            b0 * texcoords[base]
-                            + b1 * texcoords[base + 2]
-                            + b2 * texcoords[base + 4]
-                        )
-                        texture_v[lane] = (
-                            b0 * texcoords[base + 1]
-                            + b1 * texcoords[base + 3]
-                            + b2 * texcoords[base + 5]
-                        )
-                    ref normals = self._scene.triangle_mesh_normals()[mesh_idx]
-                    if len(normals) != 0:
-                        var base = 9 * triangle_idx
-                        var local_normal = Normal3f32[.LOCAL](
-                            b0 * normals[base]
-                            + b1 * normals[base + 3]
-                            + b2 * normals[base + 6],
-                            b0 * normals[base + 1]
-                            + b1 * normals[base + 4]
-                            + b2 * normals[base + 7],
-                            b0 * normals[base + 2]
-                            + b1 * normals[base + 5]
-                            + b2 * normals[base + 8],
-                        )
-                        var world_normal = instance.transform.normal(
-                            local_normal, instance.inv_transform
-                        ).unsafe_convert[new_kind=GeoKind.VECTOR]()
-                        var geometric = Vec3f32[.WORLD](
+                    var shading = _triangle_instance_shading(
+                        self._scene,
+                        instance_idx,
+                        Int(instance_hits.prim[lane]),
+                        instance_hits.u[lane],
+                        instance_hits.v[lane],
+                        Vec3f32[.WORLD](
                             instance_hits.normal.x[lane],
                             instance_hits.normal.y[lane],
                             instance_hits.normal.z[lane],
-                        )
-                        if dot(world_normal, geometric) < 0.0:
-                            world_normal = -world_normal
-                        instance_normal.x[lane] = world_normal.x
-                        instance_normal.y[lane] = world_normal.y
-                        instance_normal.z[lane] = world_normal.z
+                        ),
+                    )
+                    texture_u[lane] = shading[1]
+                    texture_v[lane] = shading[2]
+                    instance_normal.x[lane] = shading[0].x
+                    instance_normal.y[lane] = shading[0].y
+                    instance_normal.z[lane] = shading[0].z
                     surface_values[
                         lane
                     ] = self._scene.triangle_instance_surfaces()[
@@ -612,50 +627,17 @@ struct CpuScene[
             and instance_idx < len(self._scene.triangle_instances()),
             "TLAS returned an out-of-range triangle instance index",
         )
-        var geometric_normal = bvh_hit.normal.unsafe_convert[
-            new_kind=GeoKind.VECTOR
-        ]()
-        var outward_normal = geometric_normal
-        ref instance = self._scene.triangle_instances()[instance_idx]
-        var mesh_idx = Int(instance.blas_idx)
-        var triangle_idx = Int(bvh_hit.prim)
-        var b0 = Float32(1.0) - bvh_hit.u - bvh_hit.v
-        var b1 = bvh_hit.u
-        var b2 = bvh_hit.v
-        ref normals = self._scene.triangle_mesh_normals()[mesh_idx]
-        if len(normals) != 0:
-            var base = 9 * triangle_idx
-            var local_normal = Normal3f32[.LOCAL](
-                b0 * normals[base]
-                + b1 * normals[base + 3]
-                + b2 * normals[base + 6],
-                b0 * normals[base + 1]
-                + b1 * normals[base + 4]
-                + b2 * normals[base + 7],
-                b0 * normals[base + 2]
-                + b1 * normals[base + 5]
-                + b2 * normals[base + 8],
-            )
-            outward_normal = instance.transform.normal(
-                local_normal, instance.inv_transform
-            ).unsafe_convert[new_kind=GeoKind.VECTOR]()
-            if dot(outward_normal, geometric_normal) < 0.0:
-                outward_normal = -outward_normal
-        var texture_u = Float32(0.0)
-        var texture_v = Float32(0.0)
-        ref texcoords = self._scene.triangle_mesh_texcoords()[mesh_idx]
-        if len(texcoords) != 0:
-            var base = 6 * triangle_idx
-            texture_u = (
-                b0 * texcoords[base]
-                + b1 * texcoords[base + 2]
-                + b2 * texcoords[base + 4]
-            )
-            texture_v = (
-                b0 * texcoords[base + 1]
-                + b1 * texcoords[base + 3]
-                + b2 * texcoords[base + 5]
-            )
+        var shading = _triangle_instance_shading(
+            self._scene,
+            instance_idx,
+            Int(bvh_hit.prim),
+            bvh_hit.u,
+            bvh_hit.v,
+            bvh_hit.normal.unsafe_convert[new_kind=GeoKind.VECTOR](),
+        )
+        var outward_normal = shading[0]
+        var texture_u = shading[1]
+        var texture_v = shading[2]
         var oriented = orient_surface_normal(ray.d, outward_normal)
         return _WorldHit(
             PrimitiveId(PrimitiveKind.TRIANGLE_INSTANCE, bvh_hit.inst),

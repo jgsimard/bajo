@@ -29,7 +29,6 @@ from bajo.bvh.types import (
     BlasDescLayout,
     Sphere,
     SphereLeafBlock,
-    TriangleLeafBlock,
 )
 from bajo.bvh.wide_meta import _pack_wide_meta, _wide_node_base
 from bajo.core import (
@@ -39,18 +38,6 @@ from bajo.core import (
 
 comptime CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES = 4096
 comptime EXACT_MULTI_BLAS_MIN_PRIMITIVES = 4096
-
-
-@always_inline
-def _triangle_leaf_count[
-    frame: Frame,
-    leaf_width: SIMDLength,
-](block: TriangleLeafBlock[frame, leaf_width]) -> UInt32:
-    var count = UInt32(0)
-    comptime for lane in range(leaf_width):
-        if block.prim_indices[lane] != EMPTY_LANE:
-            count += 1
-    return count
 
 
 def _pack_built_triangle_blas[
@@ -390,11 +377,6 @@ def build_cpu_triangle_blas_set[
         node_width * WideNode.CHILD_STRIDE,
         leaf_width * CPU_TRI_LEAF_PACKED_STRIDE,
     ].__init__[Point3f32[frame], 3](vertex_sets)
-    var allow_across_blas_parallelism = (
-        len(vertex_sets) > 1
-        and layout.max_primitive_count < PARALLEL_TRIANGLE_BUILD_MIN_ITEMS
-        and layout.primitive_count >= CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES
-    )
     var descs = List[UInt32](
         length=len(vertex_sets) * BlasDescLayout.STRIDE, fill=0
     )
@@ -430,11 +412,9 @@ def build_cpu_triangle_blas_set[
             layout.leaf_bases[blas_idx],
         )
 
-    if allow_across_blas_parallelism:
-        parallelize(build_one, len(vertex_sets))
-    else:
-        for blas_idx in range(len(vertex_sets)):
-            build_one(blas_idx)
+    # Larger batches have already dispatched to the exact parallel builder.
+    for blas_idx in range(len(vertex_sets)):
+        build_one(blas_idx)
 
     return _finish_blas_workspace[
         .TRIANGLE,
@@ -662,14 +642,9 @@ def build_cpu_sphere_blas_set[
             layout.leaf_bases[blas_idx],
         )
 
-    if (
-        len(sphere_sets) > 1
-        and layout.primitive_count >= CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES
-    ):
-        parallelize(build_one, len(sphere_sets))
-    else:
-        for blas_idx in range(len(sphere_sets)):
-            build_one(blas_idx)
+    # Larger batches have already dispatched to the exact parallel builder.
+    for blas_idx in range(len(sphere_sets)):
+        build_one(blas_idx)
 
     return _finish_blas_workspace[
         .SPHERE,

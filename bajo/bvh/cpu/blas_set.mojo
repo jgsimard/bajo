@@ -103,6 +103,28 @@ def _load_packed_triangle_leaf[
 
 
 @always_inline
+def _trace_packed_triangle_leaf[
+    frame: Frame, leaf_width: SIMDLength, mode: TraceMode
+](
+    leaves: ImmPointer[Float32, _],
+    ray: Rayf32[frame],
+    O: Point3[.float32, frame, leaf_width],
+    D: Vec3[.float32, frame, leaf_width],
+    leaf_block_idx: UInt32,
+    mut hit: Hit[frame],
+) -> Bool:
+    var block_ptr = leaves.unsafe_offset(
+        Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
+    )
+    var block = _load_packed_triangle_leaf[
+        frame, leaf_width, mode != .ANY_HIT or leaf_width != 16
+    ](leaves, leaf_block_idx)
+    return _trace_triangle_leaf_block[
+        frame, leaf_width, mode, packed_layout=True
+    ](ray, O, D, block, block_ptr, hit)
+
+
+@always_inline
 def _trace_packed_triangle_from_ref[
     frame: Frame,
     node_width: SIMDLength,
@@ -126,19 +148,9 @@ def _trace_packed_triangle_from_ref[
         leaf_block_idx: UInt32,
         mut hit: Hit[frame],
     ) {imm} -> Bool:
-        var block_base = (
-            Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
+        return _trace_packed_triangle_leaf[frame, leaf_width, .CLOSEST_HIT](
+            leaves, ray, O, D, leaf_block_idx, hit
         )
-        var block_ptr = leaves.unsafe_offset(block_base)
-        var block = _load_packed_triangle_leaf[frame, leaf_width](
-            leaves, leaf_block_idx
-        )
-        return _trace_triangle_leaf_block[
-            frame,
-            leaf_width,
-            .CLOSEST_HIT,
-            packed_layout=True,
-        ](ray, O, D, block, block_ptr, hit)
 
     var hit = trace_bounds_bvh_from_ref[
         frame=frame,
@@ -183,21 +195,9 @@ def _trace_packed_triangle_any_from_ref[
         leaf_block_idx: UInt32,
         mut hit: Hit[frame],
     ) {imm} -> Bool:
-        var block_base = (
-            Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
+        return _trace_packed_triangle_leaf[frame, leaf_width, .ANY_HIT](
+            leaves, ray, O, D, leaf_block_idx, hit
         )
-        var block_ptr = leaves.unsafe_offset(block_base)
-        var block = _load_packed_triangle_leaf[
-            frame,
-            leaf_width,
-            leaf_width != 16,
-        ](leaves, leaf_block_idx)
-        return _trace_triangle_leaf_block[
-            frame,
-            leaf_width,
-            .ANY_HIT,
-            packed_layout=True,
-        ](ray, O, D, block, block_ptr, hit)
 
     return trace_bounds_bvh_from_ref[
         frame=frame,
@@ -257,21 +257,9 @@ def trace_blas_set[
         leaf_block_idx: UInt32,
         mut hit: Hit[frame],
     ) {imm} -> Bool:
-        var block_base = (
-            Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
+        return _trace_packed_triangle_leaf[frame, leaf_width, mode](
+            leaves, ray, O, D, leaf_block_idx, hit
         )
-        var block_ptr = leaves.unsafe_offset(block_base)
-        var block = _load_packed_triangle_leaf[
-            frame,
-            leaf_width,
-            mode != .ANY_HIT or leaf_width != 16,
-        ](leaves, leaf_block_idx)
-        return _trace_triangle_leaf_block[
-            frame,
-            leaf_width,
-            mode,
-            packed_layout=True,
-        ](ray, O, D, block, block_ptr, hit)
 
     return trace_packed_bounds_bvh[
         frame,
@@ -315,21 +303,9 @@ def _trace_blas_desc_precomputed_rcp[
         leaf_block_idx: UInt32,
         mut hit: Hit[frame],
     ) {imm} -> Bool:
-        var block_base = (
-            Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
+        return _trace_packed_triangle_leaf[frame, leaf_width, mode](
+            leaves, ray, O, D, leaf_block_idx, hit
         )
-        var block_ptr = leaves.unsafe_offset(block_base)
-        var block = _load_packed_triangle_leaf[
-            frame,
-            leaf_width,
-            mode != .ANY_HIT or leaf_width != 16,
-        ](leaves, leaf_block_idx)
-        return _trace_triangle_leaf_block[
-            frame,
-            leaf_width,
-            mode,
-            packed_layout=True,
-        ](ray, O, D, block, block_ptr, hit)
 
     var hit = trace_packed_bounds_bvh_rcp[
         frame=frame,
@@ -1058,24 +1034,24 @@ def trace_blas_set_packet_selected[
     """Trace triangles with fixed or automatically coherent packet dispatch."""
     comptime assert length > 1
     comptime __match mode:
-    case .FIXED_PACKET:
-        return trace_blas_set_packet[
-            node_width, leaf_width, length, False, frame
-        ](blases, blas_idx, rays, valid)
-    case .AUTO_COHERENT:
-        if _packet_range_has_common_octant[frame, length, length](
-            rays, valid, 0
-        ):
+        case .FIXED_PACKET:
             return trace_blas_set_packet[
-                node_width, leaf_width, length, True, frame
+                node_width, leaf_width, length, False, frame
             ](blases, blas_idx, rays, valid)
-        return trace_blas_set_packet[
-            node_width, leaf_width, length, False, frame
-        ](blases, blas_idx, rays, valid)
-    case .ADAPTIVE:
-        comptime assert (
-            False
-        ), "adaptive traversal uses the adaptive entry point"
+        case .AUTO_COHERENT:
+            if _packet_range_has_common_octant[frame, length, length](
+                rays, valid, 0
+            ):
+                return trace_blas_set_packet[
+                    node_width, leaf_width, length, True, frame
+                ](blases, blas_idx, rays, valid)
+            return trace_blas_set_packet[
+                node_width, leaf_width, length, False, frame
+            ](blases, blas_idx, rays, valid)
+        case .ADAPTIVE:
+            comptime assert (
+                False
+            ), "adaptive traversal uses the adaptive entry point"
 
 
 @always_inline

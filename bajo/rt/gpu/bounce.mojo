@@ -96,98 +96,56 @@ def _enqueue_primary_trace_by_light_kind[
     blocks: Int,
 ) raises:
     comptime if Integrator.uses_direct_lighting[integrator]:
-        if uniform_sampling_kind == .SPHERE:
-            _enqueue_primary_trace[
-                integrator,
-                scene_kind,
-                sphere_format,
-                triangle_format,
-                tlas_format,
-                blas_format,
-                store_source_path,
-                PrimitiveKind.SPHERE,
-            ](
-                ctx,
-                camera,
-                src_path_ids,
-                src_path_fields,
-                scene,
-                queues,
-                image_width,
-                image_height,
-                samples_per_pixel,
-                sampling,
-                blocks,
-            )
-        elif uniform_sampling_kind == .TRIANGLE:
-            _enqueue_primary_trace[
-                integrator,
-                scene_kind,
-                sphere_format,
-                triangle_format,
-                tlas_format,
-                blas_format,
-                store_source_path,
-                PrimitiveKind.TRIANGLE,
-            ](
-                ctx,
-                camera,
-                src_path_ids,
-                src_path_fields,
-                scene,
-                queues,
-                image_width,
-                image_height,
-                samples_per_pixel,
-                sampling,
-                blocks,
-            )
-        else:
-            _enqueue_primary_trace[
-                integrator,
-                scene_kind,
-                sphere_format,
-                triangle_format,
-                tlas_format,
-                blas_format,
-                store_source_path,
-                PrimitiveKind.UNKNOWN,
-            ](
-                ctx,
-                camera,
-                src_path_ids,
-                src_path_fields,
-                scene,
-                queues,
-                image_width,
-                image_height,
-                samples_per_pixel,
-                sampling,
-                blocks,
-            )
-    else:
-        _enqueue_primary_trace[
-            integrator,
-            scene_kind,
-            sphere_format,
-            triangle_format,
-            tlas_format,
-            blas_format,
-            store_source_path,
-            PrimitiveKind.UNKNOWN,
-        ](
-            ctx,
-            camera,
-            src_path_ids,
-            src_path_fields,
-            scene,
-            queues,
-            image_width,
-            image_height,
-            samples_per_pixel,
-            sampling,
-            blocks,
-        )
+        comptime for light_kind in [
+            PrimitiveKind.SPHERE,
+            PrimitiveKind.TRIANGLE,
+        ]:
+            if uniform_sampling_kind == light_kind:
+                _enqueue_primary_trace[
+                    integrator,
+                    scene_kind,
+                    sphere_format,
+                    triangle_format,
+                    tlas_format,
+                    blas_format,
+                    store_source_path,
+                    light_kind,
+                ](
+                    ctx,
+                    camera,
+                    src_path_ids,
+                    src_path_fields,
+                    scene,
+                    queues,
+                    image_width,
+                    image_height,
+                    samples_per_pixel,
+                    sampling,
+                    blocks,
+                )
+                return
+    _enqueue_primary_trace[
+        integrator,
+        scene_kind,
+        sphere_format,
+        triangle_format,
+        tlas_format,
+        blas_format,
+        store_source_path,
+        PrimitiveKind.UNKNOWN,
+    ](
+        ctx,
+        camera,
+        src_path_ids,
+        src_path_fields,
+        scene,
+        queues,
+        image_width,
+        image_height,
+        samples_per_pixel,
+        sampling,
+        blocks,
+    )
 
 
 @always_inline
@@ -226,52 +184,36 @@ def enqueue_gpu_rt_primary_bounce[
         dst_path_fields,
     )
     var blocks = min(ceildiv(active_count, GPU_RT_BLOCK_SIZE), MAX_BLOCKS)
+
+    @always_inline
+    def enqueue_primary[store_source_path: Bool]() raises {imm}:
+        _enqueue_primary_trace_by_light_kind[
+            integrator,
+            scene_kind,
+            sphere_format,
+            triangle_format,
+            tlas_format,
+            blas_format,
+            store_source_path,
+        ](
+            ctx,
+            camera,
+            src_path_ids,
+            src_path_fields,
+            scene,
+            queues,
+            uniform_sampling_kind,
+            image_width,
+            image_height,
+            samples_per_pixel,
+            sampling,
+            blocks,
+        )
+
     if materials.has_non_lambertian:
-        _enqueue_primary_trace_by_light_kind[
-            integrator,
-            scene_kind,
-            sphere_format,
-            triangle_format,
-            tlas_format,
-            blas_format,
-            True,
-        ](
-            ctx,
-            camera,
-            src_path_ids,
-            src_path_fields,
-            scene,
-            queues,
-            uniform_sampling_kind,
-            image_width,
-            image_height,
-            samples_per_pixel,
-            sampling,
-            blocks,
-        )
+        enqueue_primary[True]()
     else:
-        _enqueue_primary_trace_by_light_kind[
-            integrator,
-            scene_kind,
-            sphere_format,
-            triangle_format,
-            tlas_format,
-            blas_format,
-            False,
-        ](
-            ctx,
-            camera,
-            src_path_ids,
-            src_path_fields,
-            scene,
-            queues,
-            uniform_sampling_kind,
-            image_width,
-            image_height,
-            samples_per_pixel,
-            sampling,
-            blocks,
-        )
+        enqueue_primary[False]()
     enqueue_gpu_shadows[
         integrator,
         scene_kind,
@@ -327,65 +269,34 @@ def enqueue_gpu_rt_bounce[
         dst_path_ids,
         dst_path_fields,
     )
-    comptime if Integrator.uses_direct_lighting[integrator]:
-        if uniform_sampling_kind == .SPHERE:
-            ctx.enqueue_function[
-                gpu_rt_scene_trace_kernel[
-                    integrator,
-                    scene_kind,
-                    sphere_format,
-                    triangle_format,
-                    tlas_format,
-                    blas_format,
-                    PrimitiveKind.SPHERE,
-                ]
-            ](
-                scene,
-                queues,
-                sampling,
-                bounce,
-                grid_dim=blocks,
-                block_dim=GPU_RT_BLOCK_SIZE,
-            )
-        elif uniform_sampling_kind == .TRIANGLE:
-            ctx.enqueue_function[
-                gpu_rt_scene_trace_kernel[
-                    integrator,
-                    scene_kind,
-                    sphere_format,
-                    triangle_format,
-                    tlas_format,
-                    blas_format,
-                    PrimitiveKind.TRIANGLE,
-                ]
-            ](
-                scene,
-                queues,
-                sampling,
-                bounce,
-                grid_dim=blocks,
-                block_dim=GPU_RT_BLOCK_SIZE,
-            )
-        else:
-            ctx.enqueue_function[
-                gpu_rt_scene_trace_kernel[
-                    integrator,
-                    scene_kind,
-                    sphere_format,
-                    triangle_format,
-                    tlas_format,
-                    blas_format,
-                    PrimitiveKind.UNKNOWN,
-                ]
-            ](
-                scene,
-                queues,
-                sampling,
-                bounce,
-                grid_dim=blocks,
-                block_dim=GPU_RT_BLOCK_SIZE,
-            )
-    else:
+
+    @always_inline
+    def enqueue_trace() raises {imm}:
+        comptime if Integrator.uses_direct_lighting[integrator]:
+            comptime for light_kind in [
+                PrimitiveKind.SPHERE,
+                PrimitiveKind.TRIANGLE,
+            ]:
+                if uniform_sampling_kind == light_kind:
+                    ctx.enqueue_function[
+                        gpu_rt_scene_trace_kernel[
+                            integrator,
+                            scene_kind,
+                            sphere_format,
+                            triangle_format,
+                            tlas_format,
+                            blas_format,
+                            light_kind,
+                        ]
+                    ](
+                        scene,
+                        queues,
+                        sampling,
+                        bounce,
+                        grid_dim=blocks,
+                        block_dim=GPU_RT_BLOCK_SIZE,
+                    )
+                    return
         ctx.enqueue_function[
             gpu_rt_scene_trace_kernel[
                 integrator,
@@ -404,6 +315,8 @@ def enqueue_gpu_rt_bounce[
             grid_dim=blocks,
             block_dim=GPU_RT_BLOCK_SIZE,
         )
+
+    enqueue_trace()
     enqueue_gpu_shadows[
         integrator,
         scene_kind,

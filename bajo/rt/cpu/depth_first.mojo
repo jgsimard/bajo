@@ -127,23 +127,19 @@ def _trace_path[
             throughput = roulette.throughput
             cur_ray = spawn_surface_ray(point.p, scattered.direction)
         else:
+            var emission = environment_radiance(
+                world.scene_data().environment(),
+                world.scene_data().surfaces(),
+                cur_ray.d,
+            )
             var environment_weight = _environment_miss_weight[integrator](
                 world,
-                cur_ray.d,
+                emission,
                 _bounce,
                 previous_bsdf_pdf,
                 previous_delta,
             )
-            return (
-                radiance
-                + throughput
-                * environment_radiance(
-                    world.scene_data().environment(),
-                    world.scene_data().surfaces(),
-                    cur_ray.d,
-                )
-                * environment_weight
-            )
+            return radiance + throughput * emission * environment_weight
 
     return radiance
 
@@ -206,23 +202,23 @@ def _trace_integrator[
     path_id: UInt32,
 ) -> Color:
     comptime __match integrator:
-    case .PATH:
-        return _trace_path[.PATH, world_bvh_width, instance_bvh_width](
-            settings, sampling, world, ray, path_id
-        )
-    case .NORMALS:
-        return _trace_normals(world, ray)
-    case .AO:
-        var ao_rng = path_stage_rng(sampling, path_id, UInt32(1))
-        return _trace_ao(world, ray, ao_rng)
-    case .NEE:
-        return _trace_path[.NEE, world_bvh_width, instance_bvh_width](
-            settings, sampling, world, ray, path_id
-        )
-    case .MIS:
-        return _trace_path[.MIS, world_bvh_width, instance_bvh_width](
-            settings, sampling, world, ray, path_id
-        )
+        case .PATH:
+            return _trace_path[.PATH, world_bvh_width, instance_bvh_width](
+                settings, sampling, world, ray, path_id
+            )
+        case .NORMALS:
+            return _trace_normals(world, ray)
+        case .AO:
+            var ao_rng = path_stage_rng(sampling, path_id, UInt32(1))
+            return _trace_ao(world, ray, ao_rng)
+        case .NEE:
+            return _trace_path[.NEE, world_bvh_width, instance_bvh_width](
+                settings, sampling, world, ray, path_id
+            )
+        case .MIS:
+            return _trace_path[.MIS, world_bvh_width, instance_bvh_width](
+                settings, sampling, world, ray, path_id
+            )
 
 
 def _render_pixel[
@@ -314,12 +310,14 @@ def render_depth_first[
 
     var render_t0 = perf_counter_ns()
     comptime __match scheduler_mode:
-    case .LOGICAL_CORES:
-        parallelize(worker, tile_count, min(num_logical_cores(), tile_count))
-    case .TASK_PARTITIONS:
-        parallelize(worker, tile_count, tile_count)
-    case .RUNTIME_DEFAULT:
-        parallelize(worker, tile_count)
+        case .LOGICAL_CORES:
+            parallelize(
+                worker, tile_count, min(num_logical_cores(), tile_count)
+            )
+        case .TASK_PARTITIONS:
+            parallelize(worker, tile_count, tile_count)
+        case .RUNTIME_DEFAULT:
+            parallelize(worker, tile_count)
     var render_t1 = perf_counter_ns()
     var total_t1 = perf_counter_ns()
 

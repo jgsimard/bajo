@@ -289,6 +289,34 @@ def _trace_tlas_tree[
     ](tree, ray, leaf_fn)
 
 
+@always_inline
+def _packet_scalar_rays[
+    length: SIMDLength
+](
+    rays: Ray[.float32, .WORLD, length],
+    reciprocal_direction: Vec3[.float32, .WORLD, length],
+) -> Array[Float32, 10 * length]:
+    var scalar_rays = Array[Float32, 10 * length](uninitialized=True)
+    comptime for lane in range(length):
+        scalar_rays.unsafe_get(0 * Int(length) + lane) = rays.o.x[lane]
+        scalar_rays.unsafe_get(1 * Int(length) + lane) = rays.o.y[lane]
+        scalar_rays.unsafe_get(2 * Int(length) + lane) = rays.o.z[lane]
+        scalar_rays.unsafe_get(3 * Int(length) + lane) = rays.d.x[lane]
+        scalar_rays.unsafe_get(4 * Int(length) + lane) = rays.d.y[lane]
+        scalar_rays.unsafe_get(5 * Int(length) + lane) = rays.d.z[lane]
+        scalar_rays.unsafe_get(6 * Int(length) + lane) = rays.t_min[lane]
+        scalar_rays.unsafe_get(7 * Int(length) + lane) = reciprocal_direction.x[
+            lane
+        ]
+        scalar_rays.unsafe_get(8 * Int(length) + lane) = reciprocal_direction.y[
+            lane
+        ]
+        scalar_rays.unsafe_get(9 * Int(length) + lane) = reciprocal_direction.z[
+            lane
+        ]
+    return scalar_rays^
+
+
 struct CpuTlas[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength = bounds_width,
@@ -618,28 +646,21 @@ struct CpuTlas[
         )
         return hit
 
-    def _trace_blases_packet_impl[
-        blas_node_width: SIMDLength,
-        blas_leaf_width: SIMDLength,
-        length: SIMDLength,
-        simd_normal_transforms: Bool = True,
-        translations_only: Bool = False,
+    @always_inline
+    def _collect_packet_candidates[
+        length: SIMDLength, any_hit: Bool
     ](
         self,
         rays: Ray[.float32, .WORLD, length],
-        blases: CpuBlasSet[.TRIANGLE, blas_node_width, blas_leaf_width],
-        valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
-    ) -> Hit[.WORLD, length]:
-        """Traverse the TLAS and each surviving BLAS as masked packets."""
-        comptime assert length > 1
-        var hit = Hit[.WORLD, length].miss(rays.t_max)
-        var reciprocal_direction = rays.reciprocal_direction()
+        reciprocal_direction: Vec3[.float32, .WORLD, length],
+        valid: SIMD[.bool, length],
+        mut hit: Hit[.WORLD, length],
+        mut candidate_tasks: Array[UInt64, 16],
+        mut candidate_count: Int,
+        mut candidate_overflow: List[UInt64],
+    ):
+        # Candidates are consumed after TLAS traversal; ordering cannot prune.
         comptime candidate_capacity = 16
-        var candidate_tasks = Array[UInt64, candidate_capacity](
-            uninitialized=True
-        )
-        var candidate_count = 0
-        var candidate_overflow = List[UInt64]()
 
         def leaf_fn(
             active: SIMD[.bool, length],
@@ -657,6 +678,8 @@ struct CpuTlas[
                 if inst_idx == EMPTY_LANE:
                     continue
                 var candidate = active
+                comptime if any_hit:
+                    candidate &= packet_hit.t.ne(0.0)
                 comptime if Self.leaf_width > 1:
                     var bmin = Point3[.float32, .WORLD, length](
                         block.bounds._min.x[inst_lane],
@@ -688,8 +711,7 @@ struct CpuTlas[
             frame=.WORLD,
             bounds_width=Self.bounds_width,
             length=length,
-            # BLAS candidates are consumed after TLAS traversal, so hit.t
-            # cannot tighten here and near-order sorting cannot prune work.
+            any_hit=any_hit,
             ordered_tasks=False,
         ](
             self.tree.nodes,
@@ -706,28 +728,44 @@ struct CpuTlas[
             lambda (_child_ref: UInt32): None,
         )
 
+    def _trace_blases_packet_impl[
+        blas_node_width: SIMDLength,
+        blas_leaf_width: SIMDLength,
+        length: SIMDLength,
+        simd_normal_transforms: Bool = True,
+        translations_only: Bool = False,
+    ](
+        self,
+        rays: Ray[.float32, .WORLD, length],
+        blases: CpuBlasSet[.TRIANGLE, blas_node_width, blas_leaf_width],
+        valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+    ) -> Hit[.WORLD, length]:
+        """Traverse the TLAS and each surviving BLAS as masked packets."""
+        comptime assert length > 1
+        var hit = Hit[.WORLD, length].miss(rays.t_max)
+        var reciprocal_direction = rays.reciprocal_direction()
+        comptime candidate_capacity = 16
+        var candidate_tasks = Array[UInt64, candidate_capacity](
+            uninitialized=True
+        )
+        var candidate_count = 0
+        var candidate_overflow = List[UInt64]()
+
+        self._collect_packet_candidates[length, False](
+            rays,
+            reciprocal_direction,
+            valid,
+            hit,
+            candidate_tasks,
+            candidate_count,
+            candidate_overflow,
+        )
+
         if candidate_count == 0:
             return hit
 
         var closest_t = hit.t.to_array()
-        var scalar_rays = Array[Float32, 10 * length](uninitialized=True)
-        comptime for lane in range(length):
-            scalar_rays.unsafe_get(0 * Int(length) + lane) = rays.o.x[lane]
-            scalar_rays.unsafe_get(1 * Int(length) + lane) = rays.o.y[lane]
-            scalar_rays.unsafe_get(2 * Int(length) + lane) = rays.o.z[lane]
-            scalar_rays.unsafe_get(3 * Int(length) + lane) = rays.d.x[lane]
-            scalar_rays.unsafe_get(4 * Int(length) + lane) = rays.d.y[lane]
-            scalar_rays.unsafe_get(5 * Int(length) + lane) = rays.d.z[lane]
-            scalar_rays.unsafe_get(6 * Int(length) + lane) = rays.t_min[lane]
-            scalar_rays.unsafe_get(
-                7 * Int(length) + lane
-            ) = reciprocal_direction.x[lane]
-            scalar_rays.unsafe_get(
-                8 * Int(length) + lane
-            ) = reciprocal_direction.y[lane]
-            scalar_rays.unsafe_get(
-                9 * Int(length) + lane
-            ) = reciprocal_direction.z[lane]
+        var scalar_rays = _packet_scalar_rays(rays, reciprocal_direction)
         var scalar_rays_ptr = scalar_rays.unsafe_ptr()
         var result_u = hit.u.to_array()
         var result_v = hit.v.to_array()
@@ -1047,97 +1085,20 @@ struct CpuTlas[
         var any_candidate_count = 0
         var any_candidate_overflow = List[UInt64]()
 
-        def leaf_fn(
-            active: SIMD[.bool, length],
-            leaf_block_idx: UInt32,
-            mut packet_hit: Hit[.WORLD, length],
-        ) {
-            imm,
-            mut any_candidate_tasks,
-            mut any_candidate_count,
-            mut any_candidate_overflow,
-        }:
-            ref block = self.leaf_blocks.unsafe_get(Int(leaf_block_idx))
-            comptime for inst_lane in range(Self.leaf_width):
-                var inst_idx = block.inst_indices[inst_lane]
-                if inst_idx == EMPTY_LANE:
-                    continue
-                var candidate = active & packet_hit.t.ne(0.0)
-                comptime if Self.leaf_width > 1:
-                    var bmin = Point3[.float32, .WORLD, length](
-                        block.bounds._min.x[inst_lane],
-                        block.bounds._min.y[inst_lane],
-                        block.bounds._min.z[inst_lane],
-                    )
-                    var bmax = Point3[.float32, .WORLD, length](
-                        block.bounds._max.x[inst_lane],
-                        block.bounds._max.y[inst_lane],
-                        block.bounds._max.z[inst_lane],
-                    )
-                    candidate &= intersect_ray_aabb_rcp(
-                        rays.o,
-                        reciprocal_direction,
-                        bmin,
-                        bmax,
-                        packet_hit.t,
-                    ).mask
-                var bits = UInt32(pack_bits(candidate))
-                if bits != 0:
-                    var task = UInt64(inst_idx) << 32 | UInt64(bits)
-                    if any_candidate_count < any_candidate_capacity:
-                        any_candidate_tasks.unsafe_get(
-                            any_candidate_count
-                        ) = task
-                        any_candidate_count += 1
-                    else:
-                        any_candidate_overflow.append(task)
-
-        trace_packet_stack_bounds_bvh[
-            frame=.WORLD,
-            bounds_width=Self.bounds_width,
-            length=length,
-            any_hit=True,
-            # Visibility candidates are likewise deferred until traversal
-            # returns, leaving priority ordering unable to terminate lanes.
-            ordered_tasks=False,
-        ](
-            self.tree.nodes,
+        self._collect_packet_candidates[length, True](
             rays,
             reciprocal_direction,
             valid,
             hit,
-            leaf_fn,
-            lambda (
-                _active: SIMD[.bool, length],
-                _child_ref: UInt32,
-                mut _packet_hit: Hit[.WORLD, length],
-            ): None,
-            lambda (_child_ref: UInt32): None,
+            any_candidate_tasks,
+            any_candidate_count,
+            any_candidate_overflow,
         )
 
         if any_candidate_count == 0:
             return valid & hit.t.eq(0.0)
 
-        var any_scalar_rays = Array[Float32, 10 * length](uninitialized=True)
-        comptime for lane in range(length):
-            any_scalar_rays.unsafe_get(0 * Int(length) + lane) = rays.o.x[lane]
-            any_scalar_rays.unsafe_get(1 * Int(length) + lane) = rays.o.y[lane]
-            any_scalar_rays.unsafe_get(2 * Int(length) + lane) = rays.o.z[lane]
-            any_scalar_rays.unsafe_get(3 * Int(length) + lane) = rays.d.x[lane]
-            any_scalar_rays.unsafe_get(4 * Int(length) + lane) = rays.d.y[lane]
-            any_scalar_rays.unsafe_get(5 * Int(length) + lane) = rays.d.z[lane]
-            any_scalar_rays.unsafe_get(6 * Int(length) + lane) = rays.t_min[
-                lane
-            ]
-            any_scalar_rays.unsafe_get(
-                7 * Int(length) + lane
-            ) = reciprocal_direction.x[lane]
-            any_scalar_rays.unsafe_get(
-                8 * Int(length) + lane
-            ) = reciprocal_direction.y[lane]
-            any_scalar_rays.unsafe_get(
-                9 * Int(length) + lane
-            ) = reciprocal_direction.z[lane]
+        var any_scalar_rays = _packet_scalar_rays(rays, reciprocal_direction)
         var any_scalar_rays_ptr = any_scalar_rays.unsafe_ptr()
 
         @no_inline

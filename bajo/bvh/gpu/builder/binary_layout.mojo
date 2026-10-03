@@ -101,18 +101,6 @@ def _load_and_union_node_bounds(
     return AABB.merge(b1, b2)
 
 
-def init_empty_bounds_kernel(bounds: MutSpan[Float32, MutAnyOrigin]):
-    var node_count = len(bounds) / BinaryBvhNode.BOUNDS_STRIDE
-    var i = global_idx.x
-    if i >= node_count:
-        return
-
-    var b = i * BinaryBvhNode.BOUNDS_STRIDE
-    var invalid = AABB[.WORLD].invalid()
-    invalid.store6(bounds, b)
-    invalid.store6(bounds, b + AABB.STRIDE)
-
-
 def _segment_for_item(offsets: ImmSpan[UInt32, _], item_idx: Int) -> Int:
     var low = 0
     var high = len(offsets) - 1

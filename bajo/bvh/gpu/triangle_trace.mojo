@@ -359,6 +359,7 @@ def _trace_cwbvh8_triangles_impl[
     max_leaf_size: Int = 3,
     stack_capacity: Int = GPU_STACK_SIZE,
     indexed_triangles: Bool = False,
+    collect_stats: Bool = False,
 ](
     nodes: ImmPointer[Float32, _],
     triangles: ImmPointer[Float32, _],
@@ -366,6 +367,7 @@ def _trace_cwbvh8_triangles_impl[
     vertices: ImmPointer[Float32, _],
     root_idx: UInt32,
     ray: Rayf32[frame],
+    mut stats: GpuTraversalStats,
 ) -> Hit[frame]:
     """Traverse CWBVH8 with compressed node/triangle task masks."""
     var hit = Hit[frame].miss(ray.t_max)
@@ -406,11 +408,16 @@ def _trace_cwbvh8_triangles_impl[
                     UInt64(node_group_mask) << UInt64(32)
                 )
                 stack_ptr += 1
+                comptime if collect_stats:
+                    if UInt32(stack_ptr) > stats.max_stack_depth:
+                        stats.max_stack_depth = UInt32(stack_ptr)
 
             var slot = UInt32(child_bit - 24) ^ octant_inverse
             var slots_before = (UInt32(1) << slot) - UInt32(1)
             var relative = UInt32(pop_count(group_imask & slots_before))
             var node_idx = node_group_base + relative
+            comptime if collect_stats:
+                stats.node_visits += 1
             var node_t_max = hit.t
             comptime if mode == .ANY_HIT:
                 node_t_max = ray.t_max
@@ -446,9 +453,14 @@ def _trace_cwbvh8_triangles_impl[
             triangle_group_mask = node_group_mask
             node_group_mask = UInt32(0)
 
+        comptime if collect_stats:
+            if triangle_group_mask != 0:
+                stats.leaf_blocks += 1
         while triangle_group_mask != 0:
             var triangle_bit = Int(log2_floor(triangle_group_mask))
             triangle_group_mask &= ~(UInt32(1) << UInt32(triangle_bit))
+            comptime if collect_stats:
+                stats.primitive_tests += 1
             var triangle_hit: Bool
             comptime if indexed_triangles:
                 triangle_hit = _intersect_cwbvh_indexed_triangle[frame, mode](
@@ -493,6 +505,7 @@ def trace_cwbvh8_triangles[
     root_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:
+    var stats = GpuTraversalStats.zero()
     return _trace_cwbvh8_triangles_impl[
         frame, mode, packed_decode, max_leaf_size, stack_capacity, False
     ](
@@ -502,6 +515,7 @@ def trace_cwbvh8_triangles[
         triangles,
         root_idx,
         ray,
+        stats,
     )
 
 
@@ -518,6 +532,7 @@ def trace_cwbvh8_indexed_triangles[
     root_idx: UInt32,
     ray: Rayf32[frame],
 ) -> Hit[frame]:
+    var stats = GpuTraversalStats.zero()
     return _trace_cwbvh8_triangles_impl[
         frame, mode, True, max_leaf_size, stack_capacity, True
     ](
@@ -527,4 +542,5 @@ def trace_cwbvh8_indexed_triangles[
         vertices,
         root_idx,
         ray,
+        stats,
     )

@@ -37,10 +37,7 @@ from bajo.bvh.gpu.builder.segmented_build import (
     enqueue_segmented_wide_build,
 )
 from bajo.bvh.gpu.blas_finalize import finalize_ordinary_wide_blas_set
-from bajo.bvh.gpu.camera_launch import (
-    validate_camera_launch,
-)
-from bajo.bvh.gpu.camera_trace import trace_bvh_camera_kernel
+from bajo.bvh.gpu.camera_trace import enqueue_bvh_camera_trace
 from bajo.bvh.gpu.trace import trace_bounds_bvh
 from bajo.bvh.gpu.utils import (
     GpuBuildTimings,
@@ -286,44 +283,18 @@ struct GpuSphereBvh[
         cheight: Int,
     ) raises:
         comptime assert Self.frame == .WORLD
-        validate_camera_launch(
-            d_camera_params, d_hits, ray_count, cwidth, cheight
-        )
-        if ray_count == cwidth * cheight:
-            comptime single_view_kernel = trace_bvh_camera_kernel[
-                _trace_sphere_bvh_camera_ray[Self.node_width, Self.leaf_width],
-                True,
-            ]
-            ctx.enqueue_function[single_view_kernel](
-                self.tree.wide_nodes,
-                self.leaf_spheres,
-                self.tree.root_idx,
-                d_camera_params,
-                d_hits,
-                Int32(ray_count),
-                Int32(cwidth),
-                Int32(cheight),
-                Float32(1.0) / Float32(cheight),
-                grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
-                block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-            )
-            return
-
-        comptime kernel = trace_bvh_camera_kernel[
+        enqueue_bvh_camera_trace[
             _trace_sphere_bvh_camera_ray[Self.node_width, Self.leaf_width]
-        ]
-        ctx.enqueue_function[kernel](
+        ](
+            ctx,
             self.tree.wide_nodes,
             self.leaf_spheres,
             self.tree.root_idx,
             d_camera_params,
             d_hits,
-            Int32(ray_count),
-            Int32(cwidth),
-            Int32(cheight),
-            Float32(1.0) / Float32(cheight),
-            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+            ray_count,
+            cwidth,
+            cheight,
         )
 
 

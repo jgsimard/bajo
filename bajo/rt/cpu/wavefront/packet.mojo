@@ -91,6 +91,65 @@ struct _DirectLightBatch[length: SIMDLength]:
         self.surface_indices = 0
 
 
+struct _MaterialParameters[length: SIMDLength]:
+    var albedo: Vec3[.float32, .WORLD, Self.length]
+    # Fuzz/roughness, or the dielectric refraction index.
+    var parameter: SIMD[.float32, Self.length]
+    var eta: SIMD[.float32, Self.length]
+    var thickness: SIMD[.float32, Self.length]
+    var layer_albedo: Vec3[.float32, .WORLD, Self.length]
+    var g: SIMD[.float32, Self.length]
+    var layer_max_depth: SIMD[.float32, Self.length]
+    var layer_samples: SIMD[.float32, Self.length]
+
+    def __init__(out self):
+        self.albedo = Vec3[.float32, .WORLD, Self.length](0.0)
+        self.parameter = SIMD[.float32, Self.length](1.0)
+        self.eta = SIMD[.float32, Self.length](1.5)
+        self.thickness = SIMD[.float32, Self.length](0.01)
+        self.layer_albedo = Vec3[.float32, .WORLD, Self.length](0.0)
+        self.g = SIMD[.float32, Self.length](0.0)
+        self.layer_max_depth = SIMD[.float32, Self.length](10.0)
+        self.layer_samples = SIMD[.float32, Self.length](1.0)
+
+    @always_inline
+    def gather_lane[
+        kind: MaterialKind
+    ](
+        mut self,
+        surfaces: SurfaceStore,
+        surface_index: UInt32,
+        u: Float32,
+        v: Float32,
+        lane: Int,
+    ):
+        comptime if kind != .DIELECTRIC:
+            var sampled = surfaces.sample_albedo(
+                SurfaceId(kind, surface_index), u, v
+            )
+            self.albedo.x[lane] = sampled.x
+            self.albedo.y[lane] = sampled.y
+            self.albedo.z[lane] = sampled.z
+        comptime if kind == .METAL:
+            ref material = surfaces.metals[Int(surface_index)]
+            self.parameter[lane] = material.fuzz
+        elif kind == .COATED_DIFFUSE:
+            ref material = surfaces.coated_diffuses[Int(surface_index)]
+            self.parameter[lane] = material.roughness
+            self.eta[lane] = material.eta
+            self.thickness[lane] = material.thickness
+            self.layer_albedo.x[lane] = material.layer_albedo.x
+            self.layer_albedo.y[lane] = material.layer_albedo.y
+            self.layer_albedo.z[lane] = material.layer_albedo.z
+            self.g[lane] = material.g
+            self.layer_max_depth[lane] = Float32(material.max_depth)
+            self.layer_samples[lane] = Float32(material.n_samples)
+        elif kind == .DIELECTRIC:
+            self.parameter[lane] = surfaces.dielectrics[
+                Int(surface_index)
+            ].refraction_index
+
+
 @always_inline
 def _accumulate_direct_light_packet[
     integrator: Integrator, length: SIMDLength
@@ -104,88 +163,57 @@ def _accumulate_direct_light_packet[
 ):
     """Evaluate collected NEE candidates with packet-wide BSDF and MIS math."""
     comptime assert Integrator.uses_direct_lighting[integrator]
+    if not lights.sample.valid.reduce_or():
+        return
     var ray_direction = Vec3[.float32, .WORLD, length](
         paths.dx, paths.dy, paths.dz
     )
-    var albedo = Vec3[.float32, .WORLD, length](0.0)
-    var fuzz = SIMD[.float32, length](1.0)
-    var eta = SIMD[.float32, length](1.5)
-    var thickness = SIMD[.float32, length](0.01)
-    var layer_albedo = Vec3[.float32, .WORLD, length](0.0)
-    var g = SIMD[.float32, length](0.0)
-    var layer_max_depth = SIMD[.float32, length](10.0)
-    var layer_samples = SIMD[.float32, length](1.0)
+    var material = _MaterialParameters[length]()
     for lane in range(lane_count):
-        if not lights.sample.valid[lane]:
-            continue
-        if lights.surface_kinds[lane] == MaterialKind.LAMBERTIAN.value:
-            var sampled = surfaces.sample_albedo(
-                SurfaceId(.LAMBERTIAN, lights.surface_indices[lane]),
-                lights.point.uv_u[lane],
-                lights.point.uv_v[lane],
-            )
-            albedo.x[lane] = sampled.x
-            albedo.y[lane] = sampled.y
-            albedo.z[lane] = sampled.z
-        elif lights.surface_kinds[lane] == MaterialKind.METAL.value:
-            ref material = surfaces.metals[Int(lights.surface_indices[lane])]
-            var sampled = surfaces.sample_albedo(
-                SurfaceId(.METAL, lights.surface_indices[lane]),
-                lights.point.uv_u[lane],
-                lights.point.uv_v[lane],
-            )
-            albedo.x[lane] = sampled.x
-            albedo.y[lane] = sampled.y
-            albedo.z[lane] = sampled.z
-            fuzz[lane] = material.fuzz
-        elif lights.surface_kinds[lane] == MaterialKind.COATED_DIFFUSE.value:
-            ref material = surfaces.coated_diffuses[
-                Int(lights.surface_indices[lane])
-            ]
-            var sampled = surfaces.sample_albedo(
-                SurfaceId(.COATED_DIFFUSE, lights.surface_indices[lane]),
-                lights.point.uv_u[lane],
-                lights.point.uv_v[lane],
-            )
-            albedo.x[lane] = sampled.x
-            albedo.y[lane] = sampled.y
-            albedo.z[lane] = sampled.z
-            fuzz[lane] = material.roughness
-            eta[lane] = material.eta
-            thickness[lane] = material.thickness
-            layer_albedo.x[lane] = material.layer_albedo.x
-            layer_albedo.y[lane] = material.layer_albedo.y
-            layer_albedo.z[lane] = material.layer_albedo.z
-            g[lane] = material.g
-            layer_max_depth[lane] = Float32(material.max_depth)
-            layer_samples[lane] = Float32(material.n_samples)
+        if lights.sample.valid[lane]:
+            var kind = MaterialKind(lights.surface_kinds[lane])
+            comptime for material_kind in [
+                MaterialKind.LAMBERTIAN,
+                MaterialKind.METAL,
+                MaterialKind.COATED_DIFFUSE,
+            ]:
+                if kind == material_kind:
+                    material.gather_lane[material_kind](
+                        surfaces,
+                        lights.surface_indices[lane],
+                        lights.point.uv_u[lane],
+                        lights.point.uv_v[lane],
+                        lane,
+                    )
 
     var lambertian = _evaluate_material[.LAMBERTIAN, length](
         ray_direction,
         lights.point.normal,
-        albedo,
-        fuzz,
+        material.albedo,
+        material.parameter,
         lights.sample.direction,
     )
     var metal = _evaluate_material[.METAL, length](
         ray_direction,
         lights.point.normal,
-        albedo,
-        fuzz,
+        material.albedo,
+        material.parameter,
         lights.sample.direction,
     )
     var coated = _evaluate_coated_diffuse(
         ray_direction,
         lights.point.normal,
-        albedo,
-        fuzz,
-        eta,
-        thickness,
-        layer_albedo,
-        g,
-        layer_max_depth,
-        layer_samples,
+        material.albedo,
+        material.parameter,
+        material.eta,
+        material.thickness,
+        material.layer_albedo,
+        material.g,
+        material.layer_max_depth,
+        material.layer_samples,
         lights.sample.direction,
+        lights.sample.valid
+        & lights.surface_kinds.eq(MaterialKind.COATED_DIFFUSE.value),
     )
     var is_lambertian = lights.surface_kinds.eq(MaterialKind.LAMBERTIAN.value)
     var is_metal = lights.surface_kinds.eq(MaterialKind.METAL.value)
@@ -215,6 +243,7 @@ def _accumulate_direct_light_packet[
             pixels[pixel_idx] += Color(red[lane], green[lane], blue[lane])
 
 
+@always_inline
 def _sample_bsdf_batch[
     MATERIAL_KIND: MaterialKind, length: SIMDLength
 ](
@@ -230,80 +259,33 @@ def _sample_bsdf_batch[
         batch.dx, batch.dy, batch.dz
     )
     var normal = Vec3[.float32, .WORLD, length](batch.nx, batch.ny, batch.nz)
-    var albedo = Vec3[.float32, .WORLD, length](0.0)
-    var parameter = SIMD[.float32, length](1.0)
-    var eta = SIMD[.float32, length](1.5)
-    var thickness = SIMD[.float32, length](0.01)
-    var layer_albedo = Vec3[.float32, .WORLD, length](0.0)
-    var g = SIMD[.float32, length](0.0)
-    var layer_max_depth = SIMD[.float32, length](10.0)
-    var layer_samples = SIMD[.float32, length](1.0)
+    var material = _MaterialParameters[length]()
     var random_u = SIMD[.float32, length](0.0)
     var random_v = SIMD[.float32, length](0.0)
     var active = SIMD[.bool, length](fill=False)
     for lane in range(lane_count):
         active[lane] = True
-        comptime __match MATERIAL_KIND:
-        case .LAMBERTIAN:
+        material.gather_lane[MATERIAL_KIND](
+            surfaces,
+            batch.surface_indices[lane],
+            batch.uv_u[lane],
+            batch.uv_v[lane],
+            lane,
+        )
+        comptime if MATERIAL_KIND != .DIELECTRIC:
             var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
-            var sampled = surfaces.sample_albedo(
-                SurfaceId(.LAMBERTIAN, batch.surface_indices[lane]),
-                batch.uv_u[lane],
-                batch.uv_v[lane],
-            )
-            albedo.x[lane] = sampled.x
-            albedo.y[lane] = sampled.y
-            albedo.z[lane] = sampled.z
-            random_u[lane] = rng.f32()
-            random_v[lane] = rng.f32()
-        case .METAL:
-            var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
-            ref material = surfaces.metals[Int(batch.surface_indices[lane])]
-            var sampled = surfaces.sample_albedo(
-                SurfaceId(.METAL, batch.surface_indices[lane]),
-                batch.uv_u[lane],
-                batch.uv_v[lane],
-            )
-            albedo.x[lane] = sampled.x
-            albedo.y[lane] = sampled.y
-            albedo.z[lane] = sampled.z
-            parameter[lane] = material.fuzz
-            if material.fuzz > 1.0e-4:
+            comptime if MATERIAL_KIND == .METAL:
+                if material.parameter[lane] > 1.0e-4:
+                    random_u[lane] = rng.f32()
+                    random_v[lane] = rng.f32()
+            else:
                 random_u[lane] = rng.f32()
                 random_v[lane] = rng.f32()
-        case .DIELECTRIC:
-            ref material = surfaces.dielectrics[
-                Int(batch.surface_indices[lane])
-            ]
-            parameter[lane] = material.refraction_index
-        case _:
-            comptime assert MATERIAL_KIND == .COATED_DIFFUSE
-            var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
-            ref material = surfaces.coated_diffuses[
-                Int(batch.surface_indices[lane])
-            ]
-            var sampled = surfaces.sample_albedo(
-                SurfaceId(.COATED_DIFFUSE, batch.surface_indices[lane]),
-                batch.uv_u[lane],
-                batch.uv_v[lane],
-            )
-            albedo.x[lane] = sampled.x
-            albedo.y[lane] = sampled.y
-            albedo.z[lane] = sampled.z
-            parameter[lane] = material.roughness
-            eta[lane] = material.eta
-            thickness[lane] = material.thickness
-            layer_albedo.x[lane] = material.layer_albedo.x
-            layer_albedo.y[lane] = material.layer_albedo.y
-            layer_albedo.z[lane] = material.layer_albedo.z
-            g[lane] = material.g
-            layer_max_depth[lane] = Float32(material.max_depth)
-            layer_samples[lane] = Float32(material.n_samples)
-            random_u[lane] = rng.f32()
-            random_v[lane] = rng.f32()
 
     comptime if MATERIAL_KIND == .DIELECTRIC:
-        var ri = batch.front_faces.select(Float32(1.0) / parameter, parameter)
+        var ri = batch.front_faces.select(
+            Float32(1.0) / material.parameter, material.parameter
+        )
         var unit_direction = normalize(ray_direction)
         var cos_theta = min(dot(-unit_direction, normal), 1.0)
         var sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0))
@@ -318,23 +300,24 @@ def _sample_bsdf_batch[
         sampled = _sample_coated_diffuse(
             ray_direction,
             normal,
-            albedo,
-            parameter,
-            eta,
-            thickness,
-            layer_albedo,
-            g,
-            layer_max_depth,
-            layer_samples,
+            material.albedo,
+            material.parameter,
+            material.eta,
+            material.thickness,
+            material.layer_albedo,
+            material.g,
+            material.layer_max_depth,
+            material.layer_samples,
             random_u,
             random_v,
+            active,
         )
     else:
         sampled = _sample_material[MATERIAL_KIND, length](
             ray_direction,
             normal,
-            albedo,
-            parameter,
+            material.albedo,
+            material.parameter,
             batch.front_faces,
             random_u,
             random_v,
@@ -383,6 +366,8 @@ def _accumulate_environment_packet[
     world: CpuScene[world_bvh_width, instance_bvh_width],
     bounce: Int,
 ):
+    if not misses.reduce_or():
+        return
     var emission = environment_radiance(
         environment,
         surfaces,
@@ -397,7 +382,7 @@ def _accumulate_environment_packet[
             var weight = _environment_miss_weight[integrator](
                 world,
                 Vec3f32[.WORLD](
-                    packet.dx[lane], packet.dy[lane], packet.dz[lane]
+                    emission.x[lane], emission.y[lane], emission.z[lane]
                 ),
                 bounce,
                 packet.bsdf_pdfs[lane],

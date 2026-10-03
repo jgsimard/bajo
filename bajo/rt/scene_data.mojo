@@ -143,12 +143,31 @@ struct SceneBuilder(
         bounds: AABB[.LOCAL],
         surface: SurfaceId[1],
     ) -> UInt32:
-        var mesh_idx = UInt32(len(self.triangle_meshes))
         var owned_vertices = List[Point3f32[.LOCAL]](capacity=len(vertices))
         owned_vertices.extend(vertices)
-        self.triangle_meshes.append(owned_vertices^)
-        self.triangle_mesh_normals.append(List[Float32]())
-        self.triangle_mesh_texcoords.append(List[Float32]())
+        return self.add_owned_triangle_mesh_instance(
+            owned_vertices^,
+            List[Float32](),
+            List[Float32](),
+            transform,
+            bounds,
+            surface,
+        )
+
+    def add_owned_triangle_mesh_instance(
+        mut self,
+        var vertices: List[Point3f32[.LOCAL]],
+        var normals: List[Float32],
+        var texcoords: List[Float32],
+        transform: Affine3f32[.LOCAL, .WORLD],
+        bounds: AABB[.LOCAL],
+        surface: SurfaceId[1],
+    ) -> UInt32:
+        """Transfer mesh attributes into the builder without cloning them."""
+        var mesh_idx = UInt32(len(self.triangle_meshes))
+        self.triangle_meshes.append(vertices^)
+        self.triangle_mesh_normals.append(normals^)
+        self.triangle_mesh_texcoords.append(texcoords^)
         self._add_triangle_instance_unchecked(mesh_idx, transform, bounds)
         self.triangle_instance_surfaces.append(surface.copy())
         return mesh_idx
@@ -191,6 +210,11 @@ struct SceneBuilder(
             self.surfaces^,
             self.environment,
         )
+
+    def abort(deinit self):
+        """Release authoring buffers when ingestion fails before finalization.
+        """
+        pass
 
 
 struct SceneData:
@@ -355,13 +379,13 @@ struct SceneData:
         ):
             raise Error("environment scale must be non-negative")
         __match self._environment.kind:
-        case .IMAGE:
-            if self._environment.texture_index >= UInt32(
-                len(self._surfaces.image_textures)
-            ):
-                raise Error("environment texture index is out of range")
-        case .BLACK | .PROCEDURAL | .UNIFORM:
-            pass
+            case .IMAGE:
+                if self._environment.texture_index >= UInt32(
+                    len(self._surfaces.image_textures)
+                ):
+                    raise Error("environment texture index is out of range")
+            case .BLACK | .PROCEDURAL | .UNIFORM:
+                pass
 
         for i, sphere in enumerate(self._spheres):
             if not sphere.center.is_finite()[0]:
@@ -514,38 +538,40 @@ struct SceneData:
     def _build_environment_distribution(mut self) raises:
         var average_radiance = self._environment.scale
         __match self._environment.kind:
-        case .BLACK:
-            return
-        case .IMAGE:
-            ref texture = self._surfaces.image_textures[
-                Int(self._environment.texture_index)
-            ]
-            var count = texture.width * texture.height
-            self._environment_cdf = List[Float32](length=count, fill=0.0)
-            var total = Float32(0.0)
-            for pixel_idx in range(count):
-                var base = 3 * pixel_idx
-                total += _light_importance(
-                    Color(
-                        texture.pixels[base],
-                        texture.pixels[base + 1],
-                        texture.pixels[base + 2],
+            case .BLACK:
+                return
+            case .IMAGE:
+                ref texture = self._surfaces.image_textures[
+                    Int(self._environment.texture_index)
+                ]
+                var count = texture.width * texture.height
+                self._environment_cdf = List[Float32](length=count, fill=0.0)
+                var total = Float32(0.0)
+                for pixel_idx in range(count):
+                    var base = 3 * pixel_idx
+                    total += _light_importance(
+                        Color(
+                            texture.pixels[base],
+                            texture.pixels[base + 1],
+                            texture.pixels[base + 2],
+                        )
+                        * self._environment.scale
                     )
-                    * self._environment.scale
-                )
-                self._environment_cdf[pixel_idx] = total
-            if not isfinite(total):
-                raise Error("environment importance integral must be finite")
-            self._environment_cdf_total = total
-            if total > 0.0:
-                self._environment_weight = 4.0 * pi * total / Float32(count)
-            return
-        case .PROCEDURAL:
-            # The procedural sky is linear in direction.y, whose sphere-wide
-            # average is zero.
-            average_radiance = Color(0.75, 0.85, 1.0)
-        case .UNIFORM:
-            pass
+                    self._environment_cdf[pixel_idx] = total
+                if not isfinite(total):
+                    raise Error(
+                        "environment importance integral must be finite"
+                    )
+                self._environment_cdf_total = total
+                if total > 0.0:
+                    self._environment_weight = 4.0 * pi * total / Float32(count)
+                return
+            case .PROCEDURAL:
+                # The procedural sky is linear in direction.y, whose sphere-wide
+                # average is zero.
+                average_radiance = Color(0.75, 0.85, 1.0)
+            case .UNIFORM:
+                pass
         self._environment_weight = (
             4.0 * pi * _light_importance(average_radiance)
         )

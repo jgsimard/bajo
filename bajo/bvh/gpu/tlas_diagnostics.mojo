@@ -1,6 +1,5 @@
 """Diagnostic-only counters for nested GPU TLAS to CWBVH8 traversal."""
 
-from std.bit import log2_floor, pop_count
 from std.math import ceildiv, min
 from max.gpu import global_idx
 from max.gpu.host import DeviceBuffer, DeviceContext
@@ -9,16 +8,16 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     GPU_STACK_SIZE,
+    TraceMode,
     f32_max,
 )
 from bajo.bvh.gpu.camera_launch import _camera_ray, _store_camera_hit
-from bajo.bvh.gpu.compressed_bounds_bvh import _intersect_cwbvh8_node_tasks
 from bajo.bvh.gpu.trace import (
     GpuTraceResult,
     GpuTraversalStats,
     _intersect_trace_node_precomputed,
 )
-from bajo.bvh.gpu.triangle_trace import _intersect_cwbvh_triangle
+from bajo.bvh.gpu.triangle_trace import _trace_cwbvh8_triangles_impl
 from bajo.bvh.gpu.tlas import GpuTlas
 from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
 from bajo.bvh.tlas_common import (
@@ -102,18 +101,6 @@ struct GpuTlasStatsSummary(Copyable, Writable):
 
 
 @always_inline
-def _trace_cwbvh8_with_stats(
-    nodes: ImmPointer[Float32, _],
-    triangles: ImmPointer[Float32, _],
-    root_idx: UInt32,
-    ray: Rayf32[.LOCAL],
-) -> GpuTraceResult[.LOCAL]:
-    return _trace_cwbvh8_with_stats_in_frame[.LOCAL](
-        nodes, triangles, root_idx, ray
-    )
-
-
-@always_inline
 def _trace_cwbvh8_with_stats_in_frame[
     frame: Frame,
 ](
@@ -122,83 +109,18 @@ def _trace_cwbvh8_with_stats_in_frame[
     root_idx: UInt32,
     ray: Rayf32[frame],
 ) -> GpuTraceResult[frame]:
-    var hit = Hit[frame].miss(ray.t_max)
     var stats = GpuTraversalStats.zero()
-    var stack_base = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
-    var stack_mask = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
-    var stack_ptr = 0
-
-    var sign_code = UInt32(0)
-    if ray.d.x < 0.0:
-        sign_code |= UInt32(4)
-    if ray.d.y < 0.0:
-        sign_code |= UInt32(2)
-    if ray.d.z < 0.0:
-        sign_code |= UInt32(1)
-    var octant_inverse = UInt32(7) - sign_code
-    var ray_rcp = ray.reciprocal_direction[1]()
-
-    var node_group_base = root_idx
-    var node_group_mask = UInt32(1) << UInt32(31)
-    var triangle_group_base: UInt32
-    var triangle_group_mask: UInt32
-
-    while True:
-        if node_group_mask > UInt32(0x00FFFFFF):
-            var group_imask = node_group_mask
-            var child_bit = Int(log2_floor(node_group_mask))
-            node_group_mask &= ~(UInt32(1) << UInt32(child_bit))
-            if node_group_mask > UInt32(0x00FFFFFF):
-                stack_base[stack_ptr] = node_group_base
-                stack_mask[stack_ptr] = node_group_mask
-                stack_ptr += 1
-                if UInt32(stack_ptr) > stats.max_stack_depth:
-                    stats.max_stack_depth = UInt32(stack_ptr)
-
-            var slot = UInt32(child_bit - 24) ^ octant_inverse
-            var slots_before = (UInt32(1) << slot) - UInt32(1)
-            var relative = UInt32(pop_count(group_imask & slots_before))
-            var node_idx = node_group_base + relative
-            stats.node_visits += 1
-            var tasks = _intersect_cwbvh8_node_tasks[frame](
-                nodes,
-                node_idx,
-                ray,
-                ray_rcp.x,
-                ray_rcp.y,
-                ray_rcp.z,
-                hit.t,
-                octant_inverse,
-            )
-            node_group_base = tasks.child_base
-            node_group_mask = tasks.node_group_mask
-            triangle_group_base = tasks.triangle_base
-            triangle_group_mask = tasks.triangle_group_mask
-        else:
-            triangle_group_base = node_group_base
-            triangle_group_mask = node_group_mask
-            node_group_mask = UInt32(0)
-
-        if triangle_group_mask != 0:
-            stats.leaf_blocks += 1
-        while triangle_group_mask != 0:
-            var triangle_bit = Int(log2_floor(triangle_group_mask))
-            triangle_group_mask &= ~(UInt32(1) << UInt32(triangle_bit))
-            stats.primitive_tests += 1
-            _ = _intersect_cwbvh_triangle[frame, .CLOSEST_HIT](
-                triangles,
-                triangle_group_base + UInt32(triangle_bit),
-                ray,
-                hit,
-            )
-
-        if node_group_mask <= UInt32(0x00FFFFFF):
-            if stack_ptr == 0:
-                break
-            stack_ptr -= 1
-            node_group_base = stack_base[stack_ptr]
-            node_group_mask = stack_mask[stack_ptr]
-
+    var hit = _trace_cwbvh8_triangles_impl[
+        frame, TraceMode.CLOSEST_HIT, collect_stats=True
+    ](
+        nodes,
+        triangles,
+        triangles.unsafe_bitcast[UInt32](),
+        triangles,
+        root_idx,
+        ray,
+        stats,
+    )
     return GpuTraceResult[frame](hit, stats)
 
 
@@ -272,7 +194,7 @@ def _trace_tlas2_leaf1_cwbvh8_with_stats(
                             Int(blas_desc.leaf_f32_base)
                         )
                         var local_root = blas_desc.root_idx
-                        var local = _trace_cwbvh8_with_stats(
+                        var local = _trace_cwbvh8_with_stats_in_frame[.LOCAL](
                             local_nodes,
                             local_leaves,
                             local_root,

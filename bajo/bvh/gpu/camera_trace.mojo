@@ -1,11 +1,16 @@
 """Shared camera kernel ABI for standalone GPU BVH owners."""
 
+from std.math import ceildiv
 from max.gpu import global_idx
+from max.gpu.host import DeviceBuffer, DeviceContext
+
+from bajo.bvh.constants import GPU_BOUNDS_BVH_BLOCK_SIZE
 
 from bajo.bvh.gpu.camera_launch import (
     _camera_ray,
     _camera_ray_single_view,
     _store_camera_hit,
+    validate_camera_launch,
 )
 from bajo.bvh.types import Hit
 from bajo.core import Rayf32
@@ -57,3 +62,42 @@ def trace_bvh_camera_kernel[
         )
     var hit = trace_ray(nodes, leaves, root_idx, ray)
     _store_camera_hit(hit, hits, ray_count_int, ray_idx)
+
+
+@always_inline
+def enqueue_bvh_camera_trace[
+    trace_ray: GpuCameraTraceFn,
+](
+    ctx: DeviceContext,
+    nodes: DeviceBuffer[.float32],
+    leaves: DeviceBuffer[.float32],
+    root_idx: UInt32,
+    camera_params: DeviceBuffer[.float32],
+    hits: DeviceBuffer[.float32],
+    ray_count: Int,
+    width: Int,
+    height: Int,
+) raises:
+    """Launch the single-view or multi-view specialization with one ABI."""
+    validate_camera_launch(camera_params, hits, ray_count, width, height)
+
+    @always_inline
+    def enqueue[single_view: Bool]() raises {imm}:
+        ctx.enqueue_function[trace_bvh_camera_kernel[trace_ray, single_view]](
+            nodes,
+            leaves,
+            root_idx,
+            camera_params,
+            hits,
+            Int32(ray_count),
+            Int32(width),
+            Int32(height),
+            Float32(1.0) / Float32(height),
+            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+
+    if ray_count == width * height:
+        enqueue[True]()
+    else:
+        enqueue[False]()

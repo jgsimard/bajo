@@ -6,8 +6,8 @@ The Python viewer retains the preparation module until its handles are freed.
 
 from std.math import cos, sin
 from std.io.file_descriptor import FileDescriptor
-from std.memory import bitcast
-from std.python import PythonObject
+from std.memory import Pointer, bitcast
+from std.python import Python, PythonObject
 from bajo.bvh import Camera
 from bajo.core import Point3W, Vec3W
 from bajo.core.random import Sampler
@@ -49,6 +49,27 @@ def _viewer_camera(
         10.0,
         0.0,
     )
+
+
+def _linear_frame(
+    width: Int, height: Int, pixels: ImmSpan[Vec3W, _]
+) raises -> PythonObject:
+    """Copy linear RGB into a Python-owned array that outlives the render result.
+    """
+    if width <= 0 or height <= 0 or len(pixels) != width * height:
+        raise Error("viewer frame dimensions do not match its pixels")
+    var numpy = Python.import_module("numpy")
+    var frame = numpy.empty(Python.tuple(height, width, 3), dtype="float32")
+    # NumPy owns a contiguous float32 allocation. Keep frame alive while filling
+    # it; returning the array transfers ownership independently of Mojo pixels.
+    var output = Pointer[Float32, MutUntrackedOrigin](
+        unsafe_from_address=Int(py=frame.ctypes.data)
+    )
+    for index in range(len(pixels)):
+        output[unsafe_offset=3 * index] = pixels[index].x
+        output[unsafe_offset=3 * index + 1] = pixels[index].y
+        output[unsafe_offset=3 * index + 2] = pixels[index].z
+    return frame^
 
 
 def _write_linear_frame(path: String, pixels: ImmSpan[Vec3W, _]) raises:

@@ -2,9 +2,12 @@
 from pathlib import Path
 import sys
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -111,28 +114,31 @@ class SceneOwnershipTests(unittest.TestCase):
         self.owner.create_cpu_state.return_value = [123, 1.0, 2.0, "CPU | S1 T0 I0"]
         self.owner.create_gpu_state.return_value = [456, 1, 1.0, 2.0, "GPU"]
         self.render = Mock()
-        self.render.render_cpu_state.return_value = [1.0, 0.0, 1.0]
-        self.render.render_gpu_state.return_value = [1.0, 0.0, 1.0]
+        self.pixels = np.zeros((2, 3, 3), dtype=np.float32)
+        self.render.render_cpu_state.return_value = [1.0, 0.0, 1.0, self.pixels]
+        self.render.render_gpu_state.return_value = [1.0, 0.0, 1.0, self.pixels]
         self.extension = ViewerRenderer(self.owner, self.render)
 
     def test_integrator_and_traversal_switches_keep_the_scene(self):
         self.viewer._render_batch(self.extension, self.work, {})
         self.work.traversal_index = 2
         next_render = Mock()
-        next_render.render_cpu_state.return_value = [1.0, 0.0, 1.0]
-        stats = self.viewer._render_batch(
+        next_render.render_cpu_state.return_value = [1.0, 0.0, 1.0, self.pixels]
+        stats, pixels = self.viewer._render_batch(
             ViewerRenderer(self.owner, next_render), self.work, {}
         )
         self.owner.create_cpu_state.assert_called_once()
         self.owner.destroy_cpu_state.assert_not_called()
         next_render.render_cpu_state.assert_called_once_with(123, {})
         self.assertIn("adaptive-16-8-4-scalar", stats.bvh_stats)
+        self.assertIs(pixels, self.pixels)
         self.viewer._destroy_cpu_state()
         self.viewer._destroy_cpu_state()
         self.owner.destroy_cpu_state.assert_called_once_with(123)
 
     def test_builder_and_backend_switches_free_with_the_original_owner(self):
-        self.viewer._render_batch(self.extension, self.work, {})
+        _, pixels = self.viewer._render_batch(self.extension, self.work, {})
+        self.assertIs(pixels, self.pixels)
         next_owner = Mock()
         next_owner.create_cpu_state.return_value = [789, 1.0, 2.0, "CPU"]
         self.viewer._render_batch(
@@ -149,6 +155,70 @@ class SceneOwnershipTests(unittest.TestCase):
         self.viewer._destroy_gpu_state()
         self.viewer._destroy_gpu_state()
         self.owner.destroy_gpu_state.assert_called_once_with(456, 1)
+
+
+class FrameDisplayTests(unittest.TestCase):
+    def setUp(self):
+        from viewer import Viewer
+        from viewer_config import Camera, RenderOptions, RenderSnapshot, RenderStats
+
+        self.viewer = Viewer.__new__(Viewer)
+        self.viewer.closed = False
+        self.viewer.rendering = True
+        self.viewer.lock = threading.Lock()
+        self.viewer.render_generation = 0
+        self.viewer.accumulated_spp = 0
+        self.viewer.completed_batches = 0
+        self.viewer.linear_sum = None
+        self.viewer.dragging = False
+        self.viewer.pressed = set()
+        self.viewer.renderer = Mock()
+        self.viewer.renderer_config = (0, 0, 0, 0)
+        self.viewer.root = SimpleNamespace(after=lambda delay, callback: callback())
+        self.viewer.show_frame = Mock()
+        self.options = RenderOptions(width=2, height=1, batches=2, max_samples=3)
+        self.stats = RenderStats(1.0, 0.0, 0.0, 0.0, 1.0, "CPU")
+        self.work = RenderSnapshot(
+            camera=Camera(), options=self.options, generation=0,
+            batch_spp=2, sample_offset=0, preview=False,
+            integrator_index=0, backend_index=0, traversal_index=0,
+            build_index=0, sampler_index=0, scene_index=1, scene_path="",
+        )
+
+    def test_progressive_frames_keep_sample_weighting(self):
+        from dataclasses import replace
+
+        self.viewer.snapshot = Mock(side_effect=[
+            self.work, replace(self.work, batch_spp=1, sample_offset=2),
+        ])
+        self.viewer._render_batch = Mock(side_effect=[
+            (self.stats, np.full((1, 2, 3), 0.25, dtype=np.float32)),
+            (self.stats, np.full((1, 2, 3), 1.0, dtype=np.float32)),
+        ])
+        self.viewer.render_worker()
+        self.assertEqual(self.viewer.accumulated_spp, 3)
+        self.assertEqual(self.viewer.completed_batches, 2)
+        self.assertFalse(self.viewer.rendering)
+        self.assertEqual(self.viewer.show_frame.call_count, 2)
+        np.testing.assert_array_equal(self.viewer.linear_sum, np.full((1, 2, 3), 1.5))
+        image = self.viewer.show_frame.call_args.args[0]
+        np.testing.assert_array_equal(np.asarray(image), np.full((1, 2, 3), 181))
+        for call in self.viewer._render_batch.call_args_list:
+            self.assertNotIn("output", call.args[2])
+
+    def test_preview_displays_without_accumulation(self):
+        from dataclasses import replace
+
+        self.viewer.snapshot = Mock(return_value=replace(self.work, preview=True))
+        self.viewer._render_batch = Mock(return_value=(
+            self.stats, np.full((1, 2, 3), 0.25, dtype=np.float32),
+        ))
+        self.viewer.render_worker()
+        self.assertEqual(self.viewer.accumulated_spp, 0)
+        self.assertIsNone(self.viewer.linear_sum)
+        self.assertFalse(self.viewer.rendering)
+        image = self.viewer.show_frame.call_args.args[0]
+        np.testing.assert_array_equal(np.asarray(image), np.full((1, 2, 3), 128))
 
 
 if __name__ == "__main__":

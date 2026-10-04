@@ -25,7 +25,7 @@ from bajo.viewer.common import (
     CpuViewerState,
     _settings,
     _camera,
-    _write_linear_frame,
+    _linear_frame,
     STATE_KIND_MASK,
     STATE_COMPRESSED_TRIANGLES,
     STATE_COMPRESSED_BLASES,
@@ -68,7 +68,9 @@ def _render_cpu_state[
     else:
         result = render_depth_first[integrator](settings, camera, ptr[].world)
     var render_ns = Int(perf_counter_ns() - render_t0)
-    _write_linear_frame(String(py=config["output"]), result.pixels)
+    var frame = _linear_frame(
+        settings.image_width, settings.image_height, result.pixels
+    )
     var render_ms = ns_to_ms(render_ns)
     var primary_rays = (
         settings.image_width
@@ -78,7 +80,7 @@ def _render_cpu_state[
     var mrays = Float64(0.0)
     if render_ms > 0.0:
         mrays = Float64(primary_rays) / (render_ms * 1000.0)
-    return Python.list(render_ms, Float64(0.0), mrays)
+    return Python.list(render_ms, Float64(0.0), mrays, frame)
 
 
 def render_cpu_state(
@@ -113,7 +115,9 @@ def _render_state[
     var ptr = Pointer[State, MutUntrackedOrigin](unsafe_from_address=handle)
     var settings = _settings(config)
     var result = ptr[].render[integrator](settings, _camera(config))
-    _write_linear_frame(String(py=config["output"]), result.pixels)
+    var frame = _linear_frame(
+        settings.image_width, settings.image_height, result.pixels
+    )
     var render_ms = ns_to_ms(result.timings.render_ns)
     var init_ms = ns_to_ms(result.timings.init_ns)
     var primary_rays = (
@@ -124,7 +128,7 @@ def _render_state[
     var mrays = 0.0
     if render_ms > 0.0:
         mrays = Float64(primary_rays) / (render_ms * 1000.0)
-    return Python.list(render_ms, init_ms, mrays)
+    return Python.list(render_ms, init_ms, mrays, frame)
 
 
 def _render_kind[

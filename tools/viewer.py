@@ -5,7 +5,6 @@ from collections import deque
 import math
 import os
 import sys
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -84,8 +83,6 @@ class Viewer:
         self.photo: ImageTk.PhotoImage | None = None
         self.gpu_state: GpuState | None = None
         self.cpu_state: CpuState | None = None
-        self.temp_dir = tempfile.TemporaryDirectory(prefix="bajo-viewer-")
-        self.output_path = Path(self.temp_dir.name) / "frame.rgb32"
         self.extension_loader = ExtensionLoader(ROOT, gpu_arch)
         self.renderer = self._load_renderer(
             self.backend_index,
@@ -419,7 +416,6 @@ class Viewer:
 
     def _render_config(self, work: RenderSnapshot) -> dict[str, object]:
         return {
-            "output": str(self.output_path),
             "width": work.options.width,
             "height": work.options.height,
             "samples": work.batch_spp,
@@ -446,7 +442,7 @@ class Viewer:
         renderer,
         work: RenderSnapshot,
         render_config: dict[str, object],
-    ) -> RenderStats:
+    ) -> tuple[RenderStats, np.ndarray]:
         if work.backend_index == 1:
             self._destroy_cpu_state()
             state_key = (renderer.preparation, work.scene_index, work.scene_path)
@@ -474,7 +470,7 @@ class Viewer:
                 init_ms=float(raw_stats[1]),
                 mrays=float(raw_stats[2]),
                 bvh_stats=state.bvh_stats,
-            )
+            ), raw_stats[3]
 
         self._destroy_gpu_state()
         state_key = (renderer.preparation, work.scene_index, work.scene_path)
@@ -501,16 +497,7 @@ class Viewer:
             bvh_stats=state.bvh_stats + " | traversal " + (
                 "auto-coherent", "fixed-packet", "adaptive-16-8-4-scalar"
             )[work.traversal_index],
-        )
-
-    def _read_frame(self, options: RenderOptions) -> np.ndarray:
-        linear = np.fromfile(self.output_path, dtype="<f4")
-        expected = options.width * options.height * 3
-        if linear.size != expected:
-            raise ValueError(
-                f"expected {expected} linear values, got {linear.size}"
-            )
-        return linear.reshape((options.height, options.width, 3))
+        ), raw_stats[3]
 
     @staticmethod
     def _display_image(linear: np.ndarray) -> Image.Image:
@@ -562,7 +549,7 @@ class Viewer:
                         else:
                             continue
                 render_config = self._render_config(work)
-                stats = self._render_batch(
+                stats, linear = self._render_batch(
                     renderer, work, render_config
                 )
                 error = None
@@ -586,18 +573,6 @@ class Viewer:
                         self.rendering = False
                     return
             elif latest:
-                try:
-                    linear = self._read_frame(work.options)
-                except (OSError, ValueError) as exc:
-                    self.root.after(
-                        0,
-                        lambda exc=exc: self.update_status(
-                            f"Could not display frame: {exc}"
-                        ),
-                    )
-                    with self.lock:
-                        self.rendering = False
-                    return
                 with self.lock:
                     latest = work.generation == self.render_generation
                     if not latest:
@@ -1033,7 +1008,6 @@ class Viewer:
         if not self.rendering:
             self._destroy_gpu_state()
             self._destroy_cpu_state()
-        self.temp_dir.cleanup()
         self.root.destroy()
 
     def run(self) -> None:

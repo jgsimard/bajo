@@ -68,7 +68,7 @@ struct GpuRtPreparedRenderer[
             tlas_build_method,
             blas_build_method,
         ](self.ctx, data)
-        self.target = GpuRtRenderTarget(self.ctx, settings, camera)
+        self.target = self.scene.make_render_target(self.ctx, settings, camera)
 
     def render[
         integrator: Integrator,
@@ -86,7 +86,9 @@ struct GpuRtPreparedRenderer[
             or settings.image_height != self.target.image_height
             or settings.samples_per_pixel != self.target.samples_per_pixel
         ):
-            self.target = GpuRtRenderTarget(self.ctx, settings, camera)
+            self.target = self.scene.make_render_target(
+                self.ctx, settings, camera
+            )
         else:
             update_gpu_camera(self.ctx, self.target, camera)
         var init_ns = Int(perf_counter_ns() - init_t0)

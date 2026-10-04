@@ -28,6 +28,8 @@ from bajo.rt.wavefront_contract import (
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.wavefront_contract import (
     GpuWavefrontArena,
+    GPU_SHADE_U,
+    GPU_SHADE_V,
     _mark_status,
     _reserve_slot,
     load_gpu_rt_path,
@@ -74,14 +76,16 @@ def _append_shade(
     fields: Pointer[Float32, MutAnyOrigin],
     counters: Pointer[UInt32, MutAnyOrigin],
     capacity: Int,
-):
+) -> Int:
     var slot = _reserve_slot(counters, WAVE_COUNTER.SHADE)
     if slot >= capacity:
         _mark_status(counters, WAVE_STATUS.SHADE_OVERFLOW)
-        return
+        return -1
     store_device_wave_shade(
         work, path_refs, surface_values, fields, capacity, slot
     )
+
+    return slot
 
 
 @always_inline
@@ -390,27 +394,31 @@ def _route_surface_hit[
             bounce,
         )
     elif kind == .COATED_DIFFUSE:
-        _shade_coated_diffuse_inline[integrator](
-            path,
-            ray_direction,
-            normal,
-            uv_u,
-            uv_v,
-            hit_t,
-            surface_value,
-            coated_diffuses,
-            coated_diffuse_texture_indices,
-            texture_descs,
-            texture_pixels,
-            dst_path_ids,
-            dst_path_fields,
+        var slot = _append_shade(
+            DeviceWaveShade(
+                UInt32(active_path_idx),
+                normal.x,
+                normal.y,
+                normal.z,
+                surface_value,
+                hit_t,
+                front_face,
+            ),
+            shade_path_refs,
+            shade_surfaces,
+            shade_fields,
             counters,
             capacity,
-            sampling,
-            bounce,
         )
+        if slot >= 0:
+            shade_fields[
+                unsafe_offset=wavefront_plane_index(GPU_SHADE_U, capacity, slot)
+            ] = uv_u
+            shade_fields[
+                unsafe_offset=wavefront_plane_index(GPU_SHADE_V, capacity, slot)
+            ] = uv_v
     elif kind == .METAL or kind == .DIELECTRIC:
-        _append_shade(
+        _ = _append_shade(
             DeviceWaveShade(
                 UInt32(active_path_idx),
                 normal.x,
@@ -561,7 +569,7 @@ def gpu_rt_shade_dispatch_kernel[
                 sampling,
                 bounce,
             )
-        else:
+        elif kind == .DIELECTRIC:
             _gpu_rt_shade_one[integrator, .DIELECTRIC](
                 idx,
                 src_path_ids,
@@ -594,7 +602,7 @@ def _enqueue_material_shading[
     sampling: SamplingConfig,
     bounce: UInt32,
 ) raises:
-    if not materials.has_non_lambertian:
+    if not materials.stages.metal_dielectric:
         return
     var blocks = min(
         ceildiv(arena.capacity, GPU_RT_SHADE_BLOCK_SIZE),

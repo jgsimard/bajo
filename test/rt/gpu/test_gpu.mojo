@@ -44,6 +44,7 @@ from bajo.rt.material_types import (
     Environment,
     ImageTexture,
     Integrator,
+    SurfaceId,
 )
 from bajo.rt.scene_data import (
     SceneBuilder,
@@ -302,7 +303,7 @@ def _instance_world() raises -> CpuScene[4, 8]:
     return CpuScene[4, 8](_instance_scene_data())
 
 
-def _textured_instance_world() raises -> CpuScene[4, 8]:
+def _textured_instance_world[coated: Bool = False]() raises -> CpuScene[4, 8]:
     var builder = SceneBuilder()
     var pixels: List[Float32] = [
         0.9,
@@ -321,9 +322,15 @@ def _textured_instance_world() raises -> CpuScene[4, 8]:
     var texture_idx = builder.surfaces.add_image_texture(
         ImageTexture(2, 2, pixels^)
     )
-    var matte = builder.surfaces.add_lambertian(
-        Color(0.8, 0.7, 0.6), texture_idx
-    )
+    var matte: SurfaceId[1]
+    comptime if coated:
+        matte = builder.surfaces.add_coated_diffuse(
+            Color(0.8, 0.7, 0.6), 0.2, 1.5, texture_idx
+        )
+    else:
+        matte = builder.surfaces.add_lambertian(
+            Color(0.8, 0.7, 0.6), texture_idx
+        )
     var mesh: List[Point3f32[.LOCAL]] = [
         Point3f32[.LOCAL](-1.25, -1.0, -1.0),
         Point3f32[.LOCAL](1.25, -1.0, -1.0),

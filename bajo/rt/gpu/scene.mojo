@@ -2,7 +2,7 @@
 
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh import Sphere
+from bajo.bvh import Camera, Sphere
 from bajo.bvh.gpu import (
     GpuBlasSet,
     GpuBvhBuildMethod,
@@ -23,7 +23,8 @@ from bajo.rt.gpu.config import (
     GPU_RT_BVH_TLAS2,
     GPU_RT_BVH_WIDE4,
 )
-from bajo.rt.gpu.resources import upload_surface_ids
+from bajo.rt.gpu.resources import GpuRtRenderTarget, upload_surface_ids
+from bajo.rt.render_types import RenderSettings
 from bajo.rt.gpu.views import (
     GpuRtInstanceView,
     GpuRtSceneView,
@@ -94,6 +95,40 @@ struct GpuRtScene[
     var environment_scale_z: Float32
     var environment_world_to_light: Affine3f32[.WORLD, .LOCAL]
     var environment_light_to_world: Affine3f32[.LOCAL, .WORLD]
+
+    def preferred_path_capacity(self) -> Int:
+        """Recommend a queue budget from measured geometry and shading costs.
+
+        Allocation clamps this budget to the render's sample count and aligns
+        it to complete pixels. Callers can override it in make_render_target.
+        """
+        comptime if Self.kind.has_instances():
+            comptime if not Self.kind.has_spheres() and not Self.kind.has_triangles():
+                return 4194304
+            return 1048576
+        elif Self.kind.has_triangles():
+            if len(self._triangle_surfaces.value()) >= 4096:
+                comptime if not Self.kind.has_spheres():
+                    return 8388608
+                return 1048576
+        if self.materials.stages.coated_diffuse:
+            return 1048576
+        return 262144
+
+    def make_render_target(
+        self,
+        mut ctx: DeviceContext,
+        settings: RenderSettings,
+        camera: Camera,
+        path_capacity: Int = 0,
+    ) raises -> GpuRtRenderTarget:
+        """Allocate scene-sized queues, retaining an explicit caller override.
+        """
+        var capacity = (
+            path_capacity if path_capacity
+            > 0 else self.preferred_path_capacity()
+        )
+        return GpuRtRenderTarget(ctx, settings, camera, capacity)
 
     def view(self) -> GpuRtSceneView:
         """Borrow the selected owner fields through the common device ABI."""

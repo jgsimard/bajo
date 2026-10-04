@@ -103,6 +103,17 @@ def _flatten_coated_diffuse_texture_indices(
     return out^
 
 
+@fieldwise_init
+struct GpuRtShadeStages(ImplicitlyCopyable):
+    """Runtime launch requirements for a fixed set of shading kernels."""
+
+    var metal_dielectric: Bool
+    var coated_diffuse: Bool
+
+    def needs_source_paths(self) -> Bool:
+        return self.metal_dielectric or self.coated_diffuse
+
+
 struct GpuRtMaterials:
     """Flattened device material tables shared by all GPU geometry backends."""
 
@@ -115,7 +126,7 @@ struct GpuRtMaterials:
     var coated_diffuse_texture_indices: DeviceBuffer[.uint32]
     var texture_descs: DeviceBuffer[.uint32]
     var texture_pixels: DeviceBuffer[.float32]
-    var has_non_lambertian: Bool
+    var stages: GpuRtShadeStages
 
     def __init__(
         out self,
@@ -144,7 +155,8 @@ struct GpuRtMaterials:
         self.texture_pixels = _upload_nonempty(
             ctx, _flatten_texture_pixels(world)
         )
-        self.has_non_lambertian = (
+        self.stages = GpuRtShadeStages(
             len(world.surfaces().metals) > 0
-            or len(world.surfaces().dielectrics) > 0
+            or len(world.surfaces().dielectrics) > 0,
+            len(world.surfaces().coated_diffuses) > 0,
         )

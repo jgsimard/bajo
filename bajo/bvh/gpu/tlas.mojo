@@ -28,7 +28,7 @@ from bajo.bvh.gpu.camera_launch import (
     _store_camera_hit,
 )
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
-from bajo.bvh.gpu.blas_trace import trace_gpu_blas
+from bajo.bvh.gpu.blas_trace import trace_gpu_blas_descriptor
 from bajo.bvh.gpu.triangle_trace import (
     _intersect_triangle_leaf,
 )
@@ -121,8 +121,7 @@ def _intersect_tlas_instance_block[
             var local_leaves = blas_leaves.unsafe_offset(
                 Int(blas_desc.leaf_f32_base)
             )
-            var local_root = blas_desc.root_idx
-            var local_hit = trace_gpu_blas[
+            var local_hit = trace_gpu_blas_descriptor[
                 .LOCAL,
                 blas_node_width,
                 mode,
@@ -130,7 +129,7 @@ def _intersect_tlas_instance_block[
                 blas_layout,
                 blas_node_width == 4 and mode == .CLOSEST_HIT,
                 blas_node_width == 2 and mode == .CLOSEST_HIT,
-            ](local_nodes, local_leaves, local_root, local_ray)
+            ](local_nodes, local_leaves, blas_desc, local_ray)
 
             comptime if mode == .ANY_HIT:
                 if local_hit.is_occluded():
@@ -189,6 +188,8 @@ def _trace_tlas_ray[
     mode: TraceMode,
     blas_leaf_fn: GpuLeafFn[.LOCAL],
     blas_layout: GpuBvhLayout = .WIDE,
+    # Chosen by the RT caller from its existing geometry specialization.
+    closest_leaf_tasks: Int = 0,
 ](
     tlas_wide_nodes: ImmPointer[Float32, _],
     tlas_leaf_instances: ImmPointer[UInt32, _],
@@ -225,7 +226,12 @@ def _trace_tlas_ray[
             blas_leaf_fn,
             blas_layout,
         ],
-        tlas_node_width == 2 and mode == .CLOSEST_HIT,
+        # Scalar near-first BVH2 also avoids push/pop round trips for shadows.
+        tlas_node_width == 2,
+        # Wide-BLAS shadows benefit from ordering leaves with internal tasks.
+        # Compressed BLASes retain eager leaves after a measured regression.
+        not blas_layout.compressed,
+        closest_leaf_tasks,
     ](tlas_wide_nodes, leaf_state, tlas_root_idx, ray)
     comptime if mode == .CLOSEST_HIT:
         if hit.is_hit():

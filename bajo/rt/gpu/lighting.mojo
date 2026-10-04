@@ -152,6 +152,7 @@ def _empty_direct_light_sample() -> GpuDirectLightSample:
 def _sample_direct_light_candidate[
     integrator: Integrator,
     light_kind: PrimitiveKind = .UNKNOWN,
+    coated_pass: Bool = False,
 ](
     path: DeviceWavePath,
     incoming_ray: Rayf32[.WORLD],
@@ -190,6 +191,23 @@ def _sample_direct_light_candidate[
     )
     if total_light_weight <= 0.0:
         return _empty_direct_light_sample()
+
+    var surface_kind = SurfaceId.kind_from_raw(surface_value)
+    comptime if coated_pass:
+        if surface_kind != .COATED_DIFFUSE:
+            return _empty_direct_light_sample()
+    else:
+        if surface_kind == .COATED_DIFFUSE:
+            return _empty_direct_light_sample()
+    if surface_kind == .EMISSIVE or surface_kind == .DIELECTRIC:
+        return _empty_direct_light_sample()
+
+    comptime if not coated_pass:
+        if surface_kind == .METAL:
+            # Delta mirrors cannot contribute to a sampled direct-light ray.
+            var material_base = 4 * Int(SurfaceId.index_from_raw(surface_value))
+            if metals[unsafe_offset=material_base + 3] <= 1.0e-4:
+                return _empty_direct_light_sample()
 
     var rng = path_stage_rng(
         sampling, path.path_id, wavefront_rng_light_stage(bounce)
@@ -340,72 +358,80 @@ def _sample_direct_light_candidate[
         )
     if not geometry.valid:
         return _empty_direct_light_sample()
-    var surface_kind = SurfaceId.kind_from_raw(surface_value)
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
     var value = Color(0.0)
     var bsdf_pdf = Float32(0.0)
     if surface_kind == .LAMBERTIAN:
-        var evaluation = _evaluate_material[.LAMBERTIAN, 1](
-            incoming_ray.d,
-            normal,
-            _sample_gpu_lambertian(
-                surface_value,
-                uv_u,
-                uv_v,
-                lambertians,
-                lambertian_texture_indices,
-                texture_descs,
-                texture_pixels,
-            ),
-            1.0,
-            geometry.direction,
-        )
-        value = evaluation.value
-        bsdf_pdf = evaluation.pdf
+        comptime if not coated_pass:
+            var evaluation = _evaluate_material[.LAMBERTIAN, 1](
+                incoming_ray.d,
+                normal,
+                _sample_gpu_lambertian(
+                    surface_value,
+                    uv_u,
+                    uv_v,
+                    lambertians,
+                    lambertian_texture_indices,
+                    texture_descs,
+                    texture_pixels,
+                ),
+                1.0,
+                geometry.direction,
+            )
+            value = evaluation.value
+            bsdf_pdf = evaluation.pdf
+        else:
+            return _empty_direct_light_sample()
     elif surface_kind == .METAL:
-        var material_base = 4 * material_idx
-        var evaluation = _evaluate_material[.METAL, 1](
-            incoming_ray.d,
-            normal,
-            Color(
-                metals[unsafe_offset=material_base + 0],
-                metals[unsafe_offset=material_base + 1],
-                metals[unsafe_offset=material_base + 2],
-            ),
-            metals[unsafe_offset=material_base + 3],
-            geometry.direction,
-        )
-        value = evaluation.value
-        bsdf_pdf = evaluation.pdf
+        comptime if not coated_pass:
+            var material_base = 4 * material_idx
+            var evaluation = _evaluate_material[.METAL, 1](
+                incoming_ray.d,
+                normal,
+                Color(
+                    metals[unsafe_offset=material_base + 0],
+                    metals[unsafe_offset=material_base + 1],
+                    metals[unsafe_offset=material_base + 2],
+                ),
+                metals[unsafe_offset=material_base + 3],
+                geometry.direction,
+            )
+            value = evaluation.value
+            bsdf_pdf = evaluation.pdf
+        else:
+            return _empty_direct_light_sample()
     elif surface_kind == .COATED_DIFFUSE:
-        var material_base = 15 * material_idx
-        var evaluation = _evaluate_coated_diffuse(
-            incoming_ray.d,
-            normal,
-            _sample_gpu_coated_albedo(
-                surface_value,
-                uv_u,
-                uv_v,
-                coated_diffuses,
-                coated_diffuse_texture_indices,
-                texture_descs,
-                texture_pixels,
-            ),
-            coated_diffuses[unsafe_offset=material_base + 3],
-            coated_diffuses[unsafe_offset=material_base + 4],
-            coated_diffuses[unsafe_offset=material_base + 5],
-            Color(
-                coated_diffuses[unsafe_offset=material_base + 6],
-                coated_diffuses[unsafe_offset=material_base + 7],
-                coated_diffuses[unsafe_offset=material_base + 8],
-            ),
-            coated_diffuses[unsafe_offset=material_base + 9],
-            coated_diffuses[unsafe_offset=material_base + 10],
-            coated_diffuses[unsafe_offset=material_base + 11],
-            geometry.direction,
-        )
-        value = evaluation.value
-        bsdf_pdf = evaluation.pdf
+        comptime if coated_pass:
+            var material_base = 15 * material_idx
+            var evaluation = _evaluate_coated_diffuse(
+                incoming_ray.d,
+                normal,
+                _sample_gpu_coated_albedo(
+                    surface_value,
+                    uv_u,
+                    uv_v,
+                    coated_diffuses,
+                    coated_diffuse_texture_indices,
+                    texture_descs,
+                    texture_pixels,
+                ),
+                coated_diffuses[unsafe_offset=material_base + 3],
+                coated_diffuses[unsafe_offset=material_base + 4],
+                coated_diffuses[unsafe_offset=material_base + 5],
+                Color(
+                    coated_diffuses[unsafe_offset=material_base + 6],
+                    coated_diffuses[unsafe_offset=material_base + 7],
+                    coated_diffuses[unsafe_offset=material_base + 8],
+                ),
+                coated_diffuses[unsafe_offset=material_base + 9],
+                coated_diffuses[unsafe_offset=material_base + 10],
+                coated_diffuses[unsafe_offset=material_base + 11],
+                geometry.direction,
+            )
+            value = evaluation.value
+            bsdf_pdf = evaluation.pdf
+        else:
+            return _empty_direct_light_sample()
     else:
         return _empty_direct_light_sample()
     var scale = _direct_light_scale[integrator, 1](

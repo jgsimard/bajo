@@ -7,7 +7,6 @@ from max.gpu.host import DeviceContext
 
 from bajo.core.utils import ns_to_ms
 from bajo.rt import RenderSettings
-from bajo.rt.gpu.resources import GpuRtRenderTarget
 from bajo.rt.gpu.scene import prepare_gpu_scene
 from bajo.benchmark.gpu_harness import (
     BENCH_REPEATS,
@@ -52,7 +51,7 @@ def main() raises:
         var scene_ns = Int(perf_counter_ns() - scene_t0)
 
         var target_t0 = perf_counter_ns()
-        var target = GpuRtRenderTarget(ctx, settings, camera)
+        var target = gpu_world.make_render_target(ctx, settings, camera)
         ctx.synchronize()
         var target_ns = Int(perf_counter_ns() - target_t0)
 

@@ -10,7 +10,9 @@ from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.materials import GpuRtMaterials
 from bajo.rt.gpu.path_shading import _enqueue_material_shading
+from bajo.rt.gpu.coated_shading import enqueue_coated_shading
 from bajo.rt.gpu.scene_trace import (
+    GPU_RT_LARGE_QUEUE_MIN_CAPACITY,
     enqueue_gpu_shadows,
     gpu_rt_primary_scene_trace_kernel,
     gpu_rt_scene_trace_kernel,
@@ -21,6 +23,11 @@ from bajo.rt.gpu.views import (
     gpu_rt_trace_queue_view,
 )
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
+
+
+comptime GPU_RT_DIRECT_TRACE_MAX_BLOCKS = 2048
+comptime GPU_RT_DIRECT_LARGE_TRACE_MAX_BLOCKS = 8192
+comptime GPU_RT_DIRECT_LARGE_TRACE_BLOCK_SIZE = 32
 
 
 @always_inline
@@ -183,7 +190,9 @@ def enqueue_gpu_rt_primary_bounce[
         dst_path_ids,
         dst_path_fields,
     )
-    var blocks = min(ceildiv(active_count, GPU_RT_BLOCK_SIZE), MAX_BLOCKS)
+    # Fused primary threads each process one sample. Grid caps apply to
+    # the grid-stride secondary, material, and shadow stages instead.
+    var blocks = ceildiv(active_count, GPU_RT_BLOCK_SIZE)
 
     @always_inline
     def enqueue_primary[store_source_path: Bool]() raises {imm}:
@@ -210,19 +219,13 @@ def enqueue_gpu_rt_primary_bounce[
             blocks,
         )
 
-    if materials.has_non_lambertian:
-        enqueue_primary[True]()
+    comptime if Integrator.is_path_tracing[integrator]:
+        if materials.stages.needs_source_paths():
+            enqueue_primary[True]()
+        else:
+            enqueue_primary[False]()
     else:
         enqueue_primary[False]()
-    enqueue_gpu_shadows[
-        integrator,
-        scene_kind,
-        sphere_format,
-        triangle_format,
-        tlas_format,
-        blas_format,
-        SHADOW_MAX_BLOCKS,
-    ](ctx, scene, queues, arena.capacity)
     comptime if Integrator.is_path_tracing[integrator]:
         _enqueue_material_shading[integrator, MAX_BLOCKS](
             ctx,
@@ -235,6 +238,23 @@ def enqueue_gpu_rt_primary_bounce[
             sampling,
             UInt32(0),
         )
+        enqueue_coated_shading[integrator](
+            ctx,
+            materials,
+            scene,
+            queues,
+            sampling,
+            UInt32(0),
+        )
+    enqueue_gpu_shadows[
+        integrator,
+        scene_kind,
+        sphere_format,
+        triangle_format,
+        tlas_format,
+        blas_format,
+        SHADOW_MAX_BLOCKS,
+    ](ctx, scene, queues, arena.capacity)
 
 
 @always_inline
@@ -260,8 +280,22 @@ def enqueue_gpu_rt_bounce[
     sampling: SamplingConfig,
     bounce: UInt32,
 ) raises:
-    """Enqueue trace, shadow, and material stages with one launch contract."""
-    var blocks = min(ceildiv(arena.capacity, GPU_RT_BLOCK_SIZE), MAX_BLOCKS)
+    """Enqueue trace, material, and shadow stages with one launch contract."""
+    var trace_block_size = GPU_RT_BLOCK_SIZE
+    comptime if Integrator.uses_direct_lighting[integrator] and (
+        scene_kind.has_triangles() or scene_kind.has_instances()
+    ):
+        if arena.capacity >= GPU_RT_LARGE_QUEUE_MIN_CAPACITY:
+            trace_block_size = GPU_RT_DIRECT_LARGE_TRACE_BLOCK_SIZE
+    var blocks = min(ceildiv(arena.capacity, trace_block_size), MAX_BLOCKS)
+    comptime if Integrator.uses_direct_lighting[integrator]:
+        # Preserve the tuned thread budget across the two block sizes.
+        # Grid-stride tracing covers every path even with an explicit cap.
+        var limit = (
+            GPU_RT_DIRECT_LARGE_TRACE_MAX_BLOCKS if arena.capacity
+            >= GPU_RT_LARGE_QUEUE_MIN_CAPACITY else GPU_RT_DIRECT_TRACE_MAX_BLOCKS
+        )
+        blocks = min(blocks, limit * GPU_RT_BLOCK_SIZE // trace_block_size)
     var queues = gpu_rt_trace_queue_view(
         arena,
         src_path_ids,
@@ -294,7 +328,7 @@ def enqueue_gpu_rt_bounce[
                         sampling,
                         bounce,
                         grid_dim=blocks,
-                        block_dim=GPU_RT_BLOCK_SIZE,
+                        block_dim=trace_block_size,
                     )
                     return
         ctx.enqueue_function[
@@ -313,19 +347,10 @@ def enqueue_gpu_rt_bounce[
             sampling,
             bounce,
             grid_dim=blocks,
-            block_dim=GPU_RT_BLOCK_SIZE,
+            block_dim=trace_block_size,
         )
 
     enqueue_trace()
-    enqueue_gpu_shadows[
-        integrator,
-        scene_kind,
-        sphere_format,
-        triangle_format,
-        tlas_format,
-        blas_format,
-        SHADOW_MAX_BLOCKS,
-    ](ctx, scene, queues, arena.capacity)
     comptime if Integrator.is_path_tracing[integrator]:
         _enqueue_material_shading[integrator, MAX_BLOCKS](
             ctx,
@@ -338,3 +363,20 @@ def enqueue_gpu_rt_bounce[
             sampling,
             bounce,
         )
+        enqueue_coated_shading[integrator](
+            ctx,
+            materials,
+            scene,
+            queues,
+            sampling,
+            bounce,
+        )
+    enqueue_gpu_shadows[
+        integrator,
+        scene_kind,
+        sphere_format,
+        triangle_format,
+        tlas_format,
+        blas_format,
+        SHADOW_MAX_BLOCKS,
+    ](ctx, scene, queues, arena.capacity)

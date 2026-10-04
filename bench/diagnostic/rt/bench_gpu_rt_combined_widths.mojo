@@ -151,7 +151,6 @@ def _run_layout[
     blas_layout: GpuBvhLayout = .WIDE,
 ](
     mut ctx: DeviceContext,
-    mut target: GpuRtRenderTarget,
     world: CpuScene[16, 16],
     settings: RenderSettings,
     sample_count: Int,
@@ -175,6 +174,7 @@ def _run_layout[
     print(
         t"\n{label}: build={round(ns_to_ms(Int(perf_counter_ns() - t0)), 3)} ms"
     )
+    var target = gpu_world.make_render_target(ctx, settings, _camera())
     print_gpu_rt_result(
         "PATH",
         _bench_integrator[
@@ -241,25 +241,21 @@ def main() raises:
         t" depth={MAX_DEPTH}, median of {BENCH_REPEATS}"
     )
     with DeviceContext() as ctx:
-        var target = GpuRtRenderTarget(ctx, settings, _camera())
         ctx.synchronize()
         _run_layout[4, 4](
-            ctx, target, world, settings, sample_count, "Former shared TLAS4/4"
+            ctx, world, settings, sample_count, "Former shared TLAS4/4"
         )
         _run_layout[2, 2](
-            ctx, target, world, settings, sample_count, "Independent TLAS2/2"
+            ctx, world, settings, sample_count, "Independent TLAS2/2"
         )
-        _run_layout[2, 1](
-            ctx, target, world, settings, sample_count, "Default TLAS2/1"
-        )
+        _run_layout[2, 1](ctx, world, settings, sample_count, "Default TLAS2/1")
         _run_layout[2, 1, 8, 4, .HPLOC, .CWBVH8](
             ctx,
-            target,
             world,
             settings,
             sample_count,
             "Default TLAS2/1 + H-PLOC CWBVH8 BLAS",
         )
         _run_layout[8, 4](
-            ctx, target, world, settings, sample_count, "Independent TLAS8/4"
+            ctx, world, settings, sample_count, "Independent TLAS8/4"
         )

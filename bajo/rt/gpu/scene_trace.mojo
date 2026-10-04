@@ -68,6 +68,10 @@ from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
 
 
 comptime GPU_RT_SHADOW_BLOCK_SIZE = 128
+# Below this size, retain the launch policy tuned for the 256K working set.
+comptime GPU_RT_LARGE_QUEUE_MIN_CAPACITY = 1 << 19
+comptime GPU_RT_DIRECT_SHADOW_MAX_BLOCKS = 2048
+comptime GPU_RT_DIRECT_WIDE_SHADOW_MAX_BLOCKS = 8192
 
 
 @always_inline
@@ -233,6 +237,8 @@ def _gpu_rt_scene_trace_path[
             ImmutAnyOrigin
         ]()
         var triangle_ray = Rayf32[.WORLD](ray.o, ray.d, ray.t_min, closest_t)
+        # A separate GPU function avoids slow fused traversal/shading code
+        # for large static MIS queues, without additional dispatch variants.
         var triangle_hit = trace_gpu_blas[
             .WORLD,
             triangle_format.node_width,
@@ -246,7 +252,15 @@ def _gpu_rt_scene_trace_path[
             ],
             triangle_format.layout,
             triangle_format.node_width == 4,
-        ](triangle_nodes, leaf_vertices, triangle_root, triangle_ray)
+        ](
+            triangle_nodes,
+            leaf_vertices,
+            triangle_root,
+            triangle_ray,
+            scene_kind == .TRIANGLES
+            and integrator == .MIS
+            and capacity >= GPU_RT_LARGE_QUEUE_MIN_CAPACITY,
+        )
         if triangle_hit.is_hit() and triangle_hit.t < closest_t:
             found = True
             closest_t = triangle_hit.t
@@ -313,6 +327,14 @@ def _gpu_rt_scene_trace_path[
                 or blas_format.leaf_width == 8,
             ],
             blas_format.layout,
+            # Measured TLAS2/leaf1 + BLAS4/leaf4 policies share one callback.
+            # Pure-instance shading benefits from a separate GPU function.
+            (2 if scene_kind == .INSTANCES else 1) if tlas_format.node_width
+            == 2
+            and tlas_format.leaf_width == 1
+            and not blas_format.layout.compressed
+            and blas_format.node_width == 4
+            and blas_format.leaf_width == 4 else 0,
         ](
             tlas_nodes,
             tlas_leaf_instances,
@@ -684,7 +706,9 @@ def _trace_scene_any[
     triangle_format: GpuRtBvhFormat,
     tlas_format: GpuRtBvhFormat,
     blas_format: GpuRtBvhFormat,
-](scene: GpuRtSceneView, ray: Rayf32[.WORLD]) -> Bool:
+](
+    scene: GpuRtSceneView, ray: Rayf32[.WORLD], separate_traversal: Bool = False
+) -> Bool:
     comptime if scene_kind.has_spheres():
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.spheres))
         var spheres = scene.spheres.unsafe_value()
@@ -723,6 +747,7 @@ def _trace_scene_any[
             triangles.leaves.unsafe_origin_cast[ImmutAnyOrigin](),
             triangles.root,
             ray,
+            separate_traversal,
         )
         if hit.is_occluded():
             return True
@@ -794,7 +819,13 @@ def _gpu_rt_shadow_one[
         triangle_format,
         tlas_format,
         blas_format,
-    ](scene, ray)
+    ](
+        scene,
+        ray,
+        scene_kind == .TRIANGLES
+        and integrator == .MIS
+        and capacity >= GPU_RT_LARGE_QUEUE_MIN_CAPACITY,
+    )
     var sample_radiance = queues.sample_radiance.unsafe_origin_cast[
         MutAnyOrigin
     ]()
@@ -855,6 +886,21 @@ def enqueue_gpu_shadows[
 ) raises:
     """Submit the compact visibility stage when the integrator needs it."""
     comptime if Integrator.uses_visibility[integrator]:
+        var blocks = min(
+            ceildiv(capacity, GPU_RT_SHADOW_BLOCK_SIZE), MAX_BLOCKS
+        )
+        comptime if Integrator.uses_direct_lighting[integrator]:
+            if capacity >= GPU_RT_LARGE_QUEUE_MIN_CAPACITY:
+                var limit = GPU_RT_DIRECT_SHADOW_MAX_BLOCKS
+                # Pure static geometry and uncompressed instance BLASes benefit
+                # from a larger visibility grid than mixed/compressed scenes.
+                comptime if not scene_kind.has_spheres():
+                    comptime if not scene_kind.has_instances() or (
+                        not scene_kind.has_triangles()
+                        and not blas_format.layout.compressed
+                    ):
+                        limit = GPU_RT_DIRECT_WIDE_SHADOW_MAX_BLOCKS
+                blocks = min(blocks, limit)
         ctx.enqueue_function[
             gpu_rt_shadow_kernel[
                 integrator,
@@ -867,8 +913,6 @@ def enqueue_gpu_shadows[
         ](
             scene,
             queues,
-            grid_dim=min(
-                ceildiv(capacity, GPU_RT_SHADOW_BLOCK_SIZE), MAX_BLOCKS
-            ),
+            grid_dim=blocks,
             block_dim=GPU_RT_SHADOW_BLOCK_SIZE,
         )

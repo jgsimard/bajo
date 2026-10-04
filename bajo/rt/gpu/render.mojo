@@ -235,7 +235,7 @@ def render_gpu_configured[
             tlas_build_method,
             blas_build_method,
         ](ctx, world)
-        var target = GpuRtRenderTarget(ctx, settings, camera)
+        var target = gpu_world.make_render_target(ctx, settings, camera)
         init_ns = Int(perf_counter_ns() - init_t0)
 
         var render_t0 = perf_counter_ns()

@@ -97,7 +97,7 @@ def main() raises:
         ](ctx, world.scene_data())
         ctx.synchronize()
         var scene_ns = Int(perf_counter_ns() - scene_t0)
-        var target = GpuRtRenderTarget(ctx, settings, _camera())
+        var target = gpu_world.make_render_target(ctx, settings, _camera())
         ctx.synchronize()
 
         print(t"scene upload + BVHs: {round(ns_to_ms(scene_ns), 3)} ms")

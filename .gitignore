@@ -45,6 +45,7 @@ rtiaw
 /bench/results/bvh_cpu/bvh_cpu_*
 /bench/results/bvh_cpu/latest*
 /bench/results/**/optimization_log.md
+/bench/results/rt_gpu/*_scratch_*/
 
 # Local scratch files
 /scrap.mojo

@@ -34,6 +34,11 @@ from bajo.rt.wavefront_contract import (
 
 
 comptime WAVEFRONT_CONTRACT_BLOCK_SIZE = 128
+# Deferred coatings retain hit UVs after traversal. The shared CPU ABI remains
+# the four normal/distance planes; these two planes belong to the GPU arena.
+comptime GPU_SHADE_U = WaveShadeFloatAbi.PLANES
+comptime GPU_SHADE_V = GPU_SHADE_U + 1
+comptime GPU_SHADE_PLANES = GPU_SHADE_V + 1
 
 
 @always_inline
@@ -342,7 +347,7 @@ struct GpuWaveShadeQueue:
         self.path_refs = ctx.enqueue_create_buffer[.uint32](capacity)
         self.surface_values = ctx.enqueue_create_buffer[.uint32](capacity)
         self.fields = ctx.enqueue_create_buffer[.float32](
-            capacity * WaveShadeFloatAbi.PLANES
+            capacity * GPU_SHADE_PLANES
         )
 
 

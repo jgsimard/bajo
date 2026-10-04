@@ -148,7 +148,6 @@ def _run_layout[
     tlas_build_method: GpuBvhBuildMethod = .LBVH,
 ](
     mut ctx: DeviceContext,
-    mut target: GpuRtRenderTarget,
     world: CpuScene[16, 16],
     settings: RenderSettings,
     label: String,
@@ -162,6 +161,7 @@ def _run_layout[
     ](ctx, world.scene_data())
     ctx.synchronize()
     var build_ns = Int(perf_counter_ns() - t0)
+    var target = gpu_world.make_render_target(ctx, settings, _camera())
     var path = _bench_integrator[
         .PATH,
         tlas_node_width,
@@ -251,14 +251,12 @@ def main() raises:
         t" depth={MAX_DEPTH}, median of {BENCH_REPEATS}"
     )
     with DeviceContext() as ctx:
-        var target = GpuRtRenderTarget(ctx, settings, _camera())
         ctx.synchronize()
         _warm_world_build(ctx, world)
         var rows = List[TlasRtLayoutResult]()
         rows.append(
             _run_layout[2, 1, 4, 4](
                 ctx,
-                target,
                 world,
                 settings,
                 "TLAS2/leaf1 BLAS4/leaf4",
@@ -267,7 +265,6 @@ def main() raises:
         rows.append(
             _run_layout[2, 2, 4, 4](
                 ctx,
-                target,
                 world,
                 settings,
                 "TLAS2/leaf2 BLAS4/leaf4",
@@ -276,7 +273,6 @@ def main() raises:
         rows.append(
             _run_layout[2, 1, 4, 4, .HPLOC](
                 ctx,
-                target,
                 world,
                 settings,
                 "H-PLOC TLAS2/leaf1 BLAS4/leaf4",
@@ -285,7 +281,6 @@ def main() raises:
         rows.append(
             _run_layout[4, 4, 4, 4](
                 ctx,
-                target,
                 world,
                 settings,
                 "TLAS4/leaf4 BLAS4/leaf4",
@@ -294,7 +289,6 @@ def main() raises:
         rows.append(
             _run_layout[8, 4, 4, 4](
                 ctx,
-                target,
                 world,
                 settings,
                 "TLAS8/leaf4 BLAS4/leaf4",
@@ -303,7 +297,6 @@ def main() raises:
         rows.append(
             _run_layout[8, 8, 4, 4](
                 ctx,
-                target,
                 world,
                 settings,
                 "TLAS8/leaf8 BLAS4/leaf4",

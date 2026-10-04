@@ -5,6 +5,7 @@ from max.gpu.host import DeviceContext
 
 from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.rt.gpu.wavefront_contract import (
+    GPU_SHADE_PLANES,
     GpuWaveShadeQueue,
     GpuWavefrontArena,
     enqueue_wavefront_advance,
@@ -132,7 +133,7 @@ def test_gpu_wavefront_contract_atomic_roundtrip() raises:
         )
         assert_equal(
             len(arena.shade.fields),
-            CAPACITY * WaveShadeFloatAbi.PLANES,
+            CAPACITY * GPU_SHADE_PLANES,
         )
         assert_equal(
             len(arena.sample_radiance),

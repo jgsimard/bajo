@@ -120,7 +120,6 @@ def _run_layout[
     layout: GpuBvhLayout = .WIDE,
 ](
     mut ctx: DeviceContext,
-    mut target: GpuRtRenderTarget,
     world: CpuScene[16, 16],
     settings: RenderSettings,
     sample_count: Int,
@@ -137,6 +136,9 @@ def _run_layout[
     ctx.synchronize()
     print(
         t"\n{label}: build={round(ns_to_ms(Int(perf_counter_ns() - t0)), 3)} ms"
+    )
+    var target = gpu_world.make_render_target(
+        ctx, settings, _dragon_camera(world)
     )
     print_gpu_rt_result(
         "PATH",
@@ -184,17 +186,16 @@ def main() raises:
         t" median of {BENCH_REPEATS}"
     )
     with DeviceContext() as ctx:
-        var target = GpuRtRenderTarget(ctx, settings, _dragon_camera(world))
         ctx.synchronize()
         _run_layout[4, 4, .LBVH](
-            ctx, target, world, settings, sample_count, "LBVH wide4/leaf4"
+            ctx, world, settings, sample_count, "LBVH wide4/leaf4"
         )
         _run_layout[8, 4, .LBVH](
-            ctx, target, world, settings, sample_count, "LBVH wide8/leaf4"
+            ctx, world, settings, sample_count, "LBVH wide8/leaf4"
         )
         _run_layout[8, 4, .LBVH, .CWBVH8](
-            ctx, target, world, settings, sample_count, "LBVH CWBVH8"
+            ctx, world, settings, sample_count, "LBVH CWBVH8"
         )
         _run_layout[8, 4, .HPLOC, .CWBVH8](
-            ctx, target, world, settings, sample_count, "H-PLOC CWBVH8"
+            ctx, world, settings, sample_count, "H-PLOC CWBVH8"
         )

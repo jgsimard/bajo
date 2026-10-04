@@ -459,5 +459,80 @@ def test_indexed_mesh_reuses_vertices_and_preserves_unused_values() raises:
         )
 
 
+def test_numeric_token_views() raises:
+    var scene = parse_pbrt(
+        'Film "rgb" "integer xresolution" +4 "integer yresolution" [3e0]\n'
+        'Sampler "independent" "integer pixelsamples" [2]\n'
+        'Integrator "path" "integer maxdepth" 5\n'
+        'WorldBegin\nMaterial "diffuse" "rgb reflectance" [.25 +.5 7.5e-1]\n'
+        "Transform[1 0 0 +1e0 0 1 0 -2. 0 0 1 .5 0 0 0 1]\n"
+        "ConcatTransform[1 0 0 0 0 1 0 0 0 0 1 +.5 0 0 0 1]\n"
+        "Translate +.5 0 0\n"
+        'Shape "trianglemesh" "point3 P" [0 0 0# adjacent comment\n'
+        '1.25E+0 0 0\t0 2.5e-1 0] "integer indices" [+0 1e0 2]\n'
+        'Shape "sphere" "float radius" "2.5e-1"'
+    )
+    assert_true(scene.settings.image_width == 4)
+    assert_true(scene.settings.image_height == 3)
+    assert_true(scene.settings.samples_per_pixel == 2)
+    assert_true(scene.settings.max_depth == 5)
+    ref vertices = scene.data.triangle_vertices()
+    assert_true(len(vertices) == 3)
+    assert_almost_equal(vertices[0].x, 1.5)
+    assert_almost_equal(vertices[0].y, -2.0)
+    assert_almost_equal(vertices[0].z, 1.0)
+    assert_almost_equal(vertices[1].x, 2.75)
+    assert_almost_equal(vertices[2].y, -1.75)
+    assert_almost_equal(scene.data.spheres()[0].radius, 0.25)
+    ref surface = scene.data.sphere_surfaces()[0]
+    var albedo = scene.data.surfaces().lambertians[Int(surface.index())].albedo
+    assert_almost_equal(albedo.x[0], 0.25)
+    assert_almost_equal(albedo.y[0], 0.5)
+    assert_almost_equal(albedo.z[0], 0.75)
+
+
+def test_include_definitions_survive_source_text() raises:
+    var loader = MemoryTextLoader()
+    loader.add_file(
+        "scene/main.pbrt",
+        (
+            'WorldBegin\nInclude "definitions.pbrt"\n'
+            'NamedMaterial "included"\nShape "sphere"'
+        ),
+    )
+    loader.add_file(
+        "scene/definitions.pbrt",
+        (
+            'Texture "tint" "spectrum" "constant" "rgb value" [.2 .4 .6]\n'
+            'MakeNamedMaterial "included" "string type" "diffuse" '
+            '"texture reflectance" "tint"'
+        ),
+    )
+    var scene = read_pbrt("scene/main.pbrt", loader)
+    ref surface = scene.data.sphere_surfaces()[0]
+    var albedo = scene.data.surfaces().lambertians[Int(surface.index())].albedo
+    assert_almost_equal(albedo.x[0], 0.2)
+    assert_almost_equal(albedo.y[0], 0.4)
+    assert_almost_equal(albedo.z[0], 0.6)
+
+
+def test_numeric_token_errors() raises:
+    for source in [
+        'WorldBegin\nTranslate 1x 0 0\nShape "sphere"',
+        'WorldBegin\nShape "sphere" "float radius" [1e]',
+        'WorldBegin\nShape "sphere" "float radius" [1x]',
+        'Film "rgb" "integer xresolution" [1.5]\nWorldBegin\nShape "sphere"',
+        'WorldBegin\nShape "sphere" "float radius"',
+        'WorldBegin\nShape "sphere" "float radius" [1',
+        'WorldBegin\nTransform [1 0 0 0]\nShape "sphere"',
+        (
+            "WorldBegin\nTransform [1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 bad]\n"
+            'Shape "sphere"'
+        ),
+    ]:
+        with assert_raises():
+            _ = parse_pbrt(source)
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

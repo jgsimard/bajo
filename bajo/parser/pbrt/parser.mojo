@@ -33,8 +33,8 @@ comptime _VecW = Vec3f32[.WORLD]
 
 
 @fieldwise_init
-struct _Token:
-    var value: String
+struct _Token[origin: ImmOrigin]:
+    var value: StringSpan[Self.origin]
     var quoted: Bool
     var line: Int
 
@@ -77,7 +77,7 @@ struct _Lexer[origin: ImmOrigin]:
             self.pos
         ) == UInt8(34)
 
-    def next(mut self) raises -> _Token:
+    def next(mut self) raises -> _Token[Self.origin]:
         self._skip_space()
         if self.pos >= len(self.bytes):
             raise Error("unexpected end of PBRT input")
@@ -86,23 +86,26 @@ struct _Lexer[origin: ImmOrigin]:
         var quoted = self.bytes.unsafe_get(self.pos) == UInt8(34)
         var first_char = self.bytes.unsafe_get(self.pos)
         if first_char == UInt8(91) or first_char == UInt8(93):
+            var start = self.pos
             self.pos += 1
-            if first_char == UInt8(91):
-                return _Token("[", False, token_line)
-            return _Token("]", False, token_line)
+            return _Token(
+                StringSpan[Self.origin](
+                    unsafe_from_utf8=self.bytes[start : self.pos]
+                ),
+                False,
+                token_line,
+            )
         if quoted:
             self.pos += 1
             var start = self.pos
             while self.pos < len(self.bytes):
                 var c = self.bytes.unsafe_get(self.pos)
                 if c == UInt8(34):
-                    var value = String(
-                        StringSpan[Self.origin](
-                            unsafe_from_utf8=self.bytes[start : self.pos]
-                        )
+                    var value = StringSpan[Self.origin](
+                        unsafe_from_utf8=self.bytes[start : self.pos]
                     )
                     self.pos += 1
-                    return _Token(value^, True, token_line)
+                    return _Token(value, True, token_line)
                 if c == UInt8(10):
                     self.line += 1
                 self.pos += 1
@@ -123,30 +126,33 @@ struct _Lexer[origin: ImmOrigin]:
                 break
             self.pos += 1
         return _Token(
-            String(
-                StringSpan[Self.origin](
-                    unsafe_from_utf8=self.bytes[start : self.pos]
-                )
+            StringSpan[Self.origin](
+                unsafe_from_utf8=self.bytes[start : self.pos]
             ),
             False,
             token_line,
         )
 
 
-struct _Parameter(Copyable):
-    var declaration: String
-    var values: List[String]
+struct _Parameter[origin: ImmOrigin](Copyable):
+    var declaration: StringSpan[Self.origin]
+    var values: List[StringSpan[Self.origin]]
 
-    def __init__(out self, declaration: String, var values: List[String]):
+    def __init__(
+        out self,
+        declaration: StringSpan[Self.origin],
+        var values: List[StringSpan[Self.origin]],
+    ):
         self.declaration = declaration
         self.values = values^
 
 
-struct _Parameters:
-    var entries: List[_Parameter]
+struct _Parameters[origin: ImmOrigin]:
+    # Entries own the token lists; token contents borrow the current source text.
+    var entries: List[_Parameter[Self.origin]]
 
     def __init__(out self):
-        self.entries = List[_Parameter]()
+        self.entries = List[_Parameter[Self.origin]]()
 
     def has(self, declaration: String) -> Bool:
         for entry in self.entries:
@@ -157,7 +163,7 @@ struct _Parameters:
     def string(self, declaration: String, default: String) -> String:
         for entry in self.entries:
             if entry.declaration == declaration and len(entry.values) > 0:
-                return entry.values[0]
+                return String(entry.values[0])
         return default
 
     def f32(self, declaration: String, default: Float32) raises -> Float32:
@@ -186,7 +192,9 @@ struct _Parameters:
                 )
         return default
 
-    def values(self, declaration: String) -> ImmSpan[String, origin_of(self)]:
+    def values(
+        self, declaration: String
+    ) -> ImmSpan[StringSpan[Self.origin], origin_of(self)]:
         for entry in self.entries:
             if entry.declaration == declaration:
                 # The enclosing parameter set owns each entry's storage.
@@ -196,7 +204,7 @@ struct _Parameters:
                     ](),
                     length=len(entry.values),
                 )
-        return ImmSpan[String, origin_of(self)]()
+        return ImmSpan[StringSpan[Self.origin], origin_of(self)]()
 
 
 @fieldwise_init
@@ -424,29 +432,30 @@ struct _Builder(
         self.scene^.abort()
 
 
-def _parse_f32(text: String) raises -> Float32:
-    var span = StringSpan(text)
-    var parsed = parse_f32_at(span.as_bytes(), 0)
-    if parsed.pos != span.byte_length():
-        raise Error("invalid PBRT number: " + text)
+def _parse_f32(text: StringSpan) raises -> Float32:
+    var parsed = parse_f32_at(text.as_bytes(), 0)
+    if parsed.pos != text.byte_length():
+        raise Error("invalid PBRT number: " + String(text))
     return parsed.value
 
 
-def _parse_int(text: String) raises -> Int:
+def _parse_int(text: StringSpan) raises -> Int:
     var value = _parse_f32(text)
     var integer = Int(value)
     if Float32(integer) != value:
-        raise Error("invalid PBRT integer: " + text)
+        raise Error("invalid PBRT integer: " + String(text))
     return integer
 
 
-def _parse_params(mut lexer: _Lexer) raises -> _Parameters:
-    var params = _Parameters()
+def _parse_params(mut lexer: _Lexer) raises -> _Parameters[lexer.origin]:
+    var params = _Parameters[lexer.origin]()
     while lexer.next_is_quoted():
         var declaration = lexer.next().value
         if not lexer.has_next():
-            raise Error("missing value for PBRT parameter " + declaration)
-        var values = List[String]()
+            raise Error(
+                "missing value for PBRT parameter " + String(declaration)
+            )
+        var values = List[StringSpan[lexer.origin]]()
         var first = lexer.next()
         if first.value == "[":
             while True:
@@ -458,7 +467,7 @@ def _parse_params(mut lexer: _Lexer) raises -> _Parameters:
                 values.append(item.value)
         else:
             values.append(first.value)
-        params.entries.append(_Parameter(declaration^, values^))
+        params.entries.append(_Parameter(declaration, values^))
     return params^
 
 
@@ -517,7 +526,9 @@ def _rotation(
     )
 
 
-def _matrix(values: ImmSpan[String, _]) raises -> _Transform:
+def _matrix[
+    origin: ImmOrigin
+](values: ImmSpan[StringSpan[origin], _]) raises -> _Transform:
     if len(values) != 16:
         raise Error("PBRT transform matrix requires 16 values")
     var m = List[Float32](capacity=16)
@@ -846,10 +857,10 @@ def _fixed_f32(mut lexer: _Lexer, count: Int) raises -> List[Float32]:
     return values^
 
 
-def _bracket_values(mut lexer: _Lexer) raises -> List[String]:
-    if lexer.next().value != "[":
+def _bracket_values(mut lexer: _Lexer) raises -> List[StringSpan[lexer.origin]]:
+    if not lexer.next().value == "[":
         raise Error("expected '[' in PBRT transform")
-    var values = List[String]()
+    var values = List[StringSpan[lexer.origin]]()
     while True:
         var token = lexer.next()
         if token.value == "]":
@@ -884,7 +895,7 @@ def _parse_text[
 
             case "Camera":
                 var kind = lexer.next().value
-                if kind != "perspective":
+                if not kind == "perspective":
                     raise Error("only PBRT perspective cameras are supported")
                 var params = _parse_params(lexer)
                 builder.camera_fov = params.f32("float fov", 45.0)
@@ -908,7 +919,9 @@ def _parse_text[
 
             case "Integrator":
                 var integrator_name = lexer.next().value
-                if integrator_name != "path" and integrator_name != "volpath":
+                if not (
+                    integrator_name == "path" or integrator_name == "volpath"
+                ):
                     raise Error(
                         "only the PBRT path/volpath integrators are supported"
                     )
@@ -924,7 +937,7 @@ def _parse_text[
 
             case "ColorSpace":
                 var color_space = lexer.next().value
-                if color_space != "srgb":
+                if not color_space == "srgb":
                     raise Error("only the PBRT sRGB color space is supported")
 
             case "Option":
@@ -987,27 +1000,27 @@ def _parse_text[
             case "Texture":
                 _texture(
                     builder,
-                    lexer.next().value,
-                    lexer.next().value,
-                    lexer.next().value,
+                    String(lexer.next().value),
+                    String(lexer.next().value),
+                    String(lexer.next().value),
                     _parse_params(lexer),
                     path,
                 )
 
             case "Material":
-                var model = lexer.next().value
+                var model = String(lexer.next().value)
                 builder.state.surface = _surface(
                     builder, model, _parse_params(lexer)
                 )
 
             case "MakeNamedMaterial":
-                var name = lexer.next().value
+                var name = String(lexer.next().value)
                 var params = _parse_params(lexer)
                 var model = params.string("string type", "diffuse")
                 builder.named_materials[name] = _surface(builder, model, params)
 
             case "NamedMaterial":
-                var name = lexer.next().value
+                var name = String(lexer.next().value)
                 if name not in builder.named_materials:
                     raise Error("unknown PBRT named material: " + name)
                 builder.state.surface = builder.named_materials[name].copy()
@@ -1015,7 +1028,7 @@ def _parse_text[
             case "LightSource":
                 var model = lexer.next().value
                 var params = _parse_params(lexer)
-                if model != "infinite":
+                if not model == "infinite":
                     raise Error(
                         "only infinite PBRT non-area lights are supported"
                     )
@@ -1048,7 +1061,7 @@ def _parse_text[
 
             case "AreaLightSource":
                 var model = lexer.next().value
-                if model != "diffuse":
+                if not model == "diffuse":
                     raise Error("only diffuse PBRT area lights are supported")
                 var params = _parse_params(lexer)
                 builder.state.area_light = True
@@ -1059,14 +1072,14 @@ def _parse_text[
             case "Shape":
                 _shape(
                     builder,
-                    lexer.next().value,
+                    String(lexer.next().value),
                     _parse_params(lexer),
                     path,
                     loader,
                 )
 
             case "Include":
-                var include_name = lexer.next().value
+                var include_name = String(lexer.next().value)
                 var include_path = std.os.path.join(
                     std.os.path.dirname(path), include_name
                 )
@@ -1131,7 +1144,7 @@ def _parse_camera_text[
 
             case "Camera":
                 var kind = lexer.next().value
-                if kind != "perspective":
+                if not kind == "perspective":
                     raise Error("only PBRT perspective cameras are supported")
                 var params = _parse_params(lexer)
                 builder.camera_fov = params.f32("float fov", 45.0)
@@ -1171,7 +1184,7 @@ def _parse_camera_text[
                 _ = _bracket_values(lexer)
 
             case "Include":
-                var include_name = lexer.next().value
+                var include_name = String(lexer.next().value)
                 var include_path = std.os.path.join(
                     std.os.path.dirname(path), include_name
                 )

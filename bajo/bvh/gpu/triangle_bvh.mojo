@@ -243,8 +243,8 @@ struct _SegmentedTriangleWideBuild[
             layout.leaf_block_segments.item_count(),
             1,
         )
-        var tree = self.hierarchy^.take_single_segment_synchronized(
-            ctx, timings
+        var tree = self.hierarchy^.take_single_segment_with_layout(
+            ctx, timings, layout
         )
         if measure_build:
             timings.bounds_pack_ns = self.bounds_pack_ns
@@ -491,7 +491,7 @@ def _build_segmented_compressed_triangle_blas_set[
             return _finish_compressed_triangle_blas_set_via_wide[
                 node_width, leaf_width, build_method, layout
             ](ctx, segments, source_vertices^, leaf_bounds^, payloads^)
-        var workspace = GpuBinaryBuildWorkspace(ctx, segments)
+        var workspace = GpuBinaryBuildWorkspace(ctx, segments, True)
         workspace.ensure_topology(ctx)
         var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds^, payloads^, workspace)
         enqueue_segmented_morton_codes(ctx, binary, workspace)

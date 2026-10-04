@@ -80,9 +80,17 @@ struct BinaryBoundsBvh[
         self.item_count = UInt32(len(self.items))
         debug_assert["safe", _use_compiler_assume=True](self.item_count > 0)
 
-        self.item_indices = [i for i in range(self.item_count)]
+        comptime if Self.method == .HPLOC:
+            # Emission writes every index from the sorted Morton pairs.
+            self.item_indices = List[UInt32](capacity=Int(self.item_count))
+            self.item_indices.resize(unsafe_uninit_length=Int(self.item_count))
+        else:
+            self.item_indices = [i for i in range(self.item_count)]
 
-        var max_nodes = Int(self.item_count * 2 - 1)
+        # H-PLOC learns the tighter microleaf topology size before emission.
+        var max_nodes = 1 if Self.method == .HPLOC else Int(
+            self.item_count * 2 - 1
+        )
         self.nodes = List[BoundsBvhNode[Self.frame]](capacity=max_nodes)
         self.nodes.append(BoundsBvhNode[Self.frame]())
 
@@ -453,15 +461,34 @@ struct BinaryBoundsBvh[
                 right_centroid_bounds[task_idx] = result[1]
 
             var use_parallel_ranges = task_count <= 4
+            var largest_range = 0
+            var small_range_items = 0
             for task_idx in range(task_count):
-                use_parallel_ranges &= (
+                var large_range = (
                     self.nodes[Int(frontier_nodes[task_idx])].item_count
                     >= PARALLEL_SAH_PARTITION_MIN_ITEMS
                 )
+                comptime if Self.method == .SAH:
+                    var range_items = Int(
+                        self.nodes[Int(frontier_nodes[task_idx])].item_count
+                    )
+                    if large_range:
+                        largest_range = max(largest_range, range_items)
+                    else:
+                        small_range_items += range_items
+                else:
+                    use_parallel_ranges &= large_range
+            comptime if Self.method == .SAH:
+                # Keep similarly sized siblings concurrent; serial small splits
+                # must not dominate a level after parallelizing its large ranges.
+                use_parallel_ranges &= (
+                    largest_range > 0 and largest_range >= 2 * small_range_items
+                )
             if use_parallel_ranges:
                 # A shallow SAH level has too few nodes to occupy the machine.
-                # Split those large ranges one at a time using their internal
-                # parallel histogram and partition instead.
+                # Split ranges one at a time, using internal parallel work for
+                # large SAH ranges even when a sibling is small. _split_node
+                # independently keeps below-threshold ranges serial.
                 for task_idx in range(task_count):
                     var result = self._split_node(
                         frontier_nodes[task_idx],

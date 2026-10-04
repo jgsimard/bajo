@@ -8,6 +8,8 @@ from max.gpu.host import DeviceContext
 
 from bajo.sort.gpu.radix_sort import (
     device_radix_sort_pairs,
+    device_radix_sort_keys,
+    RadixSortWorkspace,
     upsweep,
     scan,
     downsweep,
@@ -341,6 +343,79 @@ def test_uint64_composite_key_pairs_end_to_end() raises:
                 assert_equal(host_keys[i], _composite_key(host_values[i]))
                 if i > 0:
                     assert_true(host_keys[i - 1] <= host_keys[i])
+
+
+def _assert_radix_keys_workspace[dtype: DType](size: Int) raises:
+    with DeviceContext() as ctx:
+        var keys = ctx.enqueue_create_buffer[dtype](size)
+        var reference = ctx.enqueue_create_buffer[dtype](size)
+        var values = ctx.enqueue_create_buffer[.uint32](size)
+        with reference.map_to_host() as host, values.map_to_host() as ids:
+            for i in range(size):
+                var value = (UInt64(i % 11) << UInt64(32)) | UInt64(
+                    i * 37 % 257
+                )
+                if i % 257 == 0:
+                    value = UInt64.MAX
+                host[i] = Scalar[dtype](value)
+                ids[i] = UInt32(i)
+        reference.enqueue_copy_to(keys)
+        device_radix_sort_pairs[dtype, .uint32](ctx, reference, values, size)
+        ctx.synchronize()
+        var workspace = RadixSortWorkspace[dtype, dtype](
+            ctx, size, with_values=False
+        )
+        assert_equal(len(workspace.vals_alternate), 0)
+        for repeat in range(3):
+            if repeat > 0:
+                with keys.map_to_host() as host:
+                    for i in range(size):
+                        var value = (UInt64(i % 11) << UInt64(32)) | UInt64(
+                            i * 37 % 257
+                        )
+                        if i % 257 == 0:
+                            value = UInt64.MAX
+                        host[i] = Scalar[dtype](value)
+            if repeat == 2:
+                device_radix_sort_keys(ctx, keys, size)
+            else:
+                device_radix_sort_keys(ctx, workspace, keys, size)
+            ctx.synchronize()
+            with keys.map_to_host() as host, reference.map_to_host() as expected, values.map_to_host() as ids:
+                for i in range(size):
+                    assert_equal(host[i], expected[i])
+                    var original = Int(ids[i])
+                    assert_true(original < size)
+                    var value = (UInt64(original % 11) << UInt64(32)) | UInt64(
+                        original * 37 % 257
+                    )
+                    if original % 257 == 0:
+                        value = UInt64.MAX
+                    assert_equal(host[i], Scalar[dtype](value))
+                    if i > 0:
+                        assert_true(host[i - 1] <= host[i])
+                        if host[i - 1] == host[i]:
+                            assert_true(ids[i - 1] < ids[i])
+
+
+def test_radix_keys_workspace_matches_stable_pairs() raises:
+    comptime for dtype in [DType.uint32, DType.uint64]:
+        for size in [1, 33, 4608, 4609, 20003, 294912]:
+            _assert_radix_keys_workspace[dtype](size)
+
+
+def test_radix_empty_input_preserves_buffers() raises:
+    with DeviceContext() as ctx:
+        var keys = ctx.enqueue_create_buffer[.uint32](1)
+        var values = ctx.enqueue_create_buffer[.uint32](1)
+        keys.enqueue_fill(99)
+        values.enqueue_fill(88)
+        device_radix_sort_keys(ctx, keys, 0)
+        device_radix_sort_pairs(ctx, keys, values, 0)
+        ctx.synchronize()
+        with keys.map_to_host() as host, values.map_to_host() as ids:
+            assert_equal(host[0], UInt32(99))
+            assert_equal(ids[0], UInt32(88))
 
 
 def main() raises:

@@ -7,6 +7,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.bvh.constants import (
     EMPTY_LANE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
+    TRI_LEAF_VERTEX_STRIDE,
     WideNode,
     f32_max,
 )
@@ -58,18 +59,43 @@ def _scale_from_exponent(exponent: UInt32) -> Float32:
 
 
 @always_inline
-def _quantize_lower(value: Float32, start: Float32, scale: Float32) -> UInt32:
-    var q = Int(floor((value - start) / scale))
-    q = clamp(q, 0, 255)
+def _inverse_scale_from_exponent(exponent: UInt32) -> Float32:
+    # Reciprocal of 2**(exponent - 127); exponent 254 is subnormal.
+    if exponent == UInt32(254):
+        return bitcast[.float32](UInt32(0x00400000))
+    return _scale_from_exponent(UInt32(254) - exponent)
+
+
+@always_inline
+def _quantize_lower[
+    use_inverse: Bool = False
+](
+    value: Float32, start: Float32, scale: Float32, inverse_scale: Float32 = 0
+) -> UInt32:
+    var scaled: Float32
+    comptime if use_inverse:
+        scaled = (value - start) * inverse_scale
+    else:
+        scaled = (value - start) / scale
+    # Clamp before conversion: the byte range only needs a 32-bit integer.
+    var q = UInt32(clamp(floor(scaled), Float32(0), Float32(255)))
     if fma(Float32(q), scale, start) > value and q > 0:
         q -= 1
     return UInt32(q)
 
 
 @always_inline
-def _quantize_upper(value: Float32, start: Float32, scale: Float32) -> UInt32:
-    var q = Int(ceil((value - start) / scale))
-    q = clamp(q, 0, 255)
+def _quantize_upper[
+    use_inverse: Bool = False
+](
+    value: Float32, start: Float32, scale: Float32, inverse_scale: Float32 = 0
+) -> UInt32:
+    var scaled: Float32
+    comptime if use_inverse:
+        scaled = (value - start) * inverse_scale
+    else:
+        scaled = (value - start) / scale
+    var q = UInt32(clamp(ceil(scaled), Float32(0), Float32(255)))
     if fma(Float32(q), scale, start) < value and q < 255:
         q += 1
     return UInt32(q)
@@ -221,18 +247,18 @@ def _encode_cwbvh8_node[
             var q = UInt32(0)
             if _wide_meta_count(metadata[lane]) != EMPTY_LANE:
                 comptime __match plane:
-                case 0:
-                    q = _quantize_lower(min_x[lane], lo_x, scale_x)
-                case 1:
-                    q = _quantize_lower(min_y[lane], lo_y, scale_y)
-                case 2:
-                    q = _quantize_lower(min_z[lane], lo_z, scale_z)
-                case 3:
-                    q = _quantize_upper(max_x[lane], lo_x, scale_x)
-                case 4:
-                    q = _quantize_upper(max_y[lane], lo_y, scale_y)
-                case _:
-                    q = _quantize_upper(max_z[lane], lo_z, scale_z)
+                    case 0:
+                        q = _quantize_lower(min_x[lane], lo_x, scale_x)
+                    case 1:
+                        q = _quantize_lower(min_y[lane], lo_y, scale_y)
+                    case 2:
+                        q = _quantize_lower(min_z[lane], lo_z, scale_z)
+                    case 3:
+                        q = _quantize_upper(max_x[lane], lo_x, scale_x)
+                    case 4:
+                        q = _quantize_upper(max_y[lane], lo_y, scale_y)
+                    case _:
+                        q = _quantize_upper(max_z[lane], lo_z, scale_z)
             quantized[lane] = UInt8(q)
         var packed = bitcast[.uint32, 2](quantized)
         cwbvh_u32[
@@ -312,19 +338,34 @@ def pack_segmented_cwbvh_triangles_kernel[
     var v0x = vertices[unsafe_offset=src + 0]
     var v0y = vertices[unsafe_offset=src + 1]
     var v0z = vertices[unsafe_offset=src + 2]
-    triangles[unsafe_offset=dst + 0] = vertices[unsafe_offset=src + 3] - v0x
-    triangles[unsafe_offset=dst + 1] = vertices[unsafe_offset=src + 4] - v0y
-    triangles[unsafe_offset=dst + 2] = vertices[unsafe_offset=src + 5] - v0z
-    triangles[unsafe_offset=dst + 3] = 0.0
-    triangles[unsafe_offset=dst + 4] = vertices[unsafe_offset=src + 6] - v0x
-    triangles[unsafe_offset=dst + 5] = vertices[unsafe_offset=src + 7] - v0y
-    triangles[unsafe_offset=dst + 6] = vertices[unsafe_offset=src + 8] - v0z
-    triangles[unsafe_offset=dst + 7] = 0.0
-    triangles[unsafe_offset=dst + 8] = v0x
-    triangles[unsafe_offset=dst + 9] = v0y
-    triangles[unsafe_offset=dst + 10] = v0z
-    triangles.unsafe_bitcast[UInt32]()[unsafe_offset=dst + 11] = prim - UInt32(
-        primitive_begin
+    # Each 48-byte record starts at a 16-byte boundary. Three vector stores
+    # avoid scattering twelve scalar stores over the same cache lines.
+    triangles.unsafe_store[width=4, alignment=16](
+        dst,
+        SIMD[.float32, 4](
+            vertices[unsafe_offset=src + 3] - v0x,
+            vertices[unsafe_offset=src + 4] - v0y,
+            vertices[unsafe_offset=src + 5] - v0z,
+            0.0,
+        ),
+    )
+    triangles.unsafe_store[width=4, alignment=16](
+        dst + 4,
+        SIMD[.float32, 4](
+            vertices[unsafe_offset=src + 6] - v0x,
+            vertices[unsafe_offset=src + 7] - v0y,
+            vertices[unsafe_offset=src + 8] - v0z,
+            0.0,
+        ),
+    )
+    triangles.unsafe_store[width=4, alignment=16](
+        dst + 8,
+        SIMD[.float32, 4](
+            v0x,
+            v0y,
+            v0z,
+            bitcast[.float32](prim - UInt32(primitive_begin)),
+        ),
     )
 
 
@@ -354,6 +395,7 @@ struct GpuCwbvh8RepresentationWorkspace:
 
 def enqueue_segmented_cwbvh8_representation_with_workspace[
     leaf_width: SIMDLength,
+    pack_triangles: Bool = True,
 ](
     mut ctx: DeviceContext,
     wide_nodes: DeviceBuffer[.float32],
@@ -371,7 +413,11 @@ def enqueue_segmented_cwbvh8_representation_with_workspace[
     comptime assert leaf_width == CWBVH_LEAF_STORAGE_WIDTH
     var segment_count = len(primitive_segment_offsets) - 1
     var node_capacity = len(cwbvh_nodes) / CWBVH_NODE_WORDS
-    var triangle_count = len(triangles) / CWBVH_TRIANGLE_WORDS
+    var triangle_count = (
+        len(triangles)
+        / CWBVH_TRIANGLE_WORDS if pack_triangles else len(vertices)
+        / TRI_LEAF_VERTEX_STRIDE
+    )
     debug_assert["safe", _use_compiler_assume=True](
         workspace.primitive_capacity >= triangle_count
         and workspace.segment_capacity >= segment_count,
@@ -391,15 +437,16 @@ def enqueue_segmented_cwbvh8_representation_with_workspace[
         grid_dim=ceildiv(node_capacity, GPU_BOUNDS_BVH_BLOCK_SIZE),
         block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
     )
-    ctx.enqueue_function[pack_segmented_cwbvh_triangles_kernel[False]](
-        vertices,
-        workspace.compact_primitive_ids,
-        _device_span[mut=False](primitive_segment_offsets),
-        triangles,
-        Int32(triangle_count),
-        grid_dim=ceildiv(triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-    )
+    comptime if pack_triangles:
+        ctx.enqueue_function[pack_segmented_cwbvh_triangles_kernel[False]](
+            vertices,
+            workspace.compact_primitive_ids,
+            _device_span[mut=False](primitive_segment_offsets),
+            triangles,
+            Int32(triangle_count),
+            grid_dim=ceildiv(triangle_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
     return workspace.triangle_counters.copy()
 
 
@@ -494,20 +541,20 @@ def _intersect_cwbvh8_node_tasks_legacy[
             ]
             var q = Float32((packed >> qshift) & UInt32(0xFF))
             comptime __match plane:
-            case 0:
-                qlo_x[lane] = q
-            case 1:
-                qlo_y[lane] = q
-            case 2:
-                qlo_z[lane] = q
-            case 3:
-                qhi_x[lane] = q
-            case 4:
-                qhi_y[lane] = q
-            case 5:
-                qhi_z[lane] = q
-            case _:
-                comptime assert False
+                case 0:
+                    qlo_x[lane] = q
+                case 1:
+                    qlo_y[lane] = q
+                case 2:
+                    qlo_z[lane] = q
+                case 3:
+                    qhi_x[lane] = q
+                case 4:
+                    qhi_y[lane] = q
+                case 5:
+                    qhi_z[lane] = q
+                case _:
+                    comptime assert False
 
     var near_x = qlo_x
     var near_y = qlo_y
@@ -583,11 +630,14 @@ def _intersect_cwbvh8_node_tasks[
 ) -> Cwbvh8NodeTasks:
     """Intersect one node from five native four-word packed loads."""
     var base = Int(node_idx) * CWBVH_NODE_WORDS
-    var p_exp = cwbvh_nodes.unsafe_load[width=4](base)
-    var child_tri_meta = cwbvh_nodes.unsafe_load[width=4](base + 4)
-    var qlox_qloy = cwbvh_nodes.unsafe_load[width=4](base + 8)
-    var qloz_qhix = cwbvh_nodes.unsafe_load[width=4](base + 12)
-    var qhiy_qhiz = cwbvh_nodes.unsafe_load[width=4](base + 16)
+    # Device allocations and the 80-byte node stride keep every load aligned.
+    var p_exp = cwbvh_nodes.unsafe_load[width=4, alignment=16](base)
+    var child_tri_meta = cwbvh_nodes.unsafe_load[width=4, alignment=16](
+        base + 4
+    )
+    var qlox_qloy = cwbvh_nodes.unsafe_load[width=4, alignment=16](base + 8)
+    var qloz_qhix = cwbvh_nodes.unsafe_load[width=4, alignment=16](base + 12)
+    var qhiy_qhiz = cwbvh_nodes.unsafe_load[width=4, alignment=16](base + 16)
     var p_exp_u32 = bitcast[.uint32](p_exp)
     var child_tri_meta_u32 = bitcast[.uint32](child_tri_meta)
     var qlox_qloy_u32 = bitcast[.uint32](qlox_qloy)

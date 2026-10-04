@@ -235,6 +235,18 @@ def validate_results(
     return validations
 
 
+def parse_rebuild_timings(output: str) -> dict[str, tuple[float, float, float]]:
+    timings = {}
+    for line in output.splitlines():
+        if not line.startswith("REBUILD_TIMING\t"):
+            continue
+        fields = line.split("\t")
+        if len(fields) != 6:
+            raise RuntimeError(f"Malformed rebuild timing: {line!r}")
+        timings[fields[2]] = (float(fields[3]), float(fields[4]), float(fields[5]))
+    return timings
+
+
 def markdown_escape(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", "<br>")
 
@@ -247,6 +259,7 @@ def write_report(
     traversal_profiles: list[TraversalProfile],
     build_profiles: list[BuildProfile],
     nexusbvh_dir: Path,
+    rebuild_timings: dict[str, tuple[float, float, float]] | None = None,
 ) -> None:
     all_results = [nexus, *bajo_results]
     fastest_bajo_build = min(bajo_results, key=lambda item: item.build_median_ms)
@@ -301,15 +314,34 @@ def write_report(
             f"{result.build_median_ms / nexus.build_median_ms:.3f}x |"
         )
 
+    if rebuild_timings:
+        lines.extend(
+            [
+                "",
+                "## Cached geometry rebuilds",
+                "",
+                "These reuse geometry bounds, scratch buffers, and segment offsets. "
+                "They are separate from the fresh-build comparison above.",
+                "",
+                "| Configuration | Median ms | Min–max ms |",
+                "|---|---:|---:|",
+            ]
+        )
+        for label, (median_ms, minimum_ms, maximum_ms) in sorted(rebuild_timings.items()):
+            lines.append(
+                f"| `{label}` | {median_ms:.3f} | {minimum_ms:.3f}–{maximum_ms:.3f} |"
+            )
+
     if build_profiles:
         lines.extend(
             [
                 "",
                 "## Bajo build stages",
                 "",
-                "Stage timings use separately instrumented warm rebuilds; "
-                "the synchronization barriers are excluded from the headline "
-                "build results above.",
+                "Stage timings use separately synchronized host wall-clock "
+                "measurements in cached rebuilds and include dispatch overhead. "
+                "Geometry bounds and allocation are excluded from these stage "
+                "totals and included in the fresh-build results above.",
                 "",
                 "| Configuration | Morton ms | Sort ms | H-PLOC ms | "
                 "Collapse ms | Pack ms | Instrumented ms |",
@@ -408,12 +440,11 @@ def write_report(
             "rays with native packed CWBVH8 or ordinary-wide traversal.",
             "",
             "OBJ parsing, camera setup, and initial host-to-device upload are "
-            "outside the timed regions. H-PLOC CWBVH8 timings are warm rebuilds "
-            "through a fixed-capacity arena: Morton generation/sort, H-PLOC, "
-            "direct CWBVH8 conversion, triangle repacking, and synchronization "
-            "are included; one-time allocation, invariant-offset upload, and "
-            "cached triangle/root bounds are excluded. Other Bajo rows retain "
-            "their allocation-owning build API. Traversal timing includes kernel "
+            "outside the timed regions. Headline build timings include fresh "
+            "construction, device allocation, segment-offset setup, geometry bounds, "
+            "Morton generation/sort, topology, conversion, triangle representation, "
+            "and final synchronization. Cached geometry rebuilds are reported "
+            "separately for Bajo's reusable H-PLOC CWBVH8 arenas. Traversal timing includes kernel "
             "launch and synchronization. Different builder/layout rows do not "
             "imply equivalent hierarchy quality.",
             "",
@@ -488,6 +519,7 @@ def main() -> None:
         traversal_profiles,
         build_profiles,
         nexusbvh_dir,
+        parse_rebuild_timings(bajo_output),
     )
 
     print("\n=== Fastest results ===")

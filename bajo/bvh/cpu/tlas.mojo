@@ -1,3 +1,5 @@
+from max.algorithm import parallelize
+from bajo.bvh.cpu.parallel import _worker_count
 from std.bit import count_trailing_zeros
 from std.math import fma
 from std.memory import pack_bits
@@ -355,7 +357,9 @@ struct CpuTlas[
     def bounds(self) -> AABB[.WORLD]:
         return self.tree.root_bounds()
 
-    def _refit_node(mut self, node_idx: UInt32) -> AABB[.WORLD]:
+    def _refit_node[
+        recurse: Bool = True
+    ](mut self, node_idx: UInt32) -> AABB[.WORLD]:
         """Recompute one wide subtree bottom-up without changing topology."""
         var subtree_bounds = AABB[.WORLD].invalid()
         comptime for lane in range(Self.bounds_width):
@@ -383,7 +387,24 @@ struct CpuTlas[
                             ),
                         )
             else:
-                child_bounds = self._refit_node(decode_ref_index(child_ref))
+                comptime if recurse:
+                    child_bounds = self._refit_node(decode_ref_index(child_ref))
+                else:
+                    ref bounds = self.tree.nodes[
+                        Int(decode_ref_index(child_ref))
+                    ].aabb
+                    child_bounds = AABB[.WORLD](
+                        Point3[.float32, .WORLD](
+                            bounds._min.x.reduce_min(),
+                            bounds._min.y.reduce_min(),
+                            bounds._min.z.reduce_min(),
+                        ),
+                        Point3[.float32, .WORLD](
+                            bounds._max.x.reduce_max(),
+                            bounds._max.y.reduce_max(),
+                            bounds._max.z.reduce_max(),
+                        ),
+                    )
 
             self.tree.nodes[Int(node_idx)].aabb._min.x[
                 lane
@@ -406,18 +427,94 @@ struct CpuTlas[
             subtree_bounds.grow(child_bounds)
         return subtree_bounds
 
-    def refit(mut self, instances: ImmSpan[Instance, _]):
+    def _collect_refit_frontier(
+        self, node_idx: UInt32, depth: Int, mut frontier: List[UInt32]
+    ):
+        if depth == 0:
+            frontier.append(node_idx)
+            return
+        comptime for lane in range(Self.bounds_width):
+            var child = self.tree.nodes[Int(node_idx)].data[lane]
+            if child != EMPTY_LANE and not is_leaf_ref(child):
+                self._collect_refit_frontier(
+                    decode_ref_index(child), depth - 1, frontier
+                )
+
+    def _refit_ancestors(mut self, node_idx: UInt32, depth: Int):
+        if depth == 0:
+            return
+        comptime for lane in range(Self.bounds_width):
+            var child = self.tree.nodes[Int(node_idx)].data[lane]
+            if child != EMPTY_LANE and not is_leaf_ref(child):
+                self._refit_ancestors(decode_ref_index(child), depth - 1)
+        _ = self._refit_node[False](node_idx)
+
+    @always_inline
+    def _refit_instances(
+        mut self, instances: ImmSpan[Instance, _], first: Int, end: Int
+    ) -> Bool:
+        var translation_only = True
+        for inst_idx in range(first, end):
+            ref inst = instances[inst_idx]
+            self.hot_instances[
+                inst_idx
+            ].inv_transform = inst.inv_transform.copy()
+            self.hot_instances[inst_idx].blas_idx = inst.blas_idx
+            self.hot_instances[
+                inst_idx
+            ].translation_only = _is_translation_only(inst.inv_transform)
+            translation_only &= self.hot_instances[inst_idx].translation_only
+
+        return translation_only
+
+    @always_inline
+    def _refit_leaves(
+        mut self, instances: ImmSpan[Instance, _], first: Int, end: Int
+    ):
+        for block_idx in range(first, end):
+            comptime for lane in range(Self.leaf_width):
+                var inst_idx = self.leaf_blocks[block_idx].inst_indices[lane]
+                if inst_idx != EMPTY_LANE:
+                    ref bounds = instances[Int(inst_idx)].bounds
+                    self.leaf_blocks[block_idx].bounds._min.x[
+                        lane
+                    ] = bounds._min.x
+                    self.leaf_blocks[block_idx].bounds._min.y[
+                        lane
+                    ] = bounds._min.y
+                    self.leaf_blocks[block_idx].bounds._min.z[
+                        lane
+                    ] = bounds._min.z
+                    self.leaf_blocks[block_idx].bounds._max.x[
+                        lane
+                    ] = bounds._max.x
+                    self.leaf_blocks[block_idx].bounds._max.y[
+                        lane
+                    ] = bounds._max.y
+                    self.leaf_blocks[block_idx].bounds._max.z[
+                        lane
+                    ] = bounds._max.z
+
+    def refit[
+        parallel: Bool = False
+    ](mut self, instances: ImmSpan[Instance, _]):
         """Update instance data and bounds while preserving TLAS topology.
 
         The instance count and ordering must match construction. Refit is
         intended for animation with modest motion; rebuild after large motion
-        to recover spatial quality.
+        to recover spatial quality. Set `parallel=True` for large instance sets
+        when refits are not already scheduled across independent TLASes.
         """
         debug_assert["safe", _use_compiler_assume=True](
             len(instances) == len(self.hot_instances),
             "TLAS refit requires unchanged instance count and ordering",
         )
-
+        comptime if parallel:
+            if len(instances) >= 16384:
+                var worker_count = _worker_count(len(instances))
+                if worker_count > 1:
+                    self._refit_parallel(instances, worker_count)
+                    return
         self.all_translation_only = True
         for inst_idx in range(len(instances)):
             ref inst = instances[inst_idx]
@@ -458,6 +555,48 @@ struct CpuTlas[
 
         if len(self.tree.nodes) > 0:
             _ = self._refit_node(0)
+
+    def _refit_parallel(
+        mut self, instances: ImmSpan[Instance, _], worker_count: Int
+    ):
+        var translation_partials = List[Bool](length=worker_count, fill=True)
+
+        def update_worker(
+            task_idx: Int,
+        ) {imm, mut self, mut translation_partials}:
+            translation_partials[task_idx] = self._refit_instances(
+                instances,
+                len(instances) * task_idx // worker_count,
+                len(instances) * (task_idx + 1) // worker_count,
+            )
+            self._refit_leaves(
+                instances,
+                len(self.leaf_blocks) * task_idx // worker_count,
+                len(self.leaf_blocks) * (task_idx + 1) // worker_count,
+            )
+
+        parallelize(update_worker, worker_count, worker_count)
+        self.all_translation_only = True
+        for translation_only in translation_partials:
+            self.all_translation_only &= translation_only
+
+        if len(self.tree.nodes) > 0:
+            comptime frontier_depth = 4 if Self.bounds_width == 2 else 2
+            var frontier = List[UInt32]()
+            self._collect_refit_frontier(0, frontier_depth, frontier)
+            if len(frontier) > 1:
+
+                def refit_worker(task_idx: Int) {imm, mut self}:
+                    _ = self._refit_node(frontier[task_idx])
+
+                parallelize(
+                    refit_worker,
+                    len(frontier),
+                    _worker_count(len(frontier)),
+                )
+                self._refit_ancestors(0, frontier_depth)
+            else:
+                _ = self._refit_node(0)
 
     def _trace_packed_blases[
         kind: PrimitiveKind,

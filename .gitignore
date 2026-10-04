@@ -49,3 +49,5 @@ rtiaw
 # Local scratch files
 /scrap.mojo
 /scratch.md
+
+*.json

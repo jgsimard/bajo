@@ -188,15 +188,38 @@ def _run_cwbvh8_case[
         ](ctx, d_vertices)
         ctx.synchronize()
         arena.finish_synchronized()
+        var rebuild_timings = List[Int](capacity=BENCH_REPEATS)
         for _ in range(BENCH_REPEATS):
             var start = perf_counter_ns()
             _ = arena.enqueue_rebuild(ctx, d_vertices)
             ctx.synchronize()
-            build_timings.append(Int(perf_counter_ns() - start))
+            rebuild_timings.append(Int(perf_counter_ns() - start))
         arena.finish_synchronized()
+        var rebuild_values = rebuild_timings.copy()
+        sort(rebuild_values)
+        print(
+            t"REBUILD_TIMING\tbajo\t{label}\t"
+            t"{ns_to_ms(_median_ns(rebuild_timings))}\t"
+            t"{ns_to_ms(rebuild_values[0])}\t"
+            t"{ns_to_ms(rebuild_values[len(rebuild_values) - 1])}"
+        )
 
-        # Synchronization barriers perturb the headline path, so collect stage
-        # attribution in separate warm rebuilds after its timing samples.
+        # Match Nexus's fresh-build scope: include allocation and geometry bounds.
+        for _ in range(BENCH_REPEATS):
+            var start = perf_counter_ns()
+            var fresh = create_cwbvh8_bench_arena[
+                max_leaf_size,
+                direct_conversion,
+                indexed_triangles,
+                spatial_slots,
+                merging_threshold,
+            ](ctx, d_vertices)
+            ctx.synchronize()
+            build_timings.append(Int(perf_counter_ns() - start))
+            fresh.finish_synchronized()
+
+        # Attribute topology stages with retained scratch separately. Geometry
+        # bounds and allocation are included only in the fresh-build headline.
         _ = arena.enqueue_rebuild[True](ctx, d_vertices)
         arena.finish_synchronized()
         var stage_samples = List[GpuBuildTimings](capacity=BENCH_REPEATS)

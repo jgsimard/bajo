@@ -128,6 +128,8 @@ def _intersect_tlas_instance_block[
                 mode,
                 blas_leaf_fn,
                 blas_layout,
+                blas_node_width == 4 and mode == .CLOSEST_HIT,
+                blas_node_width == 2 and mode == .CLOSEST_HIT,
             ](local_nodes, local_leaves, local_root, local_ray)
 
             comptime if mode == .ANY_HIT:

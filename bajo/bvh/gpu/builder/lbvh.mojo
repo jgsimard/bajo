@@ -10,7 +10,7 @@ from max.gpu import global_idx
 
 from bajo.core import AABB
 from bajo.core.morton import morton3, morton_key_delta
-from bajo.sort.gpu.radix_sort import device_radix_sort_pairs
+from bajo.sort.gpu.onesweep import onesweep_radix_sort_pairs
 from bajo.bvh.constants import (
     LBVH_SENTINEL,
     BinaryBvhNode,
@@ -33,11 +33,13 @@ from bajo.bvh.gpu.builder.binary_layout import (
 )
 
 
-def compute_bounds_morton_codes_kernel(
+def compute_bounds_morton_codes_kernel[
+    keys_dtype: DType = .uint64
+](
     leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
     bounds_device: ImmSpan[Float32, ImmutAnyOrigin],
     segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    composite_keys: MutSpan[UInt64, MutAnyOrigin],
+    composite_keys: MutSpan[Scalar[keys_dtype], MutAnyOrigin],
     values: MutSpan[UInt32, MutAnyOrigin],
 ):
     var leaf_count = len(values)
@@ -49,7 +51,9 @@ def compute_bounds_morton_codes_kernel(
         i < len(composite_keys) and i < len(values),
         "Morton output is outside a device span",
     )
-    var segment_idx = _segment_for_item(segment_offsets, i)
+    var segment_idx = 0
+    comptime if keys_dtype == .uint64:
+        segment_idx = _segment_for_item(segment_offsets, i)
     var centroid_bounds = AABB[.WORLD].load6(
         bounds_device,
         segment_idx * 2 * AABB.STRIDE + AABB.STRIDE,
@@ -62,9 +66,12 @@ def compute_bounds_morton_codes_kernel(
     var c = (bounds.centroid() - cmin) * inv_extent
 
     var morton_code = morton3(c.x, c.y, c.z)
-    composite_keys.unsafe_get(i) = (UInt64(UInt32(segment_idx)) << 32) | UInt64(
-        morton_code
-    )
+    comptime if keys_dtype == .uint32:
+        composite_keys.unsafe_get(i) = Scalar[keys_dtype](morton_code)
+    else:
+        composite_keys.unsafe_get(i) = Scalar[keys_dtype](
+            (UInt64(UInt32(segment_idx)) << 32) | UInt64(morton_code)
+        )
     values.unsafe_get(i) = UInt32(i)
 
 
@@ -86,15 +93,26 @@ def enqueue_segmented_morton_codes(
     mut workspace: GpuBinaryBuildWorkspace,
 ) raises:
     ref topology = workspace.topology.value()
-    ctx.enqueue_function[compute_bounds_morton_codes_kernel](
-        _device_span[mut=False](binary.leaf_bounds),
-        _device_span[mut=False](binary.bounds_device),
-        _device_span[mut=False](binary.segment_offsets),
-        _device_span[mut=True](topology.sort_keys),
-        _device_span[mut=True](binary.leaf_ids),
-        grid_dim=binary.blocks_leaves(),
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-    )
+    if workspace.sort32:
+        ctx.enqueue_function[compute_bounds_morton_codes_kernel[.uint32]](
+            _device_span[mut=False](binary.leaf_bounds),
+            _device_span[mut=False](binary.bounds_device),
+            _device_span[mut=False](binary.segment_offsets),
+            _device_span[mut=True](topology.morton_keys),
+            _device_span[mut=True](binary.leaf_ids),
+            grid_dim=binary.blocks_leaves(),
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+    else:
+        ctx.enqueue_function[compute_bounds_morton_codes_kernel[.uint64]](
+            _device_span[mut=False](binary.leaf_bounds),
+            _device_span[mut=False](binary.bounds_device),
+            _device_span[mut=False](binary.segment_offsets),
+            _device_span[mut=True](topology.sort_keys),
+            _device_span[mut=True](binary.leaf_ids),
+            grid_dim=binary.blocks_leaves(),
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
 
 
 def enqueue_segmented_morton_sort(
@@ -102,21 +120,34 @@ def enqueue_segmented_morton_sort(
     mut binary: GpuBinaryBoundsBvh,
     mut workspace: GpuBinaryBuildWorkspace,
 ) raises:
-    """Sort one UInt64 ``(segment_id, morton_code)`` composite key."""
+    """Sort Morton codes directly for one segment, composite keys otherwise."""
     ref topology = workspace.topology.value()
-    device_radix_sort_pairs[.uint64, .uint32](
-        ctx,
-        workspace.sort,
-        topology.sort_keys,
-        binary.leaf_ids,
-        binary.leaf_count,
-    )
-    ctx.enqueue_function[gather_sorted_morton_codes_kernel](
-        _device_span[mut=False](topology.sort_keys),
-        _device_span[mut=True](topology.morton_keys),
-        grid_dim=binary.blocks_leaves(),
-        block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
-    )
+    if workspace.sort32:
+        onesweep_radix_sort_pairs[
+            .uint32, .uint32, BINNING_TPB=512, KEYS_PER_THREAD=15
+        ](
+            ctx,
+            workspace.sort32.value(),
+            topology.morton_keys,
+            binary.leaf_ids,
+            binary.leaf_count,
+        )
+    else:
+        onesweep_radix_sort_pairs[
+            .uint64, .uint32, BINNING_TPB=512, KEYS_PER_THREAD=9
+        ](
+            ctx,
+            workspace.sort.value(),
+            topology.sort_keys,
+            binary.leaf_ids,
+            binary.leaf_count,
+        )
+        ctx.enqueue_function[gather_sorted_morton_codes_kernel](
+            _device_span[mut=False](topology.sort_keys),
+            _device_span[mut=True](topology.morton_keys),
+            grid_dim=binary.blocks_leaves(),
+            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
 
 
 @always_inline
@@ -278,6 +309,8 @@ def build_binary_bvh_with_lbvh(
     measure_stages: Bool = False,
 ) raises -> GpuBuildTimings:
     """Build Apetrei's 2014 LBVH into the shared binary layout."""
+    if workspace.compact_output:
+        raise "LBVH requires a full binary output workspace"
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
     var stage_start = Int(0)
     ref topology = workspace.topology.value()

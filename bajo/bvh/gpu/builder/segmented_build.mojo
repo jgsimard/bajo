@@ -29,7 +29,11 @@ from bajo.bvh.gpu.builder.wide_collapse import (
     _enqueue_collapse_binary_to_wide_batch,
 )
 from bajo.bvh.gpu.utils import GpuBuildTimings
-from bajo.bvh.gpu.wide_layout import GpuWideBoundsBvh, GpuWideBoundsBvhBatch
+from bajo.bvh.gpu.wide_layout import (
+    GpuWideBoundsBvh,
+    GpuWideBoundsBvhBatch,
+    GpuCompactWideLayout,
+)
 from bajo.core import SegmentOffsets
 
 
@@ -61,12 +65,12 @@ struct GpuSegmentedWideBuildTicket[
 
     def finish_synchronized(mut self) raises:
         __match self.hploc:
-        case .Some(ref hploc):
-            var status = hploc.result_status()
-            if status != UInt32(HPLOC_STATUS_OK):
-                raise String(t"H-PLOC build status: {status}")
-        case .None:
-            pass
+            case .Some(ref hploc):
+                var status = hploc.result_status()
+                if status != UInt32(HPLOC_STATUS_OK):
+                    raise String(t"H-PLOC build status: {status}")
+            case .None:
+                pass
         self.collapse.finish_batch_synchronized(self.wide, Self.fat_leaves)
         if self.collapse_start_ns != 0:
             self.timings.collapse_ns = Int(
@@ -107,6 +111,18 @@ struct GpuSegmentedWideBuildTicket[
         """Consume a ticket already completed by ``wait``."""
         timings = self.timings
         return self.wide^.into_single_segment(ctx)
+
+    def take_single_segment_with_layout(
+        deinit self,
+        mut ctx: DeviceContext,
+        mut timings: GpuBuildTimings,
+        layout: GpuCompactWideLayout,
+    ) raises -> GpuWideBoundsBvh[
+        Self.node_width, Self.leaf_width, Self.max_leaf_size
+    ]:
+        """Reuse the leaf adapter's already completed compact layout."""
+        timings = self.timings
+        return self.wide^.into_single_segment_with_layout(ctx, layout)
 
 
 struct GpuWideBuildArena[
@@ -150,30 +166,30 @@ struct GpuWideBuildArena[
         )
         var hploc = Optional[GpuHplocBuildState[]]()
         comptime __match Self.build_method:
-        case .HPLOC:
-            enqueue_segmented_morton_codes(ctx, binary, workspace)
-            enqueue_segmented_morton_sort(ctx, binary, workspace)
-            ref topology = workspace.topology.value()
-            hploc = Optional(
-                GpuHplocBuildState[](
-                    ctx,
-                    binary.leaf_bounds.copy(),
-                    topology.morton_keys.copy(),
-                    binary.leaf_ids.copy(),
-                    binary.segments.copy(),
-                    binary.segment_offsets.copy(),
-                    binary.internal_segments.copy(),
-                    binary.internal_segment_offsets.copy(),
-                    binary.node_meta.copy(),
-                    topology.leaf_parent.copy(),
-                    binary.node_bounds.copy(),
-                    topology.node_flags.copy(),
-                    binary.node_leaf_counts.copy(),
+            case .HPLOC:
+                enqueue_segmented_morton_codes(ctx, binary, workspace)
+                enqueue_segmented_morton_sort(ctx, binary, workspace)
+                ref topology = workspace.topology.value()
+                hploc = Optional(
+                    GpuHplocBuildState[](
+                        ctx,
+                        binary.leaf_bounds.copy(),
+                        topology.morton_keys.copy(),
+                        binary.leaf_ids.copy(),
+                        binary.segments.copy(),
+                        binary.segment_offsets.copy(),
+                        binary.internal_segments.copy(),
+                        binary.internal_segment_offsets.copy(),
+                        binary.node_meta.copy(),
+                        topology.leaf_parent.copy(),
+                        binary.node_bounds.copy(),
+                        topology.node_flags.copy(),
+                        binary.node_leaf_counts.copy(),
+                    )
                 )
-            )
-            binary.roots = hploc.value().root.copy()
-        case .LBVH:
-            _ = build_binary_bvh_with_lbvh(ctx, binary, workspace)
+                binary.roots = hploc.value().root.copy()
+            case .LBVH:
+                _ = build_binary_bvh_with_lbvh(ctx, binary, workspace)
         var wide = GpuWideBoundsBvhBatch[
             Self.node_width, Self.leaf_width, Self.max_leaf_size
         ](ctx, segments)
@@ -286,17 +302,19 @@ def _enqueue_segmented_wide_build[
     var hploc = Optional[GpuHplocBuildState[]]()
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
     comptime __match build_method:
-    case .LBVH:
-        timings = build_binary_bvh_with_lbvh(
-            ctx, binary, workspace, measure_stages
-        )
-    case .HPLOC:
-        if measure_stages:
-            timings = build_binary_bvh_with_hploc(ctx, binary, workspace, True)
-        else:
-            hploc = Optional[GpuHplocBuildState[]](
-                enqueue_binary_bvh_with_hploc(ctx, binary, workspace)
+        case .LBVH:
+            timings = build_binary_bvh_with_lbvh(
+                ctx, binary, workspace, measure_stages
             )
+        case .HPLOC:
+            if measure_stages:
+                timings = build_binary_bvh_with_hploc(
+                    ctx, binary, workspace, True
+                )
+            else:
+                hploc = Optional[GpuHplocBuildState[]](
+                    enqueue_binary_bvh_with_hploc(ctx, binary, workspace)
+                )
 
     var wide = GpuWideBoundsBvhBatch[node_width, leaf_width, max_leaf_size](
         ctx, segments

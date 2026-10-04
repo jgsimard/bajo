@@ -1,9 +1,9 @@
 # NexusBVH vs Bajo GPU BVH benchmark
 
-- Generated: `2026-09-27T10:42:50-04:00`
+- Generated: `2026-10-03T21:03:14-04:00`
 - GPU: `NVIDIA GeForce RTX 5060 Ti`
-- Mojo: `Mojo 1.2.0.dev2026092705 (3d1f3942)`
-- Nexus checkout: `/home/jgs/dev/mojo/bajo/external/nexusbvh`
+- Mojo: `Mojo 1.2.0.dev2026100305 (4ad841b8)`
+- Nexus checkout: `external/nexusbvh`
 - Nexus revision: `dd6d7e9a017e`
 
 ## Summary
@@ -11,61 +11,74 @@
 - Scene: Dragon OBJ, 249,882 triangles.
 - Traversal: 1024x576 camera, 589,824 closest-hit rays.
 - Timing: median of 11 synchronized runs; ranges show minimum to maximum.
-- Fastest Bajo build: `H-PLOC-CWBVH8-n8-l4-m1` at 1.061 ms (1.740x Nexus build time).
-- Fastest Bajo traversal: `H-PLOC-CWBVH8-n8-l4-m1` at 0.175 ms / 3364.1 MRay/s (0.947x Nexus traversal time).
+- Fastest Bajo build: `H-PLOC-CWBVH8-n8-l4-m1-indexed` at 0.572 ms (0.911x Nexus build time).
+- Fastest Bajo traversal: `H-PLOC-CWBVH8-n8-l4-m1` at 0.171 ms / 3443.5 MRay/s (0.934x Nexus traversal time).
 
 ## Build results
 
 | Implementation | Configuration | Builder | Layout | Node width | Leaf width | Max leaf | Median ms | Min–max ms | Time / Nexus |
 |---|---|---|---|---:|---:|---:|---:|---:|---:|
-| nexusbvh | `NexusBVH-H-PLOC-CWBVH8` | hploc | cwbvh8 | 8 | 1 | 1 | 0.610 | 0.604–0.628 | 1.000x |
-| bajo | `H-PLOC-CWBVH8-n8-l4-m1` | hploc | cwbvh8 | 8 | 4 | 1 | 1.061 | 1.053–1.455 | 1.740x |
-| bajo | `LBVH-n2-l2` | lbvh | wide | 2 | 2 | 2 | 1.137 | 1.127–1.562 | 1.865x |
-| bajo | `LBVH-n2-l4` | lbvh | wide | 2 | 4 | 4 | 1.167 | 1.157–1.581 | 1.914x |
-| bajo | `H-PLOC-CWBVH8-n8-l4-m3` | hploc | cwbvh8 | 8 | 4 | 3 | 1.170 | 1.161–1.314 | 1.918x |
-| bajo | `LBVH-n4-l2` | lbvh | wide | 4 | 2 | 2 | 1.253 | 1.227–1.776 | 2.055x |
-| bajo | `H-PLOC-n2-l2` | hploc | wide | 2 | 2 | 2 | 1.331 | 1.322–1.812 | 2.182x |
-| bajo | `LBVH-n4-l4` | lbvh | wide | 4 | 4 | 4 | 1.352 | 1.337–1.476 | 2.217x |
-| bajo | `LBVH-CWBVH8-n8-l4-m3` | lbvh | cwbvh8 | 8 | 4 | 3 | 1.383 | 1.359–1.738 | 2.268x |
-| bajo | `H-PLOC-n2-l4` | hploc | wide | 2 | 4 | 4 | 1.385 | 1.366–1.824 | 2.271x |
-| bajo | `H-PLOC-n4-l2` | hploc | wide | 4 | 2 | 2 | 1.473 | 1.445–1.593 | 2.415x |
-| bajo | `H-PLOC-n4-l4` | hploc | wide | 4 | 4 | 4 | 1.545 | 1.531–2.035 | 2.533x |
-| bajo | `LBVH-n8-l4` | lbvh | wide | 8 | 4 | 4 | 1.576 | 1.547–2.023 | 2.584x |
-| bajo | `H-PLOC-n8-l1` | hploc | wide | 8 | 1 | 1 | 1.599 | 1.570–2.035 | 2.621x |
-| bajo | `H-PLOC-n8-l4` | hploc | wide | 8 | 4 | 4 | 1.755 | 1.736–2.316 | 2.878x |
-| bajo | `LBVH-n8-l8` | lbvh | wide | 8 | 8 | 8 | 2.037 | 1.981–2.423 | 3.339x |
-| bajo | `H-PLOC-n8-l8` | hploc | wide | 8 | 8 | 8 | 2.202 | 2.169–2.643 | 3.610x |
+| bajo | `H-PLOC-CWBVH8-n8-l4-m1-indexed` | hploc | cwbvh8 | 8 | 4 | 1 | 0.572 | 0.568–0.702 | 0.911x |
+| bajo | `H-PLOC-CWBVH8-n8-l4-m1` | hploc | cwbvh8 | 8 | 4 | 1 | 0.608 | 0.596–0.633 | 0.968x |
+| nexusbvh | `NexusBVH-H-PLOC-CWBVH8` | hploc | cwbvh8 | 8 | 1 | 1 | 0.628 | 0.608–1.103 | 1.000x |
+| bajo | `H-PLOC-CWBVH8-n8-l4-m3` | hploc | cwbvh8 | 8 | 4 | 3 | 0.676 | 0.660–0.882 | 1.076x |
+| bajo | `LBVH-n2-l4` | lbvh | wide | 2 | 4 | 4 | 0.807 | 0.801–1.205 | 1.284x |
+| bajo | `LBVH-n2-l2` | lbvh | wide | 2 | 2 | 2 | 0.896 | 0.889–1.333 | 1.426x |
+| bajo | `LBVH-CWBVH8-n8-l4-m3` | lbvh | cwbvh8 | 8 | 4 | 3 | 0.905 | 0.881–1.390 | 1.441x |
+| bajo | `LBVH-n4-l2` | lbvh | wide | 4 | 2 | 2 | 0.957 | 0.946–1.195 | 1.523x |
+| bajo | `H-PLOC-n2-l4` | hploc | wide | 2 | 4 | 4 | 0.970 | 0.966–1.203 | 1.544x |
+| bajo | `LBVH-n4-l4` | lbvh | wide | 4 | 4 | 4 | 0.980 | 0.958–1.498 | 1.560x |
+| bajo | `H-PLOC-n2-l2` | hploc | wide | 2 | 2 | 2 | 1.004 | 0.988–1.717 | 1.597x |
+| bajo | `H-PLOC-n4-l2` | hploc | wide | 4 | 2 | 2 | 1.139 | 1.107–1.547 | 1.813x |
+| bajo | `H-PLOC-n4-l4` | hploc | wide | 4 | 4 | 4 | 1.154 | 1.130–1.200 | 1.836x |
+| bajo | `LBVH-n8-l4` | lbvh | wide | 8 | 4 | 4 | 1.209 | 1.174–1.645 | 1.924x |
+| bajo | `H-PLOC-n8-l1` | hploc | wide | 8 | 1 | 1 | 1.227 | 1.193–1.255 | 1.953x |
+| bajo | `H-PLOC-n8-l4` | hploc | wide | 8 | 4 | 4 | 1.415 | 1.364–2.418 | 2.252x |
+| bajo | `LBVH-n8-l8` | lbvh | wide | 8 | 8 | 8 | 1.622 | 1.600–2.661 | 2.582x |
+| bajo | `H-PLOC-n8-l8` | hploc | wide | 8 | 8 | 8 | 1.828 | 1.799–2.865 | 2.909x |
+
+## Cached geometry rebuilds
+
+These reuse geometry bounds, scratch buffers, and segment offsets. They are separate from the fresh-build comparison above.
+
+| Configuration | Median ms | Min–max ms |
+|---|---:|---:|
+| `H-PLOC-CWBVH8-n8-l4-m1` | 0.557 | 0.552–0.563 |
+| `H-PLOC-CWBVH8-n8-l4-m1-indexed` | 0.491 | 0.485–0.502 |
+| `H-PLOC-CWBVH8-n8-l4-m3` | 0.623 | 0.610–0.635 |
 
 ## Bajo build stages
 
-Stage timings use separately instrumented warm rebuilds; the synchronization barriers are excluded from the headline build results above.
+Stage timings use separately synchronized host wall-clock measurements in cached rebuilds and include dispatch overhead. Geometry bounds and allocation are excluded from these stage totals and included in the fresh-build results above.
 
 | Configuration | Morton ms | Sort ms | H-PLOC ms | Collapse ms | Pack ms | Instrumented ms |
 |---|---:|---:|---:|---:|---:|---:|
-| `H-PLOC-CWBVH8-n8-l4-m3` | 0.019 | 0.129 | 0.295 | 0.636 | 0.104 | 1.183 |
-| `H-PLOC-CWBVH8-n8-l4-m1` | 0.018 | 0.129 | 0.301 | 0.524 | 0.106 | 1.078 |
+| `H-PLOC-CWBVH8-n8-l4-m3` | 0.023 | 0.049 | 0.238 | 0.277 | 0.050 | 0.637 |
+| `H-PLOC-CWBVH8-n8-l4-m1` | 0.026 | 0.049 | 0.230 | 0.218 | 0.055 | 0.577 |
+| `H-PLOC-CWBVH8-n8-l4-m1-indexed` | 0.013 | 0.048 | 0.236 | 0.210 | 0.000 | 0.507 |
 
 ## Traversal results
 
 | Implementation | Configuration | Builder | Layout | Median ms | MRay/s | Min–max ms | Time / Nexus | Hits |
 |---|---|---|---|---:|---:|---:|---:|---:|
-| bajo | `H-PLOC-CWBVH8-n8-l4-m1` | hploc | cwbvh8 | 0.175 | 3364.1 | 0.167–0.314 | 0.947x | 71,598 |
-| bajo | `H-PLOC-CWBVH8-n8-l4-m3` | hploc | cwbvh8 | 0.178 | 3314.5 | 0.173–0.581 | 0.961x | 71,598 |
-| bajo | `LBVH-CWBVH8-n8-l4-m3` | lbvh | cwbvh8 | 0.182 | 3238.3 | 0.180–0.186 | 0.984x | 71,598 |
-| nexusbvh | `NexusBVH-H-PLOC-CWBVH8` | hploc | cwbvh8 | 0.185 | 3185.2 | 0.181–0.187 | 1.000x | 71,599 |
-| bajo | `H-PLOC-n2-l2` | hploc | wide | 0.195 | 3027.3 | 0.193–0.330 | 1.052x | 71,598 |
-| bajo | `H-PLOC-n2-l4` | hploc | wide | 0.195 | 3026.1 | 0.192–0.199 | 1.053x | 71,598 |
-| bajo | `LBVH-n2-l4` | lbvh | wide | 0.215 | 2748.6 | 0.209–0.351 | 1.159x | 71,598 |
-| bajo | `LBVH-n2-l2` | lbvh | wide | 0.219 | 2690.4 | 0.215–0.221 | 1.184x | 71,598 |
-| bajo | `LBVH-n4-l2` | lbvh | wide | 0.256 | 2300.2 | 0.254–0.260 | 1.385x | 71,598 |
-| bajo | `H-PLOC-n4-l2` | hploc | wide | 0.265 | 2229.6 | 0.262–0.713 | 1.429x | 71,598 |
-| bajo | `LBVH-n4-l4` | lbvh | wide | 0.266 | 2217.4 | 0.259–0.668 | 1.436x | 71,598 |
-| bajo | `H-PLOC-n4-l4` | hploc | wide | 0.288 | 2046.5 | 0.284–0.296 | 1.556x | 71,598 |
-| bajo | `H-PLOC-n8-l1` | hploc | wide | 0.368 | 1604.0 | 0.364–0.512 | 1.986x | 71,598 |
-| bajo | `H-PLOC-n8-l4` | hploc | wide | 0.388 | 1520.5 | 0.380–0.391 | 2.095x | 71,598 |
-| bajo | `LBVH-n8-l4` | lbvh | wide | 0.403 | 1462.5 | 0.398–0.408 | 2.178x | 71,598 |
-| bajo | `H-PLOC-n8-l8` | hploc | wide | 0.517 | 1141.3 | 0.513–0.519 | 2.791x | 71,598 |
-| bajo | `LBVH-n8-l8` | lbvh | wide | 0.536 | 1100.9 | 0.532–0.540 | 2.893x | 71,598 |
+| bajo | `H-PLOC-CWBVH8-n8-l4-m1` | hploc | cwbvh8 | 0.171 | 3443.5 | 0.168–0.177 | 0.934x | 71,598 |
+| bajo | `H-PLOC-CWBVH8-n8-l4-m3` | hploc | cwbvh8 | 0.176 | 3343.0 | 0.170–0.182 | 0.962x | 71,598 |
+| bajo | `H-PLOC-CWBVH8-n8-l4-m1-indexed` | hploc | cwbvh8 | 0.178 | 3308.2 | 0.176–0.182 | 0.972x | 71,598 |
+| bajo | `LBVH-CWBVH8-n8-l4-m3` | lbvh | cwbvh8 | 0.180 | 3282.9 | 0.177–0.432 | 0.980x | 71,598 |
+| nexusbvh | `NexusBVH-H-PLOC-CWBVH8` | hploc | cwbvh8 | 0.183 | 3215.9 | 0.180–0.189 | 1.000x | 71,599 |
+| bajo | `H-PLOC-n2-l4` | hploc | wide | 0.194 | 3041.8 | 0.191–0.198 | 1.057x | 71,598 |
+| bajo | `H-PLOC-n2-l2` | hploc | wide | 0.202 | 2922.6 | 0.197–0.207 | 1.100x | 71,598 |
+| bajo | `LBVH-n2-l4` | lbvh | wide | 0.216 | 2733.1 | 0.207–0.220 | 1.177x | 71,598 |
+| bajo | `LBVH-n2-l2` | lbvh | wide | 0.223 | 2644.2 | 0.217–0.232 | 1.216x | 71,598 |
+| bajo | `LBVH-n4-l2` | lbvh | wide | 0.260 | 2265.5 | 0.250–0.645 | 1.420x | 71,598 |
+| bajo | `H-PLOC-n4-l2` | hploc | wide | 0.268 | 2198.4 | 0.262–0.272 | 1.463x | 71,598 |
+| bajo | `LBVH-n4-l4` | lbvh | wide | 0.275 | 2141.8 | 0.271–0.277 | 1.501x | 71,598 |
+| bajo | `H-PLOC-n4-l4` | hploc | wide | 0.298 | 1976.8 | 0.291–0.554 | 1.627x | 71,598 |
+| bajo | `H-PLOC-n8-l1` | hploc | wide | 0.367 | 1607.5 | 0.360–0.372 | 2.001x | 71,598 |
+| bajo | `H-PLOC-n8-l4` | hploc | wide | 0.442 | 1335.2 | 0.424–0.589 | 2.409x | 71,598 |
+| bajo | `H-PLOC-n8-l8` | hploc | wide | 0.525 | 1123.8 | 0.523–0.530 | 2.862x | 71,598 |
+| bajo | `LBVH-n8-l8` | lbvh | wide | 0.545 | 1081.9 | 0.540–0.549 | 2.972x | 71,598 |
+| bajo | `LBVH-n8-l4` | lbvh | wide | 0.558 | 1057.4 | 0.440–1.110 | 3.041x | 71,598 |
 
 ## Traversal work
 
@@ -100,9 +113,10 @@ Every Bajo row is compared with NexusBVH. A one-hit difference is accepted for a
 | `LBVH-CWBVH8-n8-l4-m3` | 1 | 0.000325145 |
 | `H-PLOC-CWBVH8-n8-l4-m3` | 1 | 0.000325145 |
 | `H-PLOC-CWBVH8-n8-l4-m1` | 1 | 0.000325145 |
+| `H-PLOC-CWBVH8-n8-l4-m1-indexed` | 1 | 0.000325145 |
 
 ## Methodology
 
 Bajo's LBVH is Apetrei's 2014 agglomerative algorithm, which fuses binary topology construction and bounds propagation in one leaf-driven kernel. Bajo compares it with H-PLOC across ordinary-wide combinations; both builders then use Bajo's existing H-PLOC-derived wide collapse. H-PLOC includes an 8/1/1 row matching NexusBVH's one-triangle leaves. Bajo also measures LBVH and H-PLOC with CWBVH8; storage leaf width is 4 and maximum encoded leaf sizes are 3 and 1 where listed. NexusBVH uses its H-PLOC CWBVH8 builder and currently stores exactly one triangle per leaf. Both implementations trace the same generated camera rays with native packed CWBVH8 or ordinary-wide traversal.
 
-OBJ parsing, camera setup, and initial host-to-device upload are outside the timed regions. H-PLOC CWBVH8 timings are warm rebuilds through a fixed-capacity arena: Morton generation/sort, H-PLOC, direct CWBVH8 conversion, triangle repacking, and synchronization are included; one-time allocation, invariant-offset upload, and cached triangle/root bounds are excluded. Other Bajo rows retain their allocation-owning build API. Traversal timing includes kernel launch and synchronization. Different builder/layout rows do not imply equivalent hierarchy quality.
+OBJ parsing, camera setup, and initial host-to-device upload are outside the timed regions. Headline build timings include fresh construction, device allocation, segment-offset setup, geometry bounds, Morton generation/sort, topology, conversion, triangle representation, and final synchronization. Cached geometry rebuilds are reported separately for Bajo's reusable H-PLOC CWBVH8 arenas. Traversal timing includes kernel launch and synchronization. Different builder/layout rows do not imply equivalent hierarchy quality.

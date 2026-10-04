@@ -42,7 +42,6 @@ from bajo.bvh.cpu.parallel import _worker_count
 
 comptime PARALLEL_TRIANGLE_BUILD_MIN_ITEMS = 4096
 comptime PARALLEL_COLLAPSE_EMIT_MIN_NODES = UInt32(16384)
-comptime DIRECT_PACKED_LEAF_MIN_TRIANGLES = 131072
 comptime HPLOC_TRIANGLE_MICROLEAF_SIZE = 4
 comptime HYBRID_TRIANGLE_MIN_NODES = 1024
 comptime ROOT_SCALAR_TRIANGLE_MIN_NODES = 2048
@@ -613,18 +612,13 @@ struct _TriangleBuild[
     hploc_microleaf_size: Int = 0,
     use_dp_collapse: Bool = True,
 ](Copyable):
-    """Private typed build result consumed immediately by `CpuBlasSet` packing.
+    """Private wide tree and final packed leaves consumed by `CpuBlasSet`.
 
-    Binary-to-wide collapse packs triangle leaves in the same pass. Tagged
-    leaf references therefore point directly at TriangleLeafBlock entries:
-
-        node.data[lane] == EMPTY_LANE -> unused lane
-        is_leaf_ref(node.data[lane])  -> TriangleLeafBlock index
-        otherwise                     -> internal node index
+    Tagged leaf references index the packed leaf blocks; internal references
+    index the wide tree nodes.
     """
 
     var tree: BoundsBvh[Self.frame, Self.bounds_width]
-    var leaf_blocks: List[TriangleLeafBlock[Self.frame, Self.leaf_width]]
     var packed_leaf_blocks: List[Float32]
     var packed_leaf_counts: List[UInt32]
     var tri_count: Int
@@ -633,9 +627,6 @@ struct _TriangleBuild[
         method: CpuBvhBuildMethod = .MEDIAN
     ](out self, vertices: ImmSpan[Point3f32[Self.frame], _]):
         self.tri_count = len(vertices) / 3
-        self.leaf_blocks = List[
-            TriangleLeafBlock[Self.frame, Self.leaf_width]
-        ]()
         self.packed_leaf_blocks = List[Float32]()
         self.packed_leaf_counts = List[UInt32]()
         var tri_count = self.tri_count
@@ -712,48 +703,21 @@ struct _TriangleBuild[
             resolved_microleaf_size,
         ](items^, root_bounds, centroid_bounds)
 
-        var leaf_blocks = List[TriangleLeafBlock[Self.frame, Self.leaf_width]](
-            capacity=(Int(builder.nodes_used) + 1) // 2
-        )
         debug_assert["safe", _use_compiler_assume=True](
             len(vertices) == self.tri_count * 3,
             "triangle vertex count changed while packing leaves",
         )
 
-        @always_inline
-        def fill_leaf_block(
-            first_item: UInt32,
-            item_count: UInt32,
-            mut block: TriangleLeafBlock[Self.frame, Self.leaf_width],
-        ) {imm}:
-            var first, count = _checked_typed_leaf_range[Self.leaf_width](
-                first_item, item_count, len(builder.item_indices)
-            )
-
-            for k in range(count):
-                var item_ref = Int(builder.item_indices.unsafe_get(first + k))
-                # Typed items are created in primitive order, so the builder
-                # item index is already the final primitive payload.
-                var prim_idx = UInt32(item_ref)
-                var base = Int(prim_idx) * 3
-
-                ref p0 = vertices[base + 0]
-                ref p1 = vertices[base + 1]
-                ref p2 = vertices[base + 2]
-
-                block.v0.x[k] = p0.x
-                block.v0.y[k] = p0.y
-                block.v0.z[k] = p0.z
-
-                block.e1.x[k] = p1.x - p0.x
-                block.e1.y[k] = p1.y - p0.y
-                block.e1.z[k] = p1.z - p0.z
-
-                block.e2.x[k] = p2.x - p0.x
-                block.e2.y[k] = p2.y - p0.y
-                block.e2.z[k] = p2.z - p0.z
-
-                block.prim_indices[k] = prim_idx
+        var task_count = (Int(builder.nodes_used) + 1) // 2
+        var packed_size = (
+            task_count * Self.leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
+        )
+        var packed_leaf_blocks = List[Float32](capacity=packed_size)
+        packed_leaf_blocks.resize(unsafe_uninit_length=packed_size)
+        var packed_leaf_counts = List[UInt32](capacity=task_count)
+        packed_leaf_counts.resize(unsafe_uninit_length=task_count)
+        var packed_leaves_ptr = packed_leaf_blocks.unsafe_ptr()
+        var packed_counts_ptr = packed_leaf_counts.unsafe_ptr()
 
         @always_inline
         def fill_packed_leaf(
@@ -822,27 +786,34 @@ struct _TriangleBuild[
                 )
             packed_counts[unsafe_offset=block_idx] = UInt32(count)
 
+        var leaf_ranges = List[WideLeafRange]()
+
         @always_inline
-        def pack_leaf(
+        def record_serial_leaf_range(
             first_item: UInt32, item_count: UInt32
-        ) {imm, mut leaf_blocks} -> UInt32:
-            var block_idx = UInt32(len(leaf_blocks))
-            var block = TriangleLeafBlock[Self.frame, Self.leaf_width]()
-            fill_leaf_block(first_item, item_count, block)
-            leaf_blocks.append(block^)
+        ) {imm, mut leaf_ranges} -> UInt32:
+            var block_idx = UInt32(len(leaf_ranges))
+            leaf_ranges.append(WideLeafRange(first_item, item_count))
+            return block_idx
+
+        var serial_leaf = UInt32(0)
+
+        @always_inline
+        def pack_serial_leaf(
+            first_item: UInt32, item_count: UInt32
+        ) {imm, mut serial_leaf} -> UInt32:
+            var block_idx = serial_leaf
+            serial_leaf += 1
+            fill_packed_leaf(
+                Int(block_idx),
+                first_item,
+                item_count,
+                packed_leaves_ptr,
+                packed_counts_ptr,
+            )
             return block_idx
 
         if self.tri_count >= PARALLEL_TRIANGLE_BUILD_MIN_ITEMS:
-            var leaf_ranges = List[WideLeafRange]()
-
-            @always_inline
-            def record_serial_leaf_range(
-                first_item: UInt32, item_count: UInt32
-            ) {imm, mut leaf_ranges} -> UInt32:
-                var block_idx = UInt32(len(leaf_ranges))
-                leaf_ranges.append(WideLeafRange(first_item, item_count))
-                return block_idx
-
             comptime if _TriangleBuildTuning[
                 Self.bounds_width,
                 Self.leaf_width,
@@ -896,77 +867,38 @@ struct _TriangleBuild[
                 self.tree = BoundsBvh[Self.frame, Self.bounds_width].__init__[
                     use_dp_collapse=Self.use_dp_collapse
                 ](builder, record_serial_leaf_range)
-            var task_count = len(leaf_ranges)
-            var worker_count = _worker_count(task_count)
-            if self.tri_count >= DIRECT_PACKED_LEAF_MIN_TRIANGLES:
-                var packed_leaf_blocks = List[Float32](
-                    capacity=(
-                        task_count
-                        * Self.leaf_width
-                        * CPU_TRI_LEAF_PACKED_STRIDE
-                    )
-                )
-                packed_leaf_blocks.resize(
-                    unsafe_uninit_length=(
-                        task_count
-                        * Self.leaf_width
-                        * CPU_TRI_LEAF_PACKED_STRIDE
-                    )
-                )
-                var packed_leaf_counts = List[UInt32](capacity=task_count)
-                packed_leaf_counts.resize(unsafe_uninit_length=task_count)
-                var packed_leaves_ptr = packed_leaf_blocks.unsafe_ptr()
-                var packed_counts_ptr = packed_leaf_counts.unsafe_ptr()
-
-                def pack_direct_worker(block_idx: Int) {imm}:
-                    ref leaf_range = leaf_ranges[block_idx]
-                    fill_packed_leaf(
-                        block_idx,
-                        leaf_range.first_item,
-                        leaf_range.item_count,
-                        packed_leaves_ptr,
-                        packed_counts_ptr,
-                    )
-
-                parallelize(pack_direct_worker, task_count, worker_count)
-                self.packed_leaf_blocks = packed_leaf_blocks^
-                self.packed_leaf_counts = packed_leaf_counts^
-            else:
-                leaf_blocks.resize(unsafe_uninit_length=task_count)
-
-                def pack_typed_worker(
-                    block_idx: Int,
-                ) {imm, mut leaf_blocks}:
-                    ref leaf_range = leaf_ranges[block_idx]
-                    var block = TriangleLeafBlock[Self.frame, Self.leaf_width]()
-                    fill_leaf_block(
-                        leaf_range.first_item, leaf_range.item_count, block
-                    )
-                    leaf_blocks[block_idx] = block^
-
-                parallelize(pack_typed_worker, task_count, worker_count)
         else:
             self.tree = BoundsBvh[Self.frame, Self.bounds_width].__init__[
                 use_dp_collapse=Self.use_dp_collapse
-            ](builder, pack_leaf)
+            ](builder, pack_serial_leaf)
 
-        self.leaf_blocks = leaf_blocks^
+        def pack_leaf(block_idx: Int) {imm}:
+            ref leaf_range = leaf_ranges[block_idx]
+            fill_packed_leaf(
+                block_idx,
+                leaf_range.first_item,
+                leaf_range.item_count,
+                packed_leaves_ptr,
+                packed_counts_ptr,
+            )
+
+        if self.tri_count >= PARALLEL_TRIANGLE_BUILD_MIN_ITEMS:
+            parallelize(pack_leaf, task_count, _worker_count(task_count))
+        else:
+            debug_assert["safe", _use_compiler_assume=True](
+                serial_leaf == UInt32(task_count),
+                "serial wide collapse did not emit every triangle leaf",
+            )
+        self.packed_leaf_blocks = packed_leaf_blocks^
+        self.packed_leaf_counts = packed_leaf_counts^
 
     @always_inline
     def leaf_block_count(self) -> Int:
-        if len(self.packed_leaf_counts) > 0:
-            return len(self.packed_leaf_counts)
-        return len(self.leaf_blocks)
+        return len(self.packed_leaf_counts)
 
     @always_inline
     def leaf_primitive_count(self, block_idx: Int) -> UInt32:
-        if len(self.packed_leaf_counts) > 0:
-            return self.packed_leaf_counts[block_idx]
-        var count = UInt32(0)
-        comptime for lane in range(Self.leaf_width):
-            if self.leaf_blocks[block_idx].prim_indices[lane] != EMPTY_LANE:
-                count += 1
-        return count
+        return self.packed_leaf_counts[block_idx]
 
     def take_packed_leaf_blocks(mut self) -> List[Float32]:
         var packed = self.packed_leaf_blocks^

@@ -400,6 +400,8 @@ def test_hploc_section_3_4_opens_largest_area_candidate() raises:
 def test_hploc_section_3_4_cross_block_invariants() raises:
     var scene = _make_irregular_scene(257)
     _assert_hploc_triangle_matches_cpu[8, 4, False, True](scene)
+    var large_scene = _make_irregular_scene(4097)
+    _assert_hploc_triangle_matches_cpu[8, 4, True, True](large_scene)
 
 
 def test_hploc_wide_collapse_is_segmented_and_packed() raises:

@@ -1,8 +1,9 @@
 from std.math import max, ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
-from max.gpu import global_idx
+from max.gpu import global_idx, WARP_SIZE, lane_id
+from max.gpu.primitives import warp
 
-from bajo.core import AABB, SegmentOffsets
+from bajo.core import AABB, Point3f32, SegmentOffsets
 from bajo.bvh.constants import (
     BinaryBvhNode,
     REDUCED_BOUNDS_STRIDE,
@@ -11,7 +12,7 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.gpu.utils import _device_span, upload_list
 from bajo.bvh.tagged_ref import is_leaf_ref, decode_ref_index
-from bajo.sort.gpu.radix_sort import RadixSortWorkspace
+from bajo.sort.gpu.onesweep import OneSweepWorkspace
 
 
 def _node_meta_base(node_idx: UInt32) -> Int:
@@ -113,13 +114,32 @@ def _segment_for_item(offsets: ImmSpan[UInt32, _], item_idx: Int) -> Int:
     return low
 
 
-def compute_segment_bounds_partials_kernel(
+@always_inline
+def _warp_reduce_bounds(bounds: AABB[.WORLD]) -> AABB[.WORLD]:
+    return AABB[.WORLD](
+        Point3f32[.WORLD](
+            warp.min(bounds._min.x),
+            warp.min(bounds._min.y),
+            warp.min(bounds._min.z),
+        ),
+        Point3f32[.WORLD](
+            warp.max(bounds._max.x),
+            warp.max(bounds._max.y),
+            warp.max(bounds._max.z),
+        ),
+    )
+
+
+def compute_segment_bounds_partials_kernel[
+    block_size: Int
+](
     leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
     leaf_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     partial_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     out_partials: MutSpan[Float32, MutAnyOrigin],
 ):
-    var partial_idx = global_idx.x
+    comptime assert block_size % WARP_SIZE == 0
+    var partial_idx = global_idx.x // WARP_SIZE
     var partial_count = Int(
         partial_segment_offsets.unsafe_get(len(partial_segment_offsets) - 1)
     )
@@ -140,25 +160,32 @@ def compute_segment_bounds_partials_kernel(
     var bounds = AABB[.WORLD].invalid()
     var centroid_bounds = AABB[.WORLD].invalid()
 
-    for leaf_idx in range(first, last):
+    for leaf_idx in range(first + lane_id(), last, WARP_SIZE):
         var b = leaf_idx * AABB.STRIDE
         var aabb = AABB[.WORLD].load6(leaf_bounds, b)
 
         bounds.grow(aabb)
         centroid_bounds.grow(aabb.centroid())
 
+    bounds = _warp_reduce_bounds(bounds)
+    centroid_bounds = _warp_reduce_bounds(centroid_bounds)
+    if lane_id() != 0:
+        return
     var out = partial_idx * REDUCED_BOUNDS_STRIDE
     bounds.store6(out_partials, out)
     centroid_bounds.store6(out_partials, out + AABB.STRIDE)
 
 
-def reduce_segment_bounds_partials_kernel(
+def reduce_segment_bounds_partials_kernel[
+    block_size: Int
+](
     in_partials: ImmSpan[Float32, ImmutAnyOrigin],
     in_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     out_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     out_partials: MutSpan[Float32, MutAnyOrigin],
 ):
-    var out_idx = global_idx.x
+    comptime assert block_size % WARP_SIZE == 0
+    var out_idx = global_idx.x // WARP_SIZE
     var out_count = Int(
         out_segment_offsets.unsafe_get(len(out_segment_offsets) - 1)
     )
@@ -176,7 +203,7 @@ def reduce_segment_bounds_partials_kernel(
     var bounds = AABB[.WORLD].invalid()
     var centroid_bounds = AABB[.WORLD].invalid()
 
-    for i in range(first, last):
+    for i in range(first + lane_id(), last, WARP_SIZE):
         var b = i * REDUCED_BOUNDS_STRIDE
 
         var partial_bounds = AABB[.WORLD].load6(in_partials, b)
@@ -187,6 +214,10 @@ def reduce_segment_bounds_partials_kernel(
         bounds.grow(partial_bounds)
         centroid_bounds.grow(partial_centroid_bounds)
 
+    bounds = _warp_reduce_bounds(bounds)
+    centroid_bounds = _warp_reduce_bounds(centroid_bounds)
+    if lane_id() != 0:
+        return
     var out = out_idx * REDUCED_BOUNDS_STRIDE
     bounds.store6(out_partials, out)
     centroid_bounds.store6(out_partials, out + AABB.STRIDE)
@@ -224,32 +255,53 @@ struct GpuBinaryTopologyWorkspace(Copyable):
         mut ctx: DeviceContext,
         leaf_capacity: Int,
         internal_capacity: Int,
+        single_segment: Bool = False,
+        compact_output: Bool = False,
     ) raises:
         self.morton_keys = ctx.enqueue_create_buffer[.uint32](leaf_capacity)
-        self.sort_keys = ctx.enqueue_create_buffer[.uint64](leaf_capacity)
-        self.leaf_parent = ctx.enqueue_create_buffer[.uint32](leaf_capacity)
+        self.sort_keys = ctx.enqueue_create_buffer[.uint64](
+            1 if single_segment else leaf_capacity
+        )
+        self.leaf_parent = ctx.enqueue_create_buffer[.uint32](
+            1 if compact_output else leaf_capacity
+        )
         self.node_flags = ctx.enqueue_create_buffer[.uint32](
-            max(internal_capacity, 1)
+            1 if compact_output else max(internal_capacity, 1)
         )
 
 
 struct GpuBinaryBuildWorkspace:
-    """Reusable scratch for one fixed segmented leaf workload."""
+    """Reusable scratch for one fixed segmented leaf workload.
+
+    Compact H-PLOC omits full binary output and parent/refit buffers.
+    Leaf counts can be omitted only with compact output.
+    """
 
     var leaf_capacity: Int
     var internal_capacity: Int
+    var compact_output: Bool
+    var compute_leaf_counts: Bool
     var segments: SegmentOffsets
     var segment_offsets: DeviceBuffer[.uint32]
     var bounds_scratch_a: DeviceBuffer[.float32]
     var bounds_scratch_b: DeviceBuffer[.float32]
-    var sort: RadixSortWorkspace[.uint64, .uint32]
+    var sort: Optional[
+        OneSweepWorkspace[.uint64, .uint32, BLOCK_SIZE=512, KEYS_PER_THREAD=9]
+    ]
+    var sort32: Optional[
+        OneSweepWorkspace[.uint32, .uint32, BLOCK_SIZE=512, KEYS_PER_THREAD=15]
+    ]
     var topology: Optional[GpuBinaryTopologyWorkspace]
 
     def __init__(
         out self,
         mut ctx: DeviceContext,
         segments: SegmentOffsets,
+        compact_output: Bool = False,
+        compute_leaf_counts: Bool = True,
     ) raises:
+        if not compact_output and not compute_leaf_counts:
+            raise "full binary output requires leaf counts"
         var leaf_capacity = segments.item_count()
         debug_assert["safe", _use_compiler_assume=True](
             leaf_capacity > 0, "binary workspace capacity must be positive"
@@ -261,6 +313,8 @@ struct GpuBinaryBuildWorkspace:
         var partial_segments = _reduced_segment_offsets(segments)
         var internal_segments = _internal_segment_offsets(segments)
         self.leaf_capacity = leaf_capacity
+        self.compact_output = compact_output
+        self.compute_leaf_counts = compute_leaf_counts
         self.internal_capacity = internal_segments.item_count()
         self.segments = segments.copy()
         self.segment_offsets = upload_list(ctx, self.segments.offsets)
@@ -270,14 +324,39 @@ struct GpuBinaryBuildWorkspace:
         self.bounds_scratch_b = ctx.enqueue_create_buffer[.float32](
             max(partial_segments.item_count(), 1) * REDUCED_BOUNDS_STRIDE
         )
-        self.sort = RadixSortWorkspace[.uint64, .uint32](ctx, leaf_capacity)
+        self.sort = Optional[
+            OneSweepWorkspace[
+                .uint64, .uint32, BLOCK_SIZE=512, KEYS_PER_THREAD=9
+            ]
+        ]()
+        self.sort32 = Optional[
+            OneSweepWorkspace[
+                .uint32, .uint32, BLOCK_SIZE=512, KEYS_PER_THREAD=15
+            ]
+        ]()
+        if segments.segment_count() == 1:
+            self.sort32 = Optional(
+                OneSweepWorkspace[
+                    .uint32, .uint32, BLOCK_SIZE=512, KEYS_PER_THREAD=15
+                ](ctx, leaf_capacity)
+            )
+        else:
+            self.sort = Optional(
+                OneSweepWorkspace[
+                    .uint64, .uint32, BLOCK_SIZE=512, KEYS_PER_THREAD=9
+                ](ctx, leaf_capacity)
+            )
         self.topology = Optional[GpuBinaryTopologyWorkspace]()
 
     def ensure_topology(mut self, mut ctx: DeviceContext) raises:
         if not self.topology:
             self.topology = Optional[GpuBinaryTopologyWorkspace](
                 GpuBinaryTopologyWorkspace(
-                    ctx, self.leaf_capacity, self.internal_capacity
+                    ctx,
+                    self.leaf_capacity,
+                    self.internal_capacity,
+                    self.segments.segment_count() == 1,
+                    self.compact_output,
                 )
             )
 
@@ -359,10 +438,12 @@ struct GpuBinaryBoundsBvh:
 
         var reduce_grid = ceildiv(
             partial_segments.item_count(),
-            GPU_BOUNDS_BVH_BLOCK_SIZE,
+            GPU_BOUNDS_BVH_BLOCK_SIZE // WARP_SIZE,
         )
 
-        ctx.enqueue_function[compute_segment_bounds_partials_kernel](
+        ctx.enqueue_function[
+            compute_segment_bounds_partials_kernel[GPU_BOUNDS_BVH_BLOCK_SIZE]
+        ](
             _device_span[mut=False](self.leaf_bounds),
             _device_span[mut=False](self.segment_offsets),
             _device_span[mut=False](partial_offsets),
@@ -379,10 +460,12 @@ struct GpuBinaryBoundsBvh:
             var next_offsets = upload_list(ctx, next_segments.offsets)
             var grid = ceildiv(
                 next_segments.item_count(),
-                GPU_BOUNDS_BVH_BLOCK_SIZE,
+                GPU_BOUNDS_BVH_BLOCK_SIZE // WARP_SIZE,
             )
 
-            ctx.enqueue_function[reduce_segment_bounds_partials_kernel](
+            ctx.enqueue_function[
+                reduce_segment_bounds_partials_kernel[GPU_BOUNDS_BVH_BLOCK_SIZE]
+            ](
                 _device_span[mut=False](in_buf),
                 _device_span[mut=False](partial_offsets),
                 _device_span[mut=False](next_offsets),
@@ -399,11 +482,17 @@ struct GpuBinaryBoundsBvh:
         self.leaf_ids = ctx.enqueue_create_buffer[.uint32](n_leaf)
 
         self.node_meta = ctx.enqueue_create_buffer[.uint32](
-            n_internal * BinaryBvhNode.META_STRIDE
+            1 if workspace.compact_output else (
+                n_internal * BinaryBvhNode.META_STRIDE
+            )
         )
-        self.node_leaf_counts = ctx.enqueue_create_buffer[.uint32](n_internal)
+        self.node_leaf_counts = ctx.enqueue_create_buffer[.uint32](
+            n_internal if workspace.compute_leaf_counts else 1
+        )
         self.node_bounds = ctx.enqueue_create_buffer[.float32](
-            n_internal * BinaryBvhNode.BOUNDS_STRIDE
+            1 if workspace.compact_output else (
+                n_internal * BinaryBvhNode.BOUNDS_STRIDE
+            )
         )
         workspace.ensure_topology(ctx)
 

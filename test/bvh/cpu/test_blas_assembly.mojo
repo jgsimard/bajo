@@ -161,5 +161,24 @@ def test_exact_sphere_segments() raises:
     _test_spheres(4096)
 
 
+def test_mixed_triangle_builds_preserve_parallel_small_segments() raises:
+    var meshes = List[List[Point3f32[.LOCAL]]]()
+    for i in range(17):
+        meshes.append(_mesh(4096 if i == 8 else 31, Float32(i) * 10000.0))
+    var blases = build_cpu_triangle_blas_set[4, 2](meshes)
+    for i in range(len(meshes)):
+        var ray = Rayf32[.LOCAL](
+            Point3f32[.LOCAL](Float32(i) * 10000.0, 0.0, 0.0),
+            Vec3f32[.LOCAL](0.0, 0.0, 1.0),
+        )
+        var hit = trace_blas_set[4, 2, .CLOSEST_HIT, .LOCAL](
+            blases, UInt32(i), ray
+        )
+        assert_equal(hit.prim, UInt32(0))
+        assert_equal(hit.t, 2.0)
+        var desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(i))
+        assert_equal(desc.prim_count, UInt32(4096 if i == 8 else 31))
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

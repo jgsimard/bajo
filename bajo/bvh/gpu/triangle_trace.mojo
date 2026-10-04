@@ -221,7 +221,7 @@ def _intersect_triangle_leaf[
                     hit.v = scaled_hit.v_scaled * inv_det
                     hit.prim = prim
                     hit.inst = EMPTY_LANE
-                    hit.normal = normalize(cross(e1, e2)).unsafe_convert[
+                    hit.normal = cross(e1, e2).unsafe_convert[
                         new_kind=GeoKind.NORMAL
                     ]()
                     any_hit = True
@@ -245,10 +245,15 @@ def _intersect_triangle_leaf[
                     hit.v = tri_hit.v
                     hit.prim = prim
                     hit.inst = EMPTY_LANE
-                    hit.normal = normalize(cross(e1, e2)).unsafe_convert[
+                    hit.normal = cross(e1, e2).unsafe_convert[
                         new_kind=GeoKind.NORMAL
                     ]()
                     any_hit = True
+    comptime if mode == .CLOSEST_HIT:
+        if any_hit:
+            hit.normal = normalize(
+                hit.normal.unsafe_convert[new_kind=GeoKind.VECTOR]()
+            ).unsafe_convert[new_kind=GeoKind.NORMAL]()
     return any_hit
 
 
@@ -297,9 +302,7 @@ def _intersect_cwbvh_triangle[
         hit.v = scaled_hit.v_scaled * inv_det
         hit.prim = prim
         hit.inst = EMPTY_LANE
-        hit.normal = normalize(cross(e1, e2)).unsafe_convert[
-            new_kind=GeoKind.NORMAL
-        ]()
+        hit.normal = cross(e1, e2).unsafe_convert[new_kind=GeoKind.NORMAL]()
         return True
 
 
@@ -345,9 +348,7 @@ def _intersect_cwbvh_indexed_triangle[
         hit.v = scaled_hit.v_scaled * inv_det
         hit.prim = prim
         hit.inst = EMPTY_LANE
-        hit.normal = normalize(cross(e1, e2)).unsafe_convert[
-            new_kind=GeoKind.NORMAL
-        ]()
+        hit.normal = cross(e1, e2).unsafe_convert[new_kind=GeoKind.NORMAL]()
         return True
 
 
@@ -489,6 +490,11 @@ def _trace_cwbvh8_triangles_impl[
             node_group_base = UInt32(task)
             node_group_mask = UInt32(task >> UInt64(32))
 
+    comptime if mode == .CLOSEST_HIT:
+        if hit.is_hit():
+            hit.normal = normalize(
+                hit.normal.unsafe_convert[new_kind=GeoKind.VECTOR]()
+            ).unsafe_convert[new_kind=GeoKind.NORMAL]()
     return hit
 
 

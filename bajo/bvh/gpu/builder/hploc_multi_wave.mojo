@@ -1,3 +1,4 @@
+from std.sys.info import is_nvidia_gpu
 from std.atomic import Atomic, Ordering, fence
 from std.bit import pop_count
 from max.gpu import WARP_SIZE, global_idx, lane_id, thread_idx
@@ -73,16 +74,28 @@ def _hploc_pack_distance_offset(
 
 
 @always_inline
-def _hploc_cluster_bounds(
+def _hploc_cluster_bounds[
+    cache_leaf_bounds: Bool = False
+](
     encoded: UInt32,
     leaf_bounds: ImmSpan[Float32, _],
     sorted_leaf_ids: ImmSpan[UInt32, _],
-    scratch_bounds: ImmSpan[Float32, _],
+    scratch_bounds: MutSpan[Float32, _],
 ) -> AABB[.WORLD]:
     var cluster_idx = decode_ref_index(encoded)
     if is_leaf_ref(encoded):
         var leaf_id = sorted_leaf_ids.unsafe_get(Int(cluster_idx))
-        return AABB[.WORLD].load6(leaf_bounds, Int(leaf_id) * AABB.STRIDE)
+        var bounds = AABB[.WORLD].load6(leaf_bounds, Int(leaf_id) * AABB.STRIDE)
+        comptime if cache_leaf_bounds:
+            # Preserve bounds already loaded for clustering for wide collapse.
+            # Completed H-PLOC tasks publish these writes with their node data.
+            bounds.store6(
+                scratch_bounds,
+                len(scratch_bounds)
+                - len(leaf_bounds)
+                + Int(cluster_idx) * AABB.STRIDE,
+            )
+        return bounds
     return _hploc_load_bounds(scratch_bounds, cluster_idx)
 
 
@@ -140,22 +153,26 @@ def _hploc_find_parent_id(
 
 
 @always_inline
-def _hploc_atomic_exchange(
-    ptr: MutPointer[UInt32, _], desired: UInt32
-) -> UInt32:
-    """Atomic exchange expressed through the current std.atomic CAS API."""
+def _hploc_arrive_parent(ptr: MutPointer[UInt32, _], desired: UInt32) -> UInt32:
+    """Publish an endpoint at a parent slot with exactly two child arrivals."""
+    # Slots start at UINT_MAX. The first addition stores its endpoint through
+    # unsigned wraparound and returns the sentinel; the second recovers that
+    # endpoint. A processed boundary lies inside the merged range and cannot
+    # be selected as its parent again, so the second stored value is unused.
+    comptime AtomicU32 = Atomic[
+        UInt32, scope="device" if is_nvidia_gpu() else ""
+    ]
+    return AtomicU32.fetch_add[ordering=Ordering.ACQUIRE_RELEASE](
+        ptr, desired + UInt32(1)
+    )
 
-    var expected = Atomic.load[ordering=Ordering.RELAXED](ptr)
-    while not Atomic.compare_exchange[
-        success_ordering=Ordering.ACQUIRE_RELEASE,
-        failure_ordering=Ordering.RELAXED,
-    ](ptr, expected, desired):
-        pass
-    return expected
 
-
-def init_hploc_multi_wave_kernel(
+def init_hploc_multi_wave_kernel[
+    write_leaf_parents: Bool = True, cache_leaf_bounds: Bool = False
+](
     sorted_leaf_ids: ImmSpan[UInt32, ImmutAnyOrigin],
+    leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
+    scratch_bounds: MutSpan[Float32, MutAnyOrigin],
     segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
     parent_slots: MutSpan[UInt32, MutAnyOrigin],
     cluster_indices: MutSpan[UInt32, MutAnyOrigin],
@@ -168,7 +185,8 @@ def init_hploc_multi_wave_kernel(
     var leaf_count = len(sorted_leaf_ids)
     if sorted_pos < leaf_count:
         parent_slots.unsafe_get(sorted_pos) = LBVH_SENTINEL
-        leaf_parent.unsafe_get(sorted_pos) = LBVH_SENTINEL
+        comptime if write_leaf_parents:
+            leaf_parent.unsafe_get(sorted_pos) = LBVH_SENTINEL
         cluster_indices.unsafe_get(sorted_pos) = encode_leaf_ref(
             UInt32(sorted_pos)
         )
@@ -177,6 +195,19 @@ def init_hploc_multi_wave_kernel(
     if sorted_pos < segment_count:
         var begin = segment_offsets.unsafe_get(sorted_pos)
         var end = segment_offsets.unsafe_get(sorted_pos + 1)
+        comptime if cache_leaf_bounds:
+            # Singleton segments never participate in a clustering task.
+            if end - begin == 1:
+                var leaf_id = sorted_leaf_ids.unsafe_get(Int(begin))
+                var bounds = AABB[.WORLD].load6(
+                    leaf_bounds, Int(leaf_id) * AABB.STRIDE
+                )
+                bounds.store6(
+                    scratch_bounds,
+                    len(scratch_bounds)
+                    - len(leaf_bounds)
+                    + Int(begin) * AABB.STRIDE,
+                )
         node_counter.unsafe_get(sorted_pos) = UInt32(0)
         root.unsafe_get(sorted_pos) = (
             encode_leaf_ref(begin) if end - begin == 1 else LBVH_SENTINEL
@@ -191,6 +222,8 @@ def build_hploc_multi_wave_kernel[
     compact_output: Bool,
     single_segment: Bool,
     pair_once_search: Bool,
+    compute_leaf_counts: Bool,
+    cache_leaf_bounds: Bool = False,
 ](
     sorted_morton_codes: ImmSpan[UInt32, ImmutAnyOrigin],
     segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
@@ -212,7 +245,11 @@ def build_hploc_multi_wave_kernel[
 ):
     """Literature H-PLOC outer and inner loops for arbitrary leaf counts."""
 
+    # Parent arrivals and completed cluster data communicate within one GPU.
+    comptime atomic_scope = "device" if is_nvidia_gpu() else ""
+    comptime AtomicU32 = Atomic[UInt32, scope=atomic_scope]
     comptime assert block_size % WARP_SIZE == 0
+    comptime assert compute_leaf_counts or compact_output
     var boxes_cache = stack_allocation[
         block_size * AABB.STRIDE,
         Float32,
@@ -283,7 +320,7 @@ def build_hploc_multi_wave_kernel[
                 segment_end,
             )
             if parent_id == right:
-                previous = _hploc_atomic_exchange(
+                previous = _hploc_arrive_parent(
                     parent_slots.unsafe_ptr().unsafe_offset(right),
                     UInt32(left),
                 )
@@ -291,7 +328,7 @@ def build_hploc_multi_wave_kernel[
                     split = right + 1
                     right = Int(previous)
             else:
-                previous = _hploc_atomic_exchange(
+                previous = _hploc_arrive_parent(
                     parent_slots.unsafe_ptr().unsafe_offset(left - 1),
                     UInt32(right),
                 )
@@ -365,7 +402,7 @@ def build_hploc_multi_wave_kernel[
                 node_indices_cache[unsafe_offset=shared_lane] = cluster_idx
                 store_cached_bounds(
                     shared_lane,
-                    _hploc_cluster_bounds(
+                    _hploc_cluster_bounds[cache_leaf_bounds](
                         cluster_idx,
                         leaf_bounds,
                         sorted_leaf_ids,
@@ -553,7 +590,7 @@ def build_hploc_multi_wave_kernel[
 
                 var allocation_base = UInt32(0)
                 if lane == 0:
-                    allocation_base = Atomic.fetch_add[
+                    allocation_base = AtomicU32.fetch_add[
                         ordering=Ordering.RELAXED
                     ](
                         node_counter.unsafe_ptr().unsafe_offset(task_segment),
@@ -607,13 +644,14 @@ def build_hploc_multi_wave_kernel[
                             node_bounds, bounds_base + AABB.STRIDE
                         )
                         node_flags.unsafe_get(Int(node_idx)) = UInt32(2)
-                    node_leaf_counts.unsafe_get(
-                        Int(node_idx)
-                    ) = _hploc_cluster_leaf_count(
-                        cluster_idx, node_leaf_counts
-                    ) + _hploc_cluster_leaf_count(
-                        neighbor_idx, node_leaf_counts
-                    )
+                    comptime if compute_leaf_counts:
+                        node_leaf_counts.unsafe_get(
+                            Int(node_idx)
+                        ) = _hploc_cluster_leaf_count(
+                            cluster_idx, node_leaf_counts
+                        ) + _hploc_cluster_leaf_count(
+                            neighbor_idx, node_leaf_counts
+                        )
                     comptime if not compact_output:
                         _hploc_set_child_parent(
                             cluster_idx, node_idx, node_meta, leaf_parent
@@ -648,9 +686,9 @@ def build_hploc_multi_wave_kernel[
             if lane < previous_count:
                 cluster_indices.unsafe_get(task_left + lane) = cluster_idx
 
-            # Equivalent to the paper implementation's __threadfence before
-            # a task owner advertises this completed child at its next parent.
-            fence[ordering=Ordering.SEQUENTIAL]()
+            # Publish completed cluster data to other blocks on this device
+            # before the task owner advertises it at its next parent.
+            fence[ordering=Ordering.SEQUENTIAL, scope=atomic_scope]()
 
             if task_final and lane == 0:
                 root.unsafe_get(task_segment) = cluster_idx
@@ -691,8 +729,16 @@ struct GpuHplocBuildState[
     compact_output: Bool = False,
     single_segment: Bool = False,
     pair_once_search: Bool = True,
+    compute_leaf_counts: Bool = True,
+    cache_leaf_bounds: Bool = compact_output and not compute_leaf_counts,
 ]:
-    """Scratch and completion state for a direct production-layout build."""
+    """Scratch and completion state for a direct production-layout build.
+
+    Compact consumers with single-primitive leaves may omit subtree leaf
+    counts. Full binary output and consumers forming larger leaves need them.
+    Compact single-triangle builds also cache Morton-ordered leaf AABBs for
+    collapse. Fat-leaf consumers can explicitly request that cache.
+    """
 
     var leaf_count: Int
     var internal_count: Int
@@ -700,6 +746,7 @@ struct GpuHplocBuildState[
     var internal_segments: SegmentOffsets
     var segment_offsets: DeviceBuffer[.uint32]
     var internal_segment_offsets: DeviceBuffer[.uint32]
+    # Internal AABBs, then Morton-ordered leaves when caching is enabled.
     var scratch_bounds: DeviceBuffer[.float32]
     var compact_children: DeviceBuffer[.uint32]
     var parent_slots: DeviceBuffer[.uint32]
@@ -760,6 +807,7 @@ struct GpuHplocBuildState[
         node_flags: DeviceBuffer[.uint32],
         node_leaf_counts: DeviceBuffer[.uint32],
     ) raises:
+        comptime assert not Self.cache_leaf_bounds or Self.compact_output
         self.leaf_count = len(sorted_leaf_ids)
         self.segments = segments.copy()
         self.internal_segments = internal_segments.copy()
@@ -794,18 +842,25 @@ struct GpuHplocBuildState[
             raise "H-PLOC threshold must be in 1..WARP_SIZE/2"
 
         var internal_capacity = max(self.internal_count, 1)
-        if (
-            len(node_meta) < internal_capacity * BinaryBvhNode.META_STRIDE
-            or len(leaf_parent) < self.leaf_count
-            or len(node_bounds)
-            < internal_capacity * BinaryBvhNode.BOUNDS_STRIDE
-            or len(node_flags) < internal_capacity
-            or len(node_leaf_counts) < internal_capacity
-        ):
-            raise "multi-wave H-PLOC production output is too short"
+        comptime if not Self.compact_output:
+            if (
+                len(node_meta) < internal_capacity * BinaryBvhNode.META_STRIDE
+                or len(leaf_parent) < self.leaf_count
+                or len(node_bounds)
+                < internal_capacity * BinaryBvhNode.BOUNDS_STRIDE
+                or len(node_flags) < internal_capacity
+            ):
+                raise "multi-wave H-PLOC production output is too short"
+        comptime if Self.compute_leaf_counts:
+            if len(node_leaf_counts) < internal_capacity:
+                raise "multi-wave H-PLOC leaf counts output is too short"
 
         self.scratch_bounds = ctx.enqueue_create_buffer[.float32](
-            internal_capacity * AABB.STRIDE
+            (
+                internal_capacity
+                + (self.leaf_count if Self.cache_leaf_bounds else 0)
+            )
+            * AABB.STRIDE
         )
         self.compact_children = ctx.enqueue_create_buffer[.uint32](
             internal_capacity * 2 if Self.compact_output else 1
@@ -860,8 +915,14 @@ struct GpuHplocBuildState[
             max(self.leaf_count, self.segments.segment_count()),
             HPLOC_MULTI_WAVE_BLOCK_SIZE,
         )
-        ctx.enqueue_function[init_hploc_multi_wave_kernel](
+        ctx.enqueue_function[
+            init_hploc_multi_wave_kernel[
+                not Self.compact_output, Self.cache_leaf_bounds
+            ]
+        ](
             _device_span[mut=False](sorted_leaf_ids),
+            _device_span[mut=False](leaf_bounds),
+            _device_span[mut=True](self.scratch_bounds),
             _device_span[mut=False](self.segment_offsets),
             _device_span[mut=True](self.parent_slots),
             _device_span[mut=True](self.cluster_indices),
@@ -881,6 +942,8 @@ struct GpuHplocBuildState[
                 Self.compact_output,
                 Self.single_segment,
                 Self.pair_once_search,
+                Self.compute_leaf_counts,
+                Self.cache_leaf_bounds,
             ]
         ](
             _device_span[mut=False](sorted_morton_codes),

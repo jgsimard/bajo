@@ -103,34 +103,14 @@ def _pack_built_triangle_blas[
         )
 
     def pack_leaf(block_idx: Int) {imm}:
-        if len(bvh.packed_leaf_blocks) > 0:
-            var block_stride = leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
-            unsafe_memcpy(
-                dest=leaves.unsafe_offset(
-                    leaf_f32_base + block_idx * block_stride
-                ),
-                src=bvh.packed_leaf_blocks.unsafe_ptr().unsafe_offset(
-                    block_idx * block_stride
-                ),
-                count=block_stride,
-            )
-            return
-        ref block = bvh.leaf_blocks[block_idx]
-        var out = (
-            leaf_f32_base + block_idx * leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
+        var block_stride = leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
+        unsafe_memcpy(
+            dest=leaves.unsafe_offset(leaf_f32_base + block_idx * block_stride),
+            src=bvh.packed_leaf_blocks.unsafe_ptr().unsafe_offset(
+                block_idx * block_stride
+            ),
+            count=block_stride,
         )
-        leaves.unsafe_store[width=leaf_width](out + 0 * leaf_width, block.v0.x)
-        leaves.unsafe_store[width=leaf_width](out + 1 * leaf_width, block.v0.y)
-        leaves.unsafe_store[width=leaf_width](out + 2 * leaf_width, block.v0.z)
-        leaves.unsafe_bitcast[UInt32]().unsafe_store[width=leaf_width](
-            out + 3 * leaf_width, block.prim_indices
-        )
-        leaves.unsafe_store[width=leaf_width](out + 4 * leaf_width, block.e1.x)
-        leaves.unsafe_store[width=leaf_width](out + 5 * leaf_width, block.e1.y)
-        leaves.unsafe_store[width=leaf_width](out + 6 * leaf_width, block.e1.z)
-        leaves.unsafe_store[width=leaf_width](out + 7 * leaf_width, block.e2.x)
-        leaves.unsafe_store[width=leaf_width](out + 8 * leaf_width, block.e2.y)
-        leaves.unsafe_store[width=leaf_width](out + 9 * leaf_width, block.e2.z)
 
     var node_count = len(bvh.tree.nodes)
     var leaf_count = bvh.leaf_block_count()
@@ -232,49 +212,26 @@ def _build_single_triangle_blas[
     var exact_node_count = (
         len(bvh.tree.nodes) * node_width * WideNode.CHILD_STRIDE
     )
-    var exact_leaf_count = (
-        bvh.leaf_block_count() * leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
-    )
     var nodes = List[Float32](capacity=exact_node_count)
-    var leaves: List[Float32]
     nodes.resize(unsafe_uninit_length=exact_node_count)
-    if len(bvh.packed_leaf_blocks) > 0:
-        var unused_leaf = List[Float32](length=1, fill=0.0)
-        _pack_built_triangle_blas[
-            frame,
-            node_width,
-            leaf_width,
-            hploc_microleaf_size,
-            use_dp_collapse,
-            copy_leaves=False,
-        ](
-            bvh,
-            descs.unsafe_ptr(),
-            nodes.unsafe_ptr(),
-            unused_leaf.unsafe_ptr(),
-            0,
-            0,
-            0,
-        )
-        leaves = bvh.take_packed_leaf_blocks()
-    else:
-        leaves = List[Float32](capacity=exact_leaf_count)
-        leaves.resize(unsafe_uninit_length=exact_leaf_count)
-        _pack_built_triangle_blas[
-            frame,
-            node_width,
-            leaf_width,
-            hploc_microleaf_size,
-            use_dp_collapse,
-        ](
-            bvh,
-            descs.unsafe_ptr(),
-            nodes.unsafe_ptr(),
-            leaves.unsafe_ptr(),
-            0,
-            0,
-            0,
-        )
+    var unused_leaf = List[Float32]()
+    _pack_built_triangle_blas[
+        frame,
+        node_width,
+        leaf_width,
+        hploc_microleaf_size,
+        use_dp_collapse,
+        copy_leaves=False,
+    ](
+        bvh,
+        descs.unsafe_ptr(),
+        nodes.unsafe_ptr(),
+        unused_leaf.unsafe_ptr(),
+        0,
+        0,
+        0,
+    )
+    var leaves = bvh.take_packed_leaf_blocks()
     return CpuBlasSet[.TRIANGLE, node_width, leaf_width](
         descs^, nodes^, leaves^, 1
     )
@@ -326,8 +283,25 @@ def _build_exact_triangle_blas_batch[
     if allow_across_blas_parallelism:
         parallelize(build_one, len(vertex_sets))
     else:
+        # Large BLASes already use internal parallelism. Build those first,
+        # then distribute the remaining disjoint small builds across workers.
+        var small_blases = List[Int](capacity=len(vertex_sets))
         for blas_idx in range(len(vertex_sets)):
-            build_one(blas_idx)
+            if (
+                len(vertex_sets[blas_idx]) // 3
+                >= PARALLEL_TRIANGLE_BUILD_MIN_ITEMS
+            ):
+                build_one(blas_idx)
+            else:
+                small_blases.append(blas_idx)
+
+        def build_small(task_idx: Int) {imm, mut build_one}:
+            build_one(small_blases[task_idx])
+
+        if len(small_blases) > 1:
+            parallelize(build_small, len(small_blases))
+        elif len(small_blases) == 1:
+            build_one(small_blases[0])
 
     return _assemble_exact_blases[.TRIANGLE, node_width, leaf_width](built)
 

@@ -419,5 +419,77 @@ def test_tlas_sphere_shadow_cases() raises:
     )
 
 
+def test_parallel_tlas_refit_matches_serial() raises:
+    var bounds = AABB[.LOCAL](Point3f32[.LOCAL](-1.0), Point3f32[.LOCAL](1.0))
+    var initial = List[Instance](capacity=32768)
+    var moved = List[Instance](capacity=32768)
+    for i in range(32768):
+        initial.append(
+            _instance(
+                .TRIANGLE,
+                0,
+                bounds,
+                Float32(i % 256) * 4.0,
+                Float32(i // 256) * 4.0,
+            )
+        )
+        moved.append(
+            _instance(
+                .TRIANGLE,
+                UInt32(i % 3),
+                bounds,
+                Float32(i % 256) * 7.0 + 100.0,
+                Float32(i // 256) * 5.0,
+            )
+        )
+    moved[32767] = Instance(
+        Affine3f32[.LOCAL, .WORLD].from_scale(Vec3f32[.LOCAL](2.0, 3.0, 4.0)),
+        0,
+        bounds,
+        .TRIANGLE,
+    )
+    comptime for width in [2, 4, 16]:
+        var actual = CpuTlas[width, 1](initial)
+        var expected = CpuTlas[width, 1](initial)
+        actual.refit[True](moved)
+        expected.refit[False](moved)
+        assert_true(not actual.all_translation_only)
+        for i in range(len(actual.hot_instances)):
+            assert_true(
+                actual.hot_instances[i].blas_idx
+                == expected.hot_instances[i].blas_idx
+            )
+            assert_true(
+                actual.hot_instances[i].translation_only
+                == expected.hot_instances[i].translation_only
+            )
+        for i in range(len(actual.tree.nodes)):
+            comptime for lane in range(width):
+                assert_almost_equal(
+                    actual.tree.nodes[i].aabb._min.x[lane],
+                    expected.tree.nodes[i].aabb._min.x[lane],
+                )
+                assert_almost_equal(
+                    actual.tree.nodes[i].aabb._min.y[lane],
+                    expected.tree.nodes[i].aabb._min.y[lane],
+                )
+                assert_almost_equal(
+                    actual.tree.nodes[i].aabb._min.z[lane],
+                    expected.tree.nodes[i].aabb._min.z[lane],
+                )
+                assert_almost_equal(
+                    actual.tree.nodes[i].aabb._max.x[lane],
+                    expected.tree.nodes[i].aabb._max.x[lane],
+                )
+                assert_almost_equal(
+                    actual.tree.nodes[i].aabb._max.y[lane],
+                    expected.tree.nodes[i].aabb._max.y[lane],
+                )
+                assert_almost_equal(
+                    actual.tree.nodes[i].aabb._max.z[lane],
+                    expected.tree.nodes[i].aabb._max.z[lane],
+                )
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

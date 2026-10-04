@@ -1,7 +1,7 @@
 from max.algorithm import parallelize
 from std.math import clamp
 
-from bajo.core import AABB, Frame
+from bajo.core import AABB, Frame, Vec3
 from bajo.bvh.constants import f32_max
 from .types import BoundsItem, BoundsBvhNode
 
@@ -57,55 +57,16 @@ struct BoundsBin[frame: Frame](TrivialRegisterPassable):
         self.item_count = 0
 
 
-def _find_sah_split[
+def _choose_sah_split[
     frame: Frame, BVH_BINS: Int
 ](
-    node: BoundsBvhNode,
+    bins: Array[BoundsBin[frame], 3 * BVH_BINS],
     centroid_bounds: AABB[frame],
-    indices: ImmSpan[UInt32, _],
-    items: ImmSpan[BoundsItem[frame], _],
+    bin_scale: Vec3[.float32, frame],
 ) -> BoundsSplitResult[frame]:
     var best = BoundsSplitResult[frame]()
-    var first = Int(node.first_item())
-    var count = Int(node.item_count)
-    debug_assert["safe", _use_compiler_assume=True](
-        first >= 0
-        and count > 0
-        and first <= len(indices)
-        and count <= len(indices) - first,
-        "SAH node range is outside item indices",
-    )
-    debug_assert["safe", _use_compiler_assume=True](
-        len(indices) == len(items),
-        "BVH item indices and items have different lengths",
-    )
-
     var bin_min = centroid_bounds._min
     var centroid_extent = centroid_bounds.extent()
-    var bin_scale = centroid_extent
-    comptime for axis in range(3):
-        if centroid_extent[axis] > 0.0:
-            bin_scale.set_axis[axis](Float32(BVH_BINS) / centroid_extent[axis])
-        else:
-            bin_scale.set_axis[axis](0.0)
-    var bins = Array[BoundsBin[frame], 3 * BVH_BINS](fill=BoundsBin[frame]())
-
-    # Bin all three axes in one primitive-range pass.
-    var node_indices = indices[first : first + count]
-    for item_idx_u32 in node_indices:
-        var item_idx = Int(item_idx_u32)
-        ref item = items.unsafe_get(item_idx)
-        var centroid = item.centroid
-
-        comptime for axis in range(3):
-            if centroid_extent[axis] > 0.0:
-                var b_idx = _centroid_bin[BVH_BINS](
-                    centroid[axis], bin_min[axis], bin_scale[axis]
-                )
-                var flat_idx = axis * BVH_BINS + b_idx
-                bins[flat_idx].item_count += 1
-                item.grow_into(bins[flat_idx].bounds)
-
     # Prefix/suffix evaluation is constant-sized and performs no primitive
     # range scans.
     comptime for axis in range(3):
@@ -159,6 +120,57 @@ def _find_sah_split[
                 best.right_bounds = right_box
 
     return best^
+
+
+def _find_sah_split[
+    frame: Frame, BVH_BINS: Int
+](
+    node: BoundsBvhNode,
+    centroid_bounds: AABB[frame],
+    indices: ImmSpan[UInt32, _],
+    items: ImmSpan[BoundsItem[frame], _],
+) -> BoundsSplitResult[frame]:
+    var first = Int(node.first_item())
+    var count = Int(node.item_count)
+    debug_assert["safe", _use_compiler_assume=True](
+        first >= 0
+        and count > 0
+        and first <= len(indices)
+        and count <= len(indices) - first,
+        "SAH node range is outside item indices",
+    )
+    debug_assert["safe", _use_compiler_assume=True](
+        len(indices) == len(items),
+        "BVH item indices and items have different lengths",
+    )
+
+    var bin_min = centroid_bounds._min
+    var centroid_extent = centroid_bounds.extent()
+    var bin_scale = centroid_extent
+    comptime for axis in range(3):
+        if centroid_extent[axis] > 0.0:
+            bin_scale.set_axis[axis](Float32(BVH_BINS) / centroid_extent[axis])
+        else:
+            bin_scale.set_axis[axis](0.0)
+    var bins = Array[BoundsBin[frame], 3 * BVH_BINS](fill=BoundsBin[frame]())
+
+    # Bin all three axes in one primitive-range pass.
+    var node_indices = indices[first : first + count]
+    for item_idx_u32 in node_indices:
+        var item_idx = Int(item_idx_u32)
+        ref item = items.unsafe_get(item_idx)
+        var centroid = item.centroid
+
+        comptime for axis in range(3):
+            if centroid_extent[axis] > 0.0:
+                var b_idx = _centroid_bin[BVH_BINS](
+                    centroid[axis], bin_min[axis], bin_scale[axis]
+                )
+                var flat_idx = axis * BVH_BINS + b_idx
+                bins[flat_idx].item_count += 1
+                item.grow_into(bins[flat_idx].bounds)
+
+    return _choose_sah_split[frame, BVH_BINS](bins, centroid_bounds, bin_scale)
 
 
 def _find_sah_split_parallel[
@@ -218,48 +230,7 @@ def _find_sah_split_parallel[
             bins[flat_idx].item_count += partial.item_count
             bins[flat_idx].bounds.grow(partial.bounds)
 
-    var best = BoundsSplitResult[frame]()
-    comptime for axis in range(3):
-        if centroid_extent[axis] == 0.0:
-            continue
-        var axis_base = axis * BVH_BINS
-        var left_prefix = Array[BoundsBin[frame], BVH_BINS](
-            fill=BoundsBin[frame]()
-        )
-        var left_box = AABB[frame].invalid()
-        var left_count = UInt32(0)
-        for i in range(BVH_BINS - 1):
-            ref bin = bins[axis_base + i]
-            left_count += bin.item_count
-            left_box.grow(bin.bounds)
-            left_prefix[i].item_count = left_count
-            left_prefix[i].bounds = left_box
-
-        var right_box = AABB[frame].invalid()
-        var right_count = UInt32(0)
-        for i in range(BVH_BINS - 1, 0, -1):
-            ref bin = bins[axis_base + i]
-            right_count += bin.item_count
-            right_box.grow(bin.bounds)
-            var split_bin = i - 1
-            var left = left_prefix[split_bin]
-            if left.item_count == 0 or right_count == 0:
-                continue
-            var cost = left.bounds.surface_area()[0] * Float32(
-                left.item_count
-            ) + right_box.surface_area()[0] * Float32(right_count)
-            if cost < best.cost:
-                best.axis = axis
-                best.bin = split_bin
-                best.cost = cost
-                best.pos = (
-                    bin_min[axis] + Float32(split_bin + 1) / bin_scale[axis]
-                )
-                best.bin_min = bin_min[axis]
-                best.bin_scale = bin_scale[axis]
-                best.left_bounds = left.bounds
-                best.right_bounds = right_box
-    return best^
+    return _choose_sah_split[frame, BVH_BINS](bins, centroid_bounds, bin_scale)
 
 
 def _centroid_bin[
@@ -374,10 +345,10 @@ def _partition_items_by_bin_parallel[
     right_bounds: AABB[frame] = AABB[frame].invalid(),
 ) -> BoundsPartitionResult[frame]:
     """Parallel out-of-place partition for a large top-level SAH range."""
-    var left_items = List[UInt32](capacity=count)
-    var right_items = List[UInt32](capacity=count)
-    left_items.resize(unsafe_uninit_length=count)
-    right_items.resize(unsafe_uninit_length=count)
+    # Each worker fills its disjoint chunk from both ends. Reverse the right
+    # reads during scatter to retain the original stable partition order.
+    var scratch = List[UInt32](capacity=count)
+    scratch.resize(unsafe_uninit_length=count)
     var left_counts = [Int(0) for _ in range(worker_count)]
     var right_counts = [Int(0) for _ in range(worker_count)]
     var partials = [
@@ -386,14 +357,7 @@ def _partition_items_by_bin_parallel[
 
     def classify_worker(
         task_idx: Int,
-    ) {
-        imm,
-        mut left_items,
-        mut right_items,
-        mut left_counts,
-        mut right_counts,
-        mut partials,
-    }:
+    ) {imm, mut scratch, mut left_counts, mut right_counts, mut partials,}:
         var chunk_first = count * task_idx // worker_count
         var chunk_end = count * (task_idx + 1) // worker_count
         var left_count = 0
@@ -407,7 +371,7 @@ def _partition_items_by_bin_parallel[
                 item.centroid[axis] - bin_min
             ) * bin_scale < Float32(split_bin + 1)
             if goes_left:
-                left_items[chunk_first + left_count] = item_idx_u32
+                scratch[chunk_first + left_count] = item_idx_u32
                 left_count += 1
                 comptime if use_precomputed_bounds:
                     partial.left_centroid_bounds.grow(item.centroid)
@@ -418,7 +382,7 @@ def _partition_items_by_bin_parallel[
                         partial.left_centroid_bounds,
                     )
             else:
-                right_items[chunk_first + right_count] = item_idx_u32
+                scratch[chunk_end - 1 - right_count] = item_idx_u32
                 right_count += 1
                 comptime if use_precomputed_bounds:
                     partial.right_centroid_bounds.grow(item.centroid)
@@ -465,15 +429,14 @@ def _partition_items_by_bin_parallel[
 
     def copy_worker(task_idx: Int) {imm}:
         var chunk_first = count * task_idx // worker_count
+        var chunk_end = count * (task_idx + 1) // worker_count
         var left_out = first + left_offsets[task_idx]
         var right_out = first + total_left + right_offsets[task_idx]
         for i in range(left_counts[task_idx]):
-            indices_ptr[unsafe_offset=left_out + i] = left_items[
-                chunk_first + i
-            ]
+            indices_ptr[unsafe_offset=left_out + i] = scratch[chunk_first + i]
         for i in range(right_counts[task_idx]):
-            indices_ptr[unsafe_offset=right_out + i] = right_items[
-                chunk_first + i
+            indices_ptr[unsafe_offset=right_out + i] = scratch[
+                chunk_end - 1 - i
             ]
 
     parallelize(copy_worker, worker_count, worker_count)

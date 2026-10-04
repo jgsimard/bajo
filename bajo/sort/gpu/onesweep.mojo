@@ -12,7 +12,7 @@ from max.gpu.memory import AddressSpace
 from max.gpu.primitives import warp
 from max.gpu.primitives import block
 from max.gpu.sync import barrier
-from std.math import ceildiv
+from std.math import ceildiv, max
 from std.memory import stack_allocation, bitcast
 from std.sys.info import bit_width_of
 
@@ -26,6 +26,23 @@ comptime FLAG_NOT_READY = 0
 comptime FLAG_REDUCTION = 1
 comptime FLAG_INCLUSIVE = 2
 comptime FLAG_MASK = 3
+
+
+def init_onesweep_workspace[
+    NUM_PASSES: Int, BLOCK_SIZE: Int
+](
+    global_hist: Pointer[UInt32, MutAnyOrigin],
+    pass_hist: Pointer[UInt32, MutAnyOrigin],
+    index: Pointer[UInt32, MutAnyOrigin],
+    pass_hist_size: Int32,
+):
+    var idx = block_idx.x * BLOCK_SIZE + thread_idx.x
+    if idx < Int(pass_hist_size):
+        pass_hist[unsafe_offset=idx] = 0
+    if idx < NUM_PASSES * 256:
+        global_hist[unsafe_offset=idx] = 0
+    if idx < NUM_PASSES:
+        index[unsafe_offset=idx] = 0
 
 
 def global_histogram[
@@ -75,7 +92,7 @@ def global_histogram[
                 )
 
     var block_start = bid * PART_SIZE
-    if bid < gdim - 1:
+    if block_start + PART_SIZE <= size_int:
         for i in range(
             block_start + tid * VEC_WIDTH,
             block_start + PART_SIZE,
@@ -145,9 +162,21 @@ def digit_binning[
     comptime TOTAL_WARP_HISTS_SIZE = NUM_WARPS * RADIX
     comptime BIN_PART_SIZE = BLOCK_SIZE * KEYS_PER_THREAD
 
-    var s_warp_histograms = stack_allocation[
-        BIN_PART_SIZE, UInt32, address_space=AddressSpace.SHARED
+    # Histogram, key staging, and payload staging reuse the same storage.
+    # Preserve the full scalar width instead of narrowing through UInt32.
+    comptime STORAGE_BYTES = max(
+        TOTAL_WARP_HISTS_SIZE * 4,
+        max(
+            BIN_PART_SIZE * (bit_width_of[keys_dtype]() / 8),
+            BIN_PART_SIZE * (bit_width_of[vals_dtype]() / 8),
+        ),
+    )
+    var s_storage = stack_allocation[
+        ceildiv(STORAGE_BYTES, 8), UInt64, address_space=AddressSpace.SHARED
     ]()
+    var s_warp_histograms = s_storage.unsafe_bitcast[UInt32]()
+    var s_keys = s_storage.unsafe_bitcast[Scalar[keys_dtype]]()
+    var s_values = s_storage.unsafe_bitcast[Scalar[vals_dtype]]()
     var s_local_histogram = stack_allocation[
         RADIX, UInt32, address_space=AddressSpace.SHARED
     ]()
@@ -178,7 +207,7 @@ def digit_binning[
     var BIN_SUB_PART_START = wid * WARP_PART_SIZE
     var BIN_PART_START = partition_index * PART_SIZE
     var t_base = lid + BIN_SUB_PART_START + BIN_PART_START
-    var full_partition = partition_index < gdim - 1
+    var full_partition = BIN_PART_START + PART_SIZE <= size_int
     var keys = Array[Scalar[keys_dtype], KEYS_PER_THREAD](
         fill_with=lambda (i: Int) -> Scalar[keys_dtype]: keys_current[
             unsafe_offset=t_base + i * WARP_SIZE
@@ -236,7 +265,7 @@ def digit_binning[
 
     # Scatter keys into shared memory
     comptime for i in range(KEYS_PER_THREAD):
-        s_warp_histograms[unsafe_offset=Int(offsets[i])] = UInt32(keys[i])
+        s_keys[unsafe_offset=Int(offsets[i])] = keys[i]
 
     # Decoupled Look-back (Spin Loop)
     if tid < RADIX:
@@ -285,13 +314,13 @@ def digit_binning[
         comptime for i in range(KEYS_PER_THREAD):
             var t_idx = tid + i * BLOCK_SIZE
             if t_idx < part_size:
-                var key = s_warp_histograms[unsafe_offset=t_idx]
-                var d = (key >> radix_shift) & UInt32(RADIX_MASK)
+                var key = s_keys[unsafe_offset=t_idx]
+                var d = (key >> Scalar[keys_dtype](radix_shift)) & RADIX_MASK
                 digits[i] = d.cast[.uint8]()
                 keys_alternate[
                     unsafe_offset=s_local_histogram[unsafe_offset=Int(d)]
                     + UInt32(t_idx)
-                ] = Scalar[keys_dtype](key)
+                ] = key
         barrier()
 
         var t_payload = t_base
@@ -303,7 +332,7 @@ def digit_binning[
             t_payload += WARP_SIZE
 
         comptime for i in range(KEYS_PER_THREAD):
-            s_warp_histograms[unsafe_offset=Int(offsets[i])] = UInt32(vals[i])
+            s_values[unsafe_offset=Int(offsets[i])] = vals[i]
         barrier()
 
         comptime for i in range(KEYS_PER_THREAD):
@@ -313,13 +342,15 @@ def digit_binning[
                 vals_alternate[
                     unsafe_offset=s_local_histogram[unsafe_offset=d]
                     + UInt32(t_idx)
-                ] = Scalar[vals_dtype](s_warp_histograms[unsafe_offset=t_idx])
+                ] = s_values[unsafe_offset=t_idx]
     else:
         for i in range(tid, part_size, BLOCK_SIZE):
-            var key = s_warp_histograms[unsafe_offset=i]
-            var digit = Int((key >> radix_shift) & UInt32(RADIX_MASK))
+            var key = s_keys[unsafe_offset=i]
+            var digit = Int(
+                (key >> Scalar[keys_dtype](radix_shift)) & RADIX_MASK
+            )
             var dst = s_local_histogram[unsafe_offset=digit] + UInt32(i)
-            keys_alternate[unsafe_offset=dst] = Scalar[keys_dtype](key)
+            keys_alternate[unsafe_offset=dst] = key
 
 
 struct OneSweepWorkspace[
@@ -367,6 +398,8 @@ def onesweep_radix_sort_keys[
     mut keys: DeviceBuffer[keys_dtype],
     size: Int,
 ) raises:
+    if size <= 1:
+        return
     comptime BITS_PER_PASS = 8
     comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
     comptime RADIX = 2**BITS_PER_PASS
@@ -380,9 +413,17 @@ def onesweep_radix_sort_keys[
     var hist_blocks = binning_blocks + 1
     var g_hist_blocks = ceildiv(size, G_HIST_PART_SIZE)
 
-    workspace.index.enqueue_fill(0)
-    workspace.global_hist.enqueue_fill(0)
-    workspace.pass_hist.enqueue_fill(0)
+    # Reset all three arrays with one dispatch instead of three fills.
+    ctx.enqueue_function[init_onesweep_workspace[NUM_PASSES, 256]](
+        workspace.global_hist,
+        workspace.pass_hist,
+        workspace.index,
+        Int32(len(workspace.pass_hist)),
+        grid_dim=ceildiv(
+            max(len(workspace.pass_hist), NUM_PASSES * RADIX), 256
+        ),
+        block_dim=256,
+    )
 
     var db_keys = DoubleBuffer(
         keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
@@ -464,6 +505,8 @@ def onesweep_radix_sort_pairs[
     mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
+    if size <= 1:
+        return
     comptime BITS_PER_PASS = 8
     comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
     comptime RADIX = 2**BITS_PER_PASS
@@ -477,9 +520,17 @@ def onesweep_radix_sort_pairs[
     var hist_blocks = binning_blocks + 1
     var g_hist_blocks = ceildiv(size, G_HIST_PART_SIZE)
 
-    workspace.index.enqueue_fill(0)
-    workspace.global_hist.enqueue_fill(0)
-    workspace.pass_hist.enqueue_fill(0)
+    # Reset all three arrays with one dispatch instead of three fills.
+    ctx.enqueue_function[init_onesweep_workspace[NUM_PASSES, 256]](
+        workspace.global_hist,
+        workspace.pass_hist,
+        workspace.index,
+        Int32(len(workspace.pass_hist)),
+        grid_dim=ceildiv(
+            max(len(workspace.pass_hist), NUM_PASSES * RADIX), 256
+        ),
+        block_dim=256,
+    )
 
     var db_keys = DoubleBuffer(
         keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
@@ -554,8 +605,13 @@ def onesweep_radix_sort_pairs[
     mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
+    if size <= 1:
+        return
     comptime BLOCK_SIZE = 512
-    comptime KEYS_PER_THREAD = 15
+    # Keep wide-key/payload staging within the same shared-memory budget.
+    comptime KEYS_PER_THREAD = 15 if bit_width_of[
+        keys_dtype
+    ]() <= 32 and bit_width_of[vals_dtype]() <= 32 else 9
     var workspace = OneSweepWorkspace[
         keys_dtype,
         vals_dtype,

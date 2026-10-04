@@ -21,6 +21,8 @@ def enqueue_binary_bvh_with_hploc(
     mut workspace: GpuBinaryBuildWorkspace,
 ) raises -> GpuHplocBuildState[]:
     """Queue H-PLOC without synchronizing or reading completion status."""
+    if workspace.compact_output:
+        raise "full H-PLOC requires a full binary output workspace"
     ref topology = workspace.topology.value()
     enqueue_segmented_morton_codes(ctx, binary, workspace)
     enqueue_segmented_morton_sort(ctx, binary, workspace)

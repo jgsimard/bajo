@@ -70,7 +70,7 @@ def upsweep[
             )
 
     var block_start = bid * PART_SIZE
-    if bid < gdim - 1:
+    if block_start + PART_SIZE <= size_int:
         for i in range(
             block_start + (tid * VEC_WIDTH),
             block_start + PART_SIZE,
@@ -142,6 +142,9 @@ def scan[
         pass_hist[unsafe_offset=i + digit_offset] = exclusive + reduction
         reduction += tile_total
         i += BLOCK_SIZE
+
+    if partitions_end == thread_blocks_int:
+        return
 
     # tail
     var val_tail: UInt32 = 0
@@ -217,7 +220,7 @@ def downsweep[
     var BIN_SUB_PART_START = wid * WARP_PART_SIZE
     var BIN_PART_START = bid * PART_SIZE
     var t_base = lid + BIN_SUB_PART_START + BIN_PART_START
-    var full_partition = bid < gdim - 1
+    var full_partition = BIN_PART_START + PART_SIZE <= size_int
     var keys = Array[Scalar[keys_dtype], KEYS_PER_THREAD](
         fill_with=lambda (i: Int) -> Scalar[keys_dtype]: keys_current[
             unsafe_offset=t_base + i * WARP_SIZE
@@ -301,7 +304,7 @@ def downsweep[
             uninitialized=True
         )
         var digits = Array[UInt8, KEYS_PER_THREAD](uninitialized=True)
-        if bid < gdim - 1:
+        if full_partition:
             comptime for i in range(KEYS_PER_THREAD):
                 var t = tid + (i * BLOCK_SIZE)
                 var key = s_keys[unsafe_offset=t]
@@ -388,9 +391,61 @@ def downsweep[
             keys_alternate[unsafe_offset=dst] = key
 
 
+struct RadixSortWorkspace[
+    keys_dtype: DType,
+    vals_dtype: DType,
+    BITS_PER_PASS: Int = 8,
+    KEYS_PER_THREAD: Int = 9,
+]:
+    var keys_alternate: DeviceBuffer[Self.keys_dtype]
+    var vals_alternate: DeviceBuffer[Self.vals_dtype]
+    var global_hist: DeviceBuffer[.uint32]
+    var pass_hist: DeviceBuffer[.uint32]
+
+    def __init__(
+        out self, ctx: DeviceContext, size: Int, with_values: Bool = True
+    ) raises:
+        """Allocate reusable sorting storage; omit payload scratch for keys only.
+        """
+        comptime NUM_PASSES = bit_width_of[
+            Self.keys_dtype
+        ]() / Self.BITS_PER_PASS
+        comptime RADIX = 2**Self.BITS_PER_PASS
+        comptime RADIX_MASK = RADIX - 1
+        comptime GLOBAL_HIST = NUM_PASSES * RADIX
+        comptime PART_SIZE = 512 * Self.KEYS_PER_THREAD  # = BLOCK_SIZE * KEYS_PER_THREAD = 512 * 8
+
+        var gdim = ceildiv(size, PART_SIZE)
+
+        self.keys_alternate = ctx.enqueue_create_buffer[Self.keys_dtype](size)
+        self.vals_alternate = ctx.enqueue_create_buffer[Self.vals_dtype](
+            size if with_values else 0
+        )
+
+        self.global_hist = ctx.enqueue_create_buffer[.uint32](GLOBAL_HIST)
+        self.pass_hist = ctx.enqueue_create_buffer[.uint32](gdim * RADIX)
+
+    def __init__(out self, other: Self):
+        """Create a shared-storage lease for a reusable build arena."""
+        self.keys_alternate = other.keys_alternate.copy()
+        self.vals_alternate = other.vals_alternate.copy()
+        self.global_hist = other.global_hist.copy()
+        self.pass_hist = other.pass_hist.copy()
+
+
 def device_radix_sort_keys[
     dtype: DType, BITS_PER_PASS: Int = 8, KEYS_PER_THREAD: Int = 9
-](ctx: DeviceContext, mut keys: DeviceBuffer[dtype], size: Int) raises:
+](
+    ctx: DeviceContext,
+    mut workspace: RadixSortWorkspace[
+        dtype, dtype, BITS_PER_PASS, KEYS_PER_THREAD
+    ],
+    mut keys: DeviceBuffer[dtype],
+    size: Int,
+) raises:
+    """Sort unsigned keys using a reusable workspace."""
+    if size <= 1:
+        return
     comptime NUM_PASSES = bit_width_of[dtype]() / BITS_PER_PASS
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = RADIX - 1
@@ -400,12 +455,12 @@ def device_radix_sort_keys[
 
     var gdim = ceildiv(size, PART_SIZE)
 
-    var keys_alternate = ctx.enqueue_create_buffer[dtype](size)
+    var db_keys = DoubleBuffer(
+        keys.unsafe_ptr(), workspace.keys_alternate.unsafe_ptr()
+    )
 
-    var db_keys = DoubleBuffer(keys.unsafe_ptr(), keys_alternate.unsafe_ptr())
-
-    var global_hist = ctx.enqueue_create_buffer[.uint32](GLOBAL_HIST)
-    var pass_hist = ctx.enqueue_create_buffer[.uint32](gdim * RADIX)
+    var global_hist = workspace.global_hist.copy()
+    var pass_hist = workspace.pass_hist.copy()
 
     comptime UPSWEEP_BLOC_SIZE = 256
     comptime SCAN_BLOCK_SIZE = 256
@@ -424,11 +479,9 @@ def device_radix_sort_keys[
     ]
     var _dummy_ptr = Optional[Pointer[Scalar[dtype], MutAnyOrigin]]()
 
+    global_hist.enqueue_fill(0)
     comptime for pass_idx in range(NUM_PASSES):
         var radix_shift = UInt32(pass_idx * BITS_PER_PASS)
-
-        # Reset global histogram for this pass
-        global_hist.enqueue_fill(0)
 
         # Upsweep (Global Histogram)
         ctx.enqueue_function[_upsweep](
@@ -442,12 +495,20 @@ def device_radix_sort_keys[
         )
 
         # Scan (Prefix Sum of partial histograms)
-        ctx.enqueue_function[_scan](
-            pass_hist.unsafe_ptr(),
-            Int32(gdim),
-            grid_dim=RADIX,
-            block_dim=SCAN_BLOCK_SIZE,
-        )
+        if gdim <= 64:
+            ctx.enqueue_function[scan[64]](
+                pass_hist.unsafe_ptr(),
+                Int32(gdim),
+                grid_dim=RADIX,
+                block_dim=64,
+            )
+        else:
+            ctx.enqueue_function[_scan](
+                pass_hist.unsafe_ptr(),
+                Int32(gdim),
+                grid_dim=RADIX,
+                block_dim=SCAN_BLOCK_SIZE,
+            )
 
         # Downsweep (Scatter keys only)
         ctx.enqueue_function[_downsweep_keys](
@@ -465,40 +526,15 @@ def device_radix_sort_keys[
         db_keys.swap()
 
 
-struct RadixSortWorkspace[
-    keys_dtype: DType,
-    vals_dtype: DType,
-    BITS_PER_PASS: Int = 8,
-    KEYS_PER_THREAD: Int = 9,
-]:
-    var keys_alternate: DeviceBuffer[Self.keys_dtype]
-    var vals_alternate: DeviceBuffer[Self.vals_dtype]
-    var global_hist: DeviceBuffer[.uint32]
-    var pass_hist: DeviceBuffer[.uint32]
-
-    def __init__(out self, ctx: DeviceContext, size: Int) raises:
-        comptime NUM_PASSES = bit_width_of[
-            Self.keys_dtype
-        ]() / Self.BITS_PER_PASS
-        comptime RADIX = 2**Self.BITS_PER_PASS
-        comptime RADIX_MASK = RADIX - 1
-        comptime GLOBAL_HIST = NUM_PASSES * RADIX
-        comptime PART_SIZE = 512 * Self.KEYS_PER_THREAD  # = BLOCK_SIZE * KEYS_PER_THREAD = 512 * 8
-
-        var gdim = ceildiv(size, PART_SIZE)
-
-        self.keys_alternate = ctx.enqueue_create_buffer[Self.keys_dtype](size)
-        self.vals_alternate = ctx.enqueue_create_buffer[Self.vals_dtype](size)
-
-        self.global_hist = ctx.enqueue_create_buffer[.uint32](GLOBAL_HIST)
-        self.pass_hist = ctx.enqueue_create_buffer[.uint32](gdim * RADIX)
-
-    def __init__(out self, other: Self):
-        """Create a shared-storage lease for a reusable build arena."""
-        self.keys_alternate = other.keys_alternate.copy()
-        self.vals_alternate = other.vals_alternate.copy()
-        self.global_hist = other.global_hist.copy()
-        self.pass_hist = other.pass_hist.copy()
+def device_radix_sort_keys[
+    dtype: DType, BITS_PER_PASS: Int = 8, KEYS_PER_THREAD: Int = 9
+](ctx: DeviceContext, mut keys: DeviceBuffer[dtype], size: Int) raises:
+    if size <= 1:
+        return
+    var workspace = RadixSortWorkspace[
+        dtype, dtype, BITS_PER_PASS, KEYS_PER_THREAD
+    ](ctx, size, with_values=False)
+    device_radix_sort_keys(ctx, workspace, keys, size)
 
 
 def device_radix_sort_pairs[
@@ -515,6 +551,12 @@ def device_radix_sort_pairs[
     mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
+    if size <= 1:
+        return
+    debug_assert["safe", _use_compiler_assume=True](
+        len(workspace.vals_alternate) >= size,
+        "pair sorting requires payload scratch in the workspace",
+    )
     comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = RADIX - 1
@@ -566,12 +608,17 @@ def device_radix_sort_pairs[
         )
 
         # 2. Scan (Prefix Sum of histograms)
-        ctx.enqueue_function[_scan](
-            pass_hist,
-            Int32(gdim),
-            grid_dim=RADIX,
-            block_dim=SCAN_BLOCK_SIZE,
-        )
+        if gdim <= 64:
+            ctx.enqueue_function[scan[64]](
+                pass_hist, Int32(gdim), grid_dim=RADIX, block_dim=64
+            )
+        else:
+            ctx.enqueue_function[_scan](
+                pass_hist,
+                Int32(gdim),
+                grid_dim=RADIX,
+                block_dim=SCAN_BLOCK_SIZE,
+            )
 
         # 3. Downsweep (Scatter)
         ctx.enqueue_function[_downsweep_pairs](
@@ -599,5 +646,7 @@ def device_radix_sort_pairs[
     mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
+    if size <= 1:
+        return
     var workspace = RadixSortWorkspace[keys_dtype, vals_dtype](ctx, size)
     device_radix_sort_pairs(ctx, workspace, keys, values, size)

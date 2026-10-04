@@ -731,71 +731,6 @@ def _finish_hploc_frontier_ancestors[
     cluster_indices: MutSpan[UInt32, _],
     first: Int,
     last: Int,
-    depth: Int,
-    frontier_counts: ImmSpan[Int, _],
-    mut frontier_cursor: Int,
-    mut stats: HplocStats,
-    mut next_node: List[UInt32],
-) -> Int:
-    if first == last or depth == 0:
-        var count = frontier_counts.unsafe_get(frontier_cursor)
-        frontier_cursor += 1
-        return count
-
-    var split = _lbvh_find_split(pairs, first, last)
-    var left_count = _finish_hploc_frontier_ancestors(
-        nodes,
-        pairs,
-        cluster_indices,
-        first,
-        split,
-        depth - 1,
-        frontier_counts,
-        frontier_cursor,
-        stats,
-        next_node,
-    )
-    var right_count = _finish_hploc_frontier_ancestors(
-        nodes,
-        pairs,
-        cluster_indices,
-        split + 1,
-        last,
-        depth - 1,
-        frontier_counts,
-        frontier_cursor,
-        stats,
-        next_node,
-    )
-
-    for i in range(right_count):
-        cluster_indices.unsafe_get(
-            first + left_count + i
-        ) = cluster_indices.unsafe_get(split + 1 + i)
-
-    var final = first == 0 and last == len(pairs) - 1
-    var threshold = 1 if final else HPLOC_MERGING_THRESHOLD
-    return _reduce_clusters[frame, False, False](
-        nodes,
-        cluster_indices,
-        first,
-        left_count + right_count,
-        threshold,
-        HPLOC_SEARCH_RADIUS,
-        final,
-        stats,
-        next_node,
-    )
-
-
-def _finish_hploc_count_balanced_ancestors[
-    frame: Frame
-](
-    mut nodes: List[HplocNode[frame]],
-    pairs: ImmSpan[MortonItem, _],
-    cluster_indices: MutSpan[UInt32, _],
-    first: Int,
-    last: Int,
     frontier: ImmSpan[_HplocFrontierTask, _],
     frontier_counts: ImmSpan[Int, _],
     mut frontier_cursor: Int,
@@ -809,7 +744,7 @@ def _finish_hploc_count_balanced_ancestors[
         return count
 
     var split = _lbvh_find_split(pairs, first, last)
-    var left_count = _finish_hploc_count_balanced_ancestors(
+    var left_count = _finish_hploc_frontier_ancestors(
         nodes,
         pairs,
         cluster_indices,
@@ -821,7 +756,7 @@ def _finish_hploc_count_balanced_ancestors[
         stats,
         next_node,
     )
-    var right_count = _finish_hploc_count_balanced_ancestors(
+    var right_count = _finish_hploc_frontier_ancestors(
         nodes,
         pairs,
         cluster_indices,
@@ -937,32 +872,18 @@ def _finish_hploc_topology[
             var task_count = len(frontier)
             parallelize(worker, task_count, _worker_count(task_count))
             var frontier_cursor = 0
-            comptime if balance_tasks > 0:
-                root_count = _finish_hploc_count_balanced_ancestors(
-                    nodes,
-                    pairs,
-                    cluster_indices,
-                    0,
-                    leaf_count - 1,
-                    frontier,
-                    frontier_counts,
-                    frontier_cursor,
-                    stats,
-                    next_node,
-                )
-            else:
-                root_count = _finish_hploc_frontier_ancestors(
-                    nodes,
-                    pairs,
-                    cluster_indices,
-                    0,
-                    leaf_count - 1,
-                    PARALLEL_HPLOC_FRONTIER_DEPTH,
-                    frontier_counts,
-                    frontier_cursor,
-                    stats,
-                    next_node,
-                )
+            root_count = _finish_hploc_frontier_ancestors(
+                nodes,
+                pairs,
+                cluster_indices,
+                0,
+                leaf_count - 1,
+                frontier,
+                frontier_counts,
+                frontier_cursor,
+                stats,
+                next_node,
+            )
         else:
             root_count = _build_hploc_range[frame, False, False](
                 nodes,
@@ -1086,6 +1007,7 @@ def _emit_hploc_node[
     leaf_size: Int,
     method: CpuBvhBuildMethod,
     microleaf_size: Int,
+    parallel: Bool,
 ](
     mut builder: BinaryBoundsBvh[frame, leaf_size, method, microleaf_size],
     topology: HplocTopology[frame],
@@ -1093,6 +1015,7 @@ def _emit_hploc_node[
     topology_idx: UInt32,
     node_idx: UInt32,
     mut item_cursor: UInt32,
+    mut next_node: List[UInt32],
 ):
     var source = topology.nodes[Int(topology_idx)]
     builder.nodes[Int(node_idx)].aabb = source.bounds
@@ -1109,76 +1032,30 @@ def _emit_hploc_node[
         builder.nodes[Int(node_idx)].set_leaf(first_item, source.leaf_count)
         return
 
-    var left_child = builder.allocate_children()
-    builder.nodes[Int(node_idx)].set_internal(left_child)
-    _emit_hploc_node(
-        builder,
-        topology,
-        sorted_pairs,
-        source.left,
-        left_child,
-        item_cursor,
-    )
-    _emit_hploc_node(
-        builder,
-        topology,
-        sorted_pairs,
-        source.right,
-        left_child + 1,
-        item_cursor,
-    )
-
-
-def _emit_hploc_node_parallel[
-    frame: Frame,
-    leaf_size: Int,
-    method: CpuBvhBuildMethod,
-    microleaf_size: Int,
-](
-    mut builder: BinaryBoundsBvh[frame, leaf_size, method, microleaf_size],
-    topology: HplocTopology[frame],
-    sorted_pairs: ImmSpan[MortonItem, _],
-    topology_idx: UInt32,
-    node_idx: UInt32,
-    first_item: UInt32,
-    mut next_node: List[UInt32],
-):
-    var source = topology.nodes[Int(topology_idx)]
-    builder.nodes[Int(node_idx)].aabb = source.bounds
-
-    if source.leaf_count <= UInt32(leaf_size):
-        var item_cursor = first_item
-        _write_hploc_leaf_indices[frame, microleaf_size](
-            topology,
-            sorted_pairs,
-            topology_idx,
-            builder.item_indices,
-            item_cursor,
+    var left_child: UInt32
+    comptime if parallel:
+        left_child = Atomic.fetch_add[ordering=Ordering.RELAXED](
+            next_node.unsafe_ptr(), UInt32(2)
         )
-        builder.nodes[Int(node_idx)].set_leaf(first_item, source.leaf_count)
-        return
-
-    var left_child = Atomic.fetch_add[ordering=Ordering.RELAXED](
-        next_node.unsafe_ptr(), UInt32(2)
-    )
+    else:
+        left_child = builder.allocate_children()
     builder.nodes[Int(node_idx)].set_internal(left_child)
-    var left_item_count = topology.nodes[Int(source.left)].leaf_count
-    _emit_hploc_node_parallel(
+    _emit_hploc_node[frame, leaf_size, method, microleaf_size, parallel](
         builder,
         topology,
         sorted_pairs,
         source.left,
         left_child,
-        first_item,
+        item_cursor,
         next_node,
     )
-    _emit_hploc_node_parallel(
+    _emit_hploc_node[frame, leaf_size, method, microleaf_size, parallel](
         builder,
         topology,
         sorted_pairs,
         source.right,
         left_child + 1,
-        first_item + left_item_count,
+        item_cursor,
         next_node,
     )
 
@@ -1273,18 +1150,11 @@ def _build_hploc[
         if leaf_count >= PARALLEL_HPLOC_MIN_ITEMS:
             var worker_count = _worker_count(leaf_count)
 
-            def init_leaf_worker(task_idx: Int) {imm, mut topology_nodes}:
+            def init_leaf_worker(task_idx: Int) {imm, mut init_leaf}:
                 var first = leaf_count * task_idx // worker_count
                 var end = leaf_count * (task_idx + 1) // worker_count
                 for item_idx in range(first, end):
-                    topology_nodes[item_idx] = HplocNode[frame](
-                        builder.items[item_idx].bounds,
-                        LBVH_SENTINEL,
-                        LBVH_SENTINEL,
-                        LBVH_SENTINEL,
-                        UInt32(item_idx),
-                        UInt32(1),
-                    )
+                    init_leaf(item_idx)
 
             parallelize(init_leaf_worker, worker_count, worker_count)
         else:
@@ -1309,65 +1179,54 @@ def _build_hploc[
         topology_nodes.resize(unsafe_uninit_length=microleaf_count)
         guide_pairs.resize(unsafe_uninit_length=microleaf_count)
 
+        def init_microleaf(
+            microleaf_idx: Int,
+        ) {imm, mut topology_nodes, mut guide_pairs}:
+            var range_first = microleaf_ranges[microleaf_idx].first
+            var count = microleaf_ranges[microleaf_idx].count
+            var bounds = AABB[frame].invalid()
+            for leaf_offset in range(count):
+                var item_idx = Int(pairs[range_first + leaf_offset].item_idx)
+                bounds.grow(builder.items[item_idx].bounds)
+            topology_nodes[microleaf_idx] = HplocNode[frame](
+                bounds,
+                LBVH_SENTINEL,
+                LBVH_SENTINEL,
+                LBVH_SENTINEL,
+                UInt32(range_first),
+                UInt32(count),
+            )
+            var representative = range_first + count // 2
+            guide_pairs[microleaf_idx] = MortonItem(
+                pairs[representative].code, UInt32(microleaf_idx)
+            )
+
         if microleaf_count >= PARALLEL_HPLOC_MIN_ITEMS:
             var worker_count = _worker_count(microleaf_count)
 
             def init_microleaf_worker(
                 task_idx: Int,
-            ) {imm, mut topology_nodes, mut guide_pairs}:
+            ) {imm, mut init_microleaf}:
                 var first = microleaf_count * task_idx // worker_count
                 var end = microleaf_count * (task_idx + 1) // worker_count
                 for microleaf_idx in range(first, end):
-                    var range_first = microleaf_ranges[microleaf_idx].first
-                    var count = microleaf_ranges[microleaf_idx].count
-                    var bounds = AABB[frame].invalid()
-                    for leaf_offset in range(count):
-                        var item_idx = Int(
-                            pairs[range_first + leaf_offset].item_idx
-                        )
-                        bounds.grow(builder.items[item_idx].bounds)
-                    topology_nodes[microleaf_idx] = HplocNode[frame](
-                        bounds,
-                        LBVH_SENTINEL,
-                        LBVH_SENTINEL,
-                        LBVH_SENTINEL,
-                        UInt32(range_first),
-                        UInt32(count),
-                    )
-                    var representative = range_first + count // 2
-                    guide_pairs[microleaf_idx] = MortonItem(
-                        pairs[representative].code, UInt32(microleaf_idx)
-                    )
+                    init_microleaf(microleaf_idx)
 
             parallelize(init_microleaf_worker, worker_count, worker_count)
         else:
             for microleaf_idx in range(microleaf_count):
-                var first = microleaf_ranges[microleaf_idx].first
-                var count = microleaf_ranges[microleaf_idx].count
-                var bounds = AABB[frame].invalid()
-                for leaf_offset in range(count):
-                    var item_idx = Int(pairs[first + leaf_offset].item_idx)
-                    bounds.grow(builder.items[item_idx].bounds)
-                topology_nodes[microleaf_idx] = HplocNode[frame](
-                    bounds,
-                    LBVH_SENTINEL,
-                    LBVH_SENTINEL,
-                    LBVH_SENTINEL,
-                    UInt32(first),
-                    UInt32(count),
-                )
-                var representative = first + count // 2
-                guide_pairs[microleaf_idx] = MortonItem(
-                    pairs[representative].code, UInt32(microleaf_idx)
-                )
+                init_microleaf(microleaf_idx)
         topology = _finish_hploc_topology[frame, False, balance_tasks](
             topology_nodes^,
             guide_pairs,
             HPLOC_SEARCH_RADIUS,
             HPLOC_MERGING_THRESHOLD,
         )
+    # Fat-leaf emission can only remove nodes from the microleaf topology.
+    # Reserve once before concurrent writes, using that topology's upper bound.
+    builder.nodes.reserve(len(topology.nodes))
     if leaf_count >= PARALLEL_HPLOC_MIN_ITEMS:
-        var max_builder_nodes = leaf_count * 2 - 1
+        var max_builder_nodes = len(topology.nodes)
         builder.nodes.resize(unsafe_uninit_length=max_builder_nodes)
         var emit_frontier = List[_HplocEmitTask](
             capacity=_PARALLEL_HPLOC_EMIT_FRONTIER_CAPACITY
@@ -1388,13 +1247,14 @@ def _build_hploc[
             task_idx: Int,
         ) {imm, mut builder, mut next_builder_node}:
             var task = emit_frontier[task_idx]
-            _emit_hploc_node_parallel(
+            var item_cursor = task.first_item
+            _emit_hploc_node[frame, leaf_size, method, microleaf_size, True](
                 builder,
                 topology,
                 pairs,
                 task.topology_idx,
                 task.node_idx,
-                task.first_item,
+                item_cursor,
                 next_builder_node,
             )
 
@@ -1404,13 +1264,15 @@ def _build_hploc[
         builder.nodes.shrink(Int(builder.nodes_used))
     else:
         var item_cursor = UInt32(0)
-        _emit_hploc_node(
+        var next_builder_node = List[UInt32]()
+        _emit_hploc_node[frame, leaf_size, method, microleaf_size, False](
             builder,
             topology,
             pairs,
             topology.root,
             UInt32(0),
             item_cursor,
+            next_builder_node,
         )
         debug_assert["safe", _use_compiler_assume=True](
             item_cursor == builder.item_count,

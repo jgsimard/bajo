@@ -18,6 +18,7 @@ from bajo.bvh.gpu.builder.lbvh import (
     enqueue_segmented_morton_sort,
 )
 from bajo.bvh.gpu.builder.hploc_binary import enqueue_binary_bvh_with_hploc
+from bajo.bvh.gpu.builder.hploc_multi_wave import GpuHplocBuildState
 from bajo.bvh.cpu.builder.hploc import (
     HplocTopology,
     build_hploc_topology,
@@ -399,6 +400,38 @@ def test_binary_layout_reduces_bounds_per_segment() raises:
             )
 
 
+def test_segmented_bounds_reduction_crosses_chunk_and_level_boundaries() raises:
+    var segments = SegmentOffsets.from_counts(
+        [0, 1, 255, 256, 257, 0, 65537, 129, 0]
+    )
+    var bounds = _make_triangles(segments.item_count())
+    with DeviceContext() as ctx:
+        var workspace = GpuBinaryBuildWorkspace(ctx, segments)
+        var binary = GpuBinaryBoundsBvh(
+            ctx,
+            upload_list(ctx, _flatten_bounds(bounds)),
+            upload_list(ctx, _identity_ids(len(bounds))),
+            workspace,
+        )
+        ctx.synchronize()
+        for segment in range(segments.segment_count()):
+            var expected_bounds = AABB[.WORLD].invalid()
+            var expected_centroids = AABB[.WORLD].invalid()
+            for leaf in range(
+                Int(segments.begin(segment)), Int(segments.end(segment))
+            ):
+                expected_bounds.grow(bounds[leaf])
+                expected_centroids.grow(bounds[leaf].centroid())
+            assert_true(
+                _bounds_match(binary.root_bounds(segment), expected_bounds)
+            )
+            assert_true(
+                _bounds_match(
+                    binary.centroid_bounds(segment), expected_centroids
+                )
+            )
+
+
 def test_segmented_morton_sort_groups_without_losing_precision() raises:
     var bounds = _make_triangles(9)
     var flat = _flatten_bounds(bounds)
@@ -427,6 +460,83 @@ def test_segmented_morton_sort_groups_without_losing_precision() raises:
                     assert_true(leaf_idx >= begin and leaf_idx < end)
                     if sorted_idx > begin:
                         assert_true(codes[sorted_idx - 1] <= codes[sorted_idx])
+
+
+def _assert_single_segment_morton_sort(size: Int) raises:
+    var prototypes = _make_triangles(257)
+    var bounds = List[AABB[.WORLD]](capacity=size)
+    for leaf in range(size):
+        bounds.append(prototypes[(leaf * 37) % len(prototypes)])
+    with DeviceContext() as ctx:
+        var d_bounds = upload_list(ctx, _flatten_bounds(bounds))
+        var d_payloads = upload_list(ctx, _identity_ids(len(bounds)))
+        var single_workspace = GpuBinaryBuildWorkspace(
+            ctx, SegmentOffsets.single(len(bounds))
+        )
+        var composite_workspace = GpuBinaryBuildWorkspace(
+            ctx, SegmentOffsets.from_counts([len(bounds), 0])
+        )
+        var single = GpuBinaryBoundsBvh(
+            ctx, d_bounds.copy(), d_payloads.copy(), single_workspace
+        )
+        var composite = GpuBinaryBoundsBvh(
+            ctx, d_bounds.copy(), d_payloads.copy(), composite_workspace
+        )
+        assert_true(Bool(single_workspace.sort32))
+        assert_false(Bool(single_workspace.sort))
+        assert_false(Bool(composite_workspace.sort32))
+        assert_true(Bool(composite_workspace.sort))
+        for repeat in range(2):
+            enqueue_segmented_morton_codes(ctx, single, single_workspace)
+            enqueue_segmented_morton_sort(ctx, single, single_workspace)
+            enqueue_segmented_morton_codes(ctx, composite, composite_workspace)
+            enqueue_segmented_morton_sort(ctx, composite, composite_workspace)
+            ctx.synchronize()
+            with single.leaf_ids.map_to_host() as single_ids, composite.leaf_ids.map_to_host() as composite_ids, single_workspace.topology.value().morton_keys.map_to_host() as single_codes, composite_workspace.topology.value().morton_keys.map_to_host() as composite_codes:
+                for idx in range(len(bounds)):
+                    assert_equal(single_ids[idx], composite_ids[idx])
+                    assert_equal(single_codes[idx], composite_codes[idx])
+                    if idx > 0:
+                        assert_true(single_codes[idx - 1] <= single_codes[idx])
+                        if single_codes[idx - 1] == single_codes[idx]:
+                            assert_true(single_ids[idx - 1] < single_ids[idx])
+
+
+def test_single_segment_morton_sort_matches_composite_keys_with_duplicates() raises:
+    var sizes: List[Int] = [
+        8193,
+        196607,
+        196609,
+    ]
+    for size in sizes:
+        _assert_single_segment_morton_sort(size)
+
+
+def test_compact_workspace_rejects_full_binary_builds() raises:
+    var bounds = _make_triangles(33)
+    with DeviceContext() as ctx:
+        var workspace = GpuBinaryBuildWorkspace(
+            ctx, SegmentOffsets.single(len(bounds)), True, False
+        )
+        var binary = GpuBinaryBoundsBvh(
+            ctx,
+            upload_list(ctx, _flatten_bounds(bounds)),
+            upload_list(ctx, _identity_ids(len(bounds))),
+            workspace,
+        )
+        var rejected_lbvh = False
+        try:
+            _ = build_binary_bvh(ctx, binary, workspace)
+        except:
+            rejected_lbvh = True
+        assert_true(rejected_lbvh)
+        var rejected_hploc = False
+        try:
+            _ = enqueue_binary_bvh_with_hploc(ctx, binary, workspace)
+        except:
+            rejected_hploc = True
+        assert_true(rejected_hploc)
+        ctx.synchronize()
 
 
 def test_hploc_builds_independent_segment_topologies() raises:
@@ -638,6 +748,135 @@ def test_hploc_binary_selector_default_remains_lbvh_and_quality_improves() raise
             measure_binary_bvh_quality(hploc.binary).quality
             <= measure_binary_bvh_quality(lbvh).quality + 1.0e-5
         )
+
+
+def _cache_test_bounds(
+    segments: SegmentOffsets, reverse_order: Bool
+) -> List[Float32]:
+    var flat = List[Float32](capacity=segments.item_count() * AABB.STRIDE)
+    for segment_idx in range(segments.segment_count()):
+        var begin = Int(segments.offsets[segment_idx])
+        var count = Int(segments.count(segment_idx))
+        for local in range(count):
+            var source = begin + (count - local - 1 if reverse_order else local)
+            var x = Float32(source * 3)
+            flat.append(x)
+            flat.append(Float32(source % 5))
+            flat.append(Float32(-source))
+            flat.append(x + 1)
+            flat.append(Float32(source % 5) + 2)
+            flat.append(Float32(-source) + 3)
+    return flat^
+
+
+def _assert_compact_leaf_bounds_cache(counts: List[Int]) raises:
+    var segments = SegmentOffsets.from_counts(counts.copy())
+    with DeviceContext() as ctx:
+        var workspace = GpuBinaryBuildWorkspace(ctx, segments, True, False)
+        workspace.ensure_topology(ctx)
+        var binary = GpuBinaryBoundsBvh(
+            ctx,
+            upload_list(ctx, _cache_test_bounds(segments, False)),
+            upload_list(ctx, _identity_ids(segments.item_count())),
+            workspace,
+        )
+        enqueue_segmented_morton_codes(ctx, binary, workspace)
+        enqueue_segmented_morton_sort(ctx, binary, workspace)
+        ref topology = workspace.topology.value()
+        var hploc = GpuHplocBuildState[4, 16, True, False, True, False](
+            ctx,
+            binary.leaf_bounds.copy(),
+            topology.morton_keys.copy(),
+            binary.leaf_ids.copy(),
+            binary.segments.copy(),
+            binary.segment_offsets.copy(),
+            binary.internal_segments.copy(),
+            binary.internal_segment_offsets.copy(),
+            binary.node_meta.copy(),
+            topology.leaf_parent.copy(),
+            binary.node_bounds.copy(),
+            topology.node_flags.copy(),
+            binary.node_leaf_counts.copy(),
+        )
+        for rebuild in range(2):
+            if rebuild != 0:
+                # Reverse geometry within each segment, retaining its bounds
+                # but changing which input item owns each sorted position.
+                binary.leaf_bounds = upload_list(
+                    ctx, _cache_test_bounds(segments, True)
+                )
+                enqueue_segmented_morton_codes(ctx, binary, workspace)
+                enqueue_segmented_morton_sort(ctx, binary, workspace)
+                hploc.enqueue(
+                    ctx,
+                    binary.leaf_bounds,
+                    topology.morton_keys,
+                    binary.leaf_ids,
+                    binary.node_meta,
+                    topology.leaf_parent,
+                    binary.node_bounds,
+                    topology.node_flags,
+                    binary.node_leaf_counts,
+                )
+            ctx.synchronize()
+            assert_equal(hploc.result_status(), UInt32(0))
+            var cache_base = max(binary.internal_count, 1) * AABB.STRIDE
+            assert_equal(
+                len(hploc.scratch_bounds),
+                cache_base + binary.leaf_count * AABB.STRIDE,
+            )
+            with binary.leaf_bounds.map_to_host() as source, binary.leaf_ids.map_to_host() as ids, hploc.scratch_bounds.map_to_host() as cached, hploc.root.map_to_host() as roots:
+                for sorted_pos in range(binary.leaf_count):
+                    var input_base = Int(ids[sorted_pos]) * AABB.STRIDE
+                    var output_base = cache_base + sorted_pos * AABB.STRIDE
+                    for coordinate in range(AABB.STRIDE):
+                        assert_equal(
+                            cached[output_base + coordinate],
+                            source[input_base + coordinate],
+                        )
+                for segment_idx in range(segments.segment_count()):
+                    var begin = Int(segments.offsets[segment_idx])
+                    var end = Int(segments.offsets[segment_idx + 1])
+                    if begin == end:
+                        continue
+                    var expected = AABB[.WORLD].invalid()
+                    for leaf in range(begin, end):
+                        var base = leaf * AABB.STRIDE
+                        expected.grow(
+                            AABB[.WORLD](
+                                Point3f32[.WORLD](
+                                    source[base],
+                                    source[base + 1],
+                                    source[base + 2],
+                                ),
+                                Point3f32[.WORLD](
+                                    source[base + 3],
+                                    source[base + 4],
+                                    source[base + 5],
+                                ),
+                            )
+                        )
+                    var encoded = roots[segment_idx]
+                    assert_true(encoded != LBVH_SENTINEL)
+                    var base = Int(decode_ref_index(encoded)) * AABB.STRIDE
+                    if is_leaf_ref(encoded):
+                        base += cache_base
+                    var actual = AABB[.WORLD](
+                        Point3f32[.WORLD](
+                            cached[base], cached[base + 1], cached[base + 2]
+                        ),
+                        Point3f32[.WORLD](
+                            cached[base + 3], cached[base + 4], cached[base + 5]
+                        ),
+                    )
+                    assert_true(_bounds_match(actual, expected))
+
+
+def test_compact_hploc_caches_all_sorted_leaf_bounds() raises:
+    _assert_compact_leaf_bounds_cache([1])
+    _assert_compact_leaf_bounds_cache([0, 1, 0, 1, 0])
+    _assert_compact_leaf_bounds_cache([0, 1, 2, 0, 33, 1, 0, 256, 1])
+    _assert_compact_leaf_bounds_cache([0, 1, 2, 0, 33, 1, 0, 65537, 1])
 
 
 def main() raises:

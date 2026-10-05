@@ -1,18 +1,10 @@
 # GPU BVH finalization — 2026-10-04
 
-GPU: NVIDIA GeForce RTX 5060 Ti. Baseline: `6cfe28fa`; candidate:
-device-side validation and compact-offset generation. At most two compiler
-processes ran concurrently, each with an 8 GiB address-space limit. Compilation
-was stopped during timing runs.
+Device-side validation and compact offsets reduce synthetic build time 11.0–27.7% and TLAS time 19.4%. The large three-BLAS case has no reliable improvement (final pass: 1.0% slower).
+
+**Measurement:** RTX 5060 Ti, sm_120; baseline `6cfe28fa`. Five alternating process pairs with fixed CPU affinity. Fresh builds include allocation, upload and synchronization; median of process medians (11 runs for scenes, seven for fixtures).
 
 ## Fresh builds
-
-Measured with `bench/bvh/bench_gpu_blas_tlas_build.mojo`, compiled for `sm_120`.
-Five alternating baseline/candidate process pairs, CPU affinity fixed to one
-available core. Each process reports a median of 11 runs for scene cases or
-seven runs for synthetic fixtures. The table reports the median of those five
-process medians. Times include allocation, input uploads, and synchronization;
-scene-file loading and compilation are outside the timed region.
 
 | Case | Before ms | After ms | Time reduction |
 |---|---:|---:|---:|
@@ -34,20 +26,9 @@ scene-file loading and compilation are outside the timed region.
 | H-PLOC CWBVH8, 16 × 1,024 triangles | 0.517 | 0.452 | 12.6% |
 | H-PLOC CWBVH8, mixed sizes | 0.462 | 0.393 | 14.9% |
 
-The large three-BLAS result varied between passes, with an earlier pass measuring
-4.743 → 4.718 ms. No reliable improvement is claimed for this case. Mixed sizes
-are 1, 17, 257, and 4,096 triangles. Node counts, leaf counts, and final storage
-sizes match the baseline for all 12 synthetic fixtures in all ten final runs.
+## Metadata finalization
 
-## Isolated metadata finalization
-
-Repeat finalization of an already completed H-PLOC wide4 ticket with four
-triangles per segment. Baseline: `finish_synchronized()` followed by the old
-`GpuCompactWideLayout` constructor. Candidate: `finalize_layout(ctx)`.
-Both measurements end with `ctx.synchronize()` and include fresh metadata
-allocations. Five warmups and 64 timed iterations per process, five alternating
-process pairs; medians of 320 samples per version. Geometry construction,
-compaction, and descriptor emission are excluded.
+Completed H-PLOC wide4 tickets, four triangles/segment; fresh metadata allocations and final synchronization included, geometry/compaction excluded. Five warmups, 64 samples per process, five pairs: median of 320 samples/version.
 
 | Segments | Before ms | After ms | Time reduction |
 |---:|---:|---:|---:|
@@ -56,14 +37,4 @@ compaction, and descriptor emission are excluded.
 | 128 | 0.0736 | 0.0175 | 76.2% |
 | 4,099 | 0.1225 | 0.0349 | 71.5% |
 
-Nsight on one H-PLOC build of 128 four-triangle BLASes shows device-to-host
-copies falling from 6 to 1 and `cuStreamSynchronize` calls from 22 to 7.
-The new finalizer reads a fixed 20-byte summary and leaves segment offsets on
-the GPU. Kernel launches increase from 25 to 26. Exact-size output allocation
-still requires the summary readback. Reusable build arenas and diagnostic
-`finish_synchronized()` paths retain their existing host validation.
-
-Validation: 38 GPU tests passed across finalization, empty segments, compact
-layout, bounds BVHs, TLAS, and BLAS/TLAS traversal. New coverage includes tiled
-prefix sums through 4,099 segments, first-failure reporting across tiles,
-invalid build statuses/counts, encoding mismatches, and UInt32 overflow.
+**Validation:** 38 GPU tests pass; synthetic node/leaf counts and storage sizes match. On 128 four-triangle BLASes, device-to-host copies fall 6 → 1 and stream synchronizations 22 → 7; launches rise 25 → 26. Exact-size allocation still needs a 20-byte summary readback.

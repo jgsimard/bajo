@@ -1,4 +1,5 @@
 from std.math import ceildiv, min
+from std.atomic import Atomic, Ordering
 from max.gpu.host import DeviceBuffer, DeviceContext
 from max.gpu import global_idx
 
@@ -25,7 +26,6 @@ from bajo.bvh.gpu.camera_launch import (
     validate_camera_launch,
     _camera_ray,
     _camera_ray_single_view,
-    _store_camera_hit,
 )
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.blas_trace import trace_gpu_blas_descriptor
@@ -38,6 +38,12 @@ from bajo.bvh.gpu.trace import (
     trace_bounds_bvh_state,
 )
 from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
+from bajo.bvh.gpu.ray_launch import (
+    _load_packed_ray,
+    _store_packed_hit_vectorized,
+    validate_ray_launch,
+)
+from bajo.bvh.gpu.ray_ordering import GpuRayOrderWorkspace
 
 
 @fieldwise_init
@@ -188,7 +194,7 @@ def _trace_tlas_ray[
     mode: TraceMode,
     blas_leaf_fn: GpuLeafFn[.LOCAL],
     blas_layout: GpuBvhLayout = .WIDE,
-    # Chosen by the RT caller from its existing geometry specialization.
+    # Chosen by the caller from its existing geometry/kernel specialization.
     closest_leaf_tasks: Int = 0,
 ](
     tlas_wide_nodes: ImmPointer[Float32, _],
@@ -324,6 +330,9 @@ def _trace_tlas_camera_kernel[
                 blas_leaf_width > blas_node_width or blas_leaf_width == 8,
             ],
             blas_layout,
+            (1) if blas_layout.compressed
+            and tlas_node_width == 2
+            and tlas_leaf_width == 1 else 0,
         ]
     )
     var hit = trace_ray(
@@ -339,7 +348,97 @@ def _trace_tlas_camera_kernel[
         tlas_root_idx,
         ray,
     )
-    _store_camera_hit(hit, hits, ray_count_int, ray_idx)
+    _store_packed_hit_vectorized(hit, hits, ray_count_int, ray_idx)
+
+
+def _trace_tlas_rays_kernel[
+    kind: PrimitiveKind,
+    tlas_node_width: SIMDLength,
+    tlas_leaf_width: SIMDLength,
+    blas_node_width: SIMDLength,
+    blas_leaf_width: SIMDLength,
+    mode: TraceMode,
+    blas_layout: GpuBvhLayout,
+    ordered_output: Bool = False,
+](
+    nodes: ImmPointer[Float32, ImmutAnyOrigin],
+    leaf_instances: ImmPointer[UInt32, ImmutAnyOrigin],
+    inverse: ImmPointer[Float32, ImmutAnyOrigin],
+    indices: ImmPointer[UInt32, ImmutAnyOrigin],
+    descs: ImmPointer[UInt32, ImmutAnyOrigin],
+    blas_nodes: ImmPointer[Float32, ImmutAnyOrigin],
+    blas_leaves: ImmPointer[Float32, ImmutAnyOrigin],
+    root: UInt32,
+    instance_count: Int32,
+    blas_count: Int32,
+    rays: ImmPointer[Float32, ImmutAnyOrigin],
+    hits: MutPointer[Float32, MutAnyOrigin],
+    count: Int32,
+    output_indices: ImmPointer[UInt32, ImmutAnyOrigin],
+):
+    var index = global_idx.x
+    if index >= Int(count):
+        return
+    var input_index = index
+    comptime if ordered_output:
+        input_index = Int(output_indices[unsafe_offset=index])
+    var ray = _load_packed_ray[.WORLD](rays, Int(count), input_index)
+    comptime assert kind == .TRIANGLE or kind == .SPHERE
+    comptime if kind == .SPHERE:
+        comptime assert blas_layout == .WIDE
+    comptime trace_ray = (
+        _trace_tlas_ray[
+            tlas_node_width,
+            tlas_leaf_width,
+            blas_node_width,
+            blas_leaf_width,
+            mode,
+            _intersect_sphere_leaf[.LOCAL, blas_leaf_width, mode],
+        ] if kind
+        == .SPHERE else _trace_tlas_ray[
+            tlas_node_width,
+            tlas_leaf_width,
+            blas_node_width,
+            blas_leaf_width,
+            mode,
+            _intersect_triangle_leaf[
+                .LOCAL,
+                blas_leaf_width,
+                mode,
+                blas_leaf_width > blas_node_width or blas_leaf_width == 8,
+            ],
+            blas_layout,
+            (3 if ordered_output else 1) if blas_layout.compressed
+            and tlas_node_width == 2
+            and tlas_leaf_width == 1 else 0,
+        ]
+    )
+    var hit = trace_ray(
+        nodes,
+        leaf_instances,
+        inverse,
+        indices,
+        descs,
+        blas_nodes,
+        blas_leaves,
+        Int(instance_count),
+        Int(blas_count),
+        root,
+        ray,
+    )
+    var output_index = index
+    comptime if ordered_output:
+        comptime if mode == .CLOSEST_HIT:
+            # An explicit reload avoids keeping the input index alive through
+            # traversal. Relaxed loads add no ordering requirement here.
+            output_index = Int(
+                Atomic.load[ordering=Ordering.RELAXED](
+                    output_indices.unsafe_offset(index).unsafe_mut_cast[True]()
+                )
+            )
+        else:
+            output_index = Int(output_indices[unsafe_offset=index])
+    _store_packed_hit_vectorized(hit, hits, Int(count), output_index)
 
 
 @fieldwise_init
@@ -353,15 +452,137 @@ struct GpuTlas[
 ]:
     """Primitive-typed TLAS owning its tree and instance buffers.
 
-    Instance leaves are packed by the generic wide collapse:
-    `_tree.leaf_block_indices[leaf_block * tlas_leaf_width + lane]` stores the
-    instance id.
+    Single-instance leaves embed their instance ID in node metadata. Wider
+    leaves store IDs in `_tree.leaf_block_indices[leaf_block * tlas_leaf_width
+    + lane]`.
     """
 
     var _tree: GpuWideBoundsBvh[Self.tlas_node_width, Self.tlas_leaf_width]
     var _inst_inv_transform: DeviceBuffer[.float32]
     var _inst_blas_indices: DeviceBuffer[.uint32]
     var _inst_count: Int
+
+    def _enqueue_rays[
+        mode: TraceMode,
+        ordered_output: Bool,
+    ](
+        self,
+        ctx: DeviceContext,
+        blases: GpuBlasSet[
+            Self.kind,
+            Self.blas_layout,
+            Self.blas_node_width,
+            Self.blas_leaf_width,
+        ],
+        rays: DeviceBuffer[.float32],
+        hits: DeviceBuffer[.float32],
+        ray_count: Int,
+        output_indices: DeviceBuffer[.uint32],
+    ) raises:
+        """Enqueue the ray kernel with the selected hit-store layout."""
+        validate_ray_launch(rays, hits, ray_count)
+        debug_assert["safe", _use_compiler_assume=True](
+            blases.blas_count > 0,
+            "GPU TLAS requires at least one BLAS descriptor",
+        )
+        # Incoherent sorted batches benefit from finer scheduling. Keep the
+        # ordinary ray launch policy for batches that retain their input order.
+        comptime block_size = 32 if ordered_output else GPU_BOUNDS_BVH_BLOCK_SIZE
+        ctx.enqueue_function[
+            _trace_tlas_rays_kernel[
+                Self.kind,
+                Self.tlas_node_width,
+                Self.tlas_leaf_width,
+                Self.blas_node_width,
+                Self.blas_leaf_width,
+                mode,
+                Self.blas_layout,
+                ordered_output,
+            ]
+        ](
+            self._tree.wide_nodes,
+            self._tree.leaf_block_indices,
+            self._inst_inv_transform,
+            self._inst_blas_indices,
+            blases.descs,
+            blases.nodes,
+            blases.leaves,
+            self._tree.root_idx,
+            Int32(self._inst_count),
+            Int32(blases.blas_count),
+            rays,
+            hits,
+            Int32(ray_count),
+            output_indices,
+            grid_dim=ceildiv(ray_count, block_size),
+            block_dim=block_size,
+        )
+
+    def launch_rays[
+        mode: TraceMode = .CLOSEST_HIT,
+    ](
+        self,
+        ctx: DeviceContext,
+        blases: GpuBlasSet[
+            Self.kind,
+            Self.blas_layout,
+            Self.blas_node_width,
+            Self.blas_leaf_width,
+        ],
+        rays: DeviceBuffer[.float32],
+        hits: DeviceBuffer[.float32],
+        ray_count: Int,
+    ) raises:
+        """Trace packed world-space rays, preserving their original indices."""
+        self._enqueue_rays[mode, False](
+            ctx, blases, rays, hits, ray_count, self._tree.leaf_block_indices
+        )
+
+    def launch_ordered_rays[
+        mode: TraceMode = .CLOSEST_HIT,
+    ](
+        self,
+        ctx: DeviceContext,
+        blases: GpuBlasSet[
+            Self.kind,
+            Self.blas_layout,
+            Self.blas_node_width,
+            Self.blas_leaf_width,
+        ],
+        mut ordering: GpuRayOrderWorkspace,
+        rays: DeviceBuffer[.float32],
+        hits: DeviceBuffer[.float32],
+        ray_count: Int,
+        scene_bounds: AABB[.WORLD],
+    ) raises:
+        """Sort ray indices, read original rays and restore original hit order.
+
+        Allocate the workspace once and reuse it for successive batches.
+        Overlapping ray/hit ranges use a cached copy allocated on first use.
+        Include ordering costs when benchmarking; coherent camera rays
+        usually run faster through ``launch_camera`` or ``launch_rays``.
+        """
+        validate_ray_launch(rays, hits, ray_count)
+        ordering._enqueue_order(ctx, rays, ray_count, scene_bounds)
+        var rays_begin = Int(rays.unsafe_ptr())
+        var hits_begin = Int(hits.unsafe_ptr())
+        var rays_end = rays_begin + ray_count * Rayf32.STRIDE * 4
+        var hits_end = hits_begin + ray_count * Hit.STRIDE * 4
+        if rays_begin < hits_end and hits_begin < rays_end:
+            # In-place outputs must not overwrite another thread's source ray.
+            ordering._enqueue_alias_copy(ctx, rays, ray_count)
+            self._enqueue_rays[mode, True](
+                ctx,
+                blases,
+                ordering._alias_rays.value(),
+                hits,
+                ray_count,
+                ordering._indices,
+            )
+            return
+        self._enqueue_rays[mode, True](
+            ctx, blases, rays, hits, ray_count, ordering._indices
+        )
 
     def launch_camera(
         self,

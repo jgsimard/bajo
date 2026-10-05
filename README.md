@@ -112,7 +112,9 @@ pixi run example_lbvh         # CPU/GPU instanced OBJ normal render
 ```
 
 Most examples write a PPM image in the repository root. The LBVH example needs
-the downloaded OBJ assets and produces CPU and GPU outputs. The source files in
+the downloaded OBJ assets and produces CPU and GPU outputs. Its GPU path uses
+H-PLOC CWBVH8 BLASes with one triangle per leaf and an LBVH2 TLAS with one
+instance per leaf, with direct traversal for camera rays. The source files in
 [`examples/`](examples/) are also intended to be runnable and easy to modify.
 
 ## Benchmarks

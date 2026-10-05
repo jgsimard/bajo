@@ -361,6 +361,7 @@ def _finish_compressed_triangle_blas_set_via_wide[
     leaf_width: SIMDLength,
     build_method: GpuBvhBuildMethod,
     layout: GpuBvhLayout,
+    max_leaf_size: Int,
 ](
     mut ctx: DeviceContext,
     segments: SegmentOffsets,
@@ -371,7 +372,7 @@ def _finish_compressed_triangle_blas_set_via_wide[
     """Build CWBVH8 through ordinary wide storage for segmented workloads."""
     var triangle_count = segments.item_count()
     var build = enqueue_segmented_wide_build[
-        node_width, leaf_width, 3, build_method, True, True
+        node_width, leaf_width, max_leaf_size, build_method, True, True
     ](ctx, segments, leaf_bounds^, payloads^)
     ref binary = build.binary
     ref wide = build.wide
@@ -435,12 +436,14 @@ def _build_segmented_compressed_triangle_blas_set[
     leaf_width: SIMDLength,
     build_method: GpuBvhBuildMethod,
     layout: GpuBvhLayout,
+    max_leaf_size: Int,
 ](
     mut ctx: DeviceContext,
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
 ) raises -> GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width]:
     """Build and encode every CWBVH8 BLAS as one segmented workload."""
     comptime assert node_width == 8 and leaf_width == 4
+    comptime assert 1 <= max_leaf_size <= 3
 
     var inputs = _flatten_triangle_sets(vertex_sets)
     if inputs.segments.item_count() == 0:
@@ -470,7 +473,7 @@ def _build_segmented_compressed_triangle_blas_set[
         # reserve the direct, single-segment kernel for the standalone case.
         if segments.segment_count() != 1:
             return _finish_compressed_triangle_blas_set_via_wide[
-                node_width, leaf_width, build_method, layout
+                node_width, leaf_width, build_method, layout, max_leaf_size
             ](ctx, segments, source_vertices^, leaf_bounds^, payloads^)
         var workspace = GpuBinaryBuildWorkspace(ctx, segments, True)
         workspace.ensure_topology(ctx)
@@ -521,7 +524,9 @@ def _build_segmented_compressed_triangle_blas_set[
         var representation_workspace = GpuCwbvh8RepresentationWorkspace(
             ctx, triangle_count, segments.segment_count()
         )
-        var collapse = enqueue_collapse_binary_to_cwbvh8[3, True, True, True](
+        var collapse = enqueue_collapse_binary_to_cwbvh8[
+            max_leaf_size, True, True, True
+        ](
             ctx,
             binary,
             node_segments,
@@ -591,7 +596,7 @@ def _build_segmented_compressed_triangle_blas_set[
         )
 
     return _finish_compressed_triangle_blas_set_via_wide[
-        node_width, leaf_width, build_method, layout
+        node_width, leaf_width, build_method, layout, max_leaf_size
     ](ctx, segments, source_vertices^, leaf_bounds^, payloads^)
 
 
@@ -601,17 +606,27 @@ def build_gpu_triangle_blas_set[
     build_method: GpuBvhBuildMethod = .HPLOC,
     layout: GpuBvhLayout = GpuBvhLayout.WIDE,
     frame: Frame = .LOCAL,
+    max_leaf_size: Int = 3,
 ](
     mut ctx: DeviceContext,
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
 ) raises -> GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width]:
-    """Select the representation around the shared triangle input adapter."""
+    """Build typed BLAS storage; CWBVH8 supports one to three triangles per leaf.
+
+    ``max_leaf_size`` controls CWBVH8 construction. Its task-mask encoding is
+    shared, so selecting smaller leaves does not change the traversal type.
+    """
     debug_assert["safe", _use_compiler_assume=True](len(vertex_sets) > 0)
     comptime __match layout:
         case .CWBVH8:
             comptime assert node_width == 8 and leaf_width == 4
             return _build_segmented_compressed_triangle_blas_set[
-                frame, node_width, leaf_width, build_method, layout
+                frame,
+                node_width,
+                leaf_width,
+                build_method,
+                layout,
+                max_leaf_size,
             ](ctx, vertex_sets)
         case .WIDE:
             return _build_segmented_triangle_blas_set[

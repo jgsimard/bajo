@@ -1,6 +1,7 @@
 """Shared packed-ray launch ABI for GPU BVH front ends."""
 
 from max.gpu.host import DeviceBuffer
+from std.memory import bitcast
 
 from bajo.bvh.types import Hit
 from bajo.core import Frame, Point3f32, Rayf32, Vec3f32
@@ -52,3 +53,38 @@ def _store_packed_hit[
     hit._store_unchecked(
         Span(unsafe_ptr=hits, length=ray_count * Hit.STRIDE), ray_idx
     )
+
+
+@always_inline
+def _store_packed_hit_vectorized[
+    frame: Frame,
+](hit: Hit[frame], hits: MutPointer[Float32, _], ray_count: Int, ray_idx: Int,):
+    """Store a hit in two vectors when the output pointer is aligned.
+
+    Instanced traversal benefits from wider stores, including scattered
+    outputs after ray ordering. Standalone traversal keeps its scalar stores.
+    """
+    # A hit occupies 32 bytes, so each record preserves pointer alignment.
+    # Pointer views can start at any float offset and need a scalar fallback.
+    if (Int(hits) & 15) == 0:
+        var base = ray_idx * Hit.STRIDE
+        hits.unsafe_store[width=4, alignment=16](
+            base,
+            SIMD[.float32, 4](
+                hit.u[0],
+                hit.v[0],
+                bitcast[.float32](hit.prim[0]),
+                bitcast[.float32](hit.inst[0]),
+            ),
+        )
+        hits.unsafe_store[width=4, alignment=16](
+            base + 4,
+            SIMD[.float32, 4](
+                hit.normal.x[0],
+                hit.normal.y[0],
+                hit.normal.z[0],
+                hit.t[0],
+            ),
+        )
+    else:
+        _store_packed_hit(hit, hits, ray_count, ray_idx)

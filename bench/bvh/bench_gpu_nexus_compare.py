@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+import json
 import math
 import os
 import subprocess
@@ -273,184 +274,60 @@ def write_report(
     )
     generated = datetime.now().astimezone().isoformat(timespec="seconds")
 
+    details_path = report_path.with_suffix(".json")
+    details = {
+        "generated": generated,
+        "gpu": gpu,
+        "mojo": mojo_version,
+        "nexus_revision": nexus_revision,
+        "nexus_checkout": str(nexusbvh_dir),
+        "repeats": BENCH_REPEATS,
+        "results": [asdict(item) for item in all_results],
+        "validations": [asdict(item) for item in validations],
+        "traversal_profiles": [asdict(item) for item in traversal_profiles],
+        "build_profiles": [asdict(item) for item in build_profiles],
+        "rebuild_timings": rebuild_timings or {},
+    }
     lines = [
         "# NexusBVH vs Bajo GPU BVH benchmark",
         "",
-        f"- Generated: `{markdown_escape(generated)}`",
-        f"- GPU: `{markdown_escape(gpu)}`",
-        f"- Mojo: `{markdown_escape(mojo_version)}`",
-        f"- Nexus checkout: `{markdown_escape(str(nexusbvh_dir))}`",
-        f"- Nexus revision: `{markdown_escape(nexus_revision)}`",
+        f"{generated} · {gpu} · `{mojo_version}` · Nexus `{nexus_revision}`.",
         "",
-        "## Summary",
+        f"Dragon: {nexus.triangles:,} triangles, {nexus.rays:,} camera closest-hit rays. "
+        f"Median of {BENCH_REPEATS} synchronized runs.",
         "",
-        f"- Scene: Dragon OBJ, {nexus.triangles:,} triangles.",
-        f"- Traversal: 1024x576 camera, {nexus.rays:,} closest-hit rays.",
-        f"- Timing: median of {BENCH_REPEATS} synchronized runs; ranges "
-        "show minimum to maximum.",
-        f"- Fastest Bajo build: `{fastest_bajo_build.label}` at "
-        f"{fastest_bajo_build.build_median_ms:.3f} ms "
-        f"({fastest_bajo_build.build_median_ms / nexus.build_median_ms:.3f}x "
-        "Nexus build time).",
-        f"- Fastest Bajo traversal: `{fastest_bajo_trace.label}` at "
-        f"{fastest_bajo_trace.trace_median_ms:.3f} ms / "
-        f"{fastest_bajo_trace.mrays_per_second:.1f} MRay/s "
-        f"({fastest_bajo_trace.trace_median_ms / nexus.trace_median_ms:.3f}x "
-        "Nexus traversal time).",
+        f"Fastest Bajo build: `{fastest_bajo_build.label}` "
+        f"({fastest_bajo_build.build_median_ms:.3f} ms). "
+        f"Fastest traversal: `{fastest_bajo_trace.label}` "
+        f"({fastest_bajo_trace.trace_median_ms:.3f} ms).",
         "",
-        "## Build results",
-        "",
-        "| Implementation | Configuration | Builder | Layout | Node width | "
-        "Leaf width | Max leaf | Median ms | Min–max ms | Time / Nexus |",
-        "|---|---|---|---|---:|---:|---:|---:|---:|---:|",
+        "| Configuration | Build ms | Trace ms | MRay/s |",
+        "|---|---:|---:|---:|",
     ]
-    for result in sorted(all_results, key=lambda item: item.build_median_ms):
-        lines.append(
-            f"| {result.implementation} | `{result.label}` | "
-            f"{result.builder} | {result.layout} | {result.node_width} | "
-            f"{result.leaf_width} | {result.max_leaf_size} | "
-            f"{result.build_median_ms:.3f} | "
-            f"{result.build_minimum_ms:.3f}–{result.build_maximum_ms:.3f} | "
-            f"{result.build_median_ms / nexus.build_median_ms:.3f}x |"
-        )
-
-    if rebuild_timings:
-        lines.extend(
-            [
-                "",
-                "## Cached geometry rebuilds",
-                "",
-                "These reuse geometry bounds, scratch buffers, and segment offsets. "
-                "They are separate from the fresh-build comparison above.",
-                "",
-                "| Configuration | Median ms | Min–max ms |",
-                "|---|---:|---:|",
-            ]
-        )
-        for label, (median_ms, minimum_ms, maximum_ms) in sorted(rebuild_timings.items()):
-            lines.append(
-                f"| `{label}` | {median_ms:.3f} | {minimum_ms:.3f}–{maximum_ms:.3f} |"
-            )
-
-    if build_profiles:
-        lines.extend(
-            [
-                "",
-                "## Bajo build stages",
-                "",
-                "Stage timings use separately synchronized host wall-clock "
-                "measurements in cached rebuilds and include dispatch overhead. "
-                "Geometry bounds and allocation are excluded from these stage "
-                "totals and included in the fresh-build results above.",
-                "",
-                "| Configuration | Morton ms | Sort ms | H-PLOC ms | "
-                "Collapse ms | Pack ms | Instrumented ms |",
-                "|---|---:|---:|---:|---:|---:|---:|",
-            ]
-        )
-        for profile in build_profiles:
-            lines.append(
-                f"| `{profile.label}` | {profile.morton_ns / 1e6:.3f} | "
-                f"{profile.sort_ns / 1e6:.3f} | "
-                f"{(profile.topology_ns + profile.refit_ns) / 1e6:.3f} | "
-                f"{(profile.collapse_ns + profile.bounds_pack_ns) / 1e6:.3f} | "
-                f"{profile.leaf_pack_ns / 1e6:.3f} | "
-                f"{profile.total_ns / 1e6:.3f} |"
-            )
-
-    lines.extend(
-        [
-            "",
-            "## Traversal results",
-            "",
-            "| Implementation | Configuration | Builder | Layout | Median ms | "
-            "MRay/s | Min–max ms | Time / Nexus | Hits |",
-            "|---|---|---|---|---:|---:|---:|---:|---:|",
-        ]
-    )
     for result in sorted(all_results, key=lambda item: item.trace_median_ms):
         lines.append(
-            f"| {result.implementation} | `{result.label}` | "
-            f"{result.builder} | {result.layout} | "
-            f"{result.trace_median_ms:.3f} | "
-            f"{result.mrays_per_second:.1f} | "
-            f"{result.trace_minimum_ms:.3f}–{result.trace_maximum_ms:.3f} | "
-            f"{result.trace_median_ms / nexus.trace_median_ms:.3f}x | "
-            f"{result.hits:,} |"
+            f"| `{result.label}` | {result.build_median_ms:.3f} | "
+            f"{result.trace_median_ms:.3f} | {result.mrays_per_second:.1f} |"
         )
-
-    lines.extend(
-        [
-            "",
-            "## Traversal work",
-            "",
-            "The instrumented kernels run after timing. Counts cover every "
-            "camera ray and therefore do not perturb the headline traversal "
-            "measurements.",
-            "",
-            "| Implementation | Configuration | Nodes/ray | Leaf groups/ray | "
-            "Triangles/ray | Maximum stack |",
-            "|---|---|---:|---:|---:|---:|",
-        ]
-    )
-    for profile in traversal_profiles:
-        result = next(item for item in all_results if item.label == profile.label)
-        lines.append(
-            f"| {profile.implementation} | `{profile.label}` | "
-            f"{profile.node_visits / result.rays:.3f} | "
-            f"{profile.leaf_groups / result.rays:.3f} | "
-            f"{profile.primitive_tests / result.rays:.3f} | "
-            f"{profile.max_stack} |"
-        )
-
-    lines.extend(
-        [
-            "",
-            "## Validation",
-            "",
-            "Every Bajo row is compared with NexusBVH. A one-hit difference "
-            "is accepted for a ray exactly on a silhouette edge; in that case "
-            "the mean hit-distance difference must be at most 0.01.",
-            "",
-            "| Bajo configuration | Hit-count delta | Mean-distance delta |",
-            "|---|---:|---:|",
-        ]
-    )
-    for validation in validations:
-        lines.append(
-            f"| `{validation.label}` | {validation.hit_delta} | "
-            f"{validation.mean_distance_delta:.6g} |"
-        )
-
-    lines.extend(
-        [
-            "",
-            "## Methodology",
-            "",
-            "Bajo's LBVH is Apetrei's 2014 agglomerative algorithm, which "
-            "fuses binary topology construction and bounds propagation in one "
-            "leaf-driven kernel. Bajo compares it with H-PLOC across "
-            "ordinary-wide combinations; both builders then use Bajo's "
-            "existing H-PLOC-derived wide collapse. H-PLOC includes an 8/1/1 "
-            "row matching NexusBVH's one-triangle leaves. Bajo also measures "
-            "LBVH and H-PLOC with CWBVH8; storage leaf width is 4 and maximum "
-            "encoded leaf sizes are 3 and 1 where listed. NexusBVH uses its "
-            "H-PLOC CWBVH8 builder and currently stores exactly one triangle "
-            "per leaf. Both implementations trace the same generated camera "
-            "rays with native packed CWBVH8 or ordinary-wide traversal.",
-            "",
-            "OBJ parsing, camera setup, and initial host-to-device upload are "
-            "outside the timed regions. Headline build timings include fresh "
-            "construction, device allocation, segment-offset setup, geometry bounds, "
-            "Morton generation/sort, topology, conversion, triangle representation, "
-            "and final synchronization. Cached geometry rebuilds are reported "
-            "separately for Bajo's reusable H-PLOC CWBVH8 arenas. Traversal timing includes kernel "
-            "launch and synchronization. Different builder/layout rows do not "
-            "imply equivalent hierarchy quality.",
-            "",
-        ]
-    )
+    lines.extend([
+        "",
+        "Fresh builds include allocation, bounds, topology, conversion and "
+        "synchronization; parsing, camera setup and initial upload are excluded. "
+        "Traversal includes launch and synchronization. Cached rebuilds and "
+        "instrumented stage timings are separate in the raw data.",
+        "",
+        f"Validated {len(validations)} Bajo configurations. "
+        "Tolerance: one silhouette-edge hit and mean-distance delta ≤ 0.01. "
+        f"Maximum observed deltas: {max((v.hit_delta for v in validations), default=0)} "
+        "hits, "
+        f"{max((v.mean_distance_delta for v in validations), default=0):.6g} distance.",
+        "",
+        f"Full results, ranges, profiles and validation: [{details_path.name}]"
+        f"({details_path.name}).",
+        "",
+    ])
     report_path.parent.mkdir(parents=True, exist_ok=True)
+    details_path.write_text(json.dumps(details, indent=2) + "\n", encoding="utf-8")
     report_path.write_text("\n".join(lines), encoding="utf-8")
 
 

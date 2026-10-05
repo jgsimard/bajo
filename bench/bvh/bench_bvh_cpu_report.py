@@ -884,23 +884,6 @@ def generate_report(
         "competitor_build_ms": "Competitor build ms",
     }
 
-    result_columns = [
-        "implementation",
-        "build_method",
-        "layout",
-        "width",
-        "leaf_width",
-        "traversal",
-        "ray_width",
-        "build_ms_1",
-        "build_ms_all",
-        "trace_ms",
-        "mrays_s",
-        "hits",
-        "nodes",
-        "checksum",
-    ]
-
     best_columns = [
         "benchmark_title",
         "implementation",
@@ -984,27 +967,6 @@ def generate_report(
     all_available_cpus = multithreaded.get_column("available_cpus").item(0)
     all_cpu_affinity = multithreaded.get_column("cpu_affinity").item(0)
 
-    sections: list[str] = []
-    for benchmark, metadata in BENCHMARK_META.items():
-        results = merged.filter(pl.col("benchmark") == benchmark)
-        if results.is_empty():
-            continue
-        primitive_count = results.get_column("primitive_count").drop_nulls()[0]
-        instance_count = results.get_column("instance_count").drop_nulls()[0]
-        ray_count = results.get_column("ray_count").drop_nulls()[0]
-        sections.extend(
-            [
-                f"## {metadata['title']}",
-                "",
-                f"Triangles per BLAS: {primitive_count}; instances: "
-                f"{instance_count}; rays: {ray_count}; query: "
-                f"{metadata['query']}; ray order: {metadata['ray_order']}.",
-                "",
-                markdown_table(results, result_columns, labels),
-                "",
-            ]
-        )
-
     return "\n".join(
         [
             "# CPU BVH benchmark results",
@@ -1069,21 +1031,9 @@ def generate_report(
             "",
             markdown_table(build_best, build_columns, labels),
             "",
-            "## Coverage",
-            "",
-            "The matrix covers synthetic and real mesh geometry, closest-hit "
-            "and early-exit any-hit, coherent camera ordering and the same rays "
-            "shuffled to remove neighboring-ray coherence, plus an instance-heavy "
-            "BLAS/TLAS scene (one reused BLAS, a 12x9 translated-instance grid). "
-            "A one-triangle BLAS and its flattened 108-triangle equivalent isolate "
-            "instance continuation from BLAS complexity. "
-            "Traversal is single-calling-thread; build is measured with one CPU "
-            "and all available CPUs. The core traversal suites report the best "
-            "of eight timed repetitions after one warmup. Instance diagnostics "
-            "report the median of eight repetitions, each averaged across eight "
-            "timed traversal batches, to resolve small performance differences.",
-            "",
-            *sections,
+            "Full configuration matrix and checksums: [CSV](latest.csv), "
+            "[raw output](latest.txt). Core traversal uses best-of-eight; "
+            "instance diagnostics use median-of-eight batched repetitions.",
         ]
     )
 

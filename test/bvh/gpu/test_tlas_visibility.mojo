@@ -336,5 +336,13 @@ def test_gpu_tlas2_separate_sphere_closest_matches_reference() raises:
     _assert_visibility[.SPHERE, .CLOSEST_HIT, 2]()
 
 
+def test_gpu_tlas2_distance_pruned_triangle_matches_reference() raises:
+    _assert_visibility[.TRIANGLE, .CLOSEST_HIT, 3]()
+
+
+def test_gpu_tlas2_distance_pruned_sphere_matches_reference() raises:
+    _assert_visibility[.SPHERE, .CLOSEST_HIT, 3]()
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

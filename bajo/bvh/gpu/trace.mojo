@@ -453,6 +453,7 @@ def _trace_bounds_bvh_state_bvh2_closest[
     frame: Frame,
     LeafState: AnyType,
     leaf_fn: GpuLeafStateFn[frame, LeafState],
+    distance_pruned: Bool = False,
 ](
     wide_nodes: ImmPointer[Float32, _],
     leaf_state: LeafState,
@@ -462,7 +463,8 @@ def _trace_bounds_bvh_state_bvh2_closest[
     """Order closest-hit leaf and internal children together."""
     comptime stack_size = 64
     var hit = Hit[frame].miss(ray.t_max)
-    var stack = Array[UInt32, stack_size](uninitialized=True)
+    comptime task_dtype: DType = .uint64 if distance_pruned else .uint32
+    var stack = Array[Scalar[task_dtype], stack_size](uninitialized=True)
     var stack_ptr = 0
     var current = root_idx
     var bounds_origin = ray.origin[2]()
@@ -491,7 +493,16 @@ def _trace_bounds_bvh_state_bvh2_closest[
                     stack_ptr < stack_size,
                     "GPU BVH traversal stack overflow",
                 )
-                stack[stack_ptr] = far_meta
+                comptime if distance_pruned:
+                    var far_near = node_hit.bounds_hit.t[
+                        0
+                    ] if second_is_nearer else node_hit.bounds_hit.t[1]
+                    stack[stack_ptr] = (
+                        UInt64(far_meta)
+                        | (UInt64(bitcast[.uint32](far_near)) << UInt64(32))
+                    ).cast[task_dtype]()
+                else:
+                    stack[stack_ptr] = far_meta.cast[task_dtype]()
                 stack_ptr += 1
                 current = near_meta
                 continue
@@ -502,10 +513,25 @@ def _trace_bounds_bvh_state_bvh2_closest[
                 current = meta1
                 continue
 
-        if stack_ptr == 0:
-            break
-        stack_ptr -= 1
-        current = stack[stack_ptr]
+        comptime if distance_pruned:
+            # A closer BLAS hit may invalidate queued nodes and instance
+            # leaves. Check them on pop, keeping distance out of the live
+            # direct-continuation state across the BLAS callback.
+            while True:
+                if stack_ptr == 0:
+                    return hit
+                stack_ptr -= 1
+                var task = stack[stack_ptr].cast[.uint64]()
+                var t_near = bitcast[.float32](UInt32(task >> UInt64(32)))
+                if t_near > hit.t:
+                    continue
+                current = UInt32(task)
+                break
+        else:
+            if stack_ptr == 0:
+                break
+            stack_ptr -= 1
+            current = stack[stack_ptr].cast[.uint32]()
 
     return hit
 
@@ -534,7 +560,7 @@ def _trace_bounds_bvh_state_bvh2[
     leaf_fn: GpuLeafStateFn[frame, LeafState],
     mode: TraceMode = .CLOSEST_HIT,
     near_first_leaves: Bool = True,
-    # 0: eager leaves; 1: ordered tasks; 2: ordered tasks in a separate function.
+    # 0: eager; 1: ordered; 2: separate ordered; 3: distance-pruned ordered.
     closest_leaf_tasks: Int = 0,
 ](
     wide_nodes: ImmPointer[Float32, _],
@@ -551,7 +577,7 @@ def _trace_bounds_bvh_state_bvh2[
         return _trace_bounds_bvh_state_bvh2_any[frame, LeafState, leaf_fn](
             wide_nodes, leaf_state, root_idx, ray
         )
-    comptime assert 0 <= closest_leaf_tasks <= 2
+    comptime assert 0 <= closest_leaf_tasks <= 3
     comptime if mode == .CLOSEST_HIT and closest_leaf_tasks == 1:
         return _trace_bounds_bvh_state_bvh2_closest[frame, LeafState, leaf_fn](
             wide_nodes, leaf_state, root_idx, ray
@@ -559,6 +585,10 @@ def _trace_bounds_bvh_state_bvh2[
     comptime if mode == .CLOSEST_HIT and closest_leaf_tasks == 2:
         return _trace_bounds_bvh_state_bvh2_closest_separate[
             frame, LeafState, leaf_fn
+        ](wide_nodes, leaf_state, root_idx, ray)
+    comptime if mode == .CLOSEST_HIT and closest_leaf_tasks == 3:
+        return _trace_bounds_bvh_state_bvh2_closest[
+            frame, LeafState, leaf_fn, True
         ](wide_nodes, leaf_state, root_idx, ray)
     var hit = Hit[frame].miss(ray.t_max)
     var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
@@ -650,7 +680,7 @@ def trace_bounds_bvh_state[
     leaf_fn: GpuLeafStateFn[frame, LeafState],
     compact_bvh2: Bool = False,
     near_first_leaves: Bool = True,
-    # 0: eager leaves; 1: ordered tasks; 2: ordered tasks in a separate function.
+    # 0: eager; 1: ordered; 2: separate ordered; 3: distance-pruned ordered.
     closest_leaf_tasks: Int = 0,
 ](
     wide_nodes: ImmPointer[Float32, _],

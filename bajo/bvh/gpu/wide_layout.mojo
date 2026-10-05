@@ -18,10 +18,7 @@ from bajo.core import (
 from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
 from bajo.bvh.gpu.build_finalize import GpuCompactWideLayout
 from bajo.bvh.gpu.utils import _device_span, upload_list
-from bajo.core.intersect import (
-    RayDistanceHit,
-    intersect_ray_aabb_rcp,
-)
+from bajo.core.intersect import RayDistanceHit
 
 
 comptime GPU_BVH_COMPACT_BLOCK_SIZE = 256
@@ -492,10 +489,16 @@ def _intersect_wide_node_precomputed[
         width=width, alignment=field_alignment
     ](base + WideNode.META * width)
 
-    var bounds_hit = intersect_ray_aabb_rcp(
-        bounds_origin,
-        reciprocal_direction,
-        block,
-        SIMD[.float32, width](t_max),
+    # GPU native min/max avoids compare/select pairs in each child slab.
+    var t0 = (block._min - bounds_origin) * reciprocal_direction
+    var t1 = (block._max - bounds_origin) * reciprocal_direction
+    var tnear = max(
+        max(min(t0.x, t1.x), min(t0.y, t1.y)),
+        max(min(t0.z, t1.z), SIMD[.float32, width](0.0)),
     )
+    var tfar = min(
+        min(max(t0.x, t1.x), max(t0.y, t1.y)),
+        min(max(t0.z, t1.z), SIMD[.float32, width](t_max)),
+    )
+    var bounds_hit = RayDistanceHit(tnear.le(tfar), tnear)
     return WideNodeIntersection[width](bounds_hit, meta)

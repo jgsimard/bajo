@@ -1,3 +1,8 @@
+"""Instanced normal render using H-PLOC CWBVH8 BLASes and an LBVH2 TLAS.
+
+Camera rays use direct traversal; ray sorting is intended for incoherent rays.
+"""
+
 from std.io.file_descriptor import FileDescriptor
 from max.gpu.host import DeviceBuffer, DeviceContext
 from max.algorithm import parallelize
@@ -18,6 +23,8 @@ from bajo.core import (
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.cpu import CpuBlasSet, CpuTlas, build_cpu_triangle_blas_set
 from bajo.bvh.gpu import (
+    GpuBvhBuildMethod,
+    GpuBvhLayout,
     build_gpu_triangle_blas_set,
     build_gpu_tlas,
 )
@@ -40,9 +47,13 @@ comptime GRID_Z = 6
 comptime DEMO_BLAS_COUNT = 3
 comptime BLAS_WIDTH_CPU = 16
 comptime TLAS_WIDTH_CPU = 4
+comptime BLAS_BUILD_METHOD_GPU = GpuBvhBuildMethod.HPLOC
+comptime BLAS_LAYOUT_GPU = GpuBvhLayout.CWBVH8
 comptime BLAS_WIDTH_GPU = 8
+# CWBVH8's storage leaf width is four; construction uses one triangle per leaf.
 comptime BLAS_LEAF_WIDTH_GPU = 4
 comptime BLAS_MAX_LEAF_SIZE_GPU = 1
+comptime TLAS_BUILD_METHOD_GPU = GpuBvhBuildMethod.LBVH
 comptime TLAS_WIDTH_GPU = 2
 comptime TLAS_LEAF_WIDTH_GPU = 1
 
@@ -466,8 +477,8 @@ def render_gpu(
         var gpu_blases = build_gpu_triangle_blas_set[
             BLAS_WIDTH_GPU,
             BLAS_LEAF_WIDTH_GPU,
-            .HPLOC,
-            .CWBVH8,
+            BLAS_BUILD_METHOD_GPU,
+            BLAS_LAYOUT_GPU,
             max_leaf_size=BLAS_MAX_LEAF_SIZE_GPU,
         ](ctx, tri_vertex_sets)
         ctx.synchronize()
@@ -486,8 +497,8 @@ def render_gpu(
             BLAS_WIDTH_GPU,
             TLAS_LEAF_WIDTH_GPU,
             BLAS_LEAF_WIDTH_GPU,
-            .LBVH,
-            .CWBVH8,
+            TLAS_BUILD_METHOD_GPU,
+            BLAS_LAYOUT_GPU,
         ](ctx, instances)
         ctx.synchronize()
         var tlas_t1 = perf_counter_ns()
@@ -581,6 +592,7 @@ def main() raises:
     )
     print(t"TLAS width GPU: {TLAS_WIDTH_GPU}")
     print(t"TLAS leaf width GPU: {TLAS_LEAF_WIDTH_GPU}")
+    print("GPU TLAS policy: LBVH2, one instance per leaf")
     print(t"CPU output: {CPU_OUTPUT_PATH}")
     print(t"GPU output: {GPU_OUTPUT_PATH}")
     print("Scene layout: each cell = bunny | buddha | dragon")

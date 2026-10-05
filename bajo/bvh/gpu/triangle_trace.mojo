@@ -1,6 +1,7 @@
 """GPU triangle intersection kernels and traversal implementations."""
 
 from std.bit import log2_floor, pop_count
+from std.math import max
 from std.memory import bitcast
 from max.gpu import global_idx
 
@@ -36,6 +37,7 @@ from bajo.core import (
     Rayf32,
     Vec3f32,
     cross,
+    dot,
     normalize,
 )
 
@@ -154,6 +156,41 @@ def trace_triangle_bvh_camera_instrumented_kernel[
     )
     _store_camera_hit(result.hit, hits, ray_count_int, ray_idx)
     result.stats.store(stats, ray_idx)
+
+
+@always_inline
+def _intersect_triangle_shadow[
+    frame: Frame,
+](
+    ray: Rayf32[frame],
+    v0: Point3f32[frame],
+    e1: Vec3f32[frame],
+    e2: Vec3f32[frame],
+    t_max: Float32,
+) -> Bool:
+    """Return a determinant-scaled occlusion mask without hit attributes."""
+    var p = cross(ray.d, e2)
+    var det = dot(e1, p)
+    var tv = ray.o - v0
+    var u_num = dot(tv, p)
+    var q = cross(tv, e1)
+    var v_num = dot(ray.d, q)
+    var t_num = dot(e2, q)
+    # Flipping the numerator sign bits avoids floating-point selects.
+    var sign_bit = bitcast[.uint32](det) & UInt32(0x80000000)
+    var abs_det = bitcast[.float32](bitcast[.uint32](det) & UInt32(0x7FFFFFFF))
+    var u = bitcast[.float32](bitcast[.uint32](u_num) ^ sign_bit)
+    var v = bitcast[.float32](bitcast[.uint32](v_num) ^ sign_bit)
+    var t = bitcast[.float32](bitcast[.uint32](t_num) ^ sign_bit)
+    # u <= abs_det follows from v >= 0 and u + v <= abs_det.
+    return (
+        abs_det.gt(1.0e-8)
+        & u.ge(0.0)
+        & v.ge(0.0)
+        & (u + v).le(abs_det)
+        & t.gt(ray.t_min * abs_det)
+        & t.lt(t_max * abs_det)
+    )
 
 
 # AoSoA :[block][field][lane]
@@ -287,23 +324,22 @@ def _intersect_cwbvh_triangle[
         v0_record[1],
         v0_record[2],
     )
+    comptime if mode == .ANY_HIT:
+        return _intersect_triangle_shadow[frame](ray, v0, e1, e2, hit.t)
     var scaled_hit = intersect_ray_tri_edges_scaled(
         ray.o, ray.d, v0, e1, e2, hit.t, ray.t_min
     )
     if not scaled_hit.mask:
         return False
-    comptime if mode == .ANY_HIT:
-        return True
-    else:
-        var prim = bitcast[.uint32](v0_record)[3]
-        var inv_det = 1.0 / scaled_hit.abs_det
-        hit.t = scaled_hit.t_scaled * inv_det
-        hit.u = scaled_hit.u_scaled * inv_det
-        hit.v = scaled_hit.v_scaled * inv_det
-        hit.prim = prim
-        hit.inst = EMPTY_LANE
-        hit.normal = cross(e1, e2).unsafe_convert[new_kind=GeoKind.NORMAL]()
-        return True
+    var prim = bitcast[.uint32](v0_record)[3]
+    var inv_det = 1.0 / scaled_hit.abs_det
+    hit.t = scaled_hit.t_scaled * inv_det
+    hit.u = scaled_hit.u_scaled * inv_det
+    hit.v = scaled_hit.v_scaled * inv_det
+    hit.prim = prim
+    hit.inst = EMPTY_LANE
+    hit.normal = cross(e1, e2).unsafe_convert[new_kind=GeoKind.NORMAL]()
+    return True
 
 
 @always_inline
@@ -334,22 +370,21 @@ def _intersect_cwbvh_indexed_triangle[
         vertices[unsafe_offset=base + 7] - v0.y,
         vertices[unsafe_offset=base + 8] - v0.z,
     )
+    comptime if mode == .ANY_HIT:
+        return _intersect_triangle_shadow[frame](ray, v0, e1, e2, hit.t)
     var scaled_hit = intersect_ray_tri_edges_scaled(
         ray.o, ray.d, v0, e1, e2, hit.t, ray.t_min
     )
     if not scaled_hit.mask:
         return False
-    comptime if mode == .ANY_HIT:
-        return True
-    else:
-        var inv_det = 1.0 / scaled_hit.abs_det
-        hit.t = scaled_hit.t_scaled * inv_det
-        hit.u = scaled_hit.u_scaled * inv_det
-        hit.v = scaled_hit.v_scaled * inv_det
-        hit.prim = prim
-        hit.inst = EMPTY_LANE
-        hit.normal = cross(e1, e2).unsafe_convert[new_kind=GeoKind.NORMAL]()
-        return True
+    var inv_det = 1.0 / scaled_hit.abs_det
+    hit.t = scaled_hit.t_scaled * inv_det
+    hit.u = scaled_hit.u_scaled * inv_det
+    hit.v = scaled_hit.v_scaled * inv_det
+    hit.prim = prim
+    hit.inst = EMPTY_LANE
+    hit.normal = cross(e1, e2).unsafe_convert[new_kind=GeoKind.NORMAL]()
+    return True
 
 
 @always_inline
@@ -387,6 +422,10 @@ def _trace_cwbvh8_triangles_impl[
         sign_code |= UInt32(1)
     var octant_inverse = UInt32(7) - sign_code
     var ray_rcp = ray.reciprocal_direction[1]()
+    var node_t_min = Float32(0)
+    comptime if frame == .LOCAL and mode == .ANY_HIT:
+        # Local-space shadow queries use the measured TLAS culling policy.
+        node_t_min = max(ray.t_min, Float32(0))
 
     # The synthetic root task uses the same compact group representation as
     # internal children. Its relative index is always zero.
@@ -433,6 +472,7 @@ def _trace_cwbvh8_triangles_impl[
                     ray_rcp.z,
                     node_t_max,
                     octant_inverse,
+                    node_t_min,
                 )
             else:
                 tasks = _intersect_cwbvh8_node_tasks_legacy[frame](

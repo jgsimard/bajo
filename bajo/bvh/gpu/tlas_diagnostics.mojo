@@ -173,9 +173,8 @@ def _trace_tlas2_leaf1_cwbvh8_with_stats(
                     child_t[lane] = node_hit.bounds_hit.t[lane]
                 else:
                     stats.tlas_leaves += 1
-                    var inst_idx = UInt32(
-                        tlas_leaf_instances[unsafe_offset=Int(data)]
-                    )
+                    # Leaf1 embeds its instance id directly in node metadata.
+                    var inst_idx = data
                     if inst_idx != EMPTY_LANE:
                         stats.blas_dispatches += 1
                         var blas_idx = UInt32(

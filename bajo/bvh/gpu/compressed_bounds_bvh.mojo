@@ -1,6 +1,6 @@
 from std.atomic import Atomic, Ordering
 from max.gpu import global_idx
-from std.math import ceil, ceildiv, floor, fma, clamp
+from std.math import ceil, ceildiv, floor, fma, clamp, max, min
 from std.memory import bitcast
 from max.gpu.host import DeviceBuffer, DeviceContext
 
@@ -627,8 +627,9 @@ def _intersect_cwbvh8_node_tasks[
     rcp_z: Float32,
     t_max: Float32,
     octant_inverse: UInt32,
+    t_min: Float32 = 0.0,
 ) -> Cwbvh8NodeTasks:
-    """Intersect one node from five native four-word packed loads."""
+    """Intersect five packed loads with a nonnegative entry-distance floor."""
     var base = Int(node_idx) * CWBVH_NODE_WORDS
     # Device allocations and the 80-byte node stride keep every load aligned.
     var p_exp = cwbvh_nodes.unsafe_load[width=4, alignment=16](base)
@@ -685,8 +686,6 @@ def _intersect_cwbvh8_node_tasks[
         comptime for packed_lane in range(4):
             comptime lane = group * 4 + packed_lane
             var meta_byte = _packed_byte(meta4, packed_lane)
-            if meta_byte == 0:
-                continue
             var tnear_x = fma(
                 Float32(_packed_byte(near_x4, packed_lane)),
                 idir_x,
@@ -717,16 +716,20 @@ def _intersect_cwbvh8_node_tasks[
                 idir_z,
                 origin_z,
             )
-            var tnear = fmax(fmax(tnear_x, tnear_y), fmax(tnear_z, 0.0))
-            var tfar = fmin(fmin(tfar_x, tfar_y), fmin(tfar_z, t_max))
-            if tnear <= tfar:
-                var bit_index = meta_byte & UInt32(0x1F)
-                if (imask & (UInt32(1) << UInt32(lane))) != 0:
-                    bit_index ^= octant_inverse
-                comptime if max_leaf_size == 1:
-                    hitmask |= UInt32(1) << bit_index
-                else:
-                    hitmask |= (meta_byte >> UInt32(5)) << bit_index
+            # Native min/max lowers to GPU min/max instructions, avoiding
+            # compare/select pairs for each finite decoded slab endpoint.
+            var tnear = max(max(tnear_x, tnear_y), max(tnear_z, t_min))
+            var tfar = min(min(tfar_x, tfar_y), min(tfar_z, t_max))
+            # Compute every slot's slab endpoints and predicate only its task
+            # mask. Empty metadata contributes zero, even if its bounds hit.
+            var bit_index = meta_byte & UInt32(0x1F)
+            var internal = (imask & (UInt32(1) << UInt32(lane))) != 0
+            bit_index ^= octant_inverse if internal else UInt32(0)
+            var unary_mask = meta_byte >> UInt32(5)
+            comptime if max_leaf_size == 1:
+                unary_mask = UInt32(meta_byte != 0)
+            var child_mask = unary_mask << bit_index
+            hitmask |= child_mask if tnear <= tfar else UInt32(0)
 
     return Cwbvh8NodeTasks(
         child_tri_meta_u32[0],

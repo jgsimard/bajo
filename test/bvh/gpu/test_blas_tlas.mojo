@@ -1,7 +1,9 @@
 """GPU BLAS/TLAS tests using the canonical descriptor-backed ownership."""
 
 from std.sys import has_accelerator
+from std.bit import pop_count
 from std.math import abs
+from std.memory import bitcast
 from std.testing import (
     TestSuite,
     assert_true,
@@ -17,6 +19,7 @@ from bajo.bvh.cpu import CpuBlasSet
 from bajo.bvh.types import Instance, Sphere, Hit
 from bajo.bvh.gpu.utils import upload_camera
 from bajo.bvh.gpu import GpuBvhLayout
+from bajo.bvh.gpu.compressed_bounds_bvh import CWBVH_META_BASE, CWBVH_NODE_WORDS
 from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_blas_set
 from bajo.bvh.gpu.sphere_bvh import build_gpu_sphere_blas_set
 from bajo.bvh.gpu.tlas import build_gpu_tlas
@@ -122,6 +125,66 @@ def _assert_hit(
     assert_almost_equal(hit[0], expected_t)
     assert_true(hit[1] == expected_prim)
     assert_true(hit[2] == expected_inst)
+
+
+def _assert_cwbvh_max_leaf_size[max_leaf_size: Int]() raises:
+    var mesh = List[Point3f32[.LOCAL]]()
+    for index in range(8):
+        mesh.extend(_make_triangle_at_z(2.0 + Float32(index) * 0.1))
+    var bounds = compute_bounds(mesh)
+    with DeviceContext() as ctx:
+        for segment_count in [1, 3]:
+            var vertex_sets = List[List[Point3f32[.LOCAL]]]()
+            vertex_sets.append(mesh.copy())
+            if segment_count == 3:
+                vertex_sets.append(List[Point3f32[.LOCAL]]())
+                vertex_sets.append(mesh.copy())
+            var blases = build_gpu_triangle_blas_set[
+                8, 4, .HPLOC, .CWBVH8, max_leaf_size=max_leaf_size
+            ](ctx, vertex_sets)
+            var triangle_count = 0
+            with blases.nodes.map_to_host() as nodes:
+                for node in range(len(nodes) // CWBVH_NODE_WORDS):
+                    for group in range(2):
+                        var meta = bitcast[.uint32](
+                            nodes[
+                                node * CWBVH_NODE_WORDS
+                                + CWBVH_META_BASE
+                                + group
+                            ]
+                        )
+                        for lane in range(4):
+                            var byte = (meta >> UInt32(lane * 8)) & UInt32(0xFF)
+                            if byte != 0 and (byte & UInt32(0x1F)) < 24:
+                                var count = Int(pop_count(byte >> UInt32(5)))
+                                assert_true(
+                                    count > 0 and count <= max_leaf_size
+                                )
+                                triangle_count += count
+            assert_true(triangle_count == (8 if segment_count == 1 else 16))
+            var instances: List = [
+                _triangle_instance(
+                    UInt32(segment_count - 1), Point3f32[.WORLD](0.0), bounds
+                )
+            ]
+            var tlas = build_gpu_tlas[.TRIANGLE, 2, 8, 1, 4, .LBVH, .CWBVH8](
+                ctx, instances
+            )
+            var camera = _make_camera_ray(
+                Point3f32[.WORLD](0.0), Vec3f32[.WORLD](0.0, 0.0, 1.0)
+            )
+            var hits = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
+            tlas.launch_camera(
+                ctx, blases, upload_camera(ctx, camera), hits, 1, 1, 1
+            )
+            ctx.synchronize()
+            _assert_hit(_download_single_hit(hits), 2.0, 0, 0)
+
+
+def test_gpu_cwbvh_max_leaf_size_single_and_segmented_builds() raises:
+    _assert_cwbvh_max_leaf_size[1]()
+    _assert_cwbvh_max_leaf_size[2]()
+    _assert_cwbvh_max_leaf_size[3]()
 
 
 def test_gpu_triangle_tlas_uses_instance_blas_index() raises:

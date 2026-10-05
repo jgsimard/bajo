@@ -11,8 +11,30 @@ from viewer_extensions import ExtensionLoader
 
 
 class CpuExtensionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.loader = ExtensionLoader(ROOT, "sm_120")
+
+    def test_lbvh_meshes_scene_renders(self):
+        renderer = self.loader.load(0, 3, 0, 1)
+        config = dict(
+            width=24, height=16, samples=1, max_depth=1,
+            sampler=0, sample_offset=0, sample_sequence_length=1,
+            scene=3, scene_path="", x=0.0, y=6.0, z=-28.0,
+            yaw=180.0, pitch=-8.0, vfov=35.0,
+        )
+        created = renderer.preparation.create_cpu_state(config)
+        handle = int(created[0])
+        try:
+            pixels = renderer.rendering.render_cpu_state(handle, config)[3]
+            self.assertEqual(pixels.shape, (16, 24, 3))
+            self.assertTrue(np.isfinite(pixels).all())
+            self.assertTrue((pixels > 0).any())
+        finally:
+            renderer.preparation.destroy_cpu_state(handle)
+
     def test_shared_scene_across_integrators_and_traversal(self):
-        loader = ExtensionLoader(ROOT, "sm_120")
+        loader = self.loader
         config = dict(
             width=24, height=16, samples=1, max_depth=3,
             sampler=0, sample_offset=0, sample_sequence_length=1,

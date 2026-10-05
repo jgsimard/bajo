@@ -108,9 +108,15 @@ def make_lbvh_world[
         ground_surface,
     )
 
-    builder.triangle_meshes.append(mesh0.copy())
-    builder.triangle_meshes.append(mesh1.copy())
-    builder.triangle_meshes.append(mesh2.copy())
+    _ = builder.add_owned_triangle_mesh(
+        mesh0^, List[Float32](), List[Float32]()
+    )
+    _ = builder.add_owned_triangle_mesh(
+        mesh1^, List[Float32](), List[Float32]()
+    )
+    _ = builder.add_owned_triangle_mesh(
+        mesh2^, List[Float32](), List[Float32]()
+    )
 
     var rng = Rng(123, 123)
     comptime TARGET_EXTENT = Float32(1.60)

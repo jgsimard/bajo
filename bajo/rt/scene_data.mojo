@@ -154,6 +154,19 @@ struct SceneBuilder(
             surface,
         )
 
+    def add_owned_triangle_mesh(
+        mut self,
+        var vertices: List[Point3f32[.LOCAL]],
+        var normals: List[Float32],
+        var texcoords: List[Float32],
+    ) -> UInt32:
+        """Register a shared mesh, keeping its attribute arrays aligned."""
+        var mesh_idx = UInt32(len(self.triangle_meshes))
+        self.triangle_meshes.append(vertices^)
+        self.triangle_mesh_normals.append(normals^)
+        self.triangle_mesh_texcoords.append(texcoords^)
+        return mesh_idx
+
     def add_owned_triangle_mesh_instance(
         mut self,
         var vertices: List[Point3f32[.LOCAL]],
@@ -164,10 +177,9 @@ struct SceneBuilder(
         surface: SurfaceId[1],
     ) -> UInt32:
         """Transfer mesh attributes into the builder without cloning them."""
-        var mesh_idx = UInt32(len(self.triangle_meshes))
-        self.triangle_meshes.append(vertices^)
-        self.triangle_mesh_normals.append(normals^)
-        self.triangle_mesh_texcoords.append(texcoords^)
+        var mesh_idx = self.add_owned_triangle_mesh(
+            vertices^, normals^, texcoords^
+        )
         self._add_triangle_instance_unchecked(mesh_idx, transform, bounds)
         self.triangle_instance_surfaces.append(surface.copy())
         return mesh_idx

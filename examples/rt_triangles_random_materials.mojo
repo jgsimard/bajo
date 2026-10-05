@@ -276,13 +276,27 @@ def make_triangle_world() raises -> CpuScene[16, 16]:
     var bounds6 = compute_bounds(mesh6)
 
     var builder = SceneBuilder()
-    builder.triangle_meshes.append(mesh0.copy())
-    builder.triangle_meshes.append(mesh3.copy())
-    builder.triangle_meshes.append(mesh1.copy())
-    builder.triangle_meshes.append(mesh5.copy())
-    builder.triangle_meshes.append(mesh4.copy())
-    builder.triangle_meshes.append(mesh2.copy())
-    builder.triangle_meshes.append(mesh6.copy())
+    _ = builder.add_owned_triangle_mesh(
+        mesh0^, List[Float32](), List[Float32]()
+    )
+    _ = builder.add_owned_triangle_mesh(
+        mesh3^, List[Float32](), List[Float32]()
+    )
+    _ = builder.add_owned_triangle_mesh(
+        mesh1^, List[Float32](), List[Float32]()
+    )
+    _ = builder.add_owned_triangle_mesh(
+        mesh5^, List[Float32](), List[Float32]()
+    )
+    _ = builder.add_owned_triangle_mesh(
+        mesh4^, List[Float32](), List[Float32]()
+    )
+    _ = builder.add_owned_triangle_mesh(
+        mesh2^, List[Float32](), List[Float32]()
+    )
+    _ = builder.add_owned_triangle_mesh(
+        mesh6^, List[Float32](), List[Float32]()
+    )
 
     for copy_idx in range(COPY_COUNT):
         _append_mesh_instance(

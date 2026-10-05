@@ -277,11 +277,6 @@ def prepare_gpu_scene[
     ]()
     var triangle_surfaces = Optional[DeviceBuffer[.uint32]]()
     comptime if kind.has_triangles():
-        var vertices = List[Point3f32[.WORLD]](
-            capacity=len(data.triangle_vertices())
-        )
-        for vertex in data.triangle_vertices():
-            vertices.append(vertex)
         triangle_blas = Optional(
             build_gpu_triangle_blas_set[
                 triangle_format.node_width,
@@ -289,7 +284,7 @@ def prepare_gpu_scene[
                 triangle_build_method,
                 triangle_format.layout,
                 .WORLD,
-            ](ctx, [vertices^])
+            ](ctx, data.triangle_vertices())
         )
         triangle_surfaces = Optional(
             upload_surface_ids(ctx, data.triangle_surfaces())

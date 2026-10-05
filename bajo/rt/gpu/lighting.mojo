@@ -114,16 +114,14 @@ struct GpuRtLights:
             fields.append(radiance.y)
             fields.append(radiance.z)
             fields.append(world.lights().alias_probabilities[light_idx])
-        self.kinds = _upload_nonempty(ctx, kinds^)
-        self.fields = _upload_nonempty(ctx, fields^)
+        self.kinds = _upload_nonempty(ctx, kinds)
+        self.fields = _upload_nonempty(ctx, fields)
         self.count = len(world.lights().records)
         self.total_weight = world.total_light_weight()
         self.environment_weight = world.environment_weight()
         self.environment_cdf_total = world.environment_cdf_total()
         self.environment_cdf_count = len(world.environment_cdf())
-        self.environment_cdf = _upload_nonempty(
-            ctx, world.environment_cdf().copy()
-        )
+        self.environment_cdf = _upload_nonempty(ctx, world.environment_cdf())
         self.uniform_sampling_kind = (
             uniform_kind if homogeneous
             and self.environment_weight <= 0.0 else PrimitiveKind.UNKNOWN

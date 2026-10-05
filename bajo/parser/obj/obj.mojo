@@ -21,14 +21,14 @@ struct _ObjParserState:
 
     def _flush_object(mut self, mut mesh: ObjMesh):
         if self.current_object.face_count > 0:
-            mesh.objects.append(self.current_object.copy())
+            mesh.objects.append(self.current_object^)
         self.current_object = ObjGroup(
             "", 0, len(mesh.face_vertices), len(mesh.indices)
         )
 
     def _flush_group(mut self, mut mesh: ObjMesh):
         if self.current_group.face_count > 0:
-            mesh.groups.append(self.current_group.copy())
+            mesh.groups.append(self.current_group^)
         self.current_group = ObjGroup(
             "", 0, len(mesh.face_vertices), len(mesh.indices)
         )
@@ -214,44 +214,46 @@ def _parse_face_cursor(
     count += 1
 
     __match shape:
-    case 1:
-        while True:
-            cur.skip_ws()
-            if cur.pos >= len(cur.bytes):
-                break
-            mesh.indices.append(cur.next_index_p_only_at_token(position_limit))
-            count += 1
-    case 2:
-        while True:
-            cur.skip_ws()
-            if cur.pos >= len(cur.bytes):
-                break
-            mesh.indices.append(
-                cur.next_index_p_t_at_token(position_limit, texcoord_limit)
-            )
-            count += 1
-    case 3:
-        while True:
-            cur.skip_ws()
-            if cur.pos >= len(cur.bytes):
-                break
-            mesh.indices.append(
-                cur.next_index_p_n_at_token(position_limit, normal_limit)
-            )
-            count += 1
-    case _:
-        while True:
-            cur.skip_ws()
-            if cur.pos >= len(cur.bytes):
-                break
-            mesh.indices.append(
-                cur.next_index_p_t_n_at_token(
-                    position_limit,
-                    texcoord_limit,
-                    normal_limit,
+        case 1:
+            while True:
+                cur.skip_ws()
+                if cur.pos >= len(cur.bytes):
+                    break
+                mesh.indices.append(
+                    cur.next_index_p_only_at_token(position_limit)
                 )
-            )
-            count += 1
+                count += 1
+        case 2:
+            while True:
+                cur.skip_ws()
+                if cur.pos >= len(cur.bytes):
+                    break
+                mesh.indices.append(
+                    cur.next_index_p_t_at_token(position_limit, texcoord_limit)
+                )
+                count += 1
+        case 3:
+            while True:
+                cur.skip_ws()
+                if cur.pos >= len(cur.bytes):
+                    break
+                mesh.indices.append(
+                    cur.next_index_p_n_at_token(position_limit, normal_limit)
+                )
+                count += 1
+        case _:
+            while True:
+                cur.skip_ws()
+                if cur.pos >= len(cur.bytes):
+                    break
+                mesh.indices.append(
+                    cur.next_index_p_t_n_at_token(
+                        position_limit,
+                        texcoord_limit,
+                        normal_limit,
+                    )
+                )
+                count += 1
 
     _finish_face_parse(mesh, state, index_start, count, is_line)
 

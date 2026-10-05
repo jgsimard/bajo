@@ -7,8 +7,8 @@ from bajo.bvh.gpu.utils import upload_list
 def _upload_nonempty[
     dtype: DType
 ](
-    mut ctx: DeviceContext, var values: List[Scalar[dtype]]
+    mut ctx: DeviceContext, values: ImmSpan[Scalar[dtype], _]
 ) raises -> DeviceBuffer[dtype]:
     if len(values) == 0:
-        values.append(0)
+        return upload_list(ctx, List[Scalar[dtype]](length=1, fill=0))
     return upload_list(ctx, values)

@@ -186,7 +186,7 @@ struct CpuScene[
                     Self.world_bvh_width,
                     build_method,
                     .WORLD,
-                ]([self._scene.triangle_vertices().copy()])
+                ](self._scene.triangle_vertices())
             )
 
         if len(self._scene.triangle_instances()) > 0:

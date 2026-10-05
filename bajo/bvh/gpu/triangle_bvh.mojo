@@ -178,6 +178,24 @@ def _flatten_triangle_sets[
     )
 
 
+def _flatten_triangle_sets[
+    frame: Frame,
+](vertices: ImmSpan[Point3f32[frame], _]) -> _TriangleHostSegments:
+    """Pack one borrowed mesh directly into the upload representation."""
+    debug_assert["safe", _use_compiler_assume=True](
+        len(vertices) % 3 == 0,
+        "each triangle BLAS must contain complete triangles",
+    )
+    var packed_vertices = List[Float32](capacity=len(vertices) * 3)
+    for vertex in vertices:
+        packed_vertices.append(vertex.x)
+        packed_vertices.append(vertex.y)
+        packed_vertices.append(vertex.z)
+    return _TriangleHostSegments(
+        SegmentOffsets.single(len(vertices) / 3), packed_vertices^
+    )
+
+
 @fieldwise_init
 struct _SegmentedTriangleWideBuild[
     frame: Frame,
@@ -341,13 +359,12 @@ def _build_segmented_triangle_blas_set[
     layout: GpuBvhLayout,
 ](
     mut ctx: DeviceContext,
-    vertex_sets: ImmSpan[List[Point3f32[frame]], _],
+    var inputs: _TriangleHostSegments,
 ) raises -> GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width]:
     """Build ordinary wide BLASes as one segmented GPU workload."""
-    var inputs = _flatten_triangle_sets(vertex_sets)
     if inputs.segments.item_count() == 0:
         return GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width].empty(
-            ctx, len(vertex_sets)
+            ctx, inputs.segments.segment_count()
         )
     var source_vertices = upload_list(ctx, inputs.packed_vertices)
     var adapter = _enqueue_segmented_triangle_wide[
@@ -439,16 +456,15 @@ def _build_segmented_compressed_triangle_blas_set[
     max_leaf_size: Int,
 ](
     mut ctx: DeviceContext,
-    vertex_sets: ImmSpan[List[Point3f32[frame]], _],
+    var inputs: _TriangleHostSegments,
 ) raises -> GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width]:
     """Build and encode every CWBVH8 BLAS as one segmented workload."""
     comptime assert node_width == 8 and leaf_width == 4
     comptime assert 1 <= max_leaf_size <= 3
 
-    var inputs = _flatten_triangle_sets(vertex_sets)
     if inputs.segments.item_count() == 0:
         return GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width].empty(
-            ctx, len(vertex_sets)
+            ctx, inputs.segments.segment_count()
         )
     ref segments = inputs.segments
     var source_vertices = upload_list(ctx, inputs.packed_vertices)
@@ -600,6 +616,42 @@ def _build_segmented_compressed_triangle_blas_set[
     ](ctx, segments, source_vertices^, leaf_bounds^, payloads^)
 
 
+def _build_gpu_triangle_blas_inputs[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+    build_method: GpuBvhBuildMethod = .HPLOC,
+    layout: GpuBvhLayout = GpuBvhLayout.WIDE,
+    frame: Frame = .LOCAL,
+    max_leaf_size: Int = 3,
+](
+    mut ctx: DeviceContext,
+    var inputs: _TriangleHostSegments,
+) raises -> GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width]:
+    """Build typed BLAS storage; CWBVH8 supports one to three triangles per leaf.
+
+    ``max_leaf_size`` controls CWBVH8 construction. Its task-mask encoding is
+    shared, so selecting smaller leaves does not change the traversal type.
+    """
+    debug_assert["safe", _use_compiler_assume=True](
+        inputs.segments.segment_count() > 0
+    )
+    comptime __match layout:
+        case .CWBVH8:
+            comptime assert node_width == 8 and leaf_width == 4
+            return _build_segmented_compressed_triangle_blas_set[
+                frame,
+                node_width,
+                leaf_width,
+                build_method,
+                layout,
+                max_leaf_size,
+            ](ctx, inputs^)
+        case .WIDE:
+            return _build_segmented_triangle_blas_set[
+                frame, node_width, leaf_width, build_method, layout
+            ](ctx, inputs^)
+
+
 def build_gpu_triangle_blas_set[
     node_width: SIMDLength,
     leaf_width: SIMDLength = node_width,
@@ -611,27 +663,29 @@ def build_gpu_triangle_blas_set[
     mut ctx: DeviceContext,
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
 ) raises -> GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width]:
-    """Build typed BLAS storage; CWBVH8 supports one to three triangles per leaf.
+    """Build borrowed meshes; CWBVH8 allows one to three triangles per leaf."""
+    var inputs = _flatten_triangle_sets(vertex_sets)
+    return _build_gpu_triangle_blas_inputs[
+        node_width, leaf_width, build_method, layout, frame, max_leaf_size
+    ](ctx, inputs^)
 
-    ``max_leaf_size`` controls CWBVH8 construction. Its task-mask encoding is
-    shared, so selecting smaller leaves does not change the traversal type.
-    """
-    debug_assert["safe", _use_compiler_assume=True](len(vertex_sets) > 0)
-    comptime __match layout:
-        case .CWBVH8:
-            comptime assert node_width == 8 and leaf_width == 4
-            return _build_segmented_compressed_triangle_blas_set[
-                frame,
-                node_width,
-                leaf_width,
-                build_method,
-                layout,
-                max_leaf_size,
-            ](ctx, vertex_sets)
-        case .WIDE:
-            return _build_segmented_triangle_blas_set[
-                frame, node_width, leaf_width, build_method, layout
-            ](ctx, vertex_sets)
+
+def build_gpu_triangle_blas_set[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+    build_method: GpuBvhBuildMethod = .HPLOC,
+    layout: GpuBvhLayout = GpuBvhLayout.WIDE,
+    frame: Frame = .LOCAL,
+    max_leaf_size: Int = 3,
+](
+    mut ctx: DeviceContext,
+    vertices: ImmSpan[Point3f32[frame], _],
+) raises -> GpuBlasSet[.TRIANGLE, layout, node_width, leaf_width]:
+    """Build one borrowed mesh without copying its point list."""
+    var inputs = _flatten_triangle_sets(vertices)
+    return _build_gpu_triangle_blas_inputs[
+        node_width, leaf_width, build_method, layout, frame, max_leaf_size
+    ](ctx, inputs^)
 
 
 @fieldwise_init

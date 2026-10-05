@@ -1,6 +1,7 @@
 """Segment isolation across conservative and exact packed BLAS assembly."""
 
 from std.testing import TestSuite, assert_equal
+from std.memory import bitcast
 
 from bajo.bvh.constants import (
     PrimitiveKind,
@@ -10,6 +11,7 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.cpu import (
     CpuBlasSet,
+    CpuBvhBuildMethod,
     build_cpu_triangle_blas_set,
     build_cpu_sphere_blas_set,
     trace_blas_set,
@@ -178,6 +180,57 @@ def test_mixed_triangle_builds_preserve_parallel_small_segments() raises:
         assert_equal(hit.t, 2.0)
         var desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(i))
         assert_equal(desc.prim_count, UInt32(4096 if i == 8 else 31))
+
+
+def _test_borrowed_triangle_mesh[method: CpuBvhBuildMethod]() raises:
+    var vertices = _mesh(31, 0.0)
+    var meshes: List[List[Point3f32[.LOCAL]]] = [vertices.copy()]
+    var borrowed = build_cpu_triangle_blas_set[4, 2, method](vertices)
+    var batched = build_cpu_triangle_blas_set[4, 2, method](meshes)
+    assert_equal(len(vertices), 93)
+    assert_equal(borrowed.blas_count, 1)
+    assert_equal(len(borrowed.descs), len(batched.descs))
+    assert_equal(len(borrowed.nodes), len(batched.nodes))
+    assert_equal(len(borrowed.leaves), len(batched.leaves))
+    for i in range(len(borrowed.descs)):
+        assert_equal(borrowed.descs[i], batched.descs[i])
+    for i in range(len(borrowed.nodes)):
+        assert_equal(
+            bitcast[.uint32](borrowed.nodes[i]),
+            bitcast[.uint32](batched.nodes[i]),
+        )
+    for i in range(len(borrowed.leaves)):
+        assert_equal(
+            bitcast[.uint32](borrowed.leaves[i]),
+            bitcast[.uint32](batched.leaves[i]),
+        )
+
+    # Packed output must own its geometry after the borrowed input is released.
+    vertices.clear()
+    var ray = Rayf32[.LOCAL](
+        Point3f32[.LOCAL](0.0), Vec3f32[.LOCAL](0.0, 0.0, 1.0)
+    )
+    var hit = trace_blas_set[4, 2, .CLOSEST_HIT, .LOCAL](
+        borrowed, UInt32(0), ray
+    )
+    assert_equal(hit.prim, UInt32(0))
+    assert_equal(hit.t, 2.0)
+
+
+def test_borrowed_triangle_mesh_matches_batch() raises:
+    _test_borrowed_triangle_mesh[.SAH]()
+    _test_borrowed_triangle_mesh[.LBVH]()
+    _test_borrowed_triangle_mesh[.HPLOC]()
+
+
+def test_empty_borrowed_triangle_mesh() raises:
+    var vertices = List[Point3f32[.LOCAL]]()
+    var blases = build_cpu_triangle_blas_set[4, 2](vertices)
+    assert_equal(blases.blas_count, 1)
+    var desc = BlasDesc.load(blases.descs.unsafe_ptr(), UInt32(0))
+    assert_equal(desc.prim_count, UInt32(0))
+    assert_equal(len(blases.nodes), 0)
+    assert_equal(len(blases.leaves), 0)
 
 
 def main() raises:

@@ -22,17 +22,19 @@ def _map_name_from_tail(mut cur: ObjLineCursor) -> String:
     return candidate
 
 
-def _upsert_material(mut mesh: ObjMesh, material: ObjMaterial) raises -> Int:
+def _upsert_material(
+    mut mesh: ObjMesh, var material: ObjMaterial
+) raises -> Int:
     if material.name in mesh.material_names:
         var index = mesh.material_names[material.name]
         if mesh.materials[index].fallback:
-            mesh.materials[index] = material.copy()
+            mesh.materials[index] = material^
             return index
 
     var index = len(mesh.materials)
-    mesh.materials.append(material.copy())
     if not (material.name in mesh.material_names):
         mesh.material_names[material.name] = index
+    mesh.materials.append(material^)
     return index
 
 
@@ -72,7 +74,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
 
         if tag == "newmtl":
             if have_current:
-                _ = _upsert_material(mesh, current)
+                _ = _upsert_material(mesh, current^)
             var name = cur.joined_rest_of_line()
             current = ObjMaterial(name, fallback=False)
             have_current = True
@@ -131,7 +133,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
         line_start = line_end + 1
 
     if have_current:
-        _ = _upsert_material(mesh, current)
+        _ = _upsert_material(mesh, current^)
 
 
 def _read_mtl_file[

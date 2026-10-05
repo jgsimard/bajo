@@ -314,6 +314,29 @@ def build_cpu_triangle_blas_set[
     hploc_microleaf_size: Int = 0,
     use_dp_collapse: Bool = method != .LBVH,
 ](
+    vertices: ImmSpan[Point3f32[frame], _],
+) -> CpuBlasSet[
+    .TRIANGLE, node_width, leaf_width
+]:
+    """Build one borrowed triangle mesh without an owning batch wrapper."""
+    return _build_single_triangle_blas[
+        node_width,
+        leaf_width,
+        method,
+        frame,
+        hploc_microleaf_size,
+        use_dp_collapse,
+    ](vertices)
+
+
+def build_cpu_triangle_blas_set[
+    node_width: SIMDLength,
+    leaf_width: SIMDLength = node_width,
+    method: CpuBvhBuildMethod = .SAH,
+    frame: Frame = .LOCAL,
+    hploc_microleaf_size: Int = 0,
+    use_dp_collapse: Bool = method != .LBVH,
+](
     vertex_sets: ImmSpan[List[Point3f32[frame]], _],
 ) -> CpuBlasSet[
     .TRIANGLE, node_width, leaf_width

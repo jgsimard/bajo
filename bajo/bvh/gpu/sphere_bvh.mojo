@@ -26,7 +26,6 @@ from bajo.core.intersect import intersect_ray_sphere
 from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import Hit, Sphere
 from bajo.bvh.gpu.wide_layout import (
-    GpuCompactWideLayout,
     GpuWideBoundsBvh,
     enqueue_compact_segmented_buffer,
 )
@@ -159,14 +158,8 @@ struct _SegmentedSphereWideBuild[
         measure_build: Bool,
     ) raises -> GpuSphereBvh[Self.frame, Self.node_width, Self.leaf_width]:
         """Finalize the adapter's only segment as a standalone sphere BVH."""
-        if measure_build:
-            ctx.synchronize()
-        else:
-            self.hierarchy.wait(ctx)
+        var layout = self.hierarchy.finalize_layout(ctx)
         ref wide = self.hierarchy.wide
-        var layout = GpuCompactWideLayout(
-            ctx, wide.node_counts, wide.leaf_block_counts, 1
-        )
         var compact_leaves = enqueue_compact_segmented_buffer[
             .float32,
             Self.leaf_width * SPHERE_LEAF_PACKED_STRIDE,
@@ -175,11 +168,11 @@ struct _SegmentedSphereWideBuild[
             self.leaf_spheres,
             wide.leaf_block_segment_offsets,
             layout.leaf_block_segment_offsets,
-            layout.leaf_block_segments.item_count(),
+            layout.leaf_block_count,
             1,
         )
-        var tree = self.hierarchy^.take_single_segment_synchronized(
-            ctx, timings
+        var tree = self.hierarchy^.take_single_segment_with_layout(
+            ctx, timings, layout
         )
         if measure_build:
             timings.leaf_pack_ns = Int(

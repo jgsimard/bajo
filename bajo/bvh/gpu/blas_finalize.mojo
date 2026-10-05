@@ -8,7 +8,6 @@ from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.gpu.builder.binary_builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.segmented_build import GpuSegmentedWideBuildTicket
 from bajo.bvh.gpu.wide_layout import (
-    GpuCompactWideLayout,
     enqueue_compact_segmented_buffer,
 )
 
@@ -34,14 +33,10 @@ def finalize_ordinary_wide_blas_set[
 ) raises -> GpuBlasSet[kind, layout, node_width, leaf_width]:
     """Compact a completed ordinary-wide build and emit its descriptors."""
     comptime assert leaf_record_stride > 0
-    ctx.synchronize()
-    hierarchy.finish_synchronized()
+    var compact_layout = hierarchy.finalize_layout(ctx)
     ref binary = hierarchy.binary
     ref wide = hierarchy.wide
     var segment_count = wide.segments.segment_count()
-    var compact_layout = GpuCompactWideLayout(
-        ctx, wide.node_counts, wide.leaf_block_counts, segment_count
-    )
     var compact_nodes = enqueue_compact_segmented_buffer[
         .float32, node_width * WideNode.CHILD_STRIDE
     ](
@@ -49,7 +44,7 @@ def finalize_ordinary_wide_blas_set[
         wide.wide_nodes,
         wide.node_segment_offsets,
         compact_layout.node_segment_offsets,
-        compact_layout.node_segments.item_count(),
+        compact_layout.node_count,
         segment_count,
     )
     var compact_leaves = enqueue_compact_segmented_buffer[
@@ -59,7 +54,7 @@ def finalize_ordinary_wide_blas_set[
         leaf_workspace,
         wide.leaf_block_segment_offsets,
         compact_layout.leaf_block_segment_offsets,
-        compact_layout.leaf_block_segments.item_count(),
+        compact_layout.leaf_block_count,
         segment_count,
     )
     var descs = enqueue_segmented_blas_descriptors[

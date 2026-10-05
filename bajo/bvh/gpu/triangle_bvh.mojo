@@ -49,7 +49,6 @@ from bajo.bvh.gpu.builder.binary_layout import (
 from bajo.bvh.gpu.builder.hploc_layout import (
     HPLOC_MERGING_THRESHOLD,
     HPLOC_SEARCH_RADIUS,
-    HPLOC_STATUS_OK,
 )
 from bajo.bvh.gpu.builder.hploc_multi_wave import GpuHplocBuildState
 from bajo.bvh.gpu.builder.lbvh import (
@@ -59,7 +58,6 @@ from bajo.bvh.gpu.builder.lbvh import (
 from bajo.bvh.gpu.builder.wide_collapse import (
     CWBVH_COLLAPSE_BLOCK_SIZE,
     GpuWideCollapseWorkspace,
-    HPLOC_WIDE_STATUS_OK,
     enqueue_collapse_binary_to_cwbvh8,
 )
 from bajo.bvh.gpu.builder.segmented_build import (
@@ -224,14 +222,8 @@ struct _SegmentedTriangleWideBuild[
         measure_build: Bool,
     ) raises -> GpuTriangleBvh[Self.frame, Self.node_width, Self.leaf_width]:
         """Finalize the adapter's only segment as a standalone BVH."""
-        if measure_build:
-            ctx.synchronize()
-        else:
-            self.hierarchy.wait(ctx)
+        var layout = self.hierarchy.finalize_layout(ctx)
         ref wide = self.hierarchy.wide
-        var layout = GpuCompactWideLayout(
-            ctx, wide.node_counts, wide.leaf_block_counts, 1
-        )
         var compact_leaves = enqueue_compact_segmented_buffer[
             .float32,
             Self.leaf_width * TRI_LEAF_PACKED_STRIDE,
@@ -240,7 +232,7 @@ struct _SegmentedTriangleWideBuild[
             self.leaf_vertices,
             wide.leaf_block_segment_offsets,
             layout.leaf_block_segment_offsets,
-            layout.leaf_block_segments.item_count(),
+            layout.leaf_block_count,
             1,
         )
         var tree = self.hierarchy^.take_single_segment_with_layout(
@@ -403,19 +395,8 @@ def _finish_compressed_triangle_blas_set_via_wide[
         triangles,
     )
 
-    ctx.synchronize()
-    build.finish_synchronized()
-
-    with triangle_counters.map_to_host() as encoded_counts:
-        for segment_idx in range(segments.segment_count()):
-            if encoded_counts[segment_idx] != segments.count(segment_idx):
-                raise "segmented CWBVH8 encoding lost triangle records"
-
-    var compact_layout = GpuCompactWideLayout(
-        ctx,
-        wide.node_counts,
-        wide.leaf_block_counts,
-        segments.segment_count(),
+    var compact_layout = build.finalize_layout(
+        ctx, Optional(triangle_counters.copy())
     )
     var compact_nodes = enqueue_compact_segmented_buffer[
         .float32, CWBVH_NODE_WORDS
@@ -424,7 +405,7 @@ def _finish_compressed_triangle_blas_set_via_wide[
         nodes,
         wide.node_segment_offsets,
         compact_layout.node_segment_offsets,
-        compact_layout.node_segments.item_count(),
+        compact_layout.node_count,
         segments.segment_count(),
     )
     var descs = enqueue_segmented_blas_descriptors[
@@ -569,31 +550,16 @@ def _build_segmented_compressed_triangle_blas_set[
             representation_workspace.triangle_counters.copy()
         )
 
-        ctx.synchronize()
-        var hploc_status = hploc.result_status()
-        if hploc_status != UInt32(HPLOC_STATUS_OK):
-            raise String(t"H-PLOC build status: {hploc_status}")
-        with collapse.status.map_to_host() as collapse_status, collapse.wide_node_counter.map_to_host() as encoded_nodes, collapse.leaf_block_counter.map_to_host() as encoded_leaves:
-            if collapse_status[0] != HPLOC_WIDE_STATUS_OK:
-                raise String(t"BVH2-to-CWBVH8 status: {collapse_status[0]}")
-            if encoded_nodes[0] == 0 or encoded_nodes[0] > node_segments.count(
-                0
-            ):
-                raise "CWBVH8 conversion emitted an invalid node count"
-            if encoded_leaves[0] == 0 or encoded_leaves[0] > UInt32(
-                triangle_count
-            ):
-                raise "CWBVH8 conversion emitted an invalid leaf count"
-        with triangle_counters.map_to_host() as encoded_counts:
-            for segment_idx in range(segments.segment_count()):
-                if encoded_counts[segment_idx] != segments.count(segment_idx):
-                    raise "segmented CWBVH8 encoding lost triangle records"
-
         var compact_layout = GpuCompactWideLayout(
             ctx,
             node_counts,
             leaf_block_counts,
             segments.segment_count(),
+            primitive_offsets=Optional(binary.segment_offsets.copy()),
+            node_capacity_offsets=Optional(node_segment_offsets.copy()),
+            hploc_status=Optional(hploc.status.copy()),
+            collapse_status=Optional(collapse.status.copy()),
+            encoded_counts=Optional(triangle_counters.copy()),
         )
         var compact_nodes = enqueue_compact_segmented_buffer[
             .float32, CWBVH_NODE_WORDS
@@ -602,7 +568,7 @@ def _build_segmented_compressed_triangle_blas_set[
             nodes,
             node_segment_offsets,
             compact_layout.node_segment_offsets,
-            compact_layout.node_segments.item_count(),
+            compact_layout.node_count,
             segments.segment_count(),
         )
         var descs = enqueue_segmented_blas_descriptors[

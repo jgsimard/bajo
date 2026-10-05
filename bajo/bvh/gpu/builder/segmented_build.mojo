@@ -81,16 +81,46 @@ struct GpuSegmentedWideBuildTicket[
         ctx.synchronize()
         self.finish_synchronized()
 
+    def finalize_layout(
+        mut self,
+        mut ctx: DeviceContext,
+        encoded_counts: Optional[DeviceBuffer[.uint32]] = Optional[
+            DeviceBuffer[.uint32]
+        ](),
+    ) raises -> GpuCompactWideLayout:
+        """Validate and prefix completed counts with one small readback."""
+        var hploc_status = Optional[DeviceBuffer[.uint32]]()
+        if self.hploc:
+            hploc_status = Optional(self.hploc.value().status.copy())
+        var layout = GpuCompactWideLayout(
+            ctx,
+            self.wide.node_counts,
+            self.wide.leaf_block_counts,
+            self.wide.segments.segment_count(),
+            primitive_offsets=Optional(self.binary.segment_offsets.copy()),
+            node_capacity_offsets=Optional(
+                self.wide.node_segment_offsets.copy()
+            ),
+            hploc_status=hploc_status,
+            collapse_status=Optional(self.collapse.status.copy()),
+            encoded_counts=encoded_counts,
+            fat_leaves=Self.fat_leaves,
+        )
+        if self.collapse_start_ns != 0:
+            self.timings.collapse_ns = Int(
+                perf_counter_ns() - self.collapse_start_ns
+            )
+        return layout^
+
     def wait_into_single_segment(
         deinit self, mut ctx: DeviceContext, mut timings: GpuBuildTimings
     ) raises -> GpuWideBoundsBvh[
         Self.node_width, Self.leaf_width, Self.max_leaf_size
     ]:
         """Finish and consume the only segment as a standalone tree owner."""
-        ctx.synchronize()
-        self.finish_synchronized()
+        var layout = self.finalize_layout(ctx)
         timings = self.timings
-        return self.wide^.into_single_segment(ctx)
+        return self.wide^.into_single_segment_with_layout(ctx, layout)
 
     def wait_into_exact_bvh2_leaf1(
         deinit self, mut ctx: DeviceContext, mut timings: GpuBuildTimings
@@ -98,8 +128,7 @@ struct GpuSegmentedWideBuildTicket[
         Self.node_width, Self.leaf_width, Self.max_leaf_size
     ]:
         """Finish an already exact one-segment BVH2/leaf1 allocation."""
-        ctx.synchronize()
-        self.finish_synchronized()
+        _ = self.finalize_layout(ctx)
         timings = self.timings
         return self.wide^.into_exact_bvh2_leaf1()
 

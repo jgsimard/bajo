@@ -16,6 +16,7 @@ from bajo.core import (
     Vec3,
 )
 from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
+from bajo.bvh.gpu.build_finalize import GpuCompactWideLayout
 from bajo.bvh.gpu.utils import _device_span, upload_list
 from bajo.core.intersect import (
     RayDistanceHit,
@@ -80,36 +81,6 @@ def compact_segmented_buffer_kernel[
     target[unsafe_offset=scalar_idx] = source[
         unsafe_offset=source_item * item_stride + field
     ]
-
-
-@fieldwise_init
-struct GpuCompactWideLayout:
-    """Exact host/device segment offsets for completed wide output."""
-
-    var node_segments: SegmentOffsets
-    var leaf_block_segments: SegmentOffsets
-    var node_segment_offsets: DeviceBuffer[.uint32]
-    var leaf_block_segment_offsets: DeviceBuffer[.uint32]
-
-    def __init__(
-        out self,
-        mut ctx: DeviceContext,
-        node_counts: DeviceBuffer[.uint32],
-        leaf_block_counts: DeviceBuffer[.uint32],
-        segment_count: Int,
-    ) raises:
-        var host_node_counts = List[Int](capacity=segment_count)
-        var host_leaf_counts = List[Int](capacity=segment_count)
-        with node_counts.map_to_host() as nodes, leaf_block_counts.map_to_host() as leaves:
-            for segment_idx in range(segment_count):
-                host_node_counts.append(Int(nodes[segment_idx]))
-                host_leaf_counts.append(Int(leaves[segment_idx]))
-        self.node_segments = SegmentOffsets.from_counts(host_node_counts^)
-        self.leaf_block_segments = SegmentOffsets.from_counts(host_leaf_counts^)
-        self.node_segment_offsets = upload_list(ctx, self.node_segments.offsets)
-        self.leaf_block_segment_offsets = upload_list(
-            ctx, self.leaf_block_segments.offsets
-        )
 
 
 def enqueue_compact_segmented_buffer[
@@ -337,15 +308,13 @@ struct GpuWideBoundsBvhBatch[
     ) raises -> GpuWideBoundsBvh[
         Self.node_width, Self.leaf_width, Self.max_leaf_size
     ]:
-        """Compact using offsets already read back by the leaf adapter."""
+        """Compact using device offsets shared with the leaf adapter."""
         debug_assert["safe", _use_compiler_assume=True](
-            self.segments.segment_count() == 1
-            and layout.node_segments.segment_count() == 1
-            and layout.leaf_block_segments.segment_count() == 1,
+            self.segments.segment_count() == 1 and layout.segment_count == 1,
             "standalone BVH compaction requires exactly one segment",
         )
-        var node_count = layout.node_segments.item_count()
-        var leaf_block_count = layout.leaf_block_segments.item_count()
+        var node_count = layout.node_count
+        var leaf_block_count = layout.leaf_block_count
         var compact_nodes = enqueue_compact_segmented_buffer[
             .float32, Self.node_width * WideNode.CHILD_STRIDE
         ](

@@ -42,7 +42,9 @@ comptime BLAS_WIDTH_CPU = 16
 comptime TLAS_WIDTH_CPU = 4
 comptime BLAS_WIDTH_GPU = 8
 comptime BLAS_LEAF_WIDTH_GPU = 4
+comptime BLAS_MAX_LEAF_SIZE_GPU = 1
 comptime TLAS_WIDTH_GPU = 2
+comptime TLAS_LEAF_WIDTH_GPU = 1
 
 
 def _max_blas_extent[frame: Frame](bounds_list: List[AABB[frame]]) -> Float32:
@@ -466,6 +468,7 @@ def render_gpu(
             BLAS_LEAF_WIDTH_GPU,
             .HPLOC,
             .CWBVH8,
+            max_leaf_size=BLAS_MAX_LEAF_SIZE_GPU,
         ](ctx, tri_vertex_sets)
         ctx.synchronize()
         var blas_t1 = perf_counter_ns()
@@ -481,7 +484,7 @@ def render_gpu(
             .TRIANGLE,
             TLAS_WIDTH_GPU,
             BLAS_WIDTH_GPU,
-            TLAS_WIDTH_GPU,
+            TLAS_LEAF_WIDTH_GPU,
             BLAS_LEAF_WIDTH_GPU,
             .LBVH,
             .CWBVH8,
@@ -572,8 +575,12 @@ def main() raises:
     print(t"TLAS width CPU: {TLAS_WIDTH_CPU}")
     print(t"BLAS width GPU: {BLAS_WIDTH_GPU}")
     print(t"BLAS leaf width GPU: {BLAS_LEAF_WIDTH_GPU}")
-    print("GPU BLAS policy: H-PLOC + CWBVH8")
+    print(
+        t"GPU BLAS policy: H-PLOC + CWBVH8, max leaf size"
+        t" {BLAS_MAX_LEAF_SIZE_GPU}"
+    )
     print(t"TLAS width GPU: {TLAS_WIDTH_GPU}")
+    print(t"TLAS leaf width GPU: {TLAS_LEAF_WIDTH_GPU}")
     print(t"CPU output: {CPU_OUTPUT_PATH}")
     print(t"GPU output: {GPU_OUTPUT_PATH}")
     print("Scene layout: each cell = bunny | buddha | dragon")

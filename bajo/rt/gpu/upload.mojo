@@ -1,7 +1,8 @@
 """Nonempty device-table upload shared by prepared GPU RT resources."""
 
 from max.gpu.host import DeviceBuffer, DeviceContext
-from bajo.bvh.gpu.utils import upload_list
+
+from bajo.gpu.buffers import upload_list
 
 
 def _upload_nonempty[

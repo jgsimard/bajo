@@ -3,6 +3,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from max.gpu import global_idx, WARP_SIZE, lane_id
 from max.gpu.primitives import warp
 
+from bajo.gpu.buffers import _device_span, upload_list
 from bajo.core import AABB, Point3f32, SegmentOffsets
 from bajo.bvh.constants import (
     BinaryBvhNode,
@@ -10,7 +11,7 @@ from bajo.bvh.constants import (
     BOUNDS_REDUCE_CHUNK,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
-from bajo.bvh.gpu.utils import _device_span, upload_list
+
 from bajo.bvh.tagged_ref import is_leaf_ref, decode_ref_index
 from bajo.sort.gpu.onesweep import OneSweepWorkspace
 

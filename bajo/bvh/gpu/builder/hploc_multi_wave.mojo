@@ -9,6 +9,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import syncwarp
 
+from bajo.gpu.buffers import _device_span, upload_list
 from bajo.core.morton import morton_key_delta
 from bajo.bvh.constants import (
     BinaryBvhNode,
@@ -38,7 +39,7 @@ from bajo.bvh.gpu.builder.hploc_wave import (
     hploc_wave_first_lane,
     hploc_wave_rank,
 )
-from bajo.bvh.gpu.utils import _device_span, upload_list
+
 from bajo.core import AABB, Point3f32, SegmentOffsets
 
 

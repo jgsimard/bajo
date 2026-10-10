@@ -7,6 +7,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
 
+from bajo.gpu.buffers import _device_span, upload_list
 from bajo.bvh.constants import (
     BinaryBvhNode,
     EMPTY_LANE,
@@ -28,7 +29,7 @@ from bajo.bvh.gpu.builder.binary_layout import (
 )
 from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 from bajo.bvh.wide_meta import _pack_wide_meta
-from bajo.bvh.gpu.utils import _device_span, upload_list
+
 from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_NODE_WORDS,
     CWBVH_PX,

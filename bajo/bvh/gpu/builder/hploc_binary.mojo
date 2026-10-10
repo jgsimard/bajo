@@ -1,6 +1,7 @@
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
+from bajo.gpu.buffers import _device_span
 from bajo.bvh.constants import GPU_BOUNDS_BVH_BLOCK_SIZE
 from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
@@ -12,7 +13,7 @@ from bajo.bvh.gpu.builder.lbvh import (
     enqueue_segmented_morton_codes,
     enqueue_segmented_morton_sort,
 )
-from bajo.bvh.gpu.utils import GpuBuildTimings, _device_span
+from bajo.bvh.gpu.utils import GpuBuildTimings
 
 
 def enqueue_binary_bvh_with_hploc(

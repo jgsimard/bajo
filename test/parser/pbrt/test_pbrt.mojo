@@ -122,6 +122,13 @@ def test_camera_only_matches_full_scene_camera() raises:
         "",
         'LookAt 1 2 3  -1 0 0  0 0 1\nCamera "perspective" "float fov" [31]\n',
         'Camera "perspective" "float fov" [31]\nCamera "perspective"\n',
+        (
+            'Film "rgb" "integer xresolution" [8]\n'
+            'Sampler "independent" "integer pixelsamples" [1]\n'
+            'Integrator "path" "integer maxdepth" [2]\n'
+            'PixelFilter "box" "float xradius" [0.5]\n'
+            'Accelerator "bvh" "integer maxnodeprims" [4]\n'
+        ),
     ]:
         var loader = MemoryAssetLoader()
         loader.add_file("camera.pbrt", options + 'WorldBegin\nShape "sphere"')

@@ -4,8 +4,9 @@ from max.gpu import global_idx
 from std.math import ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
 
+from bajo.gpu.buffers import _device_span
 from bajo.bvh.constants import GPU_BOUNDS_BVH_BLOCK_SIZE
-from bajo.bvh.gpu.utils import _device_span
+
 from bajo.bvh.types import BlasDesc, BlasDescLayout
 
 

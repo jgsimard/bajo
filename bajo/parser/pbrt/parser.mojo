@@ -888,6 +888,17 @@ def _bracket_values(mut lexer: _Lexer) raises -> List[StringSpan[lexer.origin]]:
         values.append(token.value)
 
 
+def _named_params(mut lexer: _Lexer) raises -> _Parameters[lexer.origin]:
+    _ = lexer.next()  # Implementation name precedes its parameter declarations.
+    return _parse_params(lexer)
+
+
+def _include_path(mut lexer: _Lexer, path: String) raises -> String:
+    return std.os.path.join(
+        std.os.path.dirname(path), String(lexer.next().value)
+    )
+
+
 def _parse_text[
     Loader: AssetLoader
 ](
@@ -914,18 +925,14 @@ def _parse_text[
                 builder.camera_options.parse_camera(lexer)
 
             case "Film":
-                _ = (
-                    lexer.next()
-                )  # Film implementation; rgb/image are equivalent here.
-                var params = _parse_params(lexer)
+                var params = _named_params(lexer)
                 builder.image_width = params.integer("integer xresolution", 640)
                 builder.image_height = params.integer(
                     "integer yresolution", 480
                 )
 
             case "Sampler":
-                _ = lexer.next()
-                var params = _parse_params(lexer)
+                var params = _named_params(lexer)
                 builder.samples_per_pixel = params.integer(
                     "integer pixelsamples", 16
                 )
@@ -945,8 +952,7 @@ def _parse_text[
             case "PixelFilter" | "Accelerator":
                 # Bajo supplies these implementation details itself, but consuming
                 # their declarations keeps ordinary PBRT scene headers portable.
-                _ = lexer.next()
-                _ = _parse_params(lexer)
+                _ = _named_params(lexer)
 
             case "ColorSpace":
                 var color_space = lexer.next().value
@@ -1092,10 +1098,7 @@ def _parse_text[
                 )
 
             case "Include":
-                var include_name = String(lexer.next().value)
-                var include_path = std.os.path.join(
-                    std.os.path.dirname(path), include_name
-                )
+                var include_path = _include_path(lexer, path)
                 _parse_text(
                     builder,
                     loader.read_text(include_path),
@@ -1155,21 +1158,8 @@ def _parse_camera_text[
             case "Camera":
                 options.parse_camera(lexer)
 
-            case "Film":
-                _ = lexer.next()
-                _ = _parse_params(lexer)
-
-            case "Sampler":
-                _ = lexer.next()
-                _ = _parse_params(lexer)
-
-            case "Integrator":
-                _ = lexer.next()
-                _ = _parse_params(lexer)
-
-            case "PixelFilter" | "Accelerator":
-                _ = lexer.next()
-                _ = _parse_params(lexer)
+            case "Film" | "Sampler" | "Integrator" | "PixelFilter" | "Accelerator":
+                _ = _named_params(lexer)
 
             case "ColorSpace":
                 _ = lexer.next()
@@ -1190,10 +1180,7 @@ def _parse_camera_text[
                 _ = _bracket_values(lexer)
 
             case "Include":
-                var include_name = String(lexer.next().value)
-                var include_path = std.os.path.join(
-                    std.os.path.dirname(path), include_name
-                )
+                var include_path = _include_path(lexer, path)
                 if _parse_camera_text(
                     options,
                     loader.read_text(include_path),

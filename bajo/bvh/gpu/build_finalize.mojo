@@ -8,7 +8,7 @@ from max.gpu.sync import barrier
 from std.math import min
 from std.memory import stack_allocation
 
-from bajo.bvh.gpu.utils import _device_span
+from bajo.gpu.buffers import _device_span
 
 
 comptime _CHECK_SIZES = UInt32(1)

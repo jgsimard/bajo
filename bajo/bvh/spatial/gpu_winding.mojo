@@ -4,9 +4,10 @@ from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from std.math import min, max, ceildiv
 from std.memory import unsafe_memcpy
+from bajo.gpu.buffers import upload_list, _device_span
 from bajo.core import Frame
 from bajo.bvh.constants import EMPTY_LANE, f32_max
-from bajo.bvh.gpu.utils import upload_list, _device_span
+
 from .mesh import SpatialMesh
 from .gpu import GpuSpatialBoundsBvh
 from .parallel_refit import (

@@ -4,6 +4,7 @@ from std.math import ceildiv
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
+from bajo.gpu.buffers import _device_span
 from bajo.bvh.constants import GPU_BOUNDS_BVH_BLOCK_SIZE, WideNode
 from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
@@ -34,7 +35,7 @@ from bajo.bvh.gpu.compressed_bounds_bvh import (
     enqueue_segmented_cwbvh8_representation_with_workspace,
     pack_segmented_cwbvh_triangles_kernel,
 )
-from bajo.bvh.gpu.utils import GpuBuildTimings, _device_span
+from bajo.bvh.gpu.utils import GpuBuildTimings
 from bajo.bvh.gpu.wide_layout import GpuWideBuildLayout
 from bajo.core import SegmentOffsets
 

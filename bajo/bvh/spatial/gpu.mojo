@@ -12,8 +12,9 @@ from max.gpu.host import (
     DeviceGraph,
     DeviceGraphBuilder,
 )
+from bajo.gpu.buffers import upload_list, _device_span, copy_to_device
 from bajo.core import AABB, Frame
-from bajo.bvh.gpu.utils import upload_list, _device_span
+
 from .device_update import UPDATE_BLOCK_SIZE, bounds_update_kernel
 from .bounds import SpatialBoundsBvh
 
@@ -65,12 +66,8 @@ struct GpuSpatialBoundsBvh[frame: Frame = .WORLD]:
         """
         ctx.synchronize()
         self.host.rebuild(boxes)
-        with self.bounds.map_to_host() as data:
-            for i in range(len(self.host.bounds)):
-                data[i] = self.host.bounds[i]
-        with self.nodes.map_to_host() as data:
-            for i in range(len(self.host.nodes)):
-                data[i] = self.host.nodes[i]
+        copy_to_device(self.bounds, self.host.bounds)
+        copy_to_device(self.nodes, self.host.nodes)
         ctx.synchronize()
 
     def enqueue_update[

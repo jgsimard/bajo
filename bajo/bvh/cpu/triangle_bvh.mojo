@@ -731,15 +731,10 @@ struct _TriangleBuild[
                 first_item, item_count, len(builder.item_indices)
             )
             var out = block_idx * Self.leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
-            packed_leaves.unsafe_store[width=Self.leaf_width](
-                out + 0 * Self.leaf_width, 0.0
-            )
-            packed_leaves.unsafe_store[width=Self.leaf_width](
-                out + 1 * Self.leaf_width, 0.0
-            )
-            packed_leaves.unsafe_store[width=Self.leaf_width](
-                out + 2 * Self.leaf_width, 0.0
-            )
+            comptime for axis in range(3):
+                packed_leaves.unsafe_store[width=Self.leaf_width](
+                    out + axis * Self.leaf_width, 0.0
+                )
             packed_leaves.unsafe_bitcast[UInt32]().unsafe_store[
                 width=Self.leaf_width
             ](out + 3 * Self.leaf_width, EMPTY_LANE)
@@ -754,36 +749,19 @@ struct _TriangleBuild[
                 ref p0 = vertices[base + 0]
                 ref p1 = vertices[base + 1]
                 ref p2 = vertices[base + 2]
-                packed_leaves[
-                    unsafe_offset=out + 0 * Self.leaf_width + k
-                ] = p0.x
-                packed_leaves[
-                    unsafe_offset=out + 1 * Self.leaf_width + k
-                ] = p0.y
-                packed_leaves[
-                    unsafe_offset=out + 2 * Self.leaf_width + k
-                ] = p0.z
                 packed_leaves.unsafe_bitcast[UInt32]()[
                     unsafe_offset=out + 3 * Self.leaf_width + k
                 ] = prim_idx
-                packed_leaves[unsafe_offset=out + 4 * Self.leaf_width + k] = (
-                    p1.x - p0.x
-                )
-                packed_leaves[unsafe_offset=out + 5 * Self.leaf_width + k] = (
-                    p1.y - p0.y
-                )
-                packed_leaves[unsafe_offset=out + 6 * Self.leaf_width + k] = (
-                    p1.z - p0.z
-                )
-                packed_leaves[unsafe_offset=out + 7 * Self.leaf_width + k] = (
-                    p2.x - p0.x
-                )
-                packed_leaves[unsafe_offset=out + 8 * Self.leaf_width + k] = (
-                    p2.y - p0.y
-                )
-                packed_leaves[unsafe_offset=out + 9 * Self.leaf_width + k] = (
-                    p2.z - p0.z
-                )
+                comptime for axis in range(3):
+                    packed_leaves[
+                        unsafe_offset=out + axis * Self.leaf_width + k
+                    ] = p0[axis]
+                    packed_leaves[
+                        unsafe_offset=out + (4 + axis) * Self.leaf_width + k
+                    ] = (p1[axis] - p0[axis])
+                    packed_leaves[
+                        unsafe_offset=out + (7 + axis) * Self.leaf_width + k
+                    ] = (p2[axis] - p0[axis])
             packed_counts[unsafe_offset=block_idx] = UInt32(count)
 
         var leaf_ranges = List[WideLeafRange]()

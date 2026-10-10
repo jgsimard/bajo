@@ -2,6 +2,7 @@
 
 from max.gpu.host import DeviceBuffer, DeviceContext
 
+from bajo.gpu.buffers import upload_list
 from bajo.bvh import Camera, Sphere
 from bajo.bvh.gpu import (
     GpuBlasSet,
@@ -12,7 +13,7 @@ from bajo.bvh.gpu import (
     build_gpu_triangle_blas_set,
     build_gpu_tlas,
 )
-from bajo.bvh.gpu.utils import upload_list
+
 from bajo.core import Affine3f32, Point3f32
 from bajo.rt.gpu.lighting import GpuRtLights
 from bajo.rt.gpu.materials import GpuRtMaterials

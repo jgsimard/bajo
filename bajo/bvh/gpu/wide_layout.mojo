@@ -5,6 +5,7 @@ from max.gpu.sync import barrier
 from std.memory import stack_allocation
 from max.gpu.host import DeviceBuffer, DeviceContext
 
+from bajo.gpu.buffers import _device_span, upload_list
 from bajo.bvh.constants import WideNode
 from bajo.bvh.wide_meta import _wide_node_base, _wide_node_index
 from bajo.core import (
@@ -17,7 +18,7 @@ from bajo.core import (
 )
 from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
 from bajo.bvh.gpu.build_finalize import GpuCompactWideLayout
-from bajo.bvh.gpu.utils import _device_span, upload_list
+
 from bajo.core.intersect import RayDistanceHit
 
 

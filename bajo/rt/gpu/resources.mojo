@@ -3,8 +3,9 @@
 from std.math import ceildiv, min
 from max.gpu.host import DeviceBuffer, DeviceContext
 
+from bajo.gpu.buffers import upload_list
 from bajo.bvh import Camera
-from bajo.bvh.gpu.utils import upload_camera, upload_list
+from bajo.bvh.gpu.utils import upload_camera
 from bajo.rt.render_types import (
     Color,
     RenderSettings,

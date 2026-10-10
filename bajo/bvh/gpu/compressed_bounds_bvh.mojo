@@ -4,6 +4,7 @@ from std.math import ceil, ceildiv, floor, fma, clamp, max, min
 from std.memory import bitcast
 from max.gpu.host import DeviceBuffer, DeviceContext
 
+from bajo.gpu.buffers import _device_span
 from bajo.bvh.constants import (
     EMPTY_LANE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
@@ -12,7 +13,7 @@ from bajo.bvh.constants import (
     f32_max,
 )
 from bajo.bvh.gpu.builder.binary_layout import _segment_for_item
-from bajo.bvh.gpu.utils import _device_span
+
 from bajo.bvh.wide_meta import (
     _wide_meta_count,
     _wide_meta_data,

@@ -1,26 +1,12 @@
 from max.gpu.host import DeviceContext, DeviceBuffer
 
+# Keep the existing import path available to callers.
+from bajo.gpu.buffers import _device_span, upload_list
+
 from bajo.bvh.camera import Camera
 from bajo.core import Vec3f32, Point3f32, Frame, Rayf32
 from bajo.bvh.types import Hit
 from bajo.bvh.constants import f32_max
-
-
-def _device_span[
-    mut: Bool,
-    dtype: DType,
-](
-    buffer: DeviceBuffer[dtype],
-) -> Span[
-    mut=mut, Scalar[dtype], AnyOrigin[mut=mut]
-]:
-    """Create a length-backed view at the device ABI boundary."""
-    return Span(
-        unsafe_ptr=buffer.unsafe_ptr()
-        .unsafe_mut_cast[mut]()
-        .unsafe_origin_cast[AnyOrigin[mut=mut]](),
-        length=len(buffer),
-    )
 
 
 @fieldwise_init
@@ -149,18 +135,3 @@ def upload_rays[
     for ray in rays:
         flat.append(ray.t_max)
     return upload_list(ctx, flat)
-
-
-def upload_list[
-    dtype: DType
-](
-    mut ctx: DeviceContext,
-    a: ImmSpan[Scalar[dtype], _],
-) raises -> DeviceBuffer[
-    dtype
-]:
-    var h_a = ctx.enqueue_create_host_buffer[dtype](len(a))
-    var d_a = ctx.enqueue_create_buffer[dtype](len(a))
-    h_a.enqueue_copy_from(a)
-    h_a.enqueue_copy_to(d_a)
-    return d_a^

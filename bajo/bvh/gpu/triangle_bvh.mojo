@@ -3,11 +3,10 @@ from std.time import perf_counter_ns
 from max.gpu import global_idx
 from max.gpu.host import DeviceBuffer, DeviceContext
 
+from bajo.gpu.buffers import _device_span, upload_list
 from bajo.bvh.gpu.utils import (
     GpuBuildTimings,
-    _device_span,
     upload_vertices,
-    upload_list,
 )
 from bajo.core import (
     AABB,
@@ -119,31 +118,16 @@ def pack_segmented_triangle_leaf_lanes_kernel[
     )
 
     var in_base = Int(prim) * TRI_LEAF_VERTEX_STRIDE
-    var v0x = vertices[unsafe_offset=in_base + 0]
-    var v0y = vertices[unsafe_offset=in_base + 1]
-    var v0z = vertices[unsafe_offset=in_base + 2]
-    leaf_vertices[unsafe_offset=out_base + 0 * width + lane] = v0x
-    leaf_vertices[unsafe_offset=out_base + 1 * width + lane] = v0y
-    leaf_vertices[unsafe_offset=out_base + 2 * width + lane] = v0z
-    leaf_vertices[unsafe_offset=out_base + 4 * width + lane] = (
-        vertices[unsafe_offset=in_base + 3] - v0x
-    )
-    leaf_vertices[unsafe_offset=out_base + 5 * width + lane] = (
-        vertices[unsafe_offset=in_base + 4] - v0y
-    )
-    leaf_vertices[unsafe_offset=out_base + 6 * width + lane] = (
-        vertices[unsafe_offset=in_base + 5] - v0z
-    )
+    comptime for axis in range(3):
+        var v0 = vertices[unsafe_offset=in_base + axis]
+        leaf_vertices[unsafe_offset=out_base + axis * width + lane] = v0
+        leaf_vertices[unsafe_offset=out_base + (4 + axis) * width + lane] = (
+            vertices[unsafe_offset=in_base + 3 + axis] - v0
+        )
+        leaf_vertices[unsafe_offset=out_base + (8 + axis) * width + lane] = (
+            vertices[unsafe_offset=in_base + 6 + axis] - v0
+        )
     leaf_vertices[unsafe_offset=out_base + 7 * width + lane] = 0.0
-    leaf_vertices[unsafe_offset=out_base + 8 * width + lane] = (
-        vertices[unsafe_offset=in_base + 6] - v0x
-    )
-    leaf_vertices[unsafe_offset=out_base + 9 * width + lane] = (
-        vertices[unsafe_offset=in_base + 7] - v0y
-    )
-    leaf_vertices[unsafe_offset=out_base + 10 * width + lane] = (
-        vertices[unsafe_offset=in_base + 8] - v0z
-    )
     leaf_vertices[unsafe_offset=out_base + 11 * width + lane] = 0.0
 
 

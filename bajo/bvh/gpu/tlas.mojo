@@ -3,6 +3,7 @@ from std.atomic import Atomic, Ordering
 from max.gpu.host import DeviceBuffer, DeviceContext
 from max.gpu import global_idx
 
+from bajo.gpu.buffers import upload_list
 from bajo.core import AABB, Affine3f32, Rayf32
 from bajo.bvh.constants import (
     TraceMode,
@@ -37,7 +38,7 @@ from bajo.bvh.gpu.trace import (
     trace_bounds_bvh,
     trace_bounds_bvh_state,
 )
-from bajo.bvh.gpu.utils import GpuBuildTimings, upload_list
+from bajo.bvh.gpu.utils import GpuBuildTimings
 from bajo.bvh.gpu.ray_launch import (
     _load_packed_ray,
     _store_packed_hit_vectorized,

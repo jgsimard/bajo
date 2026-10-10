@@ -3,6 +3,7 @@ from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 from max.gpu import global_idx
 
+from bajo.gpu.buffers import _device_span, upload_list
 from bajo.bvh.constants import (
     EMPTY_LANE,
     TraceMode,
@@ -38,11 +39,7 @@ from bajo.bvh.gpu.builder.segmented_build import (
 from bajo.bvh.gpu.blas_finalize import finalize_ordinary_wide_blas_set
 from bajo.bvh.gpu.camera_trace import enqueue_bvh_camera_trace
 from bajo.bvh.gpu.trace import trace_bounds_bvh
-from bajo.bvh.gpu.utils import (
-    GpuBuildTimings,
-    _device_span,
-    upload_list,
-)
+from bajo.bvh.gpu.utils import GpuBuildTimings
 
 
 @fieldwise_init

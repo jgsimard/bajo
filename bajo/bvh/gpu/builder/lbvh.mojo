@@ -8,6 +8,7 @@ from std.atomic import Atomic, Ordering, fence
 from max.gpu.host import DeviceContext
 from max.gpu import global_idx
 
+from bajo.gpu.buffers import _device_span
 from bajo.core import AABB
 from bajo.core.morton import morton3, morton_key_delta
 from bajo.sort.gpu.onesweep import onesweep_radix_sort_pairs
@@ -22,7 +23,7 @@ from bajo.bvh.tagged_ref import (
     encode_leaf_ref,
     is_leaf_ref,
 )
-from bajo.bvh.gpu.utils import GpuBuildTimings, _device_span
+from bajo.bvh.gpu.utils import GpuBuildTimings
 from bajo.bvh.gpu.builder.binary_layout import (
     _node_parent_index,
     _write_child_bounds,

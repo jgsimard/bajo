@@ -18,8 +18,9 @@ from .parallel_refit import (
     publish_mesh_chunk_parents_kernel,
     publish_bounds_refit_kernel,
 )
+from bajo.gpu.buffers import upload_list, _device_span, copy_to_device
 from bajo.core import Frame, Point3f32, Vec3f32
-from bajo.bvh.gpu.utils import upload_list, _device_span
+
 from .device_update import (
     UPDATE_BLOCK_SIZE,
     mesh_update_kernel,
@@ -235,12 +236,8 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         return self.host.group_root(group)
 
     def _upload_geometry(mut self, ctx: DeviceContext) raises:
-        with self.points.map_to_host() as data:
-            for i in range(len(self.host.points)):
-                data[i] = self.host.points[i]
-        with self.bounds.map_to_host() as data:
-            for i in range(len(self.host.bvh.bounds)):
-                data[i] = self.host.bvh.bounds[i]
+        copy_to_device(self.points, self.host.points)
+        copy_to_device(self.bounds, self.host.bvh.bounds)
         if self.winding:
             with self.update_status.map_to_host() as status:
                 status[0] = 0
@@ -254,9 +251,7 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
     ) raises:
         ctx.synchronize()
         self.host.refit(points)
-        with self.points.map_to_host() as data:
-            for i in range(len(self.host.points)):
-                data[i] = self.host.points[i]
+        copy_to_device(self.points, self.host.points)
         self.refit_device(ctx, self.points)
 
     def rebuild(
@@ -265,9 +260,7 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         ctx.synchronize()
         self.host.rebuild(points)
         self._upload_geometry(ctx)
-        with self.nodes.map_to_host() as data:
-            for i in range(len(self.host.bvh.nodes)):
-                data[i] = self.host.bvh.nodes[i]
+        copy_to_device(self.nodes, self.host.bvh.nodes)
         ctx.synchronize()
 
     def set_velocities(
@@ -277,9 +270,7 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
     ) raises:
         ctx.synchronize()
         self.host.set_velocities(velocities)
-        with self.velocities.map_to_host() as data:
-            for i in range(len(self.host.velocities)):
-                data[i] = self.host.velocities[i]
+        copy_to_device(self.velocities, self.host.velocities)
         ctx.synchronize()
 
     def enqueue_update[

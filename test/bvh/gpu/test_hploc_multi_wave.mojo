@@ -1,3 +1,14 @@
+from test.bvh.hploc_fixtures import (
+    _box,
+    _identity_ids,
+    _flatten_bounds,
+    _bounds_match,
+    _leaf_hash,
+    _inner_hash,
+    _reference_root_hash,
+    _make_triangles,
+)
+
 from std.math import abs, max
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_equal, assert_false, assert_true
@@ -86,81 +97,6 @@ struct GpuHplocMultiWaveBvh[
 
     def result_node_count(self) raises -> UInt32:
         return self.state.result_node_count()
-
-
-def _box(center_x: Float32) -> AABB[.WORLD]:
-    return AABB[.WORLD](
-        Point3f32[.WORLD](center_x - 0.1, -0.1, -0.1),
-        Point3f32[.WORLD](center_x + 0.1, 0.1, 0.1),
-    )
-
-
-def _identity_ids(count: Int) -> List[UInt32]:
-    var ids = List[UInt32](capacity=count)
-    for i in range(count):
-        ids.append(UInt32(i))
-    return ids^
-
-
-def _flatten_bounds(
-    bounds: List[AABB[.WORLD]],
-) -> List[Float32]:
-    var flat = List[Float32](capacity=len(bounds) * AABB.STRIDE)
-    for bound in bounds:
-        flat.append(bound._min.x)
-        flat.append(bound._min.y)
-        flat.append(bound._min.z)
-        flat.append(bound._max.x)
-        flat.append(bound._max.y)
-        flat.append(bound._max.z)
-    return flat^
-
-
-def _bounds_match(
-    actual: AABB[.WORLD],
-    expected: AABB[.WORLD],
-    tolerance: Float64 = 1.0e-4,
-) -> Bool:
-    return (
-        abs(Float64(actual._min.x - expected._min.x)) <= tolerance
-        and abs(Float64(actual._min.y - expected._min.y)) <= tolerance
-        and abs(Float64(actual._min.z - expected._min.z)) <= tolerance
-        and abs(Float64(actual._max.x - expected._max.x)) <= tolerance
-        and abs(Float64(actual._max.y - expected._max.y)) <= tolerance
-        and abs(Float64(actual._max.z - expected._max.z)) <= tolerance
-    )
-
-
-def _rotate_left(value: UInt64, shift: Int) -> UInt64:
-    return (value << UInt64(shift)) | (value >> UInt64(64 - shift))
-
-
-def _leaf_hash(leaf_id: UInt32) -> UInt64:
-    return (
-        UInt64(leaf_id + 1)
-        ^ (UInt64(leaf_id) << 32)
-        ^ UInt64(0x9E3779B97F4A7C15)
-    )
-
-
-def _inner_hash(left: UInt64, right: UInt64) -> UInt64:
-    return (
-        _rotate_left(left, 13)
-        ^ _rotate_left(right, 37)
-        ^ UInt64(0xD6E8FEB86659FD93)
-    )
-
-
-def _reference_root_hash(reference: HplocTopology[.WORLD]) -> UInt64:
-    var hashes = List[UInt64](length=len(reference.nodes), fill=UInt64(0))
-    for node_idx, node in enumerate(reference.nodes):
-        if node.left == LBVH_SENTINEL:
-            hashes[node_idx] = _leaf_hash(node.leaf_id)
-        else:
-            hashes[node_idx] = _inner_hash(
-                hashes[Int(node.left)], hashes[Int(node.right)]
-            )
-    return hashes[Int(reference.root)]
 
 
 def _assert_gpu_matches_reference[
@@ -432,23 +368,6 @@ def test_hploc_multi_wave_duplicate_codes_repeat_deterministically() raises:
         var first_hash = _assert_gpu_matches_reference(first, reference)
         var second_hash = _assert_gpu_matches_reference(second, reference)
         assert_equal(first_hash, second_hash)
-
-
-def _make_triangles(count: Int) -> List[AABB[.WORLD]]:
-    var bounds = List[AABB[.WORLD]](capacity=count)
-    for i in range(count):
-        var x = Float32((i % 19) * 4 - 36)
-        var y = Float32(((i / 19) % 14) * 4 - 26)
-        var z = Float32((i * 7) % 11)
-        var scale = Float32(2.2) if i % 17 == 0 else Float32(0.7)
-        bounds.append(
-            AABB(
-                Point3f32[.WORLD](x - scale, y - scale, z),
-                Point3f32[.WORLD](x + scale, y - scale, z),
-                Point3f32[.WORLD](x, y + scale, z + 0.1),
-            )
-        )
-    return bounds^
 
 
 def test_hploc_multi_wave_crosses_blocks_with_gpu_lbvh_inputs() raises:

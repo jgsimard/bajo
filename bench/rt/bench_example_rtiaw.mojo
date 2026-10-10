@@ -32,6 +32,24 @@ comptime MODE_WAVEFRONT_SERIAL = 1
 comptime MODE_WAVEFRONT_PARALLEL = 2
 
 
+# Mode, chunk size, and output label in forward sampling order.
+comptime CASES = (
+    (MODE_DEPTH_FIRST, 0, "parallel depth-first 16x16"),
+    (MODE_WAVEFRONT_SERIAL, 0, "serial packet16 wavefront 8K"),
+    (MODE_WAVEFRONT_PARALLEL, 512, "parallel packet16 wavefront 512"),
+    (MODE_WAVEFRONT_PARALLEL, 1024, "parallel packet16 wavefront 1K"),
+    (MODE_WAVEFRONT_PARALLEL, 2048, "parallel packet16 wavefront 2K"),
+    (MODE_WAVEFRONT_PARALLEL, 4096, "parallel packet16 wavefront 4K"),
+)
+
+
+@fieldwise_init
+struct Samples(Copyable):
+    var total_times: List[Int]
+    var render_times: List[Int]
+    var checksum: Float64
+
+
 @fieldwise_init
 struct Timing(Copyable):
     var median_total_ns: Int
@@ -47,26 +65,26 @@ def _render_mode[
     settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
 ) raises -> RenderResult:
     comptime __match MODE:
-    case 0:
-        return render_depth_first[.PATH](settings, camera, world)
-    case 1:
-        return render_wavefront[
-            .PATH,
-            16,
-            CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
-            False,
-        ](settings, camera, world)
-    case 2:
-        comptime assert CHUNK_PATHS > 0
-        return render_wavefront[
-            .PATH,
-            16,
-            CHUNK_PATHS,
-            True,
-            CpuSchedulerMode.TASK_PARTITIONS,
-        ](settings, camera, world)
-    case _:
-        comptime assert False
+        case 0:
+            return render_depth_first[.PATH](settings, camera, world)
+        case 1:
+            return render_wavefront[
+                .PATH,
+                16,
+                CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
+                False,
+            ](settings, camera, world)
+        case 2:
+            comptime assert CHUNK_PATHS > 0
+            return render_wavefront[
+                .PATH,
+                16,
+                CHUNK_PATHS,
+                True,
+                CpuSchedulerMode.TASK_PARTITIONS,
+            ](settings, camera, world)
+        case _:
+            comptime assert False
 
 
 def _warmup[
@@ -134,159 +152,47 @@ def main() raises:
     var world = make_weekend_world()
     var camera = weekend_camera()
 
-    var depth_checksum = _warmup[MODE_DEPTH_FIRST](settings, camera, world)
-    var serial_checksum = _warmup[MODE_WAVEFRONT_SERIAL](
-        settings, camera, world
-    )
-    var parallel_checksum = _warmup[MODE_WAVEFRONT_PARALLEL, 512](
-        settings, camera, world
-    )
-    var parallel1k_checksum = _warmup[MODE_WAVEFRONT_PARALLEL, 1024](
-        settings, camera, world
-    )
-    var parallel2k_checksum = _warmup[MODE_WAVEFRONT_PARALLEL, 2048](
-        settings, camera, world
-    )
-    var parallel4k_checksum = _warmup[MODE_WAVEFRONT_PARALLEL, 4096](
-        settings, camera, world
-    )
-    debug_assert["safe", _use_compiler_assume=True](
-        parallel_checksum == serial_checksum
-        and parallel1k_checksum == serial_checksum
-        and parallel2k_checksum == serial_checksum
-        and parallel4k_checksum == serial_checksum,
-        "parallel wavefront changed serial wavefront pixels",
-    )
+    var samples = List[Samples](capacity=len(CASES))
+    comptime for i in range(len(CASES)):
+        var checksum = _warmup[CASES[i][0], CASES[i][1]](
+            settings, camera, world
+        )
+        comptime if CASES[i][0] == MODE_WAVEFRONT_PARALLEL:
+            debug_assert["safe", _use_compiler_assume=True](
+                checksum == samples[1].checksum,
+                "parallel wavefront changed serial wavefront pixels",
+            )
+        samples.append(
+            Samples(
+                List[Int](capacity=REPEATS),
+                List[Int](capacity=REPEATS),
+                checksum,
+            )
+        )
 
-    var depth_total = List[Int](capacity=REPEATS)
-    var depth_render = List[Int](capacity=REPEATS)
-    var serial_total = List[Int](capacity=REPEATS)
-    var serial_render = List[Int](capacity=REPEATS)
-    var parallel512_total = List[Int](capacity=REPEATS)
-    var parallel512_render = List[Int](capacity=REPEATS)
-    var parallel1k_total = List[Int](capacity=REPEATS)
-    var parallel1k_render = List[Int](capacity=REPEATS)
-    var parallel2k_total = List[Int](capacity=REPEATS)
-    var parallel2k_render = List[Int](capacity=REPEATS)
-    var parallel4k_total = List[Int](capacity=REPEATS)
-    var parallel4k_render = List[Int](capacity=REPEATS)
     for iteration in range(REPEATS):
-        if iteration % 2 == 0:
-            _record[MODE_DEPTH_FIRST](
-                depth_total,
-                depth_render,
-                depth_checksum,
-                settings,
-                camera,
-                world,
-            )
-            _record[MODE_WAVEFRONT_SERIAL](
-                serial_total,
-                serial_render,
-                serial_checksum,
-                settings,
-                camera,
-                world,
-            )
-            _record[MODE_WAVEFRONT_PARALLEL, 512](
-                parallel512_total,
-                parallel512_render,
-                parallel_checksum,
-                settings,
-                camera,
-                world,
-            )
-            _record[MODE_WAVEFRONT_PARALLEL, 1024](
-                parallel1k_total,
-                parallel1k_render,
-                parallel_checksum,
-                settings,
-                camera,
-                world,
-            )
-            _record[MODE_WAVEFRONT_PARALLEL, 2048](
-                parallel2k_total,
-                parallel2k_render,
-                parallel_checksum,
-                settings,
-                camera,
-                world,
-            )
-            _record[MODE_WAVEFRONT_PARALLEL, 4096](
-                parallel4k_total,
-                parallel4k_render,
-                parallel_checksum,
-                settings,
-                camera,
-                world,
-            )
-        else:
-            _record[MODE_WAVEFRONT_PARALLEL, 4096](
-                parallel4k_total,
-                parallel4k_render,
-                parallel_checksum,
-                settings,
-                camera,
-                world,
-            )
-            _record[MODE_WAVEFRONT_PARALLEL, 2048](
-                parallel2k_total,
-                parallel2k_render,
-                parallel_checksum,
-                settings,
-                camera,
-                world,
-            )
-            _record[MODE_WAVEFRONT_PARALLEL, 1024](
-                parallel1k_total,
-                parallel1k_render,
-                parallel_checksum,
-                settings,
-                camera,
-                world,
-            )
-            _record[MODE_WAVEFRONT_PARALLEL, 512](
-                parallel512_total,
-                parallel512_render,
-                parallel_checksum,
-                settings,
-                camera,
-                world,
-            )
-            _record[MODE_WAVEFRONT_SERIAL](
-                serial_total,
-                serial_render,
-                serial_checksum,
-                settings,
-                camera,
-                world,
-            )
-            _record[MODE_DEPTH_FIRST](
-                depth_total,
-                depth_render,
-                depth_checksum,
-                settings,
-                camera,
-                world,
-            )
+        # Alternate forward and reverse order to balance timing drift.
+        comptime for reverse in range(2):
+            if iteration % 2 == reverse:
+                comptime for position in range(len(CASES)):
+                    comptime i = len(
+                        CASES
+                    ) - 1 - position if reverse else position
+                    _record[CASES[i][0], CASES[i][1]](
+                        samples[i].total_times,
+                        samples[i].render_times,
+                        samples[i].checksum,
+                        settings,
+                        camera,
+                        world,
+                    )
 
-    var depth = _summarize(depth_total, depth_render, depth_checksum)
-    var serial = _summarize(serial_total, serial_render, serial_checksum)
-    var parallel512 = _summarize(
-        parallel512_total, parallel512_render, parallel_checksum
-    )
-    var parallel1k = _summarize(
-        parallel1k_total, parallel1k_render, parallel_checksum
-    )
-    var parallel2k = _summarize(
-        parallel2k_total, parallel2k_render, parallel_checksum
-    )
-    var parallel4k = _summarize(
-        parallel4k_total, parallel4k_render, parallel_checksum
-    )
-    _print("parallel depth-first 16x16", depth)
-    _print("serial packet16 wavefront 8K", serial)
-    _print("parallel packet16 wavefront 512", parallel512)
-    _print("parallel packet16 wavefront 1K", parallel1k)
-    _print("parallel packet16 wavefront 2K", parallel2k)
-    _print("parallel packet16 wavefront 4K", parallel4k)
+    comptime for i in range(len(CASES)):
+        _print(
+            CASES[i][2],
+            _summarize(
+                samples[i].total_times,
+                samples[i].render_times,
+                samples[i].checksum,
+            ),
+        )

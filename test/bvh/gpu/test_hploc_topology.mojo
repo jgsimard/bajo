@@ -1,3 +1,8 @@
+from test.bvh.hploc_fixtures import (
+    _box,
+    _identity_ids,
+)
+
 from std.math import abs
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_equal, assert_true
@@ -9,20 +14,6 @@ from bajo.bvh.cpu.builder.hploc import build_hploc_topology
 from bajo.bvh.gpu.quality import measure_binary_bvh_quality
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core import AABB, Point3f32
-
-
-def _box(center_x: Float32) -> AABB[.WORLD]:
-    return AABB[.WORLD](
-        Point3f32[.WORLD](center_x - 0.1, -0.1, -0.1),
-        Point3f32[.WORLD](center_x + 0.1, 0.1, 0.1),
-    )
-
-
-def _identity_ids(count: Int) -> List[UInt32]:
-    var ids = List[UInt32](capacity=count)
-    for i in range(count):
-        ids.append(UInt32(i))
-    return ids^
 
 
 def test_hploc_topology_hierarchical_merging_exact_topology() raises:

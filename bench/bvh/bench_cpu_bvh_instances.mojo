@@ -402,11 +402,13 @@ def print_result(
     build_ns: Int,
     result: TraceResult,
     ray_count: Int,
+    bounds_width: Int = 4,
+    leaf_width: Int = 1,
 ) raises:
     table.result_line(
         split_method=method,
-        bounds_width="4",
-        leaf_width="1",
+        bounds_width=String(bounds_width),
+        leaf_width=String(leaf_width),
         traversal=traversal,
         build_ms=String(round(ns_to_ms(build_ns), 3)),
         trace_ms=String(round(ns_to_ms(result.ns), 3)),
@@ -454,81 +456,35 @@ def benchmark_method[
         tlas = sample_tlas^
     var build_ns = _median_ns(build_times)
 
-    var closest_scalar = benchmark_scalar[.CLOSEST_HIT](tlas, blases, rays)
-    var closest_packet4 = benchmark_packet_closest[4](tlas, blases, rays)
-    var closest_packet8 = benchmark_packet_closest[8](tlas, blases, rays)
-    var closest_packet16 = benchmark_packet_closest[16](tlas, blases, rays)
-    var any_scalar = benchmark_scalar[.ANY_HIT](tlas, blases, rays)
-    var any_packet4 = benchmark_packet_any[4](tlas, blases, rays)
-    var any_packet8 = benchmark_packet_any[8](tlas, blases, rays)
-    var any_packet16 = benchmark_packet_any[16](tlas, blases, rays)
+    var closest = List[TraceResult]()
+    closest.append(benchmark_scalar[.CLOSEST_HIT](tlas, blases, rays))
+    comptime for length in [4, 8, 16]:
+        closest.append(benchmark_packet_closest[length](tlas, blases, rays))
+    var any_hit = List[TraceResult]()
+    any_hit.append(benchmark_scalar[.ANY_HIT](tlas, blases, rays))
+    comptime for length in [4, 8, 16]:
+        any_hit.append(benchmark_packet_any[length](tlas, blases, rays))
 
-    print(t"\n{case_name} closest-hit benchmark")
-    print(t"Triangles: {len(vertices) / 3}")
-    print(t"Instances: {len(instances)}")
-    print(t"Rays: {len(rays)}")
-    var table = make_table()
-    table.header()
-    print_result(
-        table, method.name(), "scalar1", build_ns, closest_scalar, len(rays)
-    )
-    print_result(
-        table,
-        method.name(),
-        "packet4",
-        build_ns,
-        closest_packet4,
-        len(rays),
-    )
-    print_result(
-        table,
-        method.name(),
-        "packet8",
-        build_ns,
-        closest_packet8,
-        len(rays),
-    )
-    print_result(
-        table,
-        method.name(),
-        "packet16",
-        build_ns,
-        closest_packet16,
-        len(rays),
-    )
-    print(t"\n{case_name} any-hit benchmark")
-    print(t"Triangles: {len(vertices) / 3}")
-    print(t"Instances: {len(instances)}")
-    print(t"Rays: {len(rays)}")
-    table = make_table()
-    table.header()
-    print_result(
-        table, method.name(), "scalar1", build_ns, any_scalar, len(rays)
-    )
-    print_result(
-        table,
-        method.name(),
-        "packet4",
-        build_ns,
-        any_packet4,
-        len(rays),
-    )
-    print_result(
-        table,
-        method.name(),
-        "packet8",
-        build_ns,
-        any_packet8,
-        len(rays),
-    )
-    print_result(
-        table,
-        method.name(),
-        "packet16",
-        build_ns,
-        any_packet16,
-        len(rays),
-    )
+    for mode in range(2):
+        var suffix = String("closest-hit") if mode == 0 else String("any-hit")
+        print(t"\n{case_name} {suffix} benchmark")
+        print(t"Triangles: {len(vertices) / 3}")
+        print(t"Instances: {len(instances)}")
+        print(t"Rays: {len(rays)}")
+        var table = make_table()
+        table.header()
+        var rows = closest.copy() if mode == 0 else any_hit.copy()
+        for i, traversal in enumerate(
+            [
+                String("scalar1"),
+                String("packet4"),
+                String("packet8"),
+                String("packet16"),
+            ]
+        ):
+            print_result(
+                table, method.name(), traversal, build_ns, rows[i], len(rays)
+            )
 
 
 def benchmark_scene(
@@ -578,6 +534,7 @@ def make_flattened_triangle_grid() -> List[Point3f32[.WORLD]]:
 def benchmark_flattened_mode[
     leaf_width: SIMDLength,
     mode: TraceMode,
+    coherent_packet16_only: Bool = False,
 ](
     blas: CpuBlasSet[.TRIANGLE, 16, leaf_width],
     vertices: List[Point3f32[.WORLD]],
@@ -591,72 +548,54 @@ def benchmark_flattened_mode[
     print(t"Rays: {len(rays)}")
     var table = make_table()
     table.header()
-    var scalar = benchmark_flat_scalar[leaf_width, mode](blas, rays)
-    table.result_line(
-        split_method="sah",
-        bounds_width="16",
-        leaf_width=String(Int(leaf_width)),
-        traversal="scalar1",
-        build_ms=String(round(ns_to_ms(build_ns), 3)),
-        trace_ms=String(round(ns_to_ms(scalar.ns), 3)),
-        MRay_s=String(round(ns_to_mrays_per_s(scalar.ns, len(rays)), 3)),
-        hits=String(scalar.hits),
-        checksum=String(round(scalar.checksum, 3)),
-    )
-    comptime for length in [4, 8, 16]:
-        comptime for common_octant in [False, True]:
-            var result = benchmark_flat_packet[
-                leaf_width, length, mode, common_octant
-            ](blas, rays)
-            comptime prefix = "coh-" if common_octant else ""
-            table.result_line(
-                split_method="sah",
-                bounds_width="16",
-                leaf_width=String(Int(leaf_width)),
-                traversal=String(t"{prefix}packet{length}"),
-                build_ms=String(round(ns_to_ms(build_ns), 3)),
-                trace_ms=String(round(ns_to_ms(result.ns), 3)),
-                MRay_s=String(
-                    round(ns_to_mrays_per_s(result.ns, len(rays)), 3)
-                ),
-                hits=String(result.hits),
-                checksum=String(round(result.checksum, 3)),
-            )
-
-
-def benchmark_flattened_leaf8_mode[
-    mode: TraceMode,
-](
-    blas: CpuBlasSet[.TRIANGLE, 16, 8],
-    vertices: List[Point3f32[.WORLD]],
-    rays: List[Rayf32[.WORLD]],
-    build_ns: Int,
-) raises:
-    """Report only the measured winning leaf8 coherent packet16 policy."""
-    comptime suffix = "closest-hit" if mode == .CLOSEST_HIT else "any-hit"
-    print(t"\nFlattened triangle grid {suffix} benchmark")
-    print(t"Triangles: {len(vertices) / 3}")
-    print("Instances: 1")
-    print(t"Rays: {len(rays)}")
-    var table = make_table()
-    table.header()
-    var result = benchmark_flat_packet[8, 16, mode, True](blas, rays)
-    table.result_line(
-        split_method="sah",
-        bounds_width="16",
-        leaf_width="8",
-        traversal="coh-packet16",
-        build_ms=String(round(ns_to_ms(build_ns), 3)),
-        trace_ms=String(round(ns_to_ms(result.ns), 3)),
-        MRay_s=String(round(ns_to_mrays_per_s(result.ns, len(rays)), 3)),
-        hits=String(result.hits),
-        checksum=String(round(result.checksum, 3)),
-    )
+    comptime if coherent_packet16_only:
+        var result = benchmark_flat_packet[leaf_width, 16, mode, True](
+            blas, rays
+        )
+        print_result(
+            table,
+            "sah",
+            "coh-packet16",
+            build_ns,
+            result,
+            len(rays),
+            16,
+            Int(leaf_width),
+        )
+    else:
+        var scalar = benchmark_flat_scalar[leaf_width, mode](blas, rays)
+        print_result(
+            table,
+            "sah",
+            "scalar1",
+            build_ns,
+            scalar,
+            len(rays),
+            16,
+            Int(leaf_width),
+        )
+        comptime for length in [4, 8, 16]:
+            comptime for common_octant in [False, True]:
+                var result = benchmark_flat_packet[
+                    leaf_width, length, mode, common_octant
+                ](blas, rays)
+                comptime prefix = "coh-" if common_octant else ""
+                print_result(
+                    table,
+                    "sah",
+                    String(t"{prefix}packet{length}"),
+                    build_ns,
+                    result,
+                    len(rays),
+                    16,
+                    Int(leaf_width),
+                )
 
 
 def benchmark_flattened_layout[
     leaf_width: SIMDLength,
-](vertices: List[Point3f32[.WORLD]], rays: List[Rayf32[.WORLD]],) raises:
+    coherent_packet16_only: Bool = False,
+](vertices: List[Point3f32[.WORLD]], rays: List[Rayf32[.WORLD]]) raises:
     var blas = build_cpu_triangle_blas_set[16, leaf_width, .SAH, .WORLD](
         [vertices.copy()]
     )
@@ -669,31 +608,12 @@ def benchmark_flattened_layout[
         build_times.append(Int(perf_counter_ns() - start))
         blas = sample^
     var build_ns = _median_ns(build_times)
-    benchmark_flattened_mode[leaf_width, .CLOSEST_HIT](
+    benchmark_flattened_mode[leaf_width, .CLOSEST_HIT, coherent_packet16_only](
         blas, vertices, rays, build_ns
     )
-    benchmark_flattened_mode[leaf_width, .ANY_HIT](
+    benchmark_flattened_mode[leaf_width, .ANY_HIT, coherent_packet16_only](
         blas, vertices, rays, build_ns
     )
-
-
-def benchmark_flattened_leaf8(
-    vertices: List[Point3f32[.WORLD]], rays: List[Rayf32[.WORLD]]
-) raises:
-    var blas = build_cpu_triangle_blas_set[16, 8, .SAH, .WORLD](
-        [vertices.copy()]
-    )
-    var build_times = List[Int](capacity=BUILD_REPEATS)
-    for _ in range(BUILD_REPEATS):
-        var start = perf_counter_ns()
-        var sample = build_cpu_triangle_blas_set[16, 8, .SAH, .WORLD](
-            [vertices.copy()]
-        )
-        build_times.append(Int(perf_counter_ns() - start))
-        blas = sample^
-    var build_ns = _median_ns(build_times)
-    benchmark_flattened_leaf8_mode[.CLOSEST_HIT](blas, vertices, rays, build_ns)
-    benchmark_flattened_leaf8_mode[.ANY_HIT](blas, vertices, rays, build_ns)
 
 
 def benchmark_flattened_scene() raises:
@@ -703,7 +623,7 @@ def benchmark_flattened_scene() raises:
     )
     var rays = camera[0].copy()
     benchmark_flattened_layout[16](vertices, rays)
-    benchmark_flattened_leaf8(vertices, rays)
+    benchmark_flattened_layout[8, True](vertices, rays)
 
 
 def run_benchmark() raises:

@@ -1,4 +1,8 @@
-from std.math import abs, max, min
+from test.bvh.hploc_fixtures import (
+    _bounds_match,
+)
+
+from std.math import abs, min
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_equal, assert_false, assert_true
 from max.gpu.host import DeviceContext
@@ -45,28 +49,6 @@ from test.bvh.fixtures import (
     _make_single_triangle_scene,
     _make_small_scene,
 )
-
-
-def _bounds_match(actual: AABB[.WORLD], expected: AABB[.WORLD]) -> Bool:
-    return (
-        max(
-            max(
-                max(
-                    abs(Float64(actual._min.x - expected._min.x)),
-                    abs(Float64(actual._min.y - expected._min.y)),
-                ),
-                max(
-                    abs(Float64(actual._min.z - expected._min.z)),
-                    abs(Float64(actual._max.x - expected._max.x)),
-                ),
-            ),
-            max(
-                abs(Float64(actual._max.y - expected._max.y)),
-                abs(Float64(actual._max.z - expected._max.z)),
-            ),
-        )
-        <= 1.0e-4
-    )
 
 
 def _load_wide_lane_bounds[

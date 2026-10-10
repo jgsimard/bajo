@@ -459,86 +459,6 @@ def _print_row(
     )
 
 
-def _benchmark_mode[
-    width: SIMDLength,
-    mode: TraceMode,
-](
-    label: String,
-    tlas_leaf1: CpuTlas[width, 1],
-    tlas_native: CpuTlas[width, width],
-    blases: CpuBlasSet[.TRIANGLE, width],
-    rays: List[Rayf32[.WORLD]],
-) raises:
-    for _ in range(WARMUPS):
-        _ = _trace[width, 1, mode](tlas_leaf1, blases, rays)
-        _ = _trace[width, width, mode](tlas_native, blases, rays)
-
-    var leaf1_times = List[Int](capacity=PAIRED_REPEATS)
-    var native_times = List[Int](capacity=PAIRED_REPEATS)
-    for pair in range(PAIRED_REPEATS):
-        if pair % 2 == 0:
-            leaf1_times.append(
-                _timed_trace[width, 1, mode](tlas_leaf1, blases, rays)
-            )
-            native_times.append(
-                _timed_trace[width, width, mode](tlas_native, blases, rays)
-            )
-        else:
-            native_times.append(
-                _timed_trace[width, width, mode](tlas_native, blases, rays)
-            )
-            leaf1_times.append(
-                _timed_trace[width, 1, mode](tlas_leaf1, blases, rays)
-            )
-
-    var leaf1_summary = summarize_timings(leaf1_times)
-    var native_summary = summarize_timings(native_times)
-    var leaf1_checksum = _trace[width, 1, mode](tlas_leaf1, blases, rays)
-    var native_checksum = _trace[width, width, mode](tlas_native, blases, rays)
-    var delta = (
-        Float64(leaf1_summary.median_ns - native_summary.median_ns)
-        * 100.0
-        / Float64(native_summary.median_ns)
-    )
-
-    print(t"\n{label}")
-    var table = TablePrinter(
-        layout=18,
-        median_ms=10,
-        min_ms=10,
-        max_ms=10,
-        MRay_s=10,
-        delta_pct=10,
-        hits=8,
-        checksum=16,
-        inst_sum=12,
-    )
-    table.header()
-    _print_row(
-        table,
-        String(t"TLAS{Int(width)}/leaf1"),
-        leaf1_summary,
-        len(rays),
-        delta,
-        leaf1_checksum,
-    )
-    _print_row(
-        table,
-        String(t"TLAS{Int(width)}/leaf{Int(width)}"),
-        native_summary,
-        len(rays),
-        0.0,
-        native_checksum,
-    )
-    print(
-        t"checksum delta:"
-        t" {round(leaf1_checksum.distance - native_checksum.distance, 6)}, hit"
-        t" delta: {Int(leaf1_checksum.hits) - Int(native_checksum.hits)},"
-        t" instance delta:"
-        t" {Int(leaf1_checksum.instances) - Int(native_checksum.instances)}"
-    )
-
-
 def _benchmark_leaf_sweep_mode[
     width: SIMDLength,
     mode: TraceMode,
@@ -559,53 +479,42 @@ def _benchmark_leaf_sweep_mode[
         _ = _trace[width, 8, mode](tlas8, blases, rays)
         _ = _trace[width, 16, mode](tlas16, blases, rays)
 
-    var times1 = List[Int](capacity=PAIRED_REPEATS)
-    var times2 = List[Int](capacity=PAIRED_REPEATS)
-    var times4 = List[Int](capacity=PAIRED_REPEATS)
-    var times8 = List[Int](capacity=PAIRED_REPEATS)
-    var times16 = List[Int](capacity=PAIRED_REPEATS)
+    var times = [List[Int](capacity=PAIRED_REPEATS) for _ in range(5)]
     for sample in range(PAIRED_REPEATS):
-        if sample % 5 == 0:
-            times1.append(_timed_trace[width, 1, mode](tlas1, blases, rays))
-            times2.append(_timed_trace[width, 2, mode](tlas2, blases, rays))
-            times4.append(_timed_trace[width, 4, mode](tlas4, blases, rays))
-            times8.append(_timed_trace[width, 8, mode](tlas8, blases, rays))
-            times16.append(_timed_trace[width, 16, mode](tlas16, blases, rays))
-        elif sample % 5 == 1:
-            times2.append(_timed_trace[width, 2, mode](tlas2, blases, rays))
-            times4.append(_timed_trace[width, 4, mode](tlas4, blases, rays))
-            times8.append(_timed_trace[width, 8, mode](tlas8, blases, rays))
-            times16.append(_timed_trace[width, 16, mode](tlas16, blases, rays))
-            times1.append(_timed_trace[width, 1, mode](tlas1, blases, rays))
-        elif sample % 5 == 2:
-            times4.append(_timed_trace[width, 4, mode](tlas4, blases, rays))
-            times8.append(_timed_trace[width, 8, mode](tlas8, blases, rays))
-            times16.append(_timed_trace[width, 16, mode](tlas16, blases, rays))
-            times1.append(_timed_trace[width, 1, mode](tlas1, blases, rays))
-            times2.append(_timed_trace[width, 2, mode](tlas2, blases, rays))
-        elif sample % 5 == 3:
-            times8.append(_timed_trace[width, 8, mode](tlas8, blases, rays))
-            times16.append(_timed_trace[width, 16, mode](tlas16, blases, rays))
-            times1.append(_timed_trace[width, 1, mode](tlas1, blases, rays))
-            times2.append(_timed_trace[width, 2, mode](tlas2, blases, rays))
-            times4.append(_timed_trace[width, 4, mode](tlas4, blases, rays))
-        else:
-            times16.append(_timed_trace[width, 16, mode](tlas16, blases, rays))
-            times1.append(_timed_trace[width, 1, mode](tlas1, blases, rays))
-            times2.append(_timed_trace[width, 2, mode](tlas2, blases, rays))
-            times4.append(_timed_trace[width, 4, mode](tlas4, blases, rays))
-            times8.append(_timed_trace[width, 8, mode](tlas8, blases, rays))
+        # Rotate the first layout on each sample, preserving the original order.
+        for offset in range(5):
+            var i = (sample + offset) % 5
+            if i == 0:
+                times[i].append(
+                    _timed_trace[width, 1, mode](tlas1, blases, rays)
+                )
+            elif i == 1:
+                times[i].append(
+                    _timed_trace[width, 2, mode](tlas2, blases, rays)
+                )
+            elif i == 2:
+                times[i].append(
+                    _timed_trace[width, 4, mode](tlas4, blases, rays)
+                )
+            elif i == 3:
+                times[i].append(
+                    _timed_trace[width, 8, mode](tlas8, blases, rays)
+                )
+            else:
+                times[i].append(
+                    _timed_trace[width, 16, mode](tlas16, blases, rays)
+                )
 
-    var summary1 = summarize_timings(times1)
-    var summary2 = summarize_timings(times2)
-    var summary4 = summarize_timings(times4)
-    var summary8 = summarize_timings(times8)
-    var summary16 = summarize_timings(times16)
-    var checksum1 = _trace[width, 1, mode](tlas1, blases, rays)
-    var checksum2 = _trace[width, 2, mode](tlas2, blases, rays)
-    var checksum4 = _trace[width, 4, mode](tlas4, blases, rays)
-    var checksum8 = _trace[width, 8, mode](tlas8, blases, rays)
-    var checksum16 = _trace[width, 16, mode](tlas16, blases, rays)
+    var summaries = List[TimingSummary]()
+    for i in range(5):
+        summaries.append(summarize_timings(times[i]))
+    var checksums: List[TraceChecksum] = [
+        _trace[width, 1, mode](tlas1, blases, rays),
+        _trace[width, 2, mode](tlas2, blases, rays),
+        _trace[width, 4, mode](tlas4, blases, rays),
+        _trace[width, 8, mode](tlas8, blases, rays),
+        _trace[width, 16, mode](tlas16, blases, rays),
+    ]
 
     print(t"\n{label}")
     var table = TablePrinter(
@@ -620,55 +529,30 @@ def _benchmark_leaf_sweep_mode[
         inst_sum=12,
     )
     table.header()
-    _print_row(table, "TLAS16/leaf1", summary1, len(rays), 0.0, checksum1)
-    _print_row(
-        table,
-        "TLAS16/leaf2",
-        summary2,
-        len(rays),
-        Float64(summary2.median_ns - summary1.median_ns)
-        * 100.0
-        / Float64(summary1.median_ns),
-        checksum2,
-    )
-    _print_row(
-        table,
-        "TLAS16/leaf4",
-        summary4,
-        len(rays),
-        Float64(summary4.median_ns - summary1.median_ns)
-        * 100.0
-        / Float64(summary1.median_ns),
-        checksum4,
-    )
-    _print_row(
-        table,
-        "TLAS16/leaf8",
-        summary8,
-        len(rays),
-        Float64(summary8.median_ns - summary1.median_ns)
-        * 100.0
-        / Float64(summary1.median_ns),
-        checksum8,
-    )
-    _print_row(
-        table,
-        "TLAS16/leaf16",
-        summary16,
-        len(rays),
-        Float64(summary16.median_ns - summary1.median_ns)
-        * 100.0
-        / Float64(summary1.median_ns),
-        checksum16,
-    )
+    for i in range(5):
+        var delta = (
+            Float64(summaries[i].median_ns - summaries[0].median_ns)
+            * 100.0
+            / Float64(summaries[0].median_ns)
+        )
+        _print_row(
+            table,
+            String(t"TLAS16/leaf{1 << i}"),
+            summaries[i],
+            len(rays),
+            delta,
+            checksums[i],
+        )
     print(
-        t"leaf1/2/4/8/16 hits={checksum1.hits}/{checksum2.hits}/"
-        t"{checksum4.hits}/{checksum8.hits}/{checksum16.hits}, distance="
-        t"{round(checksum1.distance, 3)}/{round(checksum2.distance, 3)}/"
-        t"{round(checksum4.distance, 3)}/{round(checksum8.distance, 3)}/"
-        t"{round(checksum16.distance, 3)}, instances={checksum1.instances}/"
-        t"{checksum2.instances}/{checksum4.instances}/{checksum8.instances}/"
-        t"{checksum16.instances}"
+        t"leaf1/2/4/8/16 hits={checksums[0].hits}/{checksums[1].hits}/"
+        t"{checksums[2].hits}/{checksums[3].hits}/{checksums[4].hits},"
+        t" distance="
+        t"{round(checksums[0].distance, 3)}/{round(checksums[1].distance, 3)}/"
+        t"{round(checksums[2].distance, 3)}/{round(checksums[3].distance, 3)}/"
+        t"{round(checksums[4].distance, 3)},"
+        t" instances={checksums[0].instances}/"
+        t"{checksums[1].instances}/{checksums[2].instances}/{checksums[3].instances}/"
+        t"{checksums[4].instances}"
     )
 
 

@@ -31,9 +31,8 @@ def test_instance_derives_inverse_from_transform() raises:
     var round_trip = instance.inv_transform.point(
         instance.transform.point(local_point)
     )
-    assert_almost_equal(round_trip.x, local_point.x)
-    assert_almost_equal(round_trip.y, local_point.y)
-    assert_almost_equal(round_trip.z, local_point.z)
+    comptime for axis in range(3):
+        assert_almost_equal(round_trip[axis], local_point[axis])
 
 
 def _triangle_vertices() -> List[Point3f32[.LOCAL]]:
@@ -185,18 +184,14 @@ def test_tlas_triangle_packet_matches_scalar() raises:
             assert_true(packet_hit.inst[lane] == scalar_hit.inst)
             assert_true(packet_hit.prim[lane] == scalar_hit.prim)
             assert_almost_equal(packet_hit.t[lane], scalar_hit.t)
-            assert_almost_equal(packet_hit.normal.x[lane], scalar_hit.normal.x)
-            assert_almost_equal(packet_hit.normal.y[lane], scalar_hit.normal.y)
-            assert_almost_equal(packet_hit.normal.z[lane], scalar_hit.normal.z)
-            assert_almost_equal(
-                scalar_normal_hit.normal.x[lane], packet_hit.normal.x[lane]
-            )
-            assert_almost_equal(
-                scalar_normal_hit.normal.y[lane], packet_hit.normal.y[lane]
-            )
-            assert_almost_equal(
-                scalar_normal_hit.normal.z[lane], packet_hit.normal.z[lane]
-            )
+            comptime for axis in range(3):
+                assert_almost_equal(
+                    packet_hit.normal[axis][lane], scalar_hit.normal[axis]
+                )
+                assert_almost_equal(
+                    scalar_normal_hit.normal[axis][lane],
+                    packet_hit.normal[axis][lane],
+                )
 
 
 def test_tlas_triangle_packet_any_hit_matches_scalar() raises:

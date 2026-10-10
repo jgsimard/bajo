@@ -1,6 +1,8 @@
+from test.helpers import assert_vec_equal
+from test.rt.helpers import assert_pixels_close, assert_pixels_equal
+
 from std.testing import (
     TestSuite,
-    assert_almost_equal,
     assert_equal,
     assert_raises,
     assert_true,
@@ -474,7 +476,6 @@ def test_gpu_sphere_path_matches_cpu_wavefront() raises:
         sphere_format=GPU_RT_BVH_WIDE4,
     ](settings, camera, world.scene_data())
 
-    assert_equal(len(gpu.pixels), len(cpu.pixels))
     assert_equal(
         gpu.timings.pixel_count, settings.image_width * settings.image_height
     )
@@ -484,10 +485,7 @@ def test_gpu_sphere_path_matches_cpu_wavefront() raises:
         * settings.image_height
         * settings.samples_per_pixel,
     )
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+    assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
 def test_gpu_sample_sequences_are_batch_invariant() raises:
@@ -526,23 +524,9 @@ def test_gpu_sample_sequences_are_batch_invariant() raises:
             var accumulated = 0.5 * (
                 first.pixels[pixel_idx] + second.pixels[pixel_idx]
             )
-            assert_almost_equal(
-                accumulated.x, full.pixels[pixel_idx].x, atol=1.0e-5
-            )
-            assert_almost_equal(
-                accumulated.y, full.pixels[pixel_idx].y, atol=1.0e-5
-            )
-            assert_almost_equal(
-                accumulated.z, full.pixels[pixel_idx].z, atol=1.0e-5
-            )
-            assert_almost_equal(
-                cpu.pixels[pixel_idx].x, full.pixels[pixel_idx].x, atol=1.0e-5
-            )
-            assert_almost_equal(
-                cpu.pixels[pixel_idx].y, full.pixels[pixel_idx].y, atol=1.0e-5
-            )
-            assert_almost_equal(
-                cpu.pixels[pixel_idx].z, full.pixels[pixel_idx].z, atol=1.0e-5
+            assert_vec_equal(accumulated, full.pixels[pixel_idx], atol=1.0e-5)
+            assert_vec_equal(
+                cpu.pixels[pixel_idx], full.pixels[pixel_idx], atol=1.0e-5
             )
 
 
@@ -557,10 +541,7 @@ def test_gpu_materials_match_cpu_wavefront() raises:
         sphere_format=GPU_RT_BVH_WIDE4,
     ](settings, camera, world.scene_data())
 
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+    assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
 def test_gpu_coated_diffuse_and_bump_match_cpu() raises:
@@ -573,13 +554,10 @@ def test_gpu_coated_diffuse_and_bump_match_cpu() raises:
         integrator=.MIS,
         sphere_format=GPU_RT_BVH_WIDE4,
     ](settings, camera, world.scene_data())
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        # GPU transcendental rounding can send a layered random walk down a
-        # different internal branch; compare the resulting radiance rather
-        # than requiring bit-near identity for every stochastic path.
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=5.0e-3)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=5.0e-3)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=5.0e-3)
+    # GPU transcendental rounding can send a layered random walk down a
+    # different internal branch; compare the resulting radiance rather
+    # than requiring bit-near identity for every stochastic path.
+    assert_pixels_close(gpu.pixels, cpu.pixels, atol=5.0e-3)
 
     var cpu_normals = render_depth_first[
         .NORMALS, 1, 1, CpuSchedulerMode.RUNTIME_DEFAULT, 4, 8
@@ -589,10 +567,7 @@ def test_gpu_coated_diffuse_and_bump_match_cpu() raises:
         integrator=.NORMALS,
         sphere_format=GPU_RT_BVH_WIDE4,
     ](settings, camera, world.scene_data())
-    for i, cpu_pixel in enumerate(cpu_normals.pixels):
-        assert_almost_equal(gpu_normals.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
-        assert_almost_equal(gpu_normals.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
-        assert_almost_equal(gpu_normals.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+    assert_pixels_close(gpu_normals.pixels, cpu_normals.pixels)
 
 
 def test_gpu_triangle_path_matches_cpu_wavefront() raises:
@@ -607,10 +582,7 @@ def test_gpu_triangle_path_matches_cpu_wavefront() raises:
         triangle_build_method=.LBVH,
     ](settings, camera, world.scene_data())
 
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+    assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
 def test_gpu_viewer_micro_triangle_policy_matches_cpu_wavefront() raises:
@@ -620,10 +592,7 @@ def test_gpu_viewer_micro_triangle_policy_matches_cpu_wavefront() raises:
     var cpu = render_wavefront[.PATH, 1, 64, False](settings, camera, world)
     var gpu = render_gpu_viewer[.PATH](settings, camera, world.scene_data())
 
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+    assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
 def test_gpu_triangle_default_hploc_cwbvh8_matches_cpu_wavefront() raises:
@@ -636,10 +605,7 @@ def test_gpu_triangle_default_hploc_cwbvh8_matches_cpu_wavefront() raises:
         integrator=.PATH,
     ](settings, camera, world.scene_data())
 
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+    assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
 def test_gpu_chunked_triangle_nee_matches_full_capacity() raises:
@@ -670,11 +636,7 @@ def test_gpu_chunked_triangle_nee_matches_full_capacity() raises:
         enqueue_render_gpu[.NEE](ctx, chunked, gpu_world, settings)
         var chunked_pixels = download_gpu_pixels(ctx, chunked)
 
-        assert_equal(len(chunked_pixels), len(full_pixels))
-        for i, full_pixel in enumerate(full_pixels):
-            assert_equal(chunked_pixels[i].x, full_pixel.x)
-            assert_equal(chunked_pixels[i].y, full_pixel.y)
-            assert_equal(chunked_pixels[i].z, full_pixel.z)
+        assert_pixels_equal(chunked_pixels, full_pixels)
 
 
 def test_gpu_host_boundaries_raise_validation_errors() raises:
@@ -719,10 +681,7 @@ def test_prepared_gpu_scene_is_stable_across_repeated_renders() raises:
 
         enqueue_render_gpu[.NORMALS](ctx, target, scene, settings)
         var after = download_gpu_pixels(ctx, target)
-        for i, pixel in enumerate(before):
-            assert_equal(after[i].x, pixel.x)
-            assert_equal(after[i].y, pixel.y)
-            assert_equal(after[i].z, pixel.z)
+        assert_pixels_equal(after, before)
 
 
 def test_gpu_camera_update_is_ordered_before_render() raises:
@@ -747,10 +706,7 @@ def test_gpu_camera_update_is_ordered_before_render() raises:
         enqueue_render_gpu[.NORMALS](ctx, reference, scene, settings)
         var reference_pixels = download_gpu_pixels(ctx, reference)
 
-        for i, pixel in enumerate(reference_pixels):
-            assert_equal(updated_pixels[i].x, pixel.x)
-            assert_equal(updated_pixels[i].y, pixel.y)
-            assert_equal(updated_pixels[i].z, pixel.z)
+        assert_pixels_equal(updated_pixels, reference_pixels)
 
 
 def test_common_prepared_api_instantiates_every_scene_kind() raises:
@@ -789,10 +745,7 @@ def test_gpu_mixed_path_matches_cpu_wavefront() raises:
     var cpu = render_wavefront[.PATH, 1, 64, False](settings, camera, world)
     var gpu = render_gpu[.PATH, 4, 4](settings, camera, world.scene_data())
 
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+    assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
 def test_gpu_triangle_instances_match_cpu_wavefront() raises:
@@ -802,10 +755,7 @@ def test_gpu_triangle_instances_match_cpu_wavefront() raises:
     var cpu = render_wavefront[.PATH, 1, 64, False](settings, camera, world)
     var gpu = render_gpu[.PATH, 4, 4](settings, camera, world.scene_data())
 
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+    assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
 def test_gpu_textured_instance_matches_cpu_uvs_and_normals() raises:
@@ -814,10 +764,7 @@ def test_gpu_textured_instance_matches_cpu_uvs_and_normals() raises:
     var camera = _camera()
     var cpu = render_wavefront[.PATH, 1, 64, False](settings, camera, world)
     var gpu = render_gpu[.PATH, 4, 4](settings, camera, world.scene_data())
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+    assert_pixels_close(gpu.pixels, cpu.pixels)
 
     var cpu_normals = render_depth_first[
         .NORMALS, 1, 1, CpuSchedulerMode.RUNTIME_DEFAULT, 4, 8
@@ -825,10 +772,7 @@ def test_gpu_textured_instance_matches_cpu_uvs_and_normals() raises:
     var gpu_normals = render_gpu[.NORMALS, 4, 4](
         settings, camera, world.scene_data()
     )
-    for i, cpu_pixel in enumerate(cpu_normals.pixels):
-        assert_almost_equal(gpu_normals.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
-        assert_almost_equal(gpu_normals.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
-        assert_almost_equal(gpu_normals.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+    assert_pixels_close(gpu_normals.pixels, cpu_normals.pixels)
 
 
 def test_gpu_instance_default_policy_keeps_micro_blas_wide() raises:
@@ -884,10 +828,7 @@ def test_gpu_viewer_large_triangle_policy_matches_cpu_wavefront() raises:
     var cpu = render_wavefront[.PATH, 1, 64, False](settings, camera, world)
     var gpu = render_gpu_viewer[.PATH](settings, camera, world.scene_data())
 
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+    assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
 def test_gpu_default_hploc_cwbvh8_instances_match_cpu_wavefront() raises:
@@ -901,10 +842,7 @@ def test_gpu_default_hploc_cwbvh8_instances_match_cpu_wavefront() raises:
         tlas_format=GpuRtBvhFormat(2, 2, .WIDE),
     ](settings, camera, world.scene_data())
 
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
+    assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
 def test_gpu_combined_instances_match_cpu_wavefront() raises:
@@ -919,35 +857,24 @@ def test_gpu_combined_instances_match_cpu_wavefront() raises:
         tlas_format=GpuRtBvhFormat(2, 2, .WIDE),
         tlas_build_method=.HPLOC,
     ](settings, camera, world.scene_data())
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-5)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-5)
-        assert_almost_equal(
-            gpu_hploc_tlas.pixels[i].x, cpu_pixel.x, atol=1.0e-5
-        )
-        assert_almost_equal(
-            gpu_hploc_tlas.pixels[i].y, cpu_pixel.y, atol=1.0e-5
-        )
-        assert_almost_equal(
-            gpu_hploc_tlas.pixels[i].z, cpu_pixel.z, atol=1.0e-5
-        )
+    assert_pixels_close(gpu.pixels, cpu.pixels)
+    assert_pixels_close(gpu_hploc_tlas.pixels, cpu.pixels)
 
 
 def test_gpu_combined_scene_instantiates_every_integrator() raises:
     var settings = RenderSettings(1, 1, 1, UInt64(463))
     var world = _combined_instance_world()
     var camera = _camera()
-    var normals = render_gpu[.NORMALS, 4, 4](
-        settings, camera, world.scene_data()
-    )
-    var ao = render_gpu[.AO, 4, 4](settings, camera, world.scene_data())
-    var nee = render_gpu[.NEE, 4, 4](settings, camera, world.scene_data())
-    var mis = render_gpu[.MIS, 4, 4](settings, camera, world.scene_data())
-    assert_equal(len(normals.pixels), 1)
-    assert_equal(len(ao.pixels), 1)
-    assert_equal(len(nee.pixels), 1)
-    assert_equal(len(mis.pixels), 1)
+    comptime for integrator in [
+        Integrator.NORMALS,
+        Integrator.AO,
+        Integrator.NEE,
+        Integrator.MIS,
+    ]:
+        var result = render_gpu[integrator, 4, 4](
+            settings, camera, world.scene_data()
+        )
+        assert_equal(len(result.pixels), 1)
 
 
 def test_gpu_ao_matches_unoccluded_cpu_reference() raises:
@@ -958,9 +885,7 @@ def test_gpu_ao_matches_unoccluded_cpu_reference() raises:
         .AO, 1, 1, CpuSchedulerMode.RUNTIME_DEFAULT, 4, 8
     ](settings, camera, world)
     var gpu = render_gpu[.AO, 4, 4](settings, camera, world.scene_data())
-    assert_almost_equal(gpu.pixels[0].x, cpu.pixels[0].x, atol=1.0e-5)
-    assert_almost_equal(gpu.pixels[0].y, cpu.pixels[0].y, atol=1.0e-5)
-    assert_almost_equal(gpu.pixels[0].z, cpu.pixels[0].z, atol=1.0e-5)
+    assert_vec_equal(gpu.pixels[0], cpu.pixels[0], atol=1.0e-5)
 
 
 def _test_gpu_direct_light_matches_cpu[integrator: Integrator]() raises:
@@ -971,10 +896,7 @@ def _test_gpu_direct_light_matches_cpu[integrator: Integrator]() raises:
         settings, camera, world
     )
     var gpu = render_gpu[integrator](settings, camera, world.scene_data())
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-4)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-4)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-4)
+    assert_pixels_close(gpu.pixels, cpu.pixels, atol=1.0e-4)
 
 
 def test_gpu_nee_matches_cpu_wavefront() raises:
@@ -987,10 +909,7 @@ def test_gpu_sphere_nee_matches_cpu_wavefront() raises:
     var camera = _camera()
     var cpu = render_wavefront[.NEE, 1, 64, False](settings, camera, world)
     var gpu = render_gpu[.NEE, 4, 4](settings, camera, world.scene_data())
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-4)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-4)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-4)
+    assert_pixels_close(gpu.pixels, cpu.pixels, atol=1.0e-4)
 
 
 def test_gpu_image_environment_nee_and_mis_match_cpu() raises:
@@ -1001,19 +920,8 @@ def test_gpu_image_environment_nee_and_mis_match_cpu() raises:
     var gpu_nee = render_gpu[.NEE, 4, 4](settings, camera, world.scene_data())
     var cpu_mis = render_wavefront[.MIS, 1, 64, False](settings, camera, world)
     var gpu_mis = render_gpu[.MIS, 4, 4](settings, camera, world.scene_data())
-    for i, cpu_pixel in enumerate(cpu_nee.pixels):
-        assert_almost_equal(gpu_nee.pixels[i].x, cpu_pixel.x, atol=1.0e-4)
-        assert_almost_equal(gpu_nee.pixels[i].y, cpu_pixel.y, atol=1.0e-4)
-        assert_almost_equal(gpu_nee.pixels[i].z, cpu_pixel.z, atol=1.0e-4)
-        assert_almost_equal(
-            gpu_mis.pixels[i].x, cpu_mis.pixels[i].x, atol=1.0e-4
-        )
-        assert_almost_equal(
-            gpu_mis.pixels[i].y, cpu_mis.pixels[i].y, atol=1.0e-4
-        )
-        assert_almost_equal(
-            gpu_mis.pixels[i].z, cpu_mis.pixels[i].z, atol=1.0e-4
-        )
+    assert_pixels_close(gpu_nee.pixels, cpu_nee.pixels, atol=1.0e-4)
+    assert_pixels_close(gpu_mis.pixels, cpu_mis.pixels, atol=1.0e-4)
 
 
 def test_gpu_light_sampling_kind_metadata() raises:
@@ -1055,10 +963,7 @@ def _test_gpu_mixed_lights_match_cpu[integrator: Integrator]() raises:
         settings, camera, world
     )
     var gpu = render_gpu[integrator, 4, 4](settings, camera, data)
-    for i, cpu_pixel in enumerate(cpu.pixels):
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-4)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-4)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-4)
+    assert_pixels_close(gpu.pixels, cpu.pixels, atol=1.0e-4)
 
 
 def test_gpu_mixed_lights_nee_matches_cpu_wavefront() raises:
@@ -1081,12 +986,10 @@ def _test_gpu_emissive_instance_matches_cpu[integrator: Integrator]() raises:
     )
     var gpu = render_gpu[integrator, 4, 4](settings, camera, world.scene_data())
     var energy = Float32(0.0)
-    for i, cpu_pixel in enumerate(cpu.pixels):
+    for cpu_pixel in cpu.pixels:
         energy += cpu_pixel.x + cpu_pixel.y + cpu_pixel.z
-        assert_almost_equal(gpu.pixels[i].x, cpu_pixel.x, atol=1.0e-4)
-        assert_almost_equal(gpu.pixels[i].y, cpu_pixel.y, atol=1.0e-4)
-        assert_almost_equal(gpu.pixels[i].z, cpu_pixel.z, atol=1.0e-4)
     assert_true(energy > 0.0)
+    assert_pixels_close(gpu.pixels, cpu.pixels, atol=1.0e-4)
 
 
 def test_gpu_emissive_instance_nee_matches_cpu_wavefront() raises:

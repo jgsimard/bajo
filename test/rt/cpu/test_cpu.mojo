@@ -1,4 +1,5 @@
 from test.helpers import assert_vec_equal
+from test.rt.helpers import assert_pixels_close
 
 from std.testing import (
     TestSuite,
@@ -1199,8 +1200,7 @@ def test_render_settings_and_tiny_render() raises:
     var one_pixel_tiles = render_depth_first[.PATH, 1, 1](
         settings, camera, world
     )
-    for i, pixel in enumerate(result.pixels):
-        assert_vec_equal(one_pixel_tiles.pixels[i], pixel)
+    assert_pixels_close(one_pixel_tiles.pixels, result.pixels)
 
     # Renderer packet length and both acceleration widths are independent.
     var packet_result = render_wavefront[.PATH, 4, 16, False](
@@ -1357,8 +1357,7 @@ def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
         var packet = render_wavefront[.PATH, width, 10, False](
             settings, camera, world
         )
-        for i, pixel in enumerate(packet1.pixels):
-            assert_vec_equal(packet.pixels[i], pixel)
+        assert_pixels_close(packet.pixels, packet1.pixels)
 
 
 def test_direct_light_integrators_render_cornell() raises:
@@ -1399,8 +1398,7 @@ def test_direct_light_integrators_render_cornell() raises:
             var packet = render_wavefront[integrator, width, 14, False](
                 settings, camera, world
             )
-            for i, pixel in enumerate(packet1.pixels):
-                assert_vec_equal(packet.pixels[i], pixel)
+            assert_pixels_close(packet.pixels, packet1.pixels)
 
 
 def test_environment_pdf_reuses_rotated_packet_radiance() raises:

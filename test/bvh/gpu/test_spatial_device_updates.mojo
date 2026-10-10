@@ -1,6 +1,7 @@
 from std.testing import (
     TestSuite,
     assert_true,
+    assert_raises,
     assert_equal,
     assert_almost_equal,
 )
@@ -156,12 +157,8 @@ def test_device_bounds_refit_rebuild_groups_and_atomicity() raises:
         ctx.enqueue_function[_invalid_input[1]](
             _device_span[mut=True](input), grid_dim=1, block_dim=1
         )
-        var rejected = False
-        try:
+        with assert_raises():
             gpu.rebuild_device(ctx, input)
-        except:
-            rejected = True
-        assert_true(rejected)
         with gpu.bounds.map_to_host() as data:
             for i in range(len(data)):
                 assert_equal(data[i], before_bounds[i])
@@ -234,20 +231,12 @@ def test_device_mesh_refit_rebuild_velocities_and_atomicity() raises:
         ctx.enqueue_function[_invalid_input[1]](
             _device_span[mut=True](input), grid_dim=1, block_dim=1
         )
-        var rejected = False
-        try:
+        with assert_raises():
             gpu.refit_device(ctx, input)
-        except:
-            rejected = True
-        assert_true(rejected)
         with gpu.points.map_to_host() as data:
             assert_equal(data[0], Float32(0.4))
-        rejected = False
-        try:
+        with assert_raises():
             gpu.set_velocities_device(ctx, input)
-        except:
-            rejected = True
-        assert_true(rejected)
         with gpu.velocities.map_to_host() as data:
             assert_equal(data[0], Float32(0.4))
         var empty = ctx.enqueue_create_buffer[.float32](0)
@@ -384,33 +373,21 @@ def test_device_update_invalid_counts_order_and_empty_mesh() raises:
         ]
         var gpu = GpuSpatialBoundsBvh(ctx, SpatialBoundsBvh(boxes))
         var empty = ctx.enqueue_create_buffer[.float32](0)
-        var rejected = False
-        try:
+        with assert_raises():
             gpu.refit_device(ctx, empty)
-        except:
-            rejected = True
-        assert_true(rejected)
         var input = ctx.enqueue_create_buffer[.float32](6)
         with input.map_to_host() as data:
             for axis in range(3):
                 data[axis] = 2.0
                 data[axis + 3] = 1.0
-        rejected = False
-        try:
+        with assert_raises():
             gpu.rebuild_device(ctx, input)
-        except:
-            rejected = True
-        assert_true(rejected)
         with gpu.bounds.map_to_host() as data:
             assert_equal(data[0], Float32(0.0))
             assert_equal(data[3], Float32(1.0))
         var mesh = GpuSpatialMesh(ctx, tetrahedron())
-        rejected = False
-        try:
+        with assert_raises():
             mesh.refit_device(ctx, input)
-        except:
-            rejected = True
-        assert_true(rejected)
         var empty_mesh = GpuSpatialMesh(
             ctx, SpatialMesh[.WORLD](List[Point3f32[.WORLD]](), List[UInt32]())
         )
@@ -478,12 +455,8 @@ def check_parallel_refit_levels[block_size: Int]() raises:
                 with input.map_to_host() as data:
                     data[count * 6 - 2] = bitcast[.float32](UInt32(0x7FC00000))
                 gpu.enqueue_update[False, block_size](ctx, input)
-                var rejected = False
-                try:
+                with assert_raises():
                     gpu.check_update(ctx)
-                except:
-                    rejected = True
-                assert_true(rejected)
                 with gpu.bounds.map_to_host() as actual:
                     for i in range(len(cpu.bounds)):
                         assert_equal(actual[i], cpu.bounds[i])

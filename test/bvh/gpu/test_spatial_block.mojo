@@ -163,6 +163,10 @@ def test_block_queries_multiple_blocks_groups_partial_batches_and_updates() rais
             _verify[32, 2](ctx, cpu, gpu)
             _verify[32, 3](ctx, cpu, gpu)
             _verify[64, 0](ctx, cpu, gpu)
+            _verify[7, 0](ctx, cpu, gpu)
+            _verify[7, 1](ctx, cpu, gpu)
+            _verify[7, 2](ctx, cpu, gpu)
+            _verify[7, 3](ctx, cpu, gpu)
 
 
 def test_block_queries_empty_tree() raises:

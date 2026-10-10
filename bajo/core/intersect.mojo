@@ -1,4 +1,5 @@
-from std.math import fma, abs, clamp, sqrt
+from std.math import fma, abs, clamp, sqrt, min, max, pi
+from std.sys.info import is_gpu
 from std.utils.numerics import max_finite
 
 from bajo.core.vec import (
@@ -15,6 +16,7 @@ from bajo.core.vec import (
 from bajo.core.aabb import AxisAlignedBoundingBox
 from bajo.core.utils import fmin, fmax
 from bajo.core.frame import Frame
+from bajo.core.ray import Ray
 
 
 # Result structs
@@ -413,7 +415,7 @@ def intersect_ray_tri[
 
 
 def intersect_ray_tri_edges[
-    dtype: DType, frame: Frame, width: SIMDLength
+    dtype: DType, frame: Frame, width: SIMDLength, robust: Bool = False
 ](
     o: Point3[dtype, frame, width],
     d: Vec3[dtype, frame, width],
@@ -423,7 +425,12 @@ def intersect_ray_tri_edges[
     t_max: SIMD[dtype, width],
     t_min: SIMD[dtype, width] = SIMD[dtype, width](1.0e-4),
 ) -> RayTriHit[dtype, width]:
-    """Moller-Trumbore intersection with precomputed triangle edges."""
+    """Moller-Trumbore intersection with precomputed triangle edges.
+
+    Robust mode uses exact-zero determinants and inclusive intervals. Its
+    Float64 scalar specialization backs spatial queries without an absolute
+    scale cutoff. The default retains the rendering predicate's policy.
+    """
     comptime assert dtype.is_floating_point()
     comptime EPSILON = Scalar[dtype](1e-8 if dtype == .float32 else 1e-16)
     comptime INF = max_finite[dtype]()
@@ -431,25 +438,34 @@ def intersect_ray_tri_edges[
     var p = cross(d, e2)
     var det = dot(e1, p)
 
-    var det_ok = det.gt(EPSILON) | det.lt(-EPSILON)
+    var det_ok = det.ne(0.0) if robust else det.gt(EPSILON) | det.lt(-EPSILON)
+    comptime if robust and width == 1:
+        if not det_ok[0]:
+            return RayTriHit(det_ok, SIMD[dtype, width](INF), 0.0, 0.0)
     var inv_det = 1.0 / det
 
     var tv = o - v0
-    var u = dot(tv, p) * inv_det
+    var u = dot(tv, p) / det if robust else dot(tv, p) * inv_det
+    comptime if robust and width == 1 and not is_gpu():
+        if u[0] < 0.0 or u[0] > 1.0:
+            return RayTriHit(
+                SIMD[.bool, width](fill=False), SIMD[dtype, width](INF), u, 0.0
+            )
 
     var q = cross(tv, e1)
-    var v = dot(d, q) * inv_det
-    var t = dot(e2, q) * inv_det
+    var v = dot(d, q) / det if robust else dot(d, q) * inv_det
+    comptime if robust and width == 1 and not is_gpu():
+        if v[0] < 0.0 or u[0] + v[0] > 1.0:
+            return RayTriHit(
+                SIMD[.bool, width](fill=False), SIMD[dtype, width](INF), u, v
+            )
+    var t = dot(e2, q) / det if robust else dot(e2, q) * inv_det
 
-    var mask = (
-        det_ok
-        & u.ge(0.0)
-        & u.le(1.0)
-        & v.ge(0.0)
-        & (u + v).le(1.0)
-        & t.gt(t_min)
-        & t.lt(t_max)
-    )
+    var mask = det_ok & u.ge(0.0) & u.le(1.0) & v.ge(0.0) & (u + v).le(1.0)
+    comptime if robust:
+        mask &= t.ge(t_min) & t.le(t_max)
+    else:
+        mask &= t.gt(t_min) & t.lt(t_max)
 
     return RayTriHit(
         mask,
@@ -964,3 +980,203 @@ def closest_point_edge_edge[
     dist = length(c2 - c1)
 
     return Vec3[dtype, frame, width](s, t, dist)
+
+
+# Robust Float32 geometry uses Float64 intermediates, inclusive ray intervals
+# and exact-zero degeneracy tests. The rendering predicates above retain their
+# dtype-specific determinant tolerance and open ray intervals.
+
+
+def vector64[
+    frame: Frame, width: SIMDLength
+](p: Point3[.float32, frame, width]) -> Vec3[.float64, frame, width]:
+    """Convert scalar or packet point coordinates to Float64 vectors."""
+    return Vec3[.float64, frame, width](
+        p.x.cast[.float64](), p.y.cast[.float64](), p.z.cast[.float64]()
+    )
+
+
+@fieldwise_init
+struct TriangleProjection[frame: Frame](TrivialRegisterPassable):
+    var point: Vec3[.float64, Self.frame]
+    var u: Float64
+    var v: Float64
+    var distance2: Float64
+
+
+def project_triangle[
+    frame: Frame
+](
+    point: Point3[.float32, frame],
+    a: Point3[.float32, frame],
+    b: Point3[.float32, frame],
+    c: Point3[.float32, frame],
+) -> TriangleProjection[frame]:
+    var p = vector64(point)
+    var av = vector64(a)
+    var bv = vector64(b)
+    var cv = vector64(c)
+    var ab = bv - av
+    var ac = cv - av
+    var normal = cross(ab, ac)
+    var area2 = dot(normal, normal)
+    if area2 > 0.0:
+        var q = p - normal * (dot(p - av, normal) / area2)
+        var weight_b = dot(cross(q - av, ac), normal) / area2
+        var weight_c = dot(cross(ab, q - av), normal) / area2
+        var weight_a = 1.0 - weight_b - weight_c
+        if weight_a >= 0.0 and weight_b >= 0.0 and weight_c >= 0.0:
+            var delta = q - p
+            return TriangleProjection(q, weight_a, weight_b, dot(delta, delta))
+    var best = TriangleProjection(
+        av, Float64(1.0), Float64(0.0), dot(av - p, av - p)
+    )
+    comptime for edge in range(3):
+        var start = av
+        var end = bv
+        comptime if edge == 1:
+            start = bv
+            end = cv
+        elif edge == 2:
+            start = cv
+            end = av
+        var direction = end - start
+        var length2 = dot(direction, direction)
+        var t = Float64(0.0)
+        if length2 > 0.0:
+            t = max(0.0, min(1.0, dot(p - start, direction) / length2))
+        var q = start + direction * t
+        var distance2 = dot(q - p, q - p)
+        if distance2 < best.distance2:
+            var u = Float64(1.0) - t
+            var v = t
+            comptime if edge == 1:
+                u = 0.0
+                v = 1.0 - t
+            elif edge == 2:
+                u = t
+                v = 0.0
+            best = TriangleProjection(q, u, v, distance2)
+    return best
+
+
+@fieldwise_init
+struct TriangleRayHit(TrivialRegisterPassable):
+    var result: Bool
+    var t: Float64
+    var u: Float64
+    var v: Float64
+
+
+def intersect_triangle[
+    frame: Frame
+](
+    ray: Ray[.float32, frame],
+    a: Point3[.float32, frame],
+    b: Point3[.float32, frame],
+    c: Point3[.float32, frame],
+) -> TriangleRayHit:
+    var av = vector64(a)
+    var hit = intersect_ray_tri_edges[.float64, frame, 1, True](
+        Point3[.float64, frame](
+            Float64(ray.o.x), Float64(ray.o.y), Float64(ray.o.z)
+        ),
+        Vec3[.float64, frame](
+            Float64(ray.d.x), Float64(ray.d.y), Float64(ray.d.z)
+        ),
+        Point3[.float64, frame](av.x, av.y, av.z),
+        vector64(b) - av,
+        vector64(c) - av,
+        Float64(ray.t_max),
+        Float64(ray.t_min),
+    )
+    return TriangleRayHit(
+        hit.mask[0], hit.t[0], 1.0 - hit.u[0] - hit.v[0], hit.u[0]
+    )
+
+
+def triangle_normal[
+    frame: Frame
+](
+    a: Point3[.float32, frame],
+    b: Point3[.float32, frame],
+    c: Point3[.float32, frame],
+) -> Vec3[.float64, frame]:
+    var normal = cross(vector64(b) - vector64(a), vector64(c) - vector64(a))
+    var length2 = dot(normal, normal)
+    if length2 > 0.0:
+        return normal / sqrt(length2)
+    return Vec3[.float64, frame](0.0)
+
+
+@always_inline
+def angle_atan2[
+    width: SIMDLength = 1
+](y: SIMD[.float64, width], x: SIMD[.float64, width]) -> SIMD[.float64, width]:
+    """Portable scalar/SIMD double atan2 without a host libm dependency.
+
+    Reduce to |r| <= tan(pi/16), then evaluate 11 alternating-series terms.
+    The truncation error is below 2e-17; width 1 is the scalar specialization.
+    """
+    comptime pi_2 = pi / 2
+    comptime pi_4 = pi / 4
+    comptime pi_8 = pi / 8
+    # Half-angle identities avoid tan's host libm call at compile time.
+    comptime tan_pi_8 = 1 / (sqrt(Float64(2)) + 1)
+    comptime tan_pi_16 = tan_pi_8 / (sqrt(1 + tan_pi_8 * tan_pi_8) + 1)
+    comptime tan_3pi_16 = (1 - tan_pi_16) / (1 + tan_pi_16)
+
+    var ax = abs(x)
+    var ay = abs(y)
+    var swapped = ay.gt(ax)
+    var maximum = max(ax, ay)
+    var ratio = min(ax, ay) / maximum.eq(0.0).select(1.0, maximum)
+    var upper = ratio.gt(tan_3pi_16)
+    var middle = ratio.gt(tan_pi_16)
+    var pivot = upper.select(1.0, middle.select(tan_pi_8, 0.0))
+    var offset = upper.select(pi_4, middle.select(pi_8, 0.0))
+    ratio = (ratio - pivot) / (1.0 + ratio * pivot)
+    var ratio2 = ratio * ratio
+    var polynomial = SIMD[.float64, width](1.0 / 21.0)
+    comptime for term in range(9, -1, -1):
+        polynomial = fma(
+            polynomial,
+            ratio2,
+            SIMD[.float64, width](
+                (1.0 if term % 2 == 0 else -1.0) / Float64(2 * Int(term) + 1)
+            ),
+        )
+    var angle = fma(ratio, polynomial, offset)
+    angle = swapped.select(pi_2 - angle, angle)
+    angle = x.lt(0.0).select(pi - angle, angle)
+    return y.lt(0.0).select(-angle, angle)
+
+
+@always_inline
+def solid_angle[
+    frame: Frame, width: SIMDLength = 1
+](
+    point: Point3[.float32, frame],
+    a: Vec3[.float64, frame, width],
+    b: Vec3[.float64, frame, width],
+    c: Vec3[.float64, frame, width],
+) -> SIMD[.float64, width]:
+    """Signed triangle solid angle, specialized for scalar or SIMD vertices."""
+    var p = Vec3[.float64, frame, width](
+        SIMD[.float64, width](Float64(point.x)),
+        SIMD[.float64, width](Float64(point.y)),
+        SIMD[.float64, width](Float64(point.z)),
+    )
+    var av = a - p
+    var bv = b - p
+    var cv = c - p
+    var numerator = dot(av, cross(bv, cv))
+    var la = sqrt(dot(av, av))
+    var lb = sqrt(dot(bv, bv))
+    var lc = sqrt(dot(cv, cv))
+    var denominator = (
+        la * lb * lc + dot(av, bv) * lc + dot(bv, cv) * la + dot(cv, av) * lb
+    )
+    return numerator.eq(0.0).select(
+        0.0, 2.0 * angle_atan2(numerator, denominator)
+    )

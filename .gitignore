@@ -52,3 +52,5 @@ rtiaw
 /scratch.md
 
 *.json
+*.log
+bench/results/warp*

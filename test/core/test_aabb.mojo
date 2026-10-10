@@ -15,6 +15,8 @@ from bajo.core import (
     Affine3,
     Point3W,
     Point3f32,
+    Point3,
+    AxisAlignedBoundingBox,
 )
 from bajo.core.utils import degrees_to_radians
 
@@ -71,6 +73,26 @@ def test_aabb_store6_with_nonzero_base() raises:
     assert_almost_equal(data[9], 4.0)
     assert_almost_equal(data[10], 5.0)
     assert_almost_equal(data[11], 6.0)
+
+
+def test_distance2_scalar_and_packets_at_extreme_scales() raises:
+    for scale in List[Float32]([Float32(1e-30), Float32(1.0), Float32(1e30)]):
+        var box = AABB[.WORLD](Point3W(0.0), Point3W(scale))
+        var p = Point3W(-scale, scale * 0.5, scale * 2.0)
+        var scale2 = Float64(scale) * Float64(scale)
+        assert_almost_equal(box.distance2(p) / scale2, Float64(2.0), atol=1e-12)
+        assert_almost_equal(
+            box.distance2[True](p) / scale2, Float64(8.25), atol=1e-12
+        )
+        var boxes = AxisAlignedBoundingBox[.float32, .WORLD, 2](
+            Point3[.float32, .WORLD, 2](0.0),
+            Point3[.float32, .WORLD, 2](scale),
+        )
+        var nearest = boxes.distance2(p) / scale2
+        var furthest = boxes.distance2[True](p) / scale2
+        comptime for lane in range(2):
+            assert_almost_equal(nearest[lane], Float64(2.0), atol=1e-12)
+            assert_almost_equal(furthest[lane], Float64(8.25), atol=1e-12)
 
 
 def main() raises:

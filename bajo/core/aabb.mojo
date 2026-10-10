@@ -1,4 +1,5 @@
 from std.utils.numerics import max_finite, min_finite
+from std.math import abs, max
 
 from bajo.core.transform import Affine3
 from bajo.core.vec import Vec3, vmin, vmax, Point3, GeoKind
@@ -87,6 +88,32 @@ struct AxisAlignedBoundingBox[
 
     def extent(self) -> Vec3[Self.dtype, Self.frame, Self.width]:
         return self._max - self._min
+
+    @always_inline
+    def distance2[
+        furthest: Bool = False
+    ](self, point: Point3[Self.dtype, Self.frame]) -> SIMD[
+        .float64, Self.width
+    ]:
+        """Squared minimum (or maximum) distance from a point to each box.
+
+        Float64 intermediates preserve distances for finite Float32 geometry
+        at extreme scales. Callers provide ordered, finite boxes and points.
+        """
+        var result = SIMD[.float64, Self.width](0.0)
+        comptime for axis in range(3):
+            var p = SIMD[.float64, Self.width](Float64(point[axis]))
+            var lower = self._min[axis].cast[.float64]()
+            var upper = self._max[axis].cast[.float64]()
+            var delta: SIMD[.float64, Self.width]
+            comptime if furthest:
+                delta = max(abs(lower - p), abs(upper - p))
+            else:
+                delta = max(
+                    max(lower - p, p - upper), SIMD[.float64, Self.width](0.0)
+                )
+            result += delta * delta
+        return result
 
     def overlaps(self, o: Self) -> SIMD[.bool, Self.width]:
         return (

@@ -1,7 +1,7 @@
 # General spatial BVH queries
 
 Correctness-first bounds queries share a stackless representation on CPU/GPU.
-Construction reuses the CPU median builder; these APIs do not replace the
+Construction uses the CPU spatial builder; these APIs do not replace the
 optimized rendering BVHs.
 
 ```mojo
@@ -38,7 +38,8 @@ topology; `rebuild(ctx, boxes)` runs the host builder and uploads its result. Se
 owner context; raw device spans must not outlive their device buffers. Native
 device-input updates and cooperative block iterators are described below.
 
-Coverage and remaining capabilities: [matrix](../CAPABILITIES.md).
+Matched capability coverage, performance evidence and experimental status:
+[Warp benchmark guide](../../../bench/warp/README.md).
 
 ## Indexed mesh queries
 
@@ -93,19 +94,52 @@ Counts, indices and groups stay fixed. Kernels validate the whole input before
 mutating geometry or topology. Invalid inputs leave the published state intact;
 synchronous wrappers raise after checking device status. Device mesh velocities
 can be updated/reset with `set_velocities_device(ctx, input)`.
+`enqueue_velocities[block_size=0](ctx, input)` provides the asynchronous velocity
+update; check its status with `check_update(ctx)`. Nonempty input contains three
+finite Float32 values per vertex, including unreferenced vertices. Empty input
+clears every velocity. Small inputs validate and publish in one block. Automatic
+thread selection uses 1,024 threads for 1,025–4,095 components, and 256 otherwise;
+explicit positive thread counts are preserved. Inputs of at least 4,096
+components validate across blocks before a separate publication launch. The last validation block publishes status through an acquire/release
+arrival chain and resets retained counters for the next serialized update.
 
-`enqueue_update[rebuild](ctx, input)` performs no allocation, synchronization or
+Large resident velocity inputs (at least 65,536 components) use four adjacent
+components per thread when input and destination are 16-byte aligned. Tail
+components use scalar accesses; other buffers retain scalar processing.
+Validation still completes before guarded publication. Explicit thread counts
+remain unchanged. Rejected inputs preserve all velocities, and in-place updates
+are supported.
+
+`enqueue_update[rebuild, block_size](ctx, input)` performs no allocation, synchronization or
 host geometry copy; call `check_update(ctx)` after completion to detect invalid
-input. `create_update_graph[rebuild](ctx, input)` returns a reusable
+input. `create_update_graph[rebuild, block_size](ctx, input)` returns a reusable
 [DeviceGraph](https://max.modular.com/stable/api/mojo/max/gpu/host/device_graph/DeviceGraph/).
 Replay reads current input contents and uses retained scratch/geometry buffers.
 Keep the owner and input alive until all operations/replays finish, serialize
 queries and updates on their context, and check validation status after replay.
+The default block size is 256; explicit powers of two from 32 through 1024 are
+available. Bounds updates and small mesh updates validate input in one block
+before copying geometry and refitting the retained balanced skeleton. Mesh refits
+with at least 1,024 faces validate across blocks, merge disjoint subtrees of at
+most 64 leaves in shared memory, then merge remaining ancestors through retained
+parent links and child-arrival counters. Both direct updates and captured refit
+graphs use this path, including owners with winding support enabled. Winding
+cache refits with at least 1,024 closed components also publish leaves and merge
+ancestors in parallel. All scratch and parent/chunk metadata are retained by the
+owner. Rejected input leaves published geometry and cache bounds unchanged.
+Raw one-block update kernels still require their matching block size.
 
 Device rebuild stably sorts original face/item IDs by X centroid within each
-independent root, then refits the retained tree skeleton. This is a deliberately
-simple allocation-free baseline. It changes leaf placement, preserves groups
-and retains addresses; host rebuild instead runs the CPU median builder.
+independent root, then refits the retained tree skeleton. It changes leaf
+placement, preserves groups and retains addresses; host rebuild runs the CPU
+spatial builder. Mesh rebuilds with at least 256 faces cache the original Float64
+centroid sums as exact UInt64 ordering keys, sort 256-leaf tiles in shared memory,
+and merge centroid/original-ID order across GPU blocks. Sorted IDs are published
+before clearing arrival counters and running parallel geometry/bounds publication.
+Direct updates and captured graphs use the same dependencies, including winding
+cache updates. The owner retains sort scratch and tile descriptors; device
+rebuild operations allocate no new storage. Bounds and smaller mesh rebuilds
+retain their single-block sorting path.
 Device updates leave `host` as the last host-input snapshot, not a mirror of
 current device geometry. Subsequent host-input refit remains valid after a
 device reorder because it updates bounds using the current device topology.
@@ -116,6 +150,11 @@ device reorder because it updates bounds using the current device topology.
 fills up to the span's capacity, returns the filled count and preserves unused
 slots. Zero capacity consumes nothing. It accepts every bounds query kind and
 retains the underlying iterator's cutoff and grouping behavior.
+CPU `next[width]` tests a SIMD packet of preorder bounds before following subtree
+escapes; the default width is 2, capped to the native Float64 SIMD width.
+`BoundsQuery.next_batch[width](output, cutoff)` provides the same operation
+directly. GPU serial batches and width 1 use scalar traversal. Cutoffs are
+rechecked on each call, so partially consumed packets retain no stale decisions.
 
 GPU kernels can use
 `bajo.bvh.spatial.block_query.BlockBoundsQuery[origin, frame, block_size](query^)`.
@@ -128,9 +167,13 @@ unspecified. Launch exactly `(block_size, 1, 1)` threads per block; mismatched
 shapes return empty without writing shared scratch. Blocks have independent
 scratch, and there is no fixed global result capacity.
 
-This collective baseline tests preorder leaf candidates in parallel and compacts
-a block's results in shared memory. It scans the root's nodes rather than
-pruning subtrees cooperatively; optimization awaits matched measurements.
+The collective tests consecutive preorder nodes in parallel and compacts
+emitted original IDs in shared memory. Missed internal nodes can skip their
+complete subtree before the next batch: the block takes the largest safe
+escape among nodes already tested in that batch. This preserves partial batches
+and per-lane validity while avoiding scans of distant subtrees. Power-of-two
+blocks use collective reductions; other positive block sizes use shared scratch.
+[Matched bounds and mesh AABB measurements](../../../bench/results/warp-1.19/cooperative-pruning-diagnostics.md).
 
 Mesh AABB queries return the same bounds iterator: wrap
 `mesh.view().query_aabb(box, root)` in `BoundsQueryBatch` or, inside a GPU kernel,
@@ -160,3 +203,49 @@ and open/nonmanifold geometry do not have universal equivalent signs. The matche
 benchmarks use valid inputs away from cutoff boundaries and document tie handling.
 Warp's grouped CPU winding configuration failed the analytic fixture; the matched
 winding comparison uses separate ungrouped owners in both libraries.
+
+CPU nearest/furthest traversal specializes on SIMD width and orders child visits
+by distance. Masked strided loads read each child pair; unused lanes never load
+EMPTY_LANE. CPU/GPU `query_ray[width]` similarly visits nearer child bounds first and
+prunes after each closer hit; the default is width 2, capped to native Float64
+SIMD width. Ray counts use bounds packets of width 4, while any-hit and parity
+use width 2. These defaults live in `policy.mojo`; explicit widths remain
+available. Parity abandons ambiguous boundary-hit trials and retries another
+direction. Hit counts, any-hit and parity share one implementation; their bounds
+iterator uses SIMD lookahead on CPU and scalar traversal on GPU.
+Exact winding shares packet accumulation, with retained CPU triangle packets
+(default width 8), width 1 on GPU and a gather fallback for grouped roots.
+`SpatialMesh[frame, storage_width]` controls the cache width. Geometry predicates
+share scalar/SIMD implementations, with width 1 as the scalar specialization.
+Reusable triangle projection, normals, ray tests and solid angles live in
+`bajo.core.intersect`; the spatial `geometry` module only reexports them for
+compatibility. Robust spatial ray tests specialize the existing core edge
+predicate for Float64, exact-zero determinants and inclusive intervals.
+`AABB.distance2[furthest]` supplies point traversal and sphere broad phase.
+
+Bounds `refit[width]` validates before mutation and updates retained buffers
+without allocation; mesh refit fuses face bounds with triangle packing. The
+shared default in `policy.mojo` caps width 4 to the target native Float32 width.
+Explicit widths remain available for workload-specific measurements.
+
+Spatial construction emits median partitions for trees below 16,384 items and
+balanced, stable Morton order for larger trees, directly into preallocated
+preorder buffers. All global/group roots borrow one temporary array of build
+items; groups select subsets of original IDs. Median split axes specialize
+at compile time, and bounds reductions are generic over SIMD width. Morton
+keys use a shared spatial scale, finite Float64 midpoint arithmetic and stable
+original-ID ties. Balanced emission preserves the existing refit schedule.
+
+
+CPU `SpatialMesh` constructors accept `cache_winding=False` to skip optional
+closed-component metadata and triangle packing. The default remains `True`.
+Exact winding queries still work through indexed Float64 accumulation; refit and
+rebuild maintain geometry and bounds with either setting. A `GpuSpatialMesh`
+requesting `enable_winding=True` builds missing host winding metadata before
+publishing its device cache. Complete construction benchmarks match host and
+device winding-cache settings to Warp's disabled/enabled modes.
+
+Large group trees filter the global stable Morton order instead of recomputing
+and sorting group-local codes. Both global and group trees retain balanced
+splits, exact node unions and original face IDs. Groups below 16,384 items
+continue to use median partitions.

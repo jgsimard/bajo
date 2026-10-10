@@ -19,14 +19,17 @@ def nth_element[
     T: Copyable,
     origin: MutOrigin,
     //,
+    small_threshold: Int = insertion_sort_threshold,
 ](mut span: Span[T, origin], n: Int, cmp_fn: Some[def(T, T) -> Bool]):
     """
     Rearranges elements in the span such that the element at index n
     is in the position it would be in a sorted sequence. All elements
     before are less, all after are more.
 
-    This is an IntroSelect implementation: O(N) average and worst-case.
+    Introselect has expected O(N) cost, with an O(N log N) worst-case
+    heapsort fallback. small_threshold controls the insertion-sort cutoff.
     """
+    comptime assert small_threshold >= 2
     var size = len(span)
     if size <= 1 or n < 0 or n >= size:
         return
@@ -36,10 +39,10 @@ def nth_element[
     # to avoid the O(N^2) worst case of QuickSelect.
     var max_iters = _estimate_max_iters(size)
 
-    while len(span) > insertion_sort_threshold:
+    while len(span) > small_threshold:
         if max_iters == 0:
             # Switch to Heapsort for the remaining span to guarantee O(N log N)
-            # for this branch, which maintains the overall O(N) guarantee.
+            # for this branch, bounding the overall worst case by O(N log N).
             _heap_sort(span, cmp_fn)
             return
 

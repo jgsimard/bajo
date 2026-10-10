@@ -327,18 +327,20 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         else:
             return self.z
 
-    def __getitem_param__[i: Int](self) -> SIMD[Self.dtype, Self.width]:
-        comptime assert i >= 0 and i < 3
-
+    def __getitem_param__[
+        i: Int
+    ](ref self) -> ref[origin_of(self.x, self.y, self.z)] SIMD[
+        Self.dtype, Self.width
+    ]:
         comptime __match i:
-        case 0:
-            return self.x
-        case 1:
-            return self.y
-        case 2:
-            return self.z
-        case _:
-            comptime assert False
+            case 0:
+                return self.x
+            case 1:
+                return self.y
+            case 2:
+                return self.z
+            case _:
+                comptime assert False, "Geo3 axis index must be in [0, 3)"
 
     def __setitem__(
         mut self,
@@ -353,43 +355,21 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
             self.z = value
 
     def __setitem__[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
-        comptime assert i >= 0 and i < 3
-
-        comptime __match i:
-        case 0:
-            self.x = value
-        case 1:
-            self.y = value
-        case 2:
-            self.z = value
-        case _:
-            comptime assert False
+        self[i] = value
 
     def set_axis[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
-        comptime assert i >= 0 and i < 3
-
-        comptime __match i:
-        case 0:
-            self.x = value
-        case 1:
-            self.y = value
-        case 2:
-            self.z = value
-        case _:
-            comptime assert False
+        self[i] = value
 
     def add_axis[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
-        comptime assert i >= 0 and i < 3
-
         comptime __match i:
-        case 0:
-            self.x += value
-        case 1:
-            self.y += value
-        case 2:
-            self.z += value
-        case _:
-            comptime assert False
+            case 0:
+                self.x += value
+            case 1:
+                self.y += value
+            case 2:
+                self.z += value
+            case _:
+                comptime assert False, "Geo3 axis index must be in [0, 3)"
 
     def is_near_zero(
         self,

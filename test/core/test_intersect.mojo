@@ -21,6 +21,8 @@ from bajo.core.intersect import (
     intersect_ray_tri,
     intersect_ray_tri_edges,
     intersect_ray_tri_edges_scaled,
+    intersect_triangle,
+    vector64,
 )
 
 from bajo.core import (
@@ -318,6 +320,52 @@ def test_intersect_tri_tri() raises:
     _test_intersect_tri_tri[.float16]()
     _test_intersect_tri_tri[.float32]()
     _test_intersect_tri_tri[.float64]()
+
+
+def test_robust_triangle_scale_and_interval_policy() raises:
+    for scale in List[Float32]([Float32(1e-30), Float32(1.0), Float32(1e30)]):
+        var a = Point3W(0.0)
+        var b = Point3W(scale, 0.0, 0.0)
+        var c = Point3W(0.0, scale, 0.0)
+        var ray = Rayf32[.WORLD](
+            Point3W(scale * 0.25, scale * 0.25, scale),
+            Vec3W(0.0, 0.0, -scale),
+            1.0,
+            1.0,
+        )
+        var hit = intersect_triangle(ray, a, b, c)
+        assert_true(hit.result)
+        assert_almost_equal(hit.t, Float64(1.0), atol=1e-12)
+        assert_almost_equal(hit.u, Float64(0.5), atol=1e-12)
+        assert_almost_equal(hit.v, Float64(0.25), atol=1e-12)
+        # The rendering policy still excludes both ray interval endpoints.
+        assert_false(
+            intersect_ray_tri(
+                ray.o, ray.d, a, b, c, Float32(1.0), Float32(1.0)
+            ).mask[0]
+        )
+        assert_false(intersect_triangle(ray, a, a, a).result)
+
+
+def check_vector64_width[width: SIMDLength]() raises:
+    var p = Point3[.float32, .WORLD, width](0.0)
+    comptime for lane in range(width):
+        p.x[lane] = Float32(lane) * 0.125
+        p.y[lane] = -Float32(lane + 1) * 1e-30
+        p.z[lane] = Float32(lane + 1) * 1e30
+    var converted = vector64(p)
+    comptime for lane in range(width):
+        assert_equal(converted.x[lane], Float64(p.x[lane]))
+        assert_equal(converted.y[lane], Float64(p.y[lane]))
+        assert_equal(converted.z[lane], Float64(p.z[lane]))
+
+
+def test_vector64_infers_scalar_and_packet_widths() raises:
+    check_vector64_width[1]()
+    check_vector64_width[2]()
+    check_vector64_width[4]()
+    check_vector64_width[8]()
+    check_vector64_width[16]()
 
 
 def main() raises:

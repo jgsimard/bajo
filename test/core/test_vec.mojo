@@ -86,5 +86,19 @@ def test_load_store_span_with_nonzero_base() raises:
     assert_almost_equal(data[6], -1.0)
 
 
+def test_compiletime_indexed_assignment_and_setter_compatibility() raises:
+    var value = Vec3[.float32, .WORLD, 4](0.0)
+    comptime for axis in range(3):
+        value[axis] = SIMD[.float32, 4](Float32(axis + 1))
+    value[1] += SIMD[.float32, 4](2.0)
+    assert_vec_equal(value, Vec3[.float32, .WORLD, 4](1.0, 4.0, 3.0))
+    value.__setitem__[0](SIMD[.float32, 4](5.0))
+    value.set_axis[2](SIMD[.float32, 4](6.0))
+    assert_vec_equal(value, Vec3[.float32, .WORLD, 4](5.0, 4.0, 6.0))
+    var axis = 1
+    value[axis] = SIMD[.float32, 4](7.0)
+    assert_vec_equal(value, Vec3[.float32, .WORLD, 4](5.0, 7.0, 6.0))
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

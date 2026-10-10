@@ -12,7 +12,10 @@ from bajo.bvh.spatial import SpatialBoundsBvh, SpatialMesh
 from bajo.bvh.spatial.gpu import GpuSpatialBoundsBvh
 from bajo.bvh.spatial.gpu_mesh import GpuSpatialMesh
 from bajo.bvh.gpu.utils import _device_span
-from bajo.bvh.spatial.device_update import bounds_update_kernel
+from bajo.bvh.spatial.device_update import (
+    UPDATE_BLOCK_SIZE,
+    bounds_update_kernel,
+)
 from test.bvh.gpu.test_spatial import _query_kernel
 from test.bvh.gpu.test_spatial_mesh import _mesh_kernel
 from test.bvh.spatial_fixtures import tetrahedron
@@ -297,7 +300,7 @@ def test_graph_bounds_rebuild_and_query_replay() raises:
                 arg4,
                 arg5,
                 grid_dim=1,
-                block_dim=1,
+                block_dim=UPDATE_BLOCK_SIZE,
                 dependencies=[],
             )
             _ = builder.add_function(
@@ -415,6 +418,82 @@ def test_device_update_invalid_counts_order_and_empty_mesh() raises:
         empty_mesh.rebuild_device(ctx, empty)
         assert_equal(len(empty_mesh.bounds), 0)
         assert_equal(len(empty_mesh.points), 0)
+
+
+def check_parallel_refit_levels[block_size: Int]() raises:
+    var counts: List[Int] = [
+        0,
+        1,
+        2,
+        3,
+        5,
+        17,
+        63,
+        65,
+        129,
+        257,
+        258,
+        1025,
+        4097,
+    ]
+    with DeviceContext() as ctx:
+        for count in counts:
+            var boxes = List[AABB[.WORLD]]()
+            var groups = List[UInt32]()
+            for i in range(count):
+                boxes.append(
+                    AABB(
+                        Point3f32[.WORLD](Float32(i)),
+                        Point3f32[.WORLD](Float32(i) + 0.5),
+                    )
+                )
+                groups.append(UInt32(i % 3))
+            var cpu = SpatialBoundsBvh(boxes, groups)
+            var gpu = GpuSpatialBoundsBvh(ctx, cpu.copy())
+            var input = ctx.enqueue_create_buffer[.float32](count * 6)
+            var bounds_address = Int(gpu.bounds.unsafe_ptr())
+            for phase in range(2):
+                with input.map_to_host() as data:
+                    for i in range(count):
+                        var p = Point3f32[.WORLD](
+                            Float32((i * 17) % 31) - 2.0,
+                            Float32(i % 3) * 0.2 + Float32(phase) * 0.11,
+                            Float32(count - i) * 0.1,
+                        )
+                        boxes[i] = AABB(
+                            p, p + Vec3f32[.WORLD](0.05 + Float32(phase) * 0.01)
+                        )
+                        comptime for axis in range(3):
+                            data[i * 6 + axis] = boxes[i]._min[axis]
+                            data[i * 6 + axis + 3] = boxes[i]._max[axis]
+                cpu.refit(boxes)
+                gpu.enqueue_update[False, block_size](ctx, input)
+                gpu.check_update(ctx)
+                assert_equal(Int(gpu.bounds.unsafe_ptr()), bounds_address)
+                with gpu.bounds.map_to_host() as actual:
+                    for i in range(len(cpu.bounds)):
+                        assert_equal(actual[i], cpu.bounds[i])
+            if count > 0:
+                # Reject a bad value supplied by a lane other than lane zero.
+                with input.map_to_host() as data:
+                    data[count * 6 - 2] = bitcast[.float32](UInt32(0x7FC00000))
+                gpu.enqueue_update[False, block_size](ctx, input)
+                var rejected = False
+                try:
+                    gpu.check_update(ctx)
+                except:
+                    rejected = True
+                assert_true(rejected)
+                with gpu.bounds.map_to_host() as actual:
+                    for i in range(len(cpu.bounds)):
+                        assert_equal(actual[i], cpu.bounds[i])
+
+
+def test_parallel_refit_levels_sizes_groups_and_validation() raises:
+    check_parallel_refit_levels[32]()
+    check_parallel_refit_levels[64]()
+    check_parallel_refit_levels[128]()
+    check_parallel_refit_levels[256]()
 
 
 def main() raises:

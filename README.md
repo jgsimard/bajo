@@ -138,11 +138,11 @@ uses Embree 4 and TinyBVH; the Embree task requires Embree 4 headers and
 [`bench/results/`](bench/results/), including the [CPU BVH report](bench/results/bvh_cpu/bvh_cpu.md)
 and [CPU/GPU ray-tracing comparison](bench/results/rt_cpu_gpu/comparison.md).
 The NexusBVH comparison writes its [result table](bench/results/bvh_gpu_nexus/comparison.md).
-The [Warp comparison](bench/results/warp/comparison.md) measures matched CPU/GPU
-BVH builds and triangle queries, plus GPU stable key/value sorting. Track BVH
-[capability coverage](bajo/bvh/CAPABILITIES.md) and
-[CPU/GPU performance](bajo/bvh/PERFORMANCE.md) as parity work progresses. Install the
-benchmark-only dependency outside the project environment, then run:
+The [Warp benchmark guide](bench/warp/README.md) describes matched CPU/GPU BVH
+construction, queries, updates, standalone mesh evaluations, and the GPU
+performance gate. Each run writes its own report with samples and source/reference
+identities. Install the benchmark-only dependency outside the project environment,
+then run:
 
 ```bash
 uv pip install --python .pixi/envs/default/bin/python --target /tmp/bajo_warp_deps warp-lang==1.17.0
@@ -152,10 +152,11 @@ pixi run bench_warp_mesh_compare --warp-path /tmp/bajo_warp_deps
 pixi run bench_warp_block_compare --warp-path /tmp/bajo_warp_deps
 ```
 
-The [bounds](bench/results/warp/spatial.md), [mesh](bench/results/warp/mesh.md)
-and [cooperative](bench/results/warp/block.md) comparisons check forward queries
-against Warp and independent references, and refresh the performance matrix
-after a validated run. VJPs and autodiff are excluded.
+The bounds, mesh and cooperative comparisons check forward queries against Warp
+and independent references. The installation example above uses Warp 1.17;
+the strict performance gate requires the identified Warp 1.19 checkout described
+in the guide. Run heavy comparisons serially through the
+[memory guard](bench/diagnostic/resource_guard.md). VJPs and autodiff are excluded.
 
 ## Repository layout
 

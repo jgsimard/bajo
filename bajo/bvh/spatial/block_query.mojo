@@ -2,15 +2,16 @@
 
 All lanes of a one-dimensional block call next together with identical query
 inputs/cutoffs. Each lane tests one preorder node; shared-memory compaction emits
-up to block_size original IDs. This baseline scans nodes instead of optimizing
-subtree pruning. No global output capacity limit or traversal stack is needed.
+up to block_size original IDs. Missed internal nodes advance the next batch
+beyond their complete subtree, retaining every untested reachable node. No global output capacity limit or traversal stack is needed.
 """
 
 from max.gpu import thread_idx, block_dim
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
+from max.gpu.primitives import block
 from std.memory import stack_allocation
-from std.math import min
+from std.math import min, max
 from std.utils.numerics import isfinite
 from bajo.core import Frame
 from bajo.bvh.constants import EMPTY_LANE, f32_max
@@ -56,31 +57,59 @@ struct BlockBoundsQuery[origin: ImmOrigin, frame: Frame, block_size: Int](
             barrier()  # Previous batch must be consumed before overwriting it.
             var node = Int(self.query.cursor) + lane
             var item = EMPTY_LANE
-            if (
-                node < Int(self.query.end)
-                and self.query.nodes[node * 2 + 1] != EMPTY_LANE
-            ):
-                var local = self.query.copy()
-                local.cursor = UInt32(node)
-                local.end = UInt32(node + 1)
-                _ = local.next(item, max_dist)
-            scratch[unsafe_offset=lane + 1] = item
-            barrier()
-            if lane == 0:
-                var count = 0
-                for i in range(Self.block_size):
-                    var candidate = scratch[unsafe_offset=i + 1]
-                    if candidate != EMPTY_LANE:
-                        scratch[unsafe_offset=count + 1] = candidate
-                        count += 1
-                scratch[unsafe_offset=0] = UInt32(count)
-            barrier()
-            self.query.cursor = UInt32(
+            var resume = UInt32(
                 min(
                     Int(self.query.end),
                     Int(self.query.cursor) + Self.block_size,
                 )
             )
+            if node < Int(self.query.end):
+                var local = self.query.copy()
+                local.cursor = UInt32(node)
+                local.end = UInt32(node + 1)
+                _ = local.next(item, max_dist)
+                # A rejected node's escape bounds only rejected descendants.
+                # Its range starts inside this batch, so jumping to the largest
+                # such escape cannot skip an untested reachable node.
+                resume = max(resume, local.cursor)
+            comptime if Self.block_size >= 32 and (
+                Self.block_size & (Self.block_size - 1)
+            ) == 0:
+                resume = block.max[block_size=Self.block_size, broadcast=True](
+                    resume
+                )
+                var valid = UInt32(item != EMPTY_LANE)
+                var rank = block.prefix_sum[
+                    block_size=Self.block_size, exclusive=True
+                ](valid)
+                var count = block.sum[
+                    block_size=Self.block_size, broadcast=True
+                ](valid)
+                if valid != 0:
+                    scratch[unsafe_offset=Int(rank) + 1] = item
+                if lane == 0:
+                    scratch[unsafe_offset=0] = count
+                barrier()
+            else:
+                var resumes = stack_allocation[
+                    Self.block_size, UInt32, address_space=AddressSpace.SHARED
+                ]()
+                resumes[unsafe_offset=lane] = resume
+                scratch[unsafe_offset=lane + 1] = item
+                barrier()
+                if lane == 0:
+                    var count = 0
+                    for i in range(Self.block_size):
+                        resume = max(resume, resumes[unsafe_offset=i])
+                        var candidate = scratch[unsafe_offset=i + 1]
+                        if candidate != EMPTY_LANE:
+                            scratch[unsafe_offset=count + 1] = candidate
+                            count += 1
+                    scratch[unsafe_offset=0] = UInt32(count)
+                    resumes[unsafe_offset=0] = resume
+                barrier()
+                resume = resumes[unsafe_offset=0]
+            self.query.cursor = min(resume, self.query.end)
             var count = Int(scratch[unsafe_offset=0])
             if count > 0:
                 self.batch_valid = True

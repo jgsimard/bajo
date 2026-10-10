@@ -711,8 +711,9 @@ struct BinaryBoundsBvh[
         return q
 
 
+@always_inline
 def _partition_items_by_median_center[
-    frame: Frame
+    frame: Frame, static_axis: Int = -1
 ](
     indices: MutSpan[UInt32, _],
     items: ImmSpan[BoundsItem[frame], _],
@@ -728,8 +729,8 @@ def _partition_items_by_median_center[
         "median partition range is outside item indices",
     )
     debug_assert["safe", _use_compiler_assume=True](
-        len(indices) == len(items),
-        "BVH item indices and items have different lengths",
+        len(indices) <= len(items),
+        "BVH item index subset exceeds available items",
     )
     debug_assert["safe", _use_compiler_assume=True](
         axis >= 0 and axis < 3,
@@ -741,8 +742,14 @@ def _partition_items_by_median_center[
     def cmp(a_idx: UInt32, b_idx: UInt32) {items, axis} -> Bool:
         ref a_item = items.unsafe_get(Int(a_idx))
         ref b_item = items.unsafe_get(Int(b_idx))
-        var a = a_item.centroid[axis]
-        var b = b_item.centroid[axis]
+        var a: Float32
+        var b: Float32
+        comptime if static_axis >= 0:
+            a = a_item.centroid.__getitem_param__[static_axis]()
+            b = b_item.centroid.__getitem_param__[static_axis]()
+        else:
+            a = a_item.centroid[axis]
+            b = b_item.centroid[axis]
 
         if a == b:
             return a_idx < b_idx
@@ -750,6 +757,9 @@ def _partition_items_by_median_center[
         return a < b
 
     var range = indices[first : first + count]
-    nth_element(range, mid, cmp)
+    comptime if static_axis >= 0:
+        nth_element[small_threshold=4](range, mid, cmp)
+    else:
+        nth_element(range, mid, cmp)
 
     return first + mid

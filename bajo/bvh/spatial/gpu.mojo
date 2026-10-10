@@ -14,10 +14,11 @@ from max.gpu.host import (
 )
 from bajo.core import AABB, Frame
 from bajo.bvh.gpu.utils import upload_list, _device_span
-from .device_update import bounds_update_kernel
+from .device_update import UPDATE_BLOCK_SIZE, bounds_update_kernel
 from .bounds import SpatialBoundsBvh
 
 
+@fieldwise_init
 struct GpuSpatialBoundsBvh[frame: Frame = .WORLD]:
     var host: SpatialBoundsBvh[Self.frame]
     var bounds: DeviceBuffer[.float32]
@@ -73,7 +74,7 @@ struct GpuSpatialBoundsBvh[frame: Frame = .WORLD]:
         ctx.synchronize()
 
     def enqueue_update[
-        rebuild: Bool
+        rebuild: Bool, block_size: Int = UPDATE_BLOCK_SIZE
     ](self, ctx: DeviceContext, boxes: DeviceBuffer[.float32]) raises:
         """Enqueue an allocation-free update; inspect status after completion.
 
@@ -84,7 +85,7 @@ struct GpuSpatialBoundsBvh[frame: Frame = .WORLD]:
         """
         if len(boxes) != len(self.update_items):
             raise Error("Device BVH update requires unchanged item count")
-        ctx.enqueue_function[bounds_update_kernel[rebuild]](
+        ctx.enqueue_function[bounds_update_kernel[rebuild, block_size]](
             _device_span[mut=False](boxes),
             _device_span[mut=True](self.update_items),
             _device_span[mut=True](self.bounds),
@@ -92,7 +93,7 @@ struct GpuSpatialBoundsBvh[frame: Frame = .WORLD]:
             _device_span[mut=True](self.update_order),
             _device_span[mut=True](self.update_status),
             grid_dim=1,
-            block_dim=1,
+            block_dim=block_size,
         )
 
     def check_update(self, ctx: DeviceContext) raises:
@@ -114,7 +115,7 @@ struct GpuSpatialBoundsBvh[frame: Frame = .WORLD]:
         self.check_update(ctx)
 
     def create_update_graph[
-        rebuild: Bool
+        rebuild: Bool, block_size: Int = UPDATE_BLOCK_SIZE
     ](
         self, ctx: DeviceContext, input: DeviceBuffer[.float32]
     ) raises -> DeviceGraph:
@@ -125,7 +126,9 @@ struct GpuSpatialBoundsBvh[frame: Frame = .WORLD]:
         """
         if len(input) != len(self.update_items):
             raise Error("Device update graph requires unchanged input count")
-        var function = ctx.compile_function[bounds_update_kernel[rebuild]]()
+        var function = ctx.compile_function[
+            bounds_update_kernel[rebuild, block_size]
+        ]()
         var arg0 = _device_span[mut=False](input)
         var arg1 = _device_span[mut=True](self.update_items)
         var arg2 = _device_span[mut=True](self.bounds)
@@ -143,7 +146,7 @@ struct GpuSpatialBoundsBvh[frame: Frame = .WORLD]:
                 arg4,
                 arg5,
                 grid_dim=1,
-                block_dim=1,
+                block_dim=block_size,
                 dependencies=[],
             )
 

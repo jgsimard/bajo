@@ -8,7 +8,7 @@ from std.math import sqrt, atan2, abs
 from std.memory import bitcast
 from bajo.bvh.spatial.mesh import SpatialMesh
 from bajo.bvh.constants import EMPTY_LANE
-from bajo.bvh.spatial.geometry import angle_atan2
+from bajo.core.intersect import angle_atan2
 from bajo.core import AABB, Point3f32, Vec3f32, Rayf32
 from test.bvh.spatial_fixtures import tetrahedron
 
@@ -132,7 +132,11 @@ def test_closed_tetrahedron_signs_against_analytic_grid() raises:
                 )
                 var expected = Float32(-1.0 if inside else 1.0)
                 assert_equal(view.query_point_sign_normal(p).sign, expected)
-                assert_equal(view.query_point_sign_parity(p).sign, expected)
+                comptime for exponent in range(5):
+                    assert_equal(
+                        view.query_point_sign_parity[1 << exponent](p).sign,
+                        expected,
+                    )
                 assert_equal(
                     view.query_point_sign_winding_number(p).sign, expected
                 )

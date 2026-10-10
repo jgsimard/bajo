@@ -3,25 +3,42 @@
 # Run tests, see https://forum.modular.com/t/proposal-deprecating-mojo-test/2371
 set -euo pipefail
 
-# Get test directory from first argument, default to repo root if not provided.
-test_dir="${1:-.}"
-
-echo "Running tests in: $test_dir"
+# Accept directories or individual files; default to the repository root.
+if [ "$#" -eq 0 ]; then
+  set -- .
+fi
 
 test_count=0
 failed=0
 
-while IFS= read -r test_file; do
-  test_count=$((test_count + 1))
-  echo "### ------------------------------------------------------------- ###"
-  echo "Running: $test_file"
-  if ! mojo run -I . "$test_file"; then
+run_test() {
+  case "$1" in
+    *.mojo) mojo run -I . "$1" ;;
+    *.py) python "$1" ;;
+  esac
+}
+
+for test_path in "$@"; do
+  echo "Running tests in: $test_path"
+  # Check paths before find runs in a process substitution, where an error
+  # would otherwise be lost if another path contained runnable tests.
+  if [ ! -e "$test_path" ]; then
+    echo "Test path does not exist: $test_path" >&2
     failed=1
+    continue
   fi
-done < <(find "$test_dir" -name "test_*.mojo" -type f -not -path "*/.pixi/*" | sort)
+  while IFS= read -r test_file; do
+    test_count=$((test_count + 1))
+    echo "### ------------------------------------------------------------- ###"
+    echo "Running: $test_file"
+    if ! run_test "$test_file"; then
+      failed=1
+    fi
+  done < <(find "$test_path" -type f \( -name "test_*.mojo" -o -name "test_*.py" \) -not -path "*/.pixi/*" | sort)
+done
 
 if [ "$test_count" -eq 0 ]; then
-  echo "No test files found in: $test_dir" >&2
+  echo "No test files found in: $*" >&2
   exit 1
 fi
 

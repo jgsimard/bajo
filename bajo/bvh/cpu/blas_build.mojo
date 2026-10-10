@@ -9,6 +9,7 @@ from bajo.bvh.constants import (
     CPU_TRI_LEAF_PACKED_STRIDE,
     WideNode,
 )
+from bajo.bvh.cpu.bounds_bvh import WideBvhNode
 from bajo.bvh.cpu.sphere_bvh import _SphereBuild
 from bajo.bvh.cpu.blas_storage import CpuBlasSet
 from bajo.bvh.cpu.blas_assembly import (
@@ -40,6 +41,51 @@ comptime CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES = 4096
 comptime EXACT_MULTI_BLAS_MIN_PRIMITIVES = 4096
 
 
+@always_inline
+def _store_wide_blas_node[
+    frame: Frame, width: SIMDLength
+](
+    node: WideBvhNode[frame, width],
+    leaf_counts: SIMD[.uint32, width],
+    nodes: MutPointer[Float32, _],
+    node_idx: UInt32,
+    node_f32_base: Int,
+):
+    """Serialize one wide node using primitive-specific leaf counts."""
+    var base = node_f32_base + _wide_node_base[width](node_idx)
+    nodes.unsafe_store[width=width](
+        base + WideNode.MIN_X * width, node.aabb._min.x
+    )
+    nodes.unsafe_store[width=width](
+        base + WideNode.MIN_Y * width, node.aabb._min.y
+    )
+    nodes.unsafe_store[width=width](
+        base + WideNode.MIN_Z * width, node.aabb._min.z
+    )
+    nodes.unsafe_store[width=width](
+        base + WideNode.MAX_X * width, node.aabb._max.x
+    )
+    nodes.unsafe_store[width=width](
+        base + WideNode.MAX_Y * width, node.aabb._max.y
+    )
+    nodes.unsafe_store[width=width](
+        base + WideNode.MAX_Z * width, node.aabb._max.z
+    )
+    var packed_meta = SIMD[.uint32, width](EMPTY_LANE)
+    comptime for lane in range(width):
+        var data = node.data[lane]
+        if data != EMPTY_LANE:
+            if is_leaf_ref(data):
+                packed_meta[lane] = _pack_wide_meta(
+                    decode_ref_index(data), leaf_counts[lane]
+                )
+            else:
+                packed_meta[lane] = _pack_wide_meta(data, UInt32(0))
+    nodes.unsafe_bitcast[UInt32]().unsafe_store[width=width](
+        base + WideNode.META * width, packed_meta
+    )
+
+
 def _pack_built_triangle_blas[
     frame: Frame,
     node_width: SIMDLength,
@@ -64,42 +110,15 @@ def _pack_built_triangle_blas[
 ):
     def pack_node(node_idx: Int) {imm}:
         ref node = bvh.tree.nodes[node_idx]
-        var local_node_idx = UInt32(node_idx)
-        var node_base = node_f32_base + _wide_node_base[node_width](
-            local_node_idx
-        )
-        nodes.unsafe_store[width=node_width](
-            node_base + WideNode.MIN_X * node_width, node.aabb._min.x
-        )
-        nodes.unsafe_store[width=node_width](
-            node_base + WideNode.MIN_Y * node_width, node.aabb._min.y
-        )
-        nodes.unsafe_store[width=node_width](
-            node_base + WideNode.MIN_Z * node_width, node.aabb._min.z
-        )
-        nodes.unsafe_store[width=node_width](
-            node_base + WideNode.MAX_X * node_width, node.aabb._max.x
-        )
-        nodes.unsafe_store[width=node_width](
-            node_base + WideNode.MAX_Y * node_width, node.aabb._max.y
-        )
-        nodes.unsafe_store[width=node_width](
-            node_base + WideNode.MAX_Z * node_width, node.aabb._max.z
-        )
-        var packed_meta = SIMD[.uint32, node_width](EMPTY_LANE)
+        var leaf_counts = SIMD[.uint32, node_width](0)
         comptime for lane in range(node_width):
             var data = node.data[lane]
-            if data != EMPTY_LANE:
-                if is_leaf_ref(data):
-                    var block_idx = decode_ref_index(data)
-                    packed_meta[lane] = _pack_wide_meta(
-                        block_idx,
-                        bvh.leaf_primitive_count(Int(block_idx)),
-                    )
-                else:
-                    packed_meta[lane] = _pack_wide_meta(data, UInt32(0))
-        nodes.unsafe_bitcast[UInt32]().unsafe_store[width=node_width](
-            node_base + WideNode.META * node_width, packed_meta
+            if data != EMPTY_LANE and is_leaf_ref(data):
+                leaf_counts[lane] = bvh.leaf_primitive_count(
+                    Int(decode_ref_index(data))
+                )
+        _store_wide_blas_node(
+            node, leaf_counts, nodes, UInt32(node_idx), node_f32_base
         )
 
     def pack_leaf(block_idx: Int) {imm}:
@@ -445,45 +464,17 @@ def _pack_built_sphere_blas[
     node_f32_base: Int,
     leaf_f32_base: Int,
 ):
-    var nodes_u32 = nodes.unsafe_bitcast[UInt32]()
     for node_idx in range(len(bvh.tree.nodes)):
         ref node = bvh.tree.nodes[node_idx]
-        var local_node_idx = UInt32(node_idx)
-        var node_base = node_f32_base + _wide_node_base[width](local_node_idx)
-        nodes.unsafe_store[width=width](
-            node_base + WideNode.MIN_X * width, node.aabb._min.x
-        )
-        nodes.unsafe_store[width=width](
-            node_base + WideNode.MIN_Y * width, node.aabb._min.y
-        )
-        nodes.unsafe_store[width=width](
-            node_base + WideNode.MIN_Z * width, node.aabb._min.z
-        )
-        nodes.unsafe_store[width=width](
-            node_base + WideNode.MAX_X * width, node.aabb._max.x
-        )
-        nodes.unsafe_store[width=width](
-            node_base + WideNode.MAX_Y * width, node.aabb._max.y
-        )
-        nodes.unsafe_store[width=width](
-            node_base + WideNode.MAX_Z * width, node.aabb._max.z
-        )
-        var packed_meta = SIMD[.uint32, width](EMPTY_LANE)
+        var leaf_counts = SIMD[.uint32, width](0)
         comptime for lane in range(width):
             var data = node.data[lane]
-            if data != EMPTY_LANE:
-                if is_leaf_ref(data):
-                    var block_idx = decode_ref_index(data)
-                    packed_meta[lane] = _pack_wide_meta(
-                        block_idx,
-                        _sphere_leaf_count[frame, width](
-                            bvh.leaf_blocks[Int(block_idx)]
-                        ),
-                    )
-                else:
-                    packed_meta[lane] = _pack_wide_meta(data, UInt32(0))
-        nodes_u32.unsafe_store[width=width](
-            node_base + WideNode.META * width, packed_meta
+            if data != EMPTY_LANE and is_leaf_ref(data):
+                leaf_counts[lane] = _sphere_leaf_count[frame, width](
+                    bvh.leaf_blocks[Int(decode_ref_index(data))]
+                )
+        _store_wide_blas_node(
+            node, leaf_counts, nodes, UInt32(node_idx), node_f32_base
         )
 
     var leaves_u32 = leaves.unsafe_bitcast[UInt32]()

@@ -28,6 +28,12 @@ from bajo.rt.lighting_types import _light_importance
 from bajo.rt.scene_data import SceneData
 from bajo.rt.wavefront_contract import DeviceWavePath, wavefront_rng_light_stage
 from bajo.rt.gpu.upload import _upload_nonempty
+from bajo.rt.gpu.material_layout import (
+    GpuMetalLayout,
+    GpuTextureDescLayout,
+    _load_gpu_material_color,
+    _load_gpu_coated_parameters,
+)
 from bajo.rt.gpu.textures import (
     _sample_gpu_lambertian,
     _sample_gpu_coated_albedo,
@@ -203,8 +209,13 @@ def _sample_direct_light_candidate[
     comptime if not coated_pass:
         if surface_kind == .METAL:
             # Delta mirrors cannot contribute to a sampled direct-light ray.
-            var material_base = 4 * Int(SurfaceId.index_from_raw(surface_value))
-            if metals[unsafe_offset=material_base + 3] <= 1.0e-4:
+            var material_base = GpuMetalLayout.STRIDE * Int(
+                SurfaceId.index_from_raw(surface_value)
+            )
+            if (
+                metals[unsafe_offset=material_base + GpuMetalLayout.FUZZ]
+                <= 1.0e-4
+            ):
                 return _empty_direct_light_sample()
 
     var rng = path_stage_rng(
@@ -230,9 +241,19 @@ def _sample_direct_light_candidate[
                 else:
                     first = middle + 1
             selected_pixel = min(first, environment_cdf_count - 1)
-            var desc_base = 3 * Int(environment_texture_index)
-            var width = Int(texture_descs[unsafe_offset=desc_base + 1])
-            var height = Int(texture_descs[unsafe_offset=desc_base + 2])
+            var desc_base = GpuTextureDescLayout.STRIDE * Int(
+                environment_texture_index
+            )
+            var width = Int(
+                texture_descs[
+                    unsafe_offset=desc_base + GpuTextureDescLayout.WIDTH
+                ]
+            )
+            var height = Int(
+                texture_descs[
+                    unsafe_offset=desc_base + GpuTextureDescLayout.HEIGHT
+                ]
+            )
             var pixel_x = selected_pixel % width
             var pixel_y = selected_pixel / width
             var sample_u = (Float32(pixel_x) + rng.f32()) / Float32(width)
@@ -247,8 +268,15 @@ def _sample_direct_light_candidate[
         )
         __match EnvironmentKind(environment_kind):
             case .IMAGE:
-                var desc_base = 3 * Int(environment_texture_index)
-                var pixel_offset = Int(texture_descs[unsafe_offset=desc_base])
+                var desc_base = GpuTextureDescLayout.STRIDE * Int(
+                    environment_texture_index
+                )
+                var pixel_offset = Int(
+                    texture_descs[
+                        unsafe_offset=desc_base
+                        + GpuTextureDescLayout.PIXEL_OFFSET
+                    ]
+                )
                 var base = pixel_offset + 3 * selected_pixel
                 emission = environment_scale * Color(
                     max(texture_pixels[unsafe_offset=base], 0.0),
@@ -382,16 +410,14 @@ def _sample_direct_light_candidate[
             return _empty_direct_light_sample()
     elif surface_kind == .METAL:
         comptime if not coated_pass:
-            var material_base = 4 * material_idx
+            var material_base = GpuMetalLayout.STRIDE * material_idx
             var evaluation = _evaluate_material[.METAL, 1](
                 incoming_ray.d,
                 normal,
-                Color(
-                    metals[unsafe_offset=material_base + 0],
-                    metals[unsafe_offset=material_base + 1],
-                    metals[unsafe_offset=material_base + 2],
+                _load_gpu_material_color(
+                    metals, material_base + GpuMetalLayout.ALBEDO
                 ),
-                metals[unsafe_offset=material_base + 3],
+                metals[unsafe_offset=material_base + GpuMetalLayout.FUZZ],
                 geometry.direction,
             )
             value = evaluation.value
@@ -400,7 +426,9 @@ def _sample_direct_light_candidate[
             return _empty_direct_light_sample()
     elif surface_kind == .COATED_DIFFUSE:
         comptime if coated_pass:
-            var material_base = 15 * material_idx
+            var coated = _load_gpu_coated_parameters(
+                coated_diffuses, material_idx
+            )
             var evaluation = _evaluate_coated_diffuse(
                 incoming_ray.d,
                 normal,
@@ -413,17 +441,13 @@ def _sample_direct_light_candidate[
                     texture_descs,
                     texture_pixels,
                 ),
-                coated_diffuses[unsafe_offset=material_base + 3],
-                coated_diffuses[unsafe_offset=material_base + 4],
-                coated_diffuses[unsafe_offset=material_base + 5],
-                Color(
-                    coated_diffuses[unsafe_offset=material_base + 6],
-                    coated_diffuses[unsafe_offset=material_base + 7],
-                    coated_diffuses[unsafe_offset=material_base + 8],
-                ),
-                coated_diffuses[unsafe_offset=material_base + 9],
-                coated_diffuses[unsafe_offset=material_base + 10],
-                coated_diffuses[unsafe_offset=material_base + 11],
+                coated.roughness,
+                coated.eta,
+                coated.thickness,
+                coated.layer_albedo,
+                coated.g,
+                coated.max_depth,
+                coated.n_samples,
                 geometry.direction,
             )
             value = evaluation.value

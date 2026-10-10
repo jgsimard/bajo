@@ -38,8 +38,8 @@ topology; `rebuild(ctx, boxes)` runs the host builder and uploads its result. Se
 owner context; raw device spans must not outlive their device buffers. Native
 device-input updates and cooperative block iterators are described below.
 
-Matched capability coverage, performance evidence and experimental status:
-[Warp benchmark guide](../../../bench/warp/README.md).
+Spatial query and update coverage lives in the
+[CPU tests](../../../test/bvh/cpu/) and [GPU tests](../../../test/bvh/gpu/).
 
 ## Indexed mesh queries
 
@@ -173,7 +173,6 @@ complete subtree before the next batch: the block takes the largest safe
 escape among nodes already tested in that batch. This preserves partial batches
 and per-lane validity while avoiding scans of distant subtrees. Power-of-two
 blocks use collective reductions; other positive block sizes use shared scratch.
-[Matched bounds and mesh AABB measurements](../../../bench/results/warp-1.19/cooperative-pruning-diagnostics.md).
 
 Mesh AABB queries return the same bounds iterator: wrap
 `mesh.view().query_aabb(box, root)` in `BoundsQueryBatch` or, inside a GPU kernel,

@@ -37,6 +37,12 @@ from bajo.rt.gpu.wavefront_contract import (
     store_gpu_rt_shadow,
 )
 from bajo.rt.gpu.materials import GpuRtMaterials
+from bajo.rt.gpu.material_layout import (
+    GpuRgbMaterialLayout,
+    GpuMetalLayout,
+    _load_gpu_material_color,
+    _load_gpu_coated_parameters,
+)
 from bajo.rt.gpu.textures import (
     _sample_gpu_lambertian,
     _sample_gpu_coated_albedo,
@@ -252,7 +258,7 @@ def _shade_coated_diffuse_inline[
     bounce: UInt32,
 ):
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-    var material_base = 15 * material_idx
+    var coated = _load_gpu_coated_parameters(coated_diffuses, material_idx)
     var albedo = _sample_gpu_coated_albedo(
         surface_value,
         uv_u,
@@ -269,17 +275,13 @@ def _shade_coated_diffuse_inline[
         ray_direction,
         normal,
         albedo,
-        coated_diffuses[unsafe_offset=material_base + 3],
-        coated_diffuses[unsafe_offset=material_base + 4],
-        coated_diffuses[unsafe_offset=material_base + 5],
-        Color(
-            coated_diffuses[unsafe_offset=material_base + 6],
-            coated_diffuses[unsafe_offset=material_base + 7],
-            coated_diffuses[unsafe_offset=material_base + 8],
-        ),
-        coated_diffuses[unsafe_offset=material_base + 9],
-        coated_diffuses[unsafe_offset=material_base + 10],
-        coated_diffuses[unsafe_offset=material_base + 11],
+        coated.roughness,
+        coated.eta,
+        coated.thickness,
+        coated.layer_albedo,
+        coated.g,
+        coated.max_depth,
+        coated.n_samples,
         rng.f32(),
         rng.f32(),
     )
@@ -345,12 +347,8 @@ def _route_surface_hit[
     if kind == .EMISSIVE:
         if front_face:
             var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-            var base = 3 * material_idx
-            var radiance = Color(
-                emissives[unsafe_offset=base + 0],
-                emissives[unsafe_offset=base + 1],
-                emissives[unsafe_offset=base + 2],
-            )
+            var base = GpuRgbMaterialLayout.STRIDE * material_idx
+            var radiance = _load_gpu_material_color(emissives, base)
             var light_pdf = Float32(0.0)
             comptime if integrator == .MIS:
                 if bounce > 0 and not path.delta:
@@ -480,22 +478,16 @@ def _gpu_rt_shade_one[
 
     comptime __match MATERIAL_KIND:
         case .LAMBERTIAN:
-            var base = 3 * material_idx
-            albedo = Color(
-                material_data[unsafe_offset=base + 0],
-                material_data[unsafe_offset=base + 1],
-                material_data[unsafe_offset=base + 2],
-            )
+            var base = GpuRgbMaterialLayout.STRIDE * material_idx
+            albedo = _load_gpu_material_color(material_data, base)
             random_u = rng.f32()
             random_v = rng.f32()
         case .METAL:
-            var base = 4 * material_idx
-            albedo = Color(
-                material_data[unsafe_offset=base + 0],
-                material_data[unsafe_offset=base + 1],
-                material_data[unsafe_offset=base + 2],
+            var base = GpuMetalLayout.STRIDE * material_idx
+            albedo = _load_gpu_material_color(
+                material_data, base + GpuMetalLayout.ALBEDO
             )
-            parameter = material_data[unsafe_offset=base + 3]
+            parameter = material_data[unsafe_offset=base + GpuMetalLayout.FUZZ]
             if parameter > 1.0e-4:
                 random_u = rng.f32()
                 random_v = rng.f32()

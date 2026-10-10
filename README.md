@@ -89,15 +89,19 @@ Run the host-only test suites without an accelerator:
 pixi run test_host
 ```
 
-Run GPU tests, or all tests:
+Run the GPU test suites:
 
 ```bash
 pixi run test_gpu
-pixi run test
 ```
 
-The test runner accepts a suite path when a smaller test run is useful, for
-example `pixi run test core` or `pixi run test bvh/cpu`.
+The host and GPU tasks include the relevant Mojo and Python tests. Run the
+Python checks separately with `pixi run test_python_host` or
+`pixi run test_python_gpu`; the GPU task enables the viewer GPU integration tests.
+
+The test runner accepts a suite path when a smaller run is useful, for
+example `pixi run test core` or `pixi run test bvh/cpu`. With no suite argument,
+`pixi run test` runs all Mojo and Python tests and requires a supported accelerator.
 
 ## Examples
 
@@ -134,29 +138,10 @@ pixi run bench_sort_mojo
 
 GPU benchmarks require a supported accelerator. The CPU comparison report also
 uses Embree 4 and TinyBVH; the Embree task requires Embree 4 headers and
-`libembree4`. Recorded results are available in
-[`bench/results/`](bench/results/), including the [CPU BVH report](bench/results/bvh_cpu/bvh_cpu.md)
-and [CPU/GPU ray-tracing comparison](bench/results/rt_cpu_gpu/comparison.md).
-The NexusBVH comparison writes its [result table](bench/results/bvh_gpu_nexus/comparison.md).
-The [Warp benchmark guide](bench/warp/README.md) describes matched CPU/GPU BVH
-construction, queries, updates, standalone mesh evaluations, and the GPU
-performance gate. Each run writes its own report with samples and source/reference
-identities. Install the benchmark-only dependency outside the project environment,
-then run:
-
-```bash
-uv pip install --python .pixi/envs/default/bin/python --target /tmp/bajo_warp_deps warp-lang==1.17.0
-pixi run bench_warp_compare --warp-path /tmp/bajo_warp_deps
-pixi run bench_warp_spatial_compare --warp-path /tmp/bajo_warp_deps
-pixi run bench_warp_mesh_compare --warp-path /tmp/bajo_warp_deps
-pixi run bench_warp_block_compare --warp-path /tmp/bajo_warp_deps
-```
-
-The bounds, mesh and cooperative comparisons check forward queries against Warp
-and independent references. The installation example above uses Warp 1.17;
-the strict performance gate requires the identified Warp 1.19 checkout described
-in the guide. Run heavy comparisons serially through the
-[memory guard](bench/diagnostic/resource_guard.md). VJPs and autodiff are excluded.
+`libembree4`. The report commands generate their output under `bench/results/`;
+these generated files are ignored by Git. The CPU BVH report defaults to
+`bench/results/bvh_cpu/`, and the NexusBVH comparison defaults to
+`bench/results/bvh_gpu_nexus/comparison.md`.
 
 ## Repository layout
 

@@ -50,33 +50,12 @@ Near-first TLAS traversal orders closest-hit leaf tasks for wide4/leaf4 BLASes.
 Large static-triangle MIS queues use a separate compressed-traversal function.
 These policies are restricted to the workloads where measurements support them.
 
-## Performance tracking
-
-RTX 5060 Ti, 1024×1024, 8 spp, depth 8; hot device-resident MIS times,
-excluding scene preparation, allocation and pixel download. Three paired
-trials; 21 hot frames for instances/overlap/combined, 9 for dragon workloads.
-Latest retained measurements: 2026-10-04.
-
-| Workload | Render time |
-| --- | ---: |
-| Instances | 9.82 ms |
-| Overlapping instances | 10.95 ms |
-| Combined | 22.63 ms |
-| Dragon, compressed instance BLAS | 13.88 ms |
-| Dragon, wide4 instance BLAS | 20.20 ms |
-| Dragon, static CWBVH8 | 10.28 ms |
-
-Static dragon improved from 54.13 ms through larger batches and the traversal
-function boundary. Raw trials, profiles and validation evidence are kept locally
-in [benchmark results](../../../bench/results/rt_gpu/).
-
 ## Benchmarks and tests
 
 ```sh
 pixi run bench_rt_gpu
-pixi run bench_rt_gpu_materials
-pixi run bench_rt_gpu_tlas
-pixi run bench_rt_gpu_instance_blas
+pixi run bench_rt_gpu_mixed
+pixi run bench_rt_cpu_gpu
 ```
 
 Run GPU measurements sequentially after compilation. GPU RT coverage lives in

@@ -4,10 +4,18 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.rt.material_types import NO_TEXTURE
 from bajo.rt.scene_data import SceneData
 from bajo.rt.gpu.upload import _upload_nonempty
+from bajo.rt.gpu.material_layout import (
+    GpuRgbMaterialLayout,
+    GpuMetalLayout,
+    GpuCoatedDiffuseLayout,
+    GpuTextureDescLayout,
+)
 
 
 def _flatten_lambertians(world: SceneData) -> List[Float32]:
-    var out = List[Float32](capacity=len(world.surfaces().lambertians) * 3)
+    var out = List[Float32](
+        capacity=len(world.surfaces().lambertians) * GpuRgbMaterialLayout.STRIDE
+    )
     for material in world.surfaces().lambertians:
         out.append(material.albedo.x)
         out.append(material.albedo.y)
@@ -23,13 +31,18 @@ def _flatten_lambertian_texture_indices(world: SceneData) -> List[UInt32]:
 
 
 def _flatten_texture_descs(world: SceneData) -> List[UInt32]:
-    var out = List[UInt32](capacity=len(world.surfaces().image_textures) * 3)
+    var out = List[UInt32](
+        length=len(world.surfaces().image_textures)
+        * GpuTextureDescLayout.STRIDE,
+        fill=0,
+    )
     var pixel_offset = UInt32(0)
     for texture_idx in range(len(world.surfaces().image_textures)):
         ref texture = world.surfaces().image_textures[texture_idx]
-        out.append(pixel_offset)
-        out.append(UInt32(texture.width))
-        out.append(UInt32(texture.height))
+        var base = texture_idx * GpuTextureDescLayout.STRIDE
+        out[base + GpuTextureDescLayout.PIXEL_OFFSET] = pixel_offset
+        out[base + GpuTextureDescLayout.WIDTH] = UInt32(texture.width)
+        out[base + GpuTextureDescLayout.HEIGHT] = UInt32(texture.height)
         pixel_offset += UInt32(len(texture.pixels))
     return out^
 
@@ -47,12 +60,22 @@ def _flatten_texture_pixels(world: SceneData) -> List[Float32]:
 
 
 def _flatten_metals(world: SceneData) -> List[Float32]:
-    var out = List[Float32](capacity=len(world.surfaces().metals) * 4)
-    for material in world.surfaces().metals:
-        out.append(material.albedo.x)
-        out.append(material.albedo.y)
-        out.append(material.albedo.z)
-        out.append(material.fuzz)
+    var out = List[Float32](
+        length=len(world.surfaces().metals) * GpuMetalLayout.STRIDE, fill=0.0
+    )
+    for material_idx in range(len(world.surfaces().metals)):
+        ref material = world.surfaces().metals[material_idx]
+        var base = material_idx * GpuMetalLayout.STRIDE
+        out[
+            base + GpuMetalLayout.ALBEDO + GpuRgbMaterialLayout.R
+        ] = material.albedo.x
+        out[
+            base + GpuMetalLayout.ALBEDO + GpuRgbMaterialLayout.G
+        ] = material.albedo.y
+        out[
+            base + GpuMetalLayout.ALBEDO + GpuRgbMaterialLayout.B
+        ] = material.albedo.z
+        out[base + GpuMetalLayout.FUZZ] = material.fuzz
     return out^
 
 
@@ -64,7 +87,9 @@ def _flatten_dielectrics(world: SceneData) -> List[Float32]:
 
 
 def _flatten_emissives(world: SceneData) -> List[Float32]:
-    var out = List[Float32](capacity=len(world.surfaces().emissives) * 3)
+    var out = List[Float32](
+        capacity=len(world.surfaces().emissives) * GpuRgbMaterialLayout.STRIDE
+    )
     for material in world.surfaces().emissives:
         out.append(material.radiance.x)
         out.append(material.radiance.y)
@@ -73,33 +98,69 @@ def _flatten_emissives(world: SceneData) -> List[Float32]:
 
 
 def _flatten_coated_diffuses(world: SceneData) -> List[Float32]:
-    var out = List[Float32](capacity=len(world.surfaces().coated_diffuses) * 15)
-    for material in world.surfaces().coated_diffuses:
-        out.append(material.albedo.x)
-        out.append(material.albedo.y)
-        out.append(material.albedo.z)
-        out.append(material.roughness)
-        out.append(material.eta)
-        out.append(material.thickness)
-        out.append(material.layer_albedo.x)
-        out.append(material.layer_albedo.y)
-        out.append(material.layer_albedo.z)
-        out.append(material.g)
-        out.append(Float32(material.max_depth))
-        out.append(Float32(material.n_samples))
-        out.append(material.displacement_scale)
-        out.append(material.displacement_u_scale)
-        out.append(material.displacement_v_scale)
+    var out = List[Float32](
+        length=len(world.surfaces().coated_diffuses)
+        * GpuCoatedDiffuseLayout.STRIDE,
+        fill=0.0,
+    )
+    for material_idx in range(len(world.surfaces().coated_diffuses)):
+        ref material = world.surfaces().coated_diffuses[material_idx]
+        var base = material_idx * GpuCoatedDiffuseLayout.STRIDE
+        out[
+            base + GpuCoatedDiffuseLayout.ALBEDO + GpuRgbMaterialLayout.R
+        ] = material.albedo.x
+        out[
+            base + GpuCoatedDiffuseLayout.ALBEDO + GpuRgbMaterialLayout.G
+        ] = material.albedo.y
+        out[
+            base + GpuCoatedDiffuseLayout.ALBEDO + GpuRgbMaterialLayout.B
+        ] = material.albedo.z
+        out[base + GpuCoatedDiffuseLayout.ROUGHNESS] = material.roughness
+        out[base + GpuCoatedDiffuseLayout.ETA] = material.eta
+        out[base + GpuCoatedDiffuseLayout.THICKNESS] = material.thickness
+        out[
+            base + GpuCoatedDiffuseLayout.LAYER_ALBEDO + GpuRgbMaterialLayout.R
+        ] = material.layer_albedo.x
+        out[
+            base + GpuCoatedDiffuseLayout.LAYER_ALBEDO + GpuRgbMaterialLayout.G
+        ] = material.layer_albedo.y
+        out[
+            base + GpuCoatedDiffuseLayout.LAYER_ALBEDO + GpuRgbMaterialLayout.B
+        ] = material.layer_albedo.z
+        out[base + GpuCoatedDiffuseLayout.G] = material.g
+        out[base + GpuCoatedDiffuseLayout.MAX_DEPTH] = Float32(
+            material.max_depth
+        )
+        out[base + GpuCoatedDiffuseLayout.N_SAMPLES] = Float32(
+            material.n_samples
+        )
+        out[
+            base + GpuCoatedDiffuseLayout.DISPLACEMENT_SCALE
+        ] = material.displacement_scale
+        out[
+            base + GpuCoatedDiffuseLayout.DISPLACEMENT_U_SCALE
+        ] = material.displacement_u_scale
+        out[
+            base + GpuCoatedDiffuseLayout.DISPLACEMENT_V_SCALE
+        ] = material.displacement_v_scale
     return out^
 
 
-def _flatten_coated_diffuse_texture_indices(
-    world: SceneData,
-) -> List[UInt32]:
-    var out = List[UInt32](capacity=len(world.surfaces().coated_diffuses) * 2)
-    for material in world.surfaces().coated_diffuses:
-        out.append(material.texture_index)
-        out.append(material.displacement_texture_index)
+def _flatten_coated_diffuse_texture_indices(world: SceneData) -> List[UInt32]:
+    var out = List[UInt32](
+        length=len(world.surfaces().coated_diffuses)
+        * GpuCoatedDiffuseLayout.TEXTURE_STRIDE,
+        fill=NO_TEXTURE,
+    )
+    for material_idx in range(len(world.surfaces().coated_diffuses)):
+        ref material = world.surfaces().coated_diffuses[material_idx]
+        var base = material_idx * GpuCoatedDiffuseLayout.TEXTURE_STRIDE
+        out[
+            base + GpuCoatedDiffuseLayout.ALBEDO_TEXTURE
+        ] = material.texture_index
+        out[
+            base + GpuCoatedDiffuseLayout.DISPLACEMENT_TEXTURE
+        ] = material.displacement_texture_index
     return out^
 
 

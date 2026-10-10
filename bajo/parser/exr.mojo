@@ -4,7 +4,7 @@ from std.ffi import OwnedDLHandle
 from std.memory import bitcast
 from std.utils.numerics import isfinite
 
-from bajo.parser.obj.mmap import MMap
+from bajo.parser.mmap import MMap
 from bajo.rt.material_types import ImageTexture
 
 

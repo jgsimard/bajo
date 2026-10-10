@@ -1,3 +1,5 @@
+"""Filesystem and in-memory loaders for scene text, meshes, and images."""
+
 from std.pathlib import Path
 
 from bajo.parser.exr import parse_exr, read_exr
@@ -19,7 +21,9 @@ def _is_exr_path(path: String) -> Bool:
     )
 
 
-trait TextLoader:
+trait AssetLoader:
+    """Resolve scene assets by path, including referenced and included files."""
+
     def read_text(self, path: String) raises -> String:
         ...
 
@@ -31,7 +35,7 @@ trait TextLoader:
 
 
 @fieldwise_init
-struct PathTextLoader(Copyable, TextLoader):
+struct PathAssetLoader(AssetLoader, Copyable):
     def read_text(self, path: String) raises -> String:
         return Path(path).read_text()
 
@@ -44,7 +48,7 @@ struct PathTextLoader(Copyable, TextLoader):
         return read_png(path)
 
 
-struct MemoryTextLoader(TextLoader):
+struct MemoryAssetLoader(AssetLoader):
     var files: Dict[String, String]
     var ply_files: Dict[String, List[UInt8]]
     var image_files: Dict[String, List[UInt8]]
@@ -66,16 +70,16 @@ struct MemoryTextLoader(TextLoader):
     def read_text(self, path: String) raises -> String:
         if path in self.files:
             return self.files[path]
-        raise Error("MemoryTextLoader: file not found: " + path)
+        raise Error("MemoryAssetLoader: file not found: " + path)
 
     def read_ply_mesh(self, path: String) raises -> PlyMesh:
         if path in self.ply_files:
             return parse_ply(self.ply_files[path])
-        raise Error("MemoryTextLoader: PLY file not found: " + path)
+        raise Error("MemoryAssetLoader: PLY file not found: " + path)
 
     def read_image_texture(self, path: String) raises -> ImageTexture:
         if path in self.image_files:
             if _is_exr_path(path):
                 return parse_exr(self.image_files[path])
             return parse_png(self.image_files[path])
-        raise Error("MemoryTextLoader: image file not found: " + path)
+        raise Error("MemoryAssetLoader: image file not found: " + path)

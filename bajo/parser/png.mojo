@@ -5,7 +5,7 @@ from std.ffi import OwnedDLHandle
 from std.math import ceildiv, pow
 from std.sys import num_logical_cores, simd_width_of
 
-from bajo.parser.obj.mmap import MMap
+from bajo.parser.mmap import MMap
 from bajo.rt.material_types import ImageTexture
 
 

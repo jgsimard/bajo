@@ -7,8 +7,9 @@ from std.testing import (
     assert_true,
 )
 
+from bajo.bvh import Camera
+from bajo.parser import MemoryAssetLoader
 from bajo.parser.pbrt import (
-    MemoryTextLoader,
     parse_pbrt,
     read_pbrt,
     read_pbrt_camera,
@@ -87,7 +88,7 @@ def test_parse_checked_in_scene_with_include() raises:
 
 
 def test_camera_read_stops_before_scene_assets() raises:
-    var loader = MemoryTextLoader()
+    var loader = MemoryAssetLoader()
     loader.add_file(
         "camera-only.pbrt",
         """LookAt 1 2 3  1 2 2  0 1 0
@@ -101,6 +102,88 @@ Shape "plymesh" "string filename" "missing.ply"
     assert_almost_equal(camera.origin.x, 1.0)
     assert_almost_equal(camera.origin.y, 2.0)
     assert_almost_equal(camera.origin.z, 3.0)
+
+
+def _assert_same_camera(actual: Camera, expected: Camera) raises:
+    for y in range(3):
+        for x in range(3):
+            var actual_ray = actual.make_ray(x, y, 3, 3)
+            var expected_ray = expected.make_ray(x, y, 3, 3)
+            assert_almost_equal(actual_ray.o.x, expected_ray.o.x)
+            assert_almost_equal(actual_ray.o.y, expected_ray.o.y)
+            assert_almost_equal(actual_ray.o.z, expected_ray.o.z)
+            assert_almost_equal(actual_ray.d.x, expected_ray.d.x)
+            assert_almost_equal(actual_ray.d.y, expected_ray.d.y)
+            assert_almost_equal(actual_ray.d.z, expected_ray.d.z)
+
+
+def test_camera_only_matches_full_scene_camera() raises:
+    for options in [
+        "",
+        'LookAt 1 2 3  -1 0 0  0 0 1\nCamera "perspective" "float fov" [31]\n',
+        'Camera "perspective" "float fov" [31]\nCamera "perspective"\n',
+    ]:
+        var loader = MemoryAssetLoader()
+        loader.add_file("camera.pbrt", options + 'WorldBegin\nShape "sphere"')
+        var scene = read_pbrt("camera.pbrt", loader)
+        var camera = read_pbrt_camera("camera.pbrt", loader)
+        _assert_same_camera(camera, scene.camera)
+
+
+def test_camera_include_stops_parent_at_world_begin() raises:
+    var loader = MemoryAssetLoader()
+    loader.add_file(
+        "scene/main.pbrt",
+        (
+            'Include "parts/header.pbrt"\nCamera "orthographic"\nInclude'
+            ' "missing.pbrt"'
+        ),
+    )
+    loader.add_file(
+        "scene/parts/header.pbrt",
+        'Include "camera.pbrt"\nWorldBegin\nInclude "missing.pbrt"',
+    )
+    loader.add_file(
+        "scene/parts/camera.pbrt",
+        'LookAt 1 2 3  -1 0 0  0 0 1\nCamera "perspective" "float fov" [31]',
+    )
+    var camera = read_pbrt_camera("scene/main.pbrt", loader)
+    var expected = Camera.from_vfov(
+        Point3f32[.WORLD](1.0, 2.0, 3.0),
+        Point3f32[.WORLD](-1.0, 0.0, 0.0),
+        Vec3f32[.WORLD](0.0, 0.0, 1.0),
+        31.0,
+    )
+    _assert_same_camera(camera, expected)
+
+
+def test_camera_only_preserves_options_validation() raises:
+    var loader = MemoryAssetLoader()
+    loader.add_file(
+        "camera.pbrt",
+        (
+            'Film "rgb" "integer xresolution" [unused]\n'
+            'Sampler "independent" "integer pixelsamples" [unused]\n'
+            'Integrator "bdpt" "integer maxdepth" [unused]\n'
+            'ColorSpace "aces"\nWorldBegin'
+        ),
+    )
+    var camera = read_pbrt_camera("camera.pbrt", loader)
+    assert_almost_equal(camera.origin.z, 5.0)
+    with assert_raises():
+        _ = read_pbrt("camera.pbrt", loader)
+
+    for source in [
+        'Camera "orthographic"',
+        'Camera "perspective" "float fov" [invalid]',
+        "LookAt 0 0 invalid  0 0 0  0 1 0",
+        'Film "rgb" "integer xresolution" [1',
+        'Include "missing.pbrt"',
+        'Include "camera.pbrt"',
+    ]:
+        loader.add_file("camera.pbrt", source)
+        with assert_raises():
+            _ = read_pbrt_camera("camera.pbrt", loader)
 
 
 def test_transform_and_named_material() raises:
@@ -177,7 +260,7 @@ Translate 3 0 0
 Shape "sphere"
 AttributeEnd
 """
-    var loader = MemoryTextLoader()
+    var loader = MemoryAssetLoader()
     loader.add_file("scene.pbrt", source)
     var png = List[UInt8]()
     for value in [
@@ -293,7 +376,7 @@ Shape "loopsubdiv" "integer levels" [1]
 
 
 def test_plymesh_resource_transform_orientation_and_area_light() raises:
-    var loader = MemoryTextLoader()
+    var loader = MemoryAssetLoader()
     loader.add_file(
         "scene/main.pbrt",
         """WorldBegin
@@ -366,7 +449,7 @@ AttributeEnd
 
 
 def test_memory_include_and_mis_render() raises:
-    var loader = MemoryTextLoader()
+    var loader = MemoryAssetLoader()
     loader.add_file(
         "scene/main.pbrt",
         """LookAt 0 0 4  0 0 0  0 1 0
@@ -492,7 +575,7 @@ def test_numeric_token_views() raises:
 
 
 def test_include_definitions_survive_source_text() raises:
-    var loader = MemoryTextLoader()
+    var loader = MemoryAssetLoader()
     loader.add_file(
         "scene/main.pbrt",
         (

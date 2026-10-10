@@ -3,7 +3,7 @@
 from std.benchmark import run, Unit, keep
 from std.sys.arg import argv
 
-from bajo.parser.obj.mmap import MMap
+from bajo.parser.mmap import MMap
 from bajo.parser.ply import parse_ply, read_ply
 
 

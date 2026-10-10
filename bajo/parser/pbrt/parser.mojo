@@ -22,7 +22,7 @@ from bajo.rt.material_types import (
 from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.scene_description import SceneDescription
 
-from bajo.parser.text_loader import TextLoader
+from bajo.parser.asset_loader import AssetLoader
 
 
 comptime _Transform = Affine3f32[.LOCAL, .WORLD]
@@ -207,6 +207,37 @@ struct _Parameters[origin: ImmOrigin]:
         return ImmSpan[StringSpan[Self.origin], origin_of(self)]()
 
 
+struct _CameraOptions(Copyable):
+    """Camera options shared by full-scene and camera-only parsing."""
+
+    var origin: _PointW
+    var target: _PointW
+    var up: _VecW
+    var fov: Float32
+
+    def __init__(out self):
+        self.origin = _PointW(0.0, 0.0, 5.0)
+        self.target = _PointW(0.0, 0.0, 0.0)
+        self.up = _VecW(0.0, 1.0, 0.0)
+        self.fov = 45.0
+
+    def parse_look_at(mut self, mut lexer: _Lexer) raises:
+        var values = _fixed_f32(lexer, 9)
+        self.origin = _PointW(values[0], values[1], values[2])
+        self.target = _PointW(values[3], values[4], values[5])
+        self.up = _VecW(values[6], values[7], values[8])
+
+    def parse_camera(mut self, mut lexer: _Lexer) raises:
+        var kind = lexer.next().value
+        if not kind == "perspective":
+            raise Error("only PBRT perspective cameras are supported")
+        var params = _parse_params(lexer)
+        self.fov = params.f32("float fov", 45.0)
+
+    def to_camera(self) -> Camera:
+        return Camera.from_vfov(self.origin, self.target, self.up, self.fov)
+
+
 @fieldwise_init
 struct _GraphicsState(Copyable):
     var transform: _Transform
@@ -241,10 +272,7 @@ struct _Builder(
     var state: _GraphicsState
     var attribute_stack: List[_GraphicsState]
     var transform_stack: List[_Transform]
-    var camera_origin: _PointW
-    var camera_target: _PointW
-    var camera_up: _VecW
-    var camera_fov: Float32
+    var camera_options: _CameraOptions
     var image_width: Int
     var image_height: Int
     var samples_per_pixel: Int
@@ -269,10 +297,7 @@ struct _Builder(
         )
         self.attribute_stack = List[_GraphicsState]()
         self.transform_stack = List[_Transform]()
-        self.camera_origin = _PointW(0.0, 0.0, 5.0)
-        self.camera_target = _PointW(0.0, 0.0, 0.0)
-        self.camera_up = _VecW(0.0, 1.0, 0.0)
-        self.camera_fov = 45.0
+        self.camera_options = _CameraOptions()
         self.image_width = 640
         self.image_height = 480
         self.samples_per_pixel = 16
@@ -341,7 +366,7 @@ struct _Builder(
         )
 
     def _prepare_finish[
-        Loader: TextLoader
+        Loader: AssetLoader
     ](mut self, loader: Loader) raises -> Tuple[Camera, RenderSettings]:
         if len(self.attribute_stack) != 0 or len(self.transform_stack) != 0:
             raise Error("unclosed PBRT attribute or transform scope")
@@ -394,12 +419,7 @@ struct _Builder(
             )
             debug_assert(stored_idx == UInt32(image_idx))
 
-        var camera = Camera.from_vfov(
-            self.camera_origin,
-            self.camera_target,
-            self.camera_up,
-            self.camera_fov,
-        )
+        var camera = self.camera_options.to_camera()
         var settings = RenderSettings(
             self.image_width,
             self.image_height,
@@ -411,7 +431,7 @@ struct _Builder(
         return (camera, settings^)
 
     def finish[
-        Loader: TextLoader
+        Loader: AssetLoader
     ](deinit self, loader: Loader) raises -> SceneDescription:
         var prepared: Tuple[Camera, RenderSettings]
         try:
@@ -732,7 +752,7 @@ def _surface(
 
 
 def _shape[
-    Loader: TextLoader
+    Loader: AssetLoader
 ](
     mut builder: _Builder,
     kind: String,
@@ -869,7 +889,7 @@ def _bracket_values(mut lexer: _Lexer) raises -> List[StringSpan[lexer.origin]]:
 
 
 def _parse_text[
-    Loader: TextLoader
+    Loader: AssetLoader
 ](
     mut builder: _Builder,
     text: String,
@@ -888,17 +908,10 @@ def _parse_text[
 
         __match command_token.value:
             case "LookAt":
-                var v = _fixed_f32(lexer, 9)
-                builder.camera_origin = _PointW(v[0], v[1], v[2])
-                builder.camera_target = _PointW(v[3], v[4], v[5])
-                builder.camera_up = _VecW(v[6], v[7], v[8])
+                builder.camera_options.parse_look_at(lexer)
 
             case "Camera":
-                var kind = lexer.next().value
-                if not kind == "perspective":
-                    raise Error("only PBRT perspective cameras are supported")
-                var params = _parse_params(lexer)
-                builder.camera_fov = params.f32("float fov", 45.0)
+                builder.camera_options.parse_camera(lexer)
 
             case "Film":
                 _ = (
@@ -1102,7 +1115,7 @@ def _parse_text[
 
 
 def _parse_pbrt[
-    Loader: TextLoader
+    Loader: AssetLoader
 ](text: String, path: String, loader: Loader) raises -> SceneDescription:
     var builder = _Builder()
     try:
@@ -1114,9 +1127,9 @@ def _parse_pbrt[
 
 
 def _parse_camera_text[
-    Loader: TextLoader
+    Loader: AssetLoader
 ](
-    mut builder: _Builder,
+    mut options: _CameraOptions,
     text: String,
     path: String,
     loader: Loader,
@@ -1137,17 +1150,10 @@ def _parse_camera_text[
                 return True
 
             case "LookAt":
-                var values = _fixed_f32(lexer, 9)
-                builder.camera_origin = _PointW(values[0], values[1], values[2])
-                builder.camera_target = _PointW(values[3], values[4], values[5])
-                builder.camera_up = _VecW(values[6], values[7], values[8])
+                options.parse_look_at(lexer)
 
             case "Camera":
-                var kind = lexer.next().value
-                if not kind == "perspective":
-                    raise Error("only PBRT perspective cameras are supported")
-                var params = _parse_params(lexer)
-                builder.camera_fov = params.f32("float fov", 45.0)
+                options.parse_camera(lexer)
 
             case "Film":
                 _ = lexer.next()
@@ -1189,7 +1195,7 @@ def _parse_camera_text[
                     std.os.path.dirname(path), include_name
                 )
                 if _parse_camera_text(
-                    builder,
+                    options,
                     loader.read_text(include_path),
                     include_path,
                     loader,
@@ -1205,19 +1211,8 @@ def _parse_camera_text[
 
 
 def _parse_pbrt_camera[
-    Loader: TextLoader
+    Loader: AssetLoader
 ](text: String, path: String, loader: Loader) raises -> Camera:
-    var builder = _Builder()
-    try:
-        _ = _parse_camera_text(builder, text, path, loader, 0)
-        var camera = Camera.from_vfov(
-            builder.camera_origin,
-            builder.camera_target,
-            builder.camera_up,
-            builder.camera_fov,
-        )
-        builder^.abort()
-        return camera
-    except error:
-        builder^.abort()
-        raise error
+    var options = _CameraOptions()
+    _ = _parse_camera_text(options, text, path, loader, 0)
+    return options.to_camera()

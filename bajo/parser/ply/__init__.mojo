@@ -1,6 +1,6 @@
 """Binary little-endian PLY mesh loading."""
 
-from bajo.parser.obj.mmap import MMap
+from bajo.parser.mmap import MMap
 from bajo.parser.ply.parser import _parse_ply
 from bajo.parser.ply.types import PlyMesh
 

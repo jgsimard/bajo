@@ -1,3 +1,5 @@
+"""Read-only file mapping shared by binary and text asset decoders."""
+
 from std.ffi import external_call
 from std.os import SEEK_END
 

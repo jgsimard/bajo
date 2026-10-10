@@ -1,7 +1,7 @@
 import std.os
 
 from bajo.parser.obj.types import ObjMaterial, ObjMesh, ObjTexture
-from bajo.parser.text_loader import TextLoader
+from bajo.parser.asset_loader import AssetLoader
 from bajo.parser.obj.cursor import ObjLineCursor
 from bajo.parser.obj.constants import MINUS
 
@@ -137,7 +137,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
 
 
 def _read_mtl_file[
-    Loader: TextLoader
+    Loader: AssetLoader
 ](mut mesh: ObjMesh, obj_path: String, mtl_name: String, loader: Loader) raises:
     var base = std.os.path.dirname(obj_path)
     var mtl_path = std.os.path.join(base, mtl_name)

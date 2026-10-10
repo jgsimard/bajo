@@ -3,7 +3,7 @@ from .mtl import _read_mtl_file
 from .primitives import _is_ws_or_line_cut
 from .constants import *
 from .cursor import ObjIndexLimit, ObjLineCursor
-from bajo.parser.text_loader import TextLoader
+from bajo.parser.asset_loader import AssetLoader
 
 
 comptime _MAX_OBJ_INDEX = Int(0x7FFFFFFF)
@@ -259,13 +259,13 @@ def _parse_face_cursor(
 
 
 def _parse_obj[
-    Loader: TextLoader
+    Loader: AssetLoader
 ](path: String, text: String, loader: Loader) raises -> ObjMesh:
     return _parse_obj(path, StringSpan(text), loader)
 
 
 def _parse_obj[
-    Loader: TextLoader
+    Loader: AssetLoader
 ](path: String, text: ImmStringSpan, loader: Loader) raises -> ObjMesh:
     var mesh = ObjMesh()
     var state = _ObjParserState()

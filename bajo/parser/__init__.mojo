@@ -1,1 +1,1 @@
-from .text_loader import MemoryTextLoader, PathTextLoader, TextLoader
+from .asset_loader import MemoryAssetLoader, PathAssetLoader, AssetLoader

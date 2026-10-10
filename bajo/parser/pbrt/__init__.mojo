@@ -10,35 +10,39 @@ PBRT constant/scale texture graphs and PNG spectrum image maps are loaded.
 PLY vertex UVs and normals are retained for CPU and GPU shading.
 """
 
-from bajo.parser.text_loader import MemoryTextLoader, PathTextLoader, TextLoader
+from bajo.parser.asset_loader import (
+    MemoryAssetLoader,
+    PathAssetLoader,
+    AssetLoader,
+)
 from .parser import _parse_pbrt, _parse_pbrt_camera
 from bajo.bvh import Camera
 from bajo.rt.scene_description import SceneDescription
 
 
 def read_pbrt(path: String) raises -> SceneDescription:
-    var loader = PathTextLoader()
+    var loader = PathAssetLoader()
     return _parse_pbrt(loader.read_text(path), path, loader)
 
 
 def read_pbrt_camera(path: String) raises -> Camera:
     """Read the camera without parsing geometry, materials, or image assets."""
-    var loader = PathTextLoader()
+    var loader = PathAssetLoader()
     return _parse_pbrt_camera(loader.read_text(path), path, loader)
 
 
 def read_pbrt_camera[
-    Loader: TextLoader
+    Loader: AssetLoader
 ](path: String, loader: Loader) raises -> Camera:
     return _parse_pbrt_camera(loader.read_text(path), path, loader)
 
 
 def read_pbrt[
-    Loader: TextLoader
+    Loader: AssetLoader
 ](path: String, loader: Loader) raises -> SceneDescription:
     return _parse_pbrt(loader.read_text(path), path, loader)
 
 
 def parse_pbrt(text: String, path: String = "") raises -> SceneDescription:
-    var loader = MemoryTextLoader()
+    var loader = MemoryAssetLoader()
     return _parse_pbrt(text, path, loader)

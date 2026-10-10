@@ -1353,15 +1353,12 @@ def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
     )
 
     var packet1 = render_wavefront[.PATH, 1, 10, False](settings, camera, world)
-    var packet4 = render_wavefront[.PATH, 4, 10, False](settings, camera, world)
-    var packet8 = render_wavefront[.PATH, 8, 10, False](settings, camera, world)
-    var packet16 = render_wavefront[.PATH, 16, 10, False](
-        settings, camera, world
-    )
-    for pixel_idx, pixel in enumerate(packet1.pixels):
-        assert_vec_equal(packet4.pixels[pixel_idx], pixel)
-        assert_vec_equal(packet8.pixels[pixel_idx], pixel)
-        assert_vec_equal(packet16.pixels[pixel_idx], pixel)
+    comptime for width in [4, 8, 16]:
+        var packet = render_wavefront[.PATH, width, 10, False](
+            settings, camera, world
+        )
+        for i, pixel in enumerate(packet1.pixels):
+            assert_vec_equal(packet.pixels[i], pixel)
 
 
 def test_direct_light_integrators_render_cornell() raises:
@@ -1374,79 +1371,36 @@ def test_direct_light_integrators_render_cornell() raises:
         28.0,
         4.2,
     )
-    var result = render_wavefront[.NEE](settings, camera, world)
     assert_true(len(world.scene_data().lights().records) > 0)
     assert_true(world.scene_data().lights().total_weight > 0.0)
     for light in world.scene_data().lights().records:
         assert_equal(light.surface.kind(), .EMISSIVE)
         assert_true(light.weight > 0.0)
-    var depth_first = render_depth_first[.NEE](settings, camera, world)
-    var mis = render_wavefront[.MIS](settings, camera, world)
-    var depth_first_mis = render_depth_first[.MIS](settings, camera, world)
-    var packet_nee1 = render_wavefront[.NEE, 1, 14, False](
-        settings, camera, world
-    )
-    var packet_nee4 = render_wavefront[.NEE, 4, 14, False](
-        settings, camera, world
-    )
-    var packet_nee8 = render_wavefront[.NEE, 8, 14, False](
-        settings, camera, world
-    )
-    var packet_nee16 = render_wavefront[.NEE, 16, 14, False](
-        settings, camera, world
-    )
-    var packet_mis1 = render_wavefront[.MIS, 1, 14, False](
-        settings, camera, world
-    )
-    var packet_mis4 = render_wavefront[.MIS, 4, 14, False](
-        settings, camera, world
-    )
-    var packet_mis8 = render_wavefront[.MIS, 8, 14, False](
-        settings, camera, world
-    )
-    var packet_mis16 = render_wavefront[.MIS, 16, 14, False](
-        settings, camera, world
-    )
-    var total = Float32(0.0)
-    var depth_first_total = Float32(0.0)
-    var mis_total = Float32(0.0)
-    var depth_first_mis_total = Float32(0.0)
-    for pixel_idx, pixel in enumerate(result.pixels):
-        assert_true(pixel.x >= 0.0 and pixel.y >= 0.0 and pixel.z >= 0.0)
-        total += pixel.x + pixel.y + pixel.z
-        assert_vec_equal(packet_nee1.pixels[pixel_idx], pixel)
-        assert_vec_equal(
-            packet_nee4.pixels[pixel_idx], packet_nee1.pixels[pixel_idx]
+    comptime for integrator in [Integrator.NEE, Integrator.MIS]:
+        var result = render_wavefront[integrator](settings, camera, world)
+        var depth_first = render_depth_first[integrator](
+            settings, camera, world
         )
-        assert_vec_equal(
-            packet_nee8.pixels[pixel_idx], packet_nee1.pixels[pixel_idx]
+        var packet1 = render_wavefront[integrator, 1, 14, False](
+            settings, camera, world
         )
-        assert_vec_equal(
-            packet_nee16.pixels[pixel_idx], packet_nee1.pixels[pixel_idx]
-        )
-    for pixel in depth_first.pixels:
-        assert_true(pixel.x >= 0.0 and pixel.y >= 0.0 and pixel.z >= 0.0)
-        depth_first_total += pixel.x + pixel.y + pixel.z
-    for pixel_idx, pixel in enumerate(mis.pixels):
-        assert_true(pixel.x >= 0.0 and pixel.y >= 0.0 and pixel.z >= 0.0)
-        mis_total += pixel.x + pixel.y + pixel.z
-        assert_vec_equal(packet_mis1.pixels[pixel_idx], pixel)
-        assert_vec_equal(
-            packet_mis4.pixels[pixel_idx], packet_mis1.pixels[pixel_idx]
-        )
-        assert_vec_equal(
-            packet_mis8.pixels[pixel_idx], packet_mis1.pixels[pixel_idx]
-        )
-        assert_vec_equal(
-            packet_mis16.pixels[pixel_idx], packet_mis1.pixels[pixel_idx]
-        )
-    for pixel in depth_first_mis.pixels:
-        assert_true(pixel.x >= 0.0 and pixel.y >= 0.0 and pixel.z >= 0.0)
-        depth_first_mis_total += pixel.x + pixel.y + pixel.z
-    assert_true(total > 0.0)
-    assert_true(depth_first_total > 0.0)
-    assert_true(mis_total > 0.0)
-    assert_true(depth_first_mis_total > 0.0)
+        var total = Float32(0.0)
+        var depth_first_total = Float32(0.0)
+        for i, pixel in enumerate(result.pixels):
+            assert_true(pixel.x >= 0.0 and pixel.y >= 0.0 and pixel.z >= 0.0)
+            total += pixel.x + pixel.y + pixel.z
+            assert_vec_equal(packet1.pixels[i], pixel)
+        for pixel in depth_first.pixels:
+            assert_true(pixel.x >= 0.0 and pixel.y >= 0.0 and pixel.z >= 0.0)
+            depth_first_total += pixel.x + pixel.y + pixel.z
+        assert_true(total > 0.0)
+        assert_true(depth_first_total > 0.0)
+        comptime for width in [4, 8, 16]:
+            var packet = render_wavefront[integrator, width, 14, False](
+                settings, camera, world
+            )
+            for i, pixel in enumerate(packet1.pixels):
+                assert_vec_equal(packet.pixels[i], pixel)
 
 
 def test_environment_pdf_reuses_rotated_packet_radiance() raises:

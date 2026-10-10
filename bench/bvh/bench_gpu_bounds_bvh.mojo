@@ -1020,173 +1020,61 @@ def run_benchmark() raises:
         var d_camera_params = upload_list(ctx, camera_params)
         ctx.synchronize()
 
-        var tri2 = _run_width[2](
-            ctx,
-            d_vertices,
-            d_camera_params,
-            len(rays),
-            PRIMARY_WIDTH,
-            PRIMARY_HEIGHT,
-            reference_checksum,
-            reference_hit_count,
-            BENCH_REPEATS,
-        )
-        var tri2_hploc = _run_width[2, 2, .HPLOC](
-            ctx,
-            d_vertices,
-            d_camera_params,
-            len(rays),
-            PRIMARY_WIDTH,
-            PRIMARY_HEIGHT,
-            reference_checksum,
-            reference_hit_count,
-            BENCH_REPEATS,
-        )
-        var tri4 = _run_width[4](
-            ctx,
-            d_vertices,
-            d_camera_params,
-            len(rays),
-            PRIMARY_WIDTH,
-            PRIMARY_HEIGHT,
-            reference_checksum,
-            reference_hit_count,
-            BENCH_REPEATS,
-        )
-        var tri4_hploc = _run_width[4, 4, .HPLOC](
-            ctx,
-            d_vertices,
-            d_camera_params,
-            len(rays),
-            PRIMARY_WIDTH,
-            PRIMARY_HEIGHT,
-            reference_checksum,
-            reference_hit_count,
-            BENCH_REPEATS,
-        )
-        var tri8 = _run_width[8](
-            ctx,
-            d_vertices,
-            d_camera_params,
-            len(rays),
-            PRIMARY_WIDTH,
-            PRIMARY_HEIGHT,
-            reference_checksum,
-            reference_hit_count,
-            BENCH_REPEATS,
-        )
-        var tri8_hploc = _run_width[8, 8, .HPLOC](
-            ctx,
-            d_vertices,
-            d_camera_params,
-            len(rays),
-            PRIMARY_WIDTH,
-            PRIMARY_HEIGHT,
-            reference_checksum,
-            reference_hit_count,
-            BENCH_REPEATS,
-        )
+        # Measurement order is retained; tables group matching leaf widths.
+        comptime configs = ((2, 2), (4, 4), (8, 8), (2, 4), (8, 4))
+        comptime display_order = (0, 3, 1, 4, 2)
+        comptime methods = (GpuBvhBuildMethod.LBVH, GpuBvhBuildMethod.HPLOC)
+        var triangle_rows = List[GpuBenchResult]()
+        comptime for i in range(len(configs)):
+            comptime for method_index in range(2):
+                comptime method = methods[method_index]
+                triangle_rows.append(
+                    _run_width[configs[i][0], configs[i][1], method](
+                        ctx,
+                        d_vertices,
+                        d_camera_params,
+                        len(rays),
+                        PRIMARY_WIDTH,
+                        PRIMARY_HEIGHT,
+                        reference_checksum,
+                        reference_hit_count,
+                        BENCH_REPEATS,
+                    )
+                )
 
-        var tri2_leaf4 = _run_width[2, 4](
-            ctx,
-            d_vertices,
-            d_camera_params,
-            len(rays),
-            PRIMARY_WIDTH,
-            PRIMARY_HEIGHT,
-            reference_checksum,
-            reference_hit_count,
-            BENCH_REPEATS,
-        )
-        var tri2_leaf4_hploc = _run_width[2, 4, .HPLOC](
-            ctx,
-            d_vertices,
-            d_camera_params,
-            len(rays),
-            PRIMARY_WIDTH,
-            PRIMARY_HEIGHT,
-            reference_checksum,
-            reference_hit_count,
-            BENCH_REPEATS,
-        )
+        var compressed = List[Tuple[GpuBenchResult, Cwbvh8BenchBvh]]()
+        comptime for method_index in range(2):
+            comptime method = methods[1 - method_index]
+            compressed.append(
+                _run_cwbvh8[method](
+                    ctx,
+                    d_vertices,
+                    d_camera_params,
+                    len(rays),
+                    PRIMARY_WIDTH,
+                    PRIMARY_HEIGHT,
+                    reference_checksum,
+                    reference_hit_count,
+                    BENCH_REPEATS,
+                )
+            )
+        for row in triangle_rows:
+            _require_valid_result(row)
+        for result in compressed:
+            _require_valid_result(result[0])
 
-        var tri8_leaf4 = _run_width[8, 4](
-            ctx,
-            d_vertices,
-            d_camera_params,
-            len(rays),
-            PRIMARY_WIDTH,
-            PRIMARY_HEIGHT,
-            reference_checksum,
-            reference_hit_count,
-            BENCH_REPEATS,
-        )
-        var tri8_leaf4_hploc = _run_width[8, 4, .HPLOC](
-            ctx,
-            d_vertices,
-            d_camera_params,
-            len(rays),
-            PRIMARY_WIDTH,
-            PRIMARY_HEIGHT,
-            reference_checksum,
-            reference_hit_count,
-            BENCH_REPEATS,
-        )
-
-        var hploc_cwbvh8_result = _run_cwbvh8[.HPLOC](
-            ctx,
-            d_vertices,
-            d_camera_params,
-            len(rays),
-            PRIMARY_WIDTH,
-            PRIMARY_HEIGHT,
-            reference_checksum,
-            reference_hit_count,
-            BENCH_REPEATS,
-        )
-        var hploc_cwbvh8_row = hploc_cwbvh8_result[0].copy()
-        var hploc_cwbvh8 = hploc_cwbvh8_result[1].copy()
-        var lbvh_cwbvh8_result = _run_cwbvh8[.LBVH](
-            ctx,
-            d_vertices,
-            d_camera_params,
-            len(rays),
-            PRIMARY_WIDTH,
-            PRIMARY_HEIGHT,
-            reference_checksum,
-            reference_hit_count,
-            BENCH_REPEATS,
-        )
-        var lbvh_cwbvh8_row = lbvh_cwbvh8_result[0].copy()
-        var lbvh_cwbvh8 = lbvh_cwbvh8_result[1].copy()
-        _require_valid_result(tri2)
-        _require_valid_result(tri2_hploc)
-        _require_valid_result(tri2_leaf4)
-        _require_valid_result(tri2_leaf4_hploc)
-        _require_valid_result(tri4)
-        _require_valid_result(tri4_hploc)
-        _require_valid_result(tri8_leaf4)
-        _require_valid_result(tri8_leaf4_hploc)
-        _require_valid_result(tri8)
-        _require_valid_result(tri8_hploc)
-        _require_valid_result(lbvh_cwbvh8_row)
-        _require_valid_result(hploc_cwbvh8_row)
         print("\nGPU triangle configurations")
         print("CWBVH8 build stages are reported together as '- other'.")
         var triangle_table = _gpu_results_table()
         triangle_table.header()
-        _print_gpu_result_row(triangle_table, tri2, "LBVH")
-        _print_gpu_result_row(triangle_table, tri2_hploc, "H-PLOC")
-        _print_gpu_result_row(triangle_table, tri2_leaf4, "LBVH")
-        _print_gpu_result_row(triangle_table, tri2_leaf4_hploc, "H-PLOC")
-        _print_gpu_result_row(triangle_table, tri4, "LBVH")
-        _print_gpu_result_row(triangle_table, tri4_hploc, "H-PLOC")
-        _print_gpu_result_row(triangle_table, tri8_leaf4, "LBVH")
-        _print_gpu_result_row(triangle_table, tri8_leaf4_hploc, "H-PLOC")
-        _print_gpu_result_row(triangle_table, tri8, "LBVH")
-        _print_gpu_result_row(triangle_table, tri8_hploc, "H-PLOC")
-        _print_gpu_result_row(triangle_table, lbvh_cwbvh8_row, "LBVH")
-        _print_gpu_result_row(triangle_table, hploc_cwbvh8_row, "H-PLOC")
+        comptime for j in range(len(display_order)):
+            comptime i = display_order[j]
+            _print_gpu_result_row(triangle_table, triangle_rows[i * 2], "LBVH")
+            _print_gpu_result_row(
+                triangle_table, triangle_rows[i * 2 + 1], "H-PLOC"
+            )
+        _print_gpu_result_row(triangle_table, compressed[1][0], "LBVH")
+        _print_gpu_result_row(triangle_table, compressed[0][0], "H-PLOC")
 
         print("\nGPU any-hit traversal (packed rays)")
         print("---------------------------------")
@@ -1194,138 +1082,55 @@ def run_benchmark() raises:
         var d_any_hits = ctx.enqueue_create_buffer[.float32](
             len(rays) * Hit[.WORLD].STRIDE
         )
+        var any_rows = List[Tuple[Int, UInt32]]()
+        var any_labels = List[String]()
+        comptime for i in range(len(display_order)):
+            comptime config = configs[display_order[i]]
+            comptime for method_index in range(2):
+                comptime method = methods[method_index]
+                any_rows.append(
+                    _run_any_hit_width[config[0], config[1], method](
+                        ctx,
+                        d_vertices,
+                        d_trace_rays,
+                        d_any_hits,
+                        len(rays),
+                        BENCH_REPEATS,
+                    )
+                )
+                any_labels.append(String(t"n{config[0]}/l{config[1]}"))
+        var compressed_any = List[Tuple[Int, UInt32]]()
+        for result in compressed:
+            compressed_any.append(
+                _bench_any_hit_cwbvh8(
+                    ctx,
+                    result[1],
+                    d_trace_rays,
+                    d_any_hits,
+                    len(rays),
+                    BENCH_REPEATS,
+                )
+            )
+        for i in [1, 0]:
+            any_rows.append(compressed_any[i])
+            any_labels.append("CWBVH8")
 
-        var any2_lbvh = _run_any_hit_width[2, 2, .LBVH](
-            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
-        )
-        var any2_hploc = _run_any_hit_width[2, 2, .HPLOC](
-            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
-        )
-        var any2_leaf4_lbvh = _run_any_hit_width[2, 4, .LBVH](
-            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
-        )
-        var any2_leaf4_hploc = _run_any_hit_width[2, 4, .HPLOC](
-            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
-        )
-        var any4_lbvh = _run_any_hit_width[4, 4, .LBVH](
-            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
-        )
-        var any4_hploc = _run_any_hit_width[4, 4, .HPLOC](
-            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
-        )
-        var any8_leaf4_lbvh = _run_any_hit_width[8, 4, .LBVH](
-            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
-        )
-        var any8_leaf4_hploc = _run_any_hit_width[8, 4, .HPLOC](
-            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
-        )
-        var any8_lbvh = _run_any_hit_width[8, 8, .LBVH](
-            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
-        )
-        var any8_hploc = _run_any_hit_width[8, 8, .HPLOC](
-            ctx, d_vertices, d_trace_rays, d_any_hits, len(rays), BENCH_REPEATS
-        )
-        var any_hploc_cwbvh8 = _bench_any_hit_cwbvh8(
-            ctx,
-            hploc_cwbvh8,
-            d_trace_rays,
-            d_any_hits,
-            len(rays),
-            BENCH_REPEATS,
-        )
-        var any_lbvh_cwbvh8 = _bench_any_hit_cwbvh8(
-            ctx,
-            lbvh_cwbvh8,
-            d_trace_rays,
-            d_any_hits,
-            len(rays),
-            BENCH_REPEATS,
-        )
-        _require_hit_count("n2/l2 LBVH", any2_lbvh[1], reference_hit_count)
-        _require_hit_count("n2/l2 H-PLOC", any2_hploc[1], reference_hit_count)
-        _require_hit_count(
-            "n2/l4 LBVH", any2_leaf4_lbvh[1], reference_hit_count
-        )
-        _require_hit_count(
-            "n2/l4 H-PLOC", any2_leaf4_hploc[1], reference_hit_count
-        )
-        _require_hit_count("n4/l4 LBVH", any4_lbvh[1], reference_hit_count)
-        _require_hit_count("n4/l4 H-PLOC", any4_hploc[1], reference_hit_count)
-        _require_hit_count(
-            "n8/l4 LBVH", any8_leaf4_lbvh[1], reference_hit_count
-        )
-        _require_hit_count(
-            "n8/l4 H-PLOC", any8_leaf4_hploc[1], reference_hit_count
-        )
-        _require_hit_count("n8/l8 LBVH", any8_lbvh[1], reference_hit_count)
-        _require_hit_count("n8/l8 H-PLOC", any8_hploc[1], reference_hit_count)
-        _require_hit_count(
-            "CWBVH8 LBVH", any_lbvh_cwbvh8[1], reference_hit_count
-        )
-        _require_hit_count(
-            "CWBVH8 H-PLOC", any_hploc_cwbvh8[1], reference_hit_count
-        )
-
+        for i in range(len(any_rows)):
+            var method = String("LBVH") if i % 2 == 0 else String("H-PLOC")
+            _require_hit_count(
+                any_labels[i] + " " + method,
+                any_rows[i][1],
+                reference_hit_count,
+            )
         var any_hit_table = TablePrinter(
             config=16, build_alg=9, median_ms=9, MRay_s=9, hits=8
         )
         any_hit_table.header()
-        _print_any_hit_result(
-            any_hit_table, "n2/l2", "LBVH", any2_lbvh, len(rays)
-        )
-        _print_any_hit_result(
-            any_hit_table, "n2/l2", "H-PLOC", any2_hploc, len(rays)
-        )
-        _print_any_hit_result(
-            any_hit_table, "n2/l4", "LBVH", any2_leaf4_lbvh, len(rays)
-        )
-        _print_any_hit_result(
-            any_hit_table,
-            "n2/l4",
-            "H-PLOC",
-            any2_leaf4_hploc,
-            len(rays),
-        )
-        _print_any_hit_result(
-            any_hit_table, "n4/l4", "LBVH", any4_lbvh, len(rays)
-        )
-        _print_any_hit_result(
-            any_hit_table, "n4/l4", "H-PLOC", any4_hploc, len(rays)
-        )
-        _print_any_hit_result(
-            any_hit_table,
-            "n8/l4",
-            "LBVH",
-            any8_leaf4_lbvh,
-            len(rays),
-        )
-        _print_any_hit_result(
-            any_hit_table,
-            "n8/l4",
-            "H-PLOC",
-            any8_leaf4_hploc,
-            len(rays),
-        )
-        _print_any_hit_result(
-            any_hit_table, "n8/l8", "LBVH", any8_lbvh, len(rays)
-        )
-        _print_any_hit_result(
-            any_hit_table, "n8/l8", "H-PLOC", any8_hploc, len(rays)
-        )
-        _print_any_hit_result(
-            any_hit_table,
-            "CWBVH8",
-            "LBVH",
-            any_lbvh_cwbvh8,
-            len(rays),
-        )
-        _print_any_hit_result(
-            any_hit_table,
-            "CWBVH8",
-            "H-PLOC",
-            any_hploc_cwbvh8,
-            len(rays),
-        )
+        for i in range(len(any_rows)):
+            var method = String("LBVH") if i % 2 == 0 else String("H-PLOC")
+            _print_any_hit_result(
+                any_hit_table, any_labels[i], method, any_rows[i], len(rays)
+            )
 
         print("\nGPU sphere BLAS[width]")
         print("--------------------")
@@ -1353,77 +1158,40 @@ def run_benchmark() raises:
         print("\nCPU sphere reference")
         var cpu_sphere_table = _print_cpu_ref_header()
 
-        var sphere_reference2 = _print_cpu_sphere_reference[2](
-            cpu_sphere_table,
-            String("CpuBlasSet[2] lbvh"),
-            spheres,
-            sphere_rays,
-        )
-        var sphere_reference4 = _print_cpu_sphere_reference[4](
-            cpu_sphere_table,
-            String("CpuBlasSet[4] lbvh"),
-            spheres,
-            sphere_rays,
-        )
-        var sphere_reference8 = _print_cpu_sphere_reference[8](
-            cpu_sphere_table,
-            String("CpuBlasSet[8] lbvh"),
-            spheres,
-            sphere_rays,
-        )
-        var sph2 = _run_sphere_width[2](
-            ctx,
-            spheres,
-            len(sphere_rays),
-            d_sphere_camera_params,
-            SPHERE_RAY_WIDTH,
-            SPHERE_RAY_HEIGHT,
-            sphere_reference2[0],
-            sphere_reference2[1],
-            BENCH_REPEATS,
-        )
-        var sph4 = _run_sphere_width[4](
-            ctx,
-            spheres,
-            len(sphere_rays),
-            d_sphere_camera_params,
-            SPHERE_RAY_WIDTH,
-            SPHERE_RAY_HEIGHT,
-            sphere_reference4[0],
-            sphere_reference4[1],
-            BENCH_REPEATS,
-        )
-        var sph8 = _run_sphere_width[8](
-            ctx,
-            spheres,
-            len(sphere_rays),
-            d_sphere_camera_params,
-            SPHERE_RAY_WIDTH,
-            SPHERE_RAY_HEIGHT,
-            sphere_reference8[0],
-            sphere_reference8[1],
-            BENCH_REPEATS,
-        )
-
-        var sph2_leaf4 = _run_sphere_width[2, 4](
-            ctx,
-            spheres,
-            len(sphere_rays),
-            d_sphere_camera_params,
-            SPHERE_RAY_WIDTH,
-            SPHERE_RAY_HEIGHT,
-            sphere_reference4[0],
-            sphere_reference4[1],
-            BENCH_REPEATS,
-        )
+        var sphere_references = List[Tuple[Float64, UInt32]]()
+        comptime for width in [2, 4, 8]:
+            sphere_references.append(
+                _print_cpu_sphere_reference[width](
+                    cpu_sphere_table,
+                    String(t"CpuBlasSet[{width}] lbvh"),
+                    spheres,
+                    sphere_rays,
+                )
+            )
+        var sphere_rows = List[GpuBenchResult]()
+        comptime sphere_configs = ((2, 2, 0), (4, 4, 1), (8, 8, 2), (2, 4, 1))
+        comptime for i in range(len(sphere_configs)):
+            comptime config = sphere_configs[i]
+            var reference = sphere_references[config[2]]
+            sphere_rows.append(
+                _run_sphere_width[config[0], config[1]](
+                    ctx,
+                    spheres,
+                    len(sphere_rays),
+                    d_sphere_camera_params,
+                    SPHERE_RAY_WIDTH,
+                    SPHERE_RAY_HEIGHT,
+                    reference[0],
+                    reference[1],
+                    BENCH_REPEATS,
+                )
+            )
         print("\nGPU sphere configurations")
         print("TOL marks a nonzero hit delta within the numerical tolerance.")
         var sphere_table = _gpu_results_table()
         sphere_table.header()
-        _print_gpu_result_row(sphere_table, sph2, "LBVH")
-        _print_gpu_result_row(sphere_table, sph2_leaf4, "LBVH")
-        _print_gpu_result_row(sphere_table, sph4, "LBVH")
-        _print_gpu_result_row(sphere_table, sph8, "LBVH")
+        for i in [0, 3, 1, 2]:
+            _print_gpu_result_row(sphere_table, sphere_rows[i], "LBVH")
 
 
 def main() raises:

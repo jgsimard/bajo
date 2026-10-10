@@ -1,3 +1,5 @@
+from test.sort.helpers import _byte_pass_keys, _stable_byte_order
+
 from std.math import ceildiv
 from std.testing import (
     TestSuite,
@@ -130,41 +132,41 @@ def test_scan() raises:
                     )
 
 
-def test_downsweep_end_to_end() raises:
-    """Tests Downsweep by executing a full single-byte radix pass and comparing to a CPU stable sort.
-    """
+def _test_downsweep[pairs: Bool]() raises:
     with DeviceContext() as ctx:
-        comptime dtype = DType.uint32
-        comptime BITS_PER_PASS = 8
         comptime RADIX = 256
-        comptime RADIX_MASK = RADIX - 1
-        comptime VEC_WIDTH = 4
         comptime BLOCK_SIZE = 512
         comptime KEYS_PER_THREAD = 8
-        comptime PART_SIZE = BLOCK_SIZE * KEYS_PER_THREAD
-
-        var _dummy_ptr = Optional[Pointer[UInt32, MutAnyOrigin]]()
-
         var size = 20_000
-        var gdim = ceildiv(size, PART_SIZE)
+        var gdim = ceildiv(size, BLOCK_SIZE * KEYS_PER_THREAD)
+        var original = _byte_pass_keys[pairs](size)
+        var expected = _stable_byte_order(original)
 
-        var keys = ctx.enqueue_create_buffer[dtype](size)
-        var keys_alternate = ctx.enqueue_create_buffer[dtype](size)
-        var global_hist = ctx.enqueue_create_buffer[dtype](1024)
-        var pass_hist = ctx.enqueue_create_buffer[dtype](gdim * RADIX)
-
+        var keys = ctx.enqueue_create_buffer[.uint32](size)
+        var alternate = ctx.enqueue_create_buffer[.uint32](size)
+        var values = ctx.enqueue_create_buffer[.uint32](size if pairs else 0)
+        var alternate_values = ctx.enqueue_create_buffer[.uint32](
+            size if pairs else 0
+        )
+        var global_hist = ctx.enqueue_create_buffer[.uint32](1024)
+        var pass_hist = ctx.enqueue_create_buffer[.uint32](gdim * RADIX)
         global_hist.enqueue_fill(0)
         pass_hist.enqueue_fill(0)
-
-        # Generate random keys
-        with keys.map_to_host() as host_keys:
+        with keys.map_to_host() as host:
             for i in range(size):
-                host_keys[i] = UInt32((i * 17) ^ (i << 13) ^ (i >> 5))
+                host[i] = original[i]
+        var values_ptr = Optional[Pointer[UInt32, origin_of(values)]]()
+        var alternate_values_ptr = Optional[
+            Pointer[UInt32, origin_of(alternate_values)]
+        ]()
+        comptime if pairs:
+            with values.map_to_host() as host:
+                for i in range(size):
+                    host[i] = UInt32(i)
+            values_ptr = Optional(values.unsafe_ptr())
+            alternate_values_ptr = Optional(alternate_values.unsafe_ptr())
 
-        # 1. UPSWEEP
-        ctx.enqueue_function[
-            upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
-        ](
+        ctx.enqueue_function[upsweep[.uint32, 128, RADIX, 4, KEYS_PER_THREAD]](
             keys,
             global_hist,
             pass_hist,
@@ -174,22 +176,17 @@ def test_downsweep_end_to_end() raises:
             block_dim=128,
         )
         ctx.synchronize()
-
-        # 2. SCAN
         ctx.enqueue_function[scan[128]](
             pass_hist, Int32(gdim), grid_dim=RADIX, block_dim=128
         )
         ctx.synchronize()
-
-        # 3. DOWNSWEEP
-        comptime _downsweep = downsweep[
-            dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, False
-        ]
-        ctx.enqueue_function[_downsweep](
+        ctx.enqueue_function[
+            downsweep[.uint32, .uint32, 8, BLOCK_SIZE, KEYS_PER_THREAD, pairs]
+        ](
             keys,
-            keys_alternate,
-            _dummy_ptr,
-            _dummy_ptr,
+            alternate,
+            values_ptr,
+            alternate_values_ptr,
             global_hist,
             pass_hist,
             Int32(size),
@@ -198,121 +195,27 @@ def test_downsweep_end_to_end() raises:
             block_dim=BLOCK_SIZE,
         )
         ctx.synchronize()
-
-        # Build CPU 1-pass Stable Sort ground truth
-        var cpu_sorted = List[UInt32](length=size, fill=0)
-        var counts = List[UInt32](length=RADIX, fill=0)
-
-        with keys.map_to_host() as host_keys:
-            for i in range(size):
-                counts[Int(host_keys[i] & RADIX_MASK)] += 1
-
-            var current_sum: UInt32 = 0
-            for i in range(RADIX):
-                var cnt = counts[i]
-                counts[i] = current_sum
-                current_sum += cnt
-
-            for i in range(size):
-                var val = host_keys[i]
-                var digit = Int(val & RADIX_MASK)
-                var dst = counts[digit]
-                cpu_sorted[Int(dst)] = val
-                counts[digit] += 1
-
-        # Verify
-        with keys_alternate.map_to_host() as host_alt:
+        with alternate.map_to_host() as host:
             for i in range(size):
                 assert_equal(
-                    host_alt[i],
-                    cpu_sorted[i],
-                    msg=String(t"Mismatch after downsweep at sorted index {i}"),
+                    host[i], original[expected[i]], msg=String(t"key at {i}")
                 )
+        comptime if pairs:
+            with alternate_values.map_to_host() as host:
+                for i in range(size):
+                    assert_equal(
+                        host[i],
+                        UInt32(expected[i]),
+                        msg=String(t"payload at {i}"),
+                    )
+
+
+def test_downsweep_end_to_end() raises:
+    _test_downsweep[False]()
 
 
 def test_downsweep_pairs_end_to_end() raises:
-    """Tests sorting key-value pairs."""
-    with DeviceContext() as ctx:
-        comptime dtype = DType.uint32
-        comptime BITS_PER_PASS = 8
-        comptime RADIX = 256
-        comptime RADIX_MASK = RADIX - 1
-        comptime VEC_WIDTH = 4
-        comptime BLOCK_SIZE = 512
-        comptime KEYS_PER_THREAD = 8
-        comptime PART_SIZE = BLOCK_SIZE * KEYS_PER_THREAD
-
-        var size = 20_000
-        var gdim = ceildiv(size, PART_SIZE)
-        var bdim = 512
-
-        var keys = ctx.enqueue_create_buffer[dtype](size)
-        var vals = ctx.enqueue_create_buffer[dtype](size)
-        var keys_alternate_keys = ctx.enqueue_create_buffer[dtype](size)
-        var keys_alternate_vals = ctx.enqueue_create_buffer[dtype](size)
-        var global_hist = ctx.enqueue_create_buffer[dtype](1024)
-        var pass_hist = ctx.enqueue_create_buffer[dtype](gdim * RADIX)
-
-        global_hist.enqueue_fill(0)
-        pass_hist.enqueue_fill(0)
-
-        # Generate keys and payloads
-        with keys.map_to_host() as host_keys, vals.map_to_host() as host_vals:
-            for i in range(size):
-                host_keys[i] = UInt32((i * 17) ^ (i << 13))
-                host_vals[i] = UInt32(i)  # Payload is original index
-
-        # 1. UPSWEEP
-        ctx.enqueue_function[
-            upsweep[dtype, 128, RADIX, VEC_WIDTH, KEYS_PER_THREAD],
-        ](
-            keys,
-            global_hist,
-            pass_hist,
-            Int32(size),
-            UInt32(0),
-            grid_dim=gdim,
-            block_dim=128,
-        )
-        ctx.synchronize()
-
-        # 2. SCAN
-        ctx.enqueue_function[scan[128]](
-            pass_hist, Int32(gdim), grid_dim=RADIX, block_dim=128
-        )
-        ctx.synchronize()
-
-        # 3. DOWNSWEEP PAIRS
-        ctx.enqueue_function[
-            downsweep[dtype, dtype, BITS_PER_PASS, 512, KEYS_PER_THREAD, True],
-        ](
-            keys,
-            keys_alternate_keys,
-            Optional(vals.unsafe_ptr()),
-            Optional(keys_alternate_vals.unsafe_ptr()),
-            global_hist,
-            pass_hist,
-            Int32(size),
-            UInt32(0),
-            grid_dim=gdim,
-            block_dim=bdim,
-        )
-        ctx.synchronize()
-
-        # Verify against CPU stable sort
-        with keys_alternate_keys.map_to_host() as host_alt_keys, keys_alternate_vals.map_to_host() as host_alt_vals:
-            # Simple check: Keys should be non-decreasing for the first byte
-            # and payload should match the original position's index to ensure stability.
-            for i in range(size - 1):
-                var k1 = host_alt_keys[i] & RADIX_MASK
-                var k2 = host_alt_keys[i + 1] & RADIX_MASK
-                assert_true(k1 <= k2, msg="Keys not sorted")
-                if k1 == k2:
-                    # If keys are same, original index (payload) must be increasing (stability)
-                    assert_true(
-                        host_alt_vals[i] < host_alt_vals[i + 1],
-                        msg="Sort not stable",
-                    )
+    _test_downsweep[True]()
 
 
 def _composite_key(original_idx: UInt32) -> UInt64:
@@ -345,6 +248,12 @@ def test_uint64_composite_key_pairs_end_to_end() raises:
                     assert_true(host_keys[i - 1] <= host_keys[i])
 
 
+def _workspace_key(index: Int) -> UInt64:
+    if index % 257 == 0:
+        return UInt64.MAX
+    return (UInt64(index % 11) << UInt64(32)) | UInt64(index * 37 % 257)
+
+
 def _assert_radix_keys_workspace[dtype: DType](size: Int) raises:
     with DeviceContext() as ctx:
         var keys = ctx.enqueue_create_buffer[dtype](size)
@@ -352,12 +261,7 @@ def _assert_radix_keys_workspace[dtype: DType](size: Int) raises:
         var values = ctx.enqueue_create_buffer[.uint32](size)
         with reference.map_to_host() as host, values.map_to_host() as ids:
             for i in range(size):
-                var value = (UInt64(i % 11) << UInt64(32)) | UInt64(
-                    i * 37 % 257
-                )
-                if i % 257 == 0:
-                    value = UInt64.MAX
-                host[i] = Scalar[dtype](value)
+                host[i] = Scalar[dtype](_workspace_key(i))
                 ids[i] = UInt32(i)
         reference.enqueue_copy_to(keys)
         device_radix_sort_pairs[dtype, .uint32](ctx, reference, values, size)
@@ -370,12 +274,7 @@ def _assert_radix_keys_workspace[dtype: DType](size: Int) raises:
             if repeat > 0:
                 with keys.map_to_host() as host:
                     for i in range(size):
-                        var value = (UInt64(i % 11) << UInt64(32)) | UInt64(
-                            i * 37 % 257
-                        )
-                        if i % 257 == 0:
-                            value = UInt64.MAX
-                        host[i] = Scalar[dtype](value)
+                        host[i] = Scalar[dtype](_workspace_key(i))
             if repeat == 2:
                 device_radix_sort_keys(ctx, keys, size)
             else:
@@ -386,12 +285,9 @@ def _assert_radix_keys_workspace[dtype: DType](size: Int) raises:
                     assert_equal(host[i], expected[i])
                     var original = Int(ids[i])
                     assert_true(original < size)
-                    var value = (UInt64(original % 11) << UInt64(32)) | UInt64(
-                        original * 37 % 257
+                    assert_equal(
+                        host[i], Scalar[dtype](_workspace_key(original))
                     )
-                    if original % 257 == 0:
-                        value = UInt64.MAX
-                    assert_equal(host[i], Scalar[dtype](value))
                     if i > 0:
                         assert_true(host[i - 1] <= host[i])
                         if host[i - 1] == host[i]:

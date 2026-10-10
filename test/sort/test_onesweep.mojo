@@ -1,9 +1,9 @@
+from test.sort.helpers import _byte_pass_keys, _stable_byte_order
+
 from std.math import ceildiv
 from std.testing import (
     TestSuite,
-    assert_almost_equal,
     assert_true,
-    assert_false,
     assert_equal,
 )
 from max.gpu.host import DeviceContext
@@ -35,19 +35,14 @@ def test_global_histogram() raises:
         var global_hist = ctx.enqueue_create_buffer[dtype](RADIX * 4)
         global_hist.enqueue_fill(0)
 
-        var exp_h0 = List[UInt32](length=RADIX, fill=0)
-        var exp_h1 = List[UInt32](length=RADIX, fill=0)
-        var exp_h2 = List[UInt32](length=RADIX, fill=0)
-        var exp_h3 = List[UInt32](length=RADIX, fill=0)
+        var expected = List[UInt32](length=RADIX * 4, fill=0)
 
         with keys.map_to_host() as host_keys:
             for i in range(size):
                 var val = (i * 13) ^ (i << 16) ^ (i >> 3)
                 host_keys[i] = UInt32(val)
-                exp_h0[val & 255] += 1
-                exp_h1[(val >> 8) & 255] += 1
-                exp_h2[(val >> 16) & 255] += 1
-                exp_h3[(val >> 24) & 255] += 1
+                for byte in range(4):
+                    expected[byte * RADIX + ((val >> (byte * 8)) & 255)] += 1
 
         comptime _hist = global_histogram[
             dtype,
@@ -67,11 +62,8 @@ def test_global_histogram() raises:
         ctx.synchronize()
 
         with global_hist.map_to_host() as host_hist:
-            for i in range(RADIX):
-                assert_equal(host_hist[i], exp_h0[i])
-                assert_equal(host_hist[i + RADIX], exp_h1[i])
-                assert_equal(host_hist[i + RADIX * 2], exp_h2[i])
-                assert_equal(host_hist[i + RADIX * 3], exp_h3[i])
+            for i in range(RADIX * 4):
+                assert_equal(host_hist[i], expected[i])
 
 
 def test_scan_global() raises:
@@ -105,204 +97,111 @@ def test_scan_global() raises:
                 assert_equal(h0[i], expected)
 
 
-def test_digit_binning_end_to_end() raises:
-    """Tests Decoupled Look-back with correct buffer padding."""
+def _test_digit_binning[pairs: Bool]() raises:
+    """Exercise look-back across blocks and the padded sentinel block."""
     with DeviceContext() as ctx:
-        comptime dtype = DType.uint32
         comptime RADIX = 256
-        comptime RADIX_MASK = RADIX - 1
-        comptime BIN_PART_SIZE = 7680
         comptime BLOCK_SIZE = 512
         comptime KEYS_PER_THREAD = 15
-        comptime TPB = 128
-        comptime ITEMS_PER_THREAD = 128
-        comptime PART_SIZE = TPB * ITEMS_PER_THREAD
-        comptime VEC_WIDTH = 4
-
-        var _dummy_ptr = Optional[Pointer[UInt32, MutAnyOrigin]]()
         var size = 20_000
-        var binning_blocks = ceildiv(Int(size), BIN_PART_SIZE)
+        var binning_blocks = ceildiv(size, BLOCK_SIZE * KEYS_PER_THREAD)
+        var original = _byte_pass_keys[pairs](size)
+        var expected = _stable_byte_order(original)
 
-        var keys = ctx.enqueue_create_buffer[dtype](Int(size))
-        var keys_alternate = ctx.enqueue_create_buffer[dtype](Int(size))
-        var global_hist = ctx.enqueue_create_buffer[dtype](RADIX * 4)
-
-        var pass_hist = ctx.enqueue_create_buffer[dtype](
-            (binning_blocks + 1) * RADIX * 4
+        var keys = ctx.enqueue_create_buffer[.uint32](size)
+        var alternate = ctx.enqueue_create_buffer[.uint32](size)
+        var values = ctx.enqueue_create_buffer[.uint32](size if pairs else 0)
+        var alternate_values = ctx.enqueue_create_buffer[.uint32](
+            size if pairs else 0
         )
-        var d_index = ctx.enqueue_create_buffer[dtype](4)
-
+        var global_hist = ctx.enqueue_create_buffer[.uint32](RADIX * 4)
+        # Key-only coverage retains four passes of padding; pairs need one.
+        var pass_hist = ctx.enqueue_create_buffer[.uint32](
+            (binning_blocks + 1) * RADIX * (1 if pairs else 4)
+        )
+        var index = ctx.enqueue_create_buffer[.uint32](4)
         global_hist.enqueue_fill(0)
         pass_hist.enqueue_fill(0)
-        d_index.enqueue_fill(0)
+        index.enqueue_fill(0)
+        with keys.map_to_host() as host:
+            for i in range(size):
+                host[i] = original[i]
+        var values_ptr = Optional[Pointer[UInt32, origin_of(values)]]()
+        var alternate_values_ptr = Optional[
+            Pointer[UInt32, origin_of(alternate_values)]
+        ]()
+        comptime if pairs:
+            with values.map_to_host() as host:
+                for i in range(size):
+                    host[i] = UInt32(i)
+            values_ptr = Optional(values.unsafe_ptr())
+            alternate_values_ptr = Optional(alternate_values.unsafe_ptr())
 
-        with keys.map_to_host() as host_keys:
-            for i in range(Int(size)):
-                host_keys[i] = UInt32((i * 17) ^ (i << 13) ^ (i >> 5))
-
-        var g_hist_blocks = ceildiv(size, PART_SIZE)
-        comptime _hist = global_histogram[
-            dtype,
-            BLOCK_SIZE=TPB,
-            RADIX=RADIX,
-            VEC_WIDTH=VEC_WIDTH,
-            ITEMS_PER_THREAD=ITEMS_PER_THREAD,
-        ]
-        ctx.enqueue_function[_hist](
+        ctx.enqueue_function[
+            global_histogram[
+                .uint32,
+                BLOCK_SIZE=128,
+                RADIX=RADIX,
+                VEC_WIDTH=4,
+                ITEMS_PER_THREAD=128,
+            ]
+        ](
             keys,
             global_hist,
             Int32(size),
-            grid_dim=g_hist_blocks,
-            block_dim=TPB,
+            grid_dim=ceildiv(size, 128 * 128),
+            block_dim=128,
         )
-
-        comptime _scan = scan_global
-        ctx.enqueue_function[_scan](
+        ctx.enqueue_function[scan_global](
             global_hist,
             pass_hist,
             Int32(binning_blocks + 1),
             grid_dim=1,
             block_dim=RADIX,
         )
-
-        comptime _bin = digit_binning[
-            dtype,
-            dtype,
-            BITS_PER_PASS=8,
-            BLOCK_SIZE=BLOCK_SIZE,
-            KEYS_PER_THREAD=KEYS_PER_THREAD,
-            HAVE_PAYLOAD=False,
-        ]
-        ctx.enqueue_function[_bin](
+        ctx.enqueue_function[
+            digit_binning[
+                .uint32,
+                .uint32,
+                BITS_PER_PASS=8,
+                BLOCK_SIZE=BLOCK_SIZE,
+                KEYS_PER_THREAD=KEYS_PER_THREAD,
+                HAVE_PAYLOAD=pairs,
+            ]
+        ](
             keys,
-            keys_alternate,
-            _dummy_ptr,
-            _dummy_ptr,
+            alternate,
+            values_ptr,
+            alternate_values_ptr,
             pass_hist,
-            d_index,
+            index,
             Int32(size),
             UInt32(0),
             grid_dim=binning_blocks,
             block_dim=BLOCK_SIZE,
         )
         ctx.synchronize()
+        with alternate.map_to_host() as host:
+            for i in range(size):
+                assert_equal(
+                    host[i], original[expected[i]], msg=String(t"key at {i}")
+                )
+        comptime if pairs:
+            with alternate_values.map_to_host() as host:
+                for i in range(size):
+                    assert_equal(
+                        host[i],
+                        UInt32(expected[i]),
+                        msg=String(t"payload at {i}"),
+                    )
 
-        # Stable Sort Verification
-        var counts = List[UInt32](length=RADIX, fill=0)
-        var cpu_sorted = List[UInt32](length=size, fill=0)
 
-        with keys.map_to_host() as host_keys:
-            for i in range(Int(size)):
-                counts[Int(host_keys[i] & RADIX_MASK)] += 1
-            var current_sum: UInt32 = 0
-            for i in range(RADIX):
-                var cnt = counts[i]
-                counts[i] = current_sum
-                current_sum += cnt
-            for i in range(Int(size)):
-                var val = host_keys[i]
-                var digit = Int(val & RADIX_MASK)
-                cpu_sorted[Int(counts[digit])] = val
-                counts[digit] += 1
-
-        with keys_alternate.map_to_host() as host_alt:
-            for i in range(Int(size)):
-                assert_equal(host_alt[i], cpu_sorted[i])
+def test_digit_binning_end_to_end() raises:
+    _test_digit_binning[False]()
 
 
 def test_digit_binning_pairs_end_to_end() raises:
-    """Tests Decoupled Look-back pairs with correct buffer padding."""
-    with DeviceContext() as ctx:
-        comptime dtype = DType.uint32
-        comptime RADIX = 256
-        comptime RADIX_MASK = RADIX - 1
-        comptime BIN_PART_SIZE = 7680
-        comptime BLOCK_SIZE = 512
-        comptime KEYS_PER_THREAD = 15
-        comptime TPB = 128
-        comptime ITEMS_PER_THREAD = 128
-        comptime PART_SIZE = TPB * ITEMS_PER_THREAD
-        comptime VEC_WIDTH = 4
-
-        var size = 20_000
-        var binning_blocks = ceildiv(size, BIN_PART_SIZE)
-
-        var keys = ctx.enqueue_create_buffer[dtype](Int(size))
-        var d_vals = ctx.enqueue_create_buffer[dtype](Int(size))
-        var keys_alternate = ctx.enqueue_create_buffer[dtype](Int(size))
-        var vals_alternate = ctx.enqueue_create_buffer[dtype](Int(size))
-        var global_hist = ctx.enqueue_create_buffer[dtype](RADIX * 4)
-
-        var pass_hist = ctx.enqueue_create_buffer[dtype](
-            (binning_blocks + 1) * RADIX
-        )
-        var d_index = ctx.enqueue_create_buffer[dtype](4)
-
-        global_hist.enqueue_fill(0)
-        pass_hist.enqueue_fill(0)
-        d_index.enqueue_fill(0)
-
-        with keys.map_to_host() as host_keys, d_vals.map_to_host() as host_vals:
-            for i in range(Int(size)):
-                host_keys[i] = UInt32((i * 17) ^ (i << 13))
-                host_vals[i] = UInt32(i)
-
-        var _dummy_ptr = Optional[Pointer[UInt32, MutAnyOrigin]]()
-        var g_hist_blocks = ceildiv(size, PART_SIZE)
-
-        comptime _hist = global_histogram[
-            dtype,
-            BLOCK_SIZE=TPB,
-            RADIX=RADIX,
-            VEC_WIDTH=VEC_WIDTH,
-            ITEMS_PER_THREAD=ITEMS_PER_THREAD,
-        ]
-        ctx.enqueue_function[_hist](
-            keys,
-            global_hist,
-            Int32(size),
-            grid_dim=g_hist_blocks,
-            block_dim=TPB,
-        )
-
-        comptime _scan = scan_global
-        ctx.enqueue_function[_scan](
-            global_hist,
-            pass_hist,
-            Int32(binning_blocks + 1),
-            grid_dim=1,
-            block_dim=RADIX,
-        )
-
-        comptime _bin = digit_binning[
-            dtype,
-            dtype,
-            BITS_PER_PASS=8,
-            BLOCK_SIZE=BLOCK_SIZE,
-            KEYS_PER_THREAD=KEYS_PER_THREAD,
-            HAVE_PAYLOAD=True,
-        ]
-        ctx.enqueue_function[_bin](
-            keys,
-            keys_alternate,
-            Optional(d_vals.unsafe_ptr()),
-            Optional(vals_alternate.unsafe_ptr()),
-            pass_hist,
-            d_index,
-            Int32(size),
-            UInt32(0),
-            grid_dim=binning_blocks,
-            block_dim=BLOCK_SIZE,
-        )
-        ctx.synchronize()
-
-        with keys_alternate.map_to_host() as host_alt_keys, vals_alternate.map_to_host() as host_alt_vals:
-            for i in range(Int(size) - 1):
-                var k1 = host_alt_keys[i] & RADIX_MASK
-                var k2 = host_alt_keys[i + 1] & RADIX_MASK
-                assert_true(k1 <= k2)
-                if k1 == k2:
-                    assert_true(host_alt_vals[i] < host_alt_vals[i + 1])
+    _test_digit_binning[True]()
 
 
 def _onesweep_test_key(index: UInt32) -> UInt64:

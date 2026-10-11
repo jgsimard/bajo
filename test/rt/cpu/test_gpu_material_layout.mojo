@@ -1,4 +1,4 @@
-"""GPU uploads retain the existing packed ABI and material-index addressing."""
+"""GPU uploads retain field offsets and material-index addressing."""
 
 from std.memory import bitcast
 from std.testing import TestSuite, assert_equal
@@ -80,6 +80,13 @@ def test_material_upload_keeps_packed_abi() raises:
         0.25,
         2.0,
         3.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
         0.25,
         0.5,
         0.75,
@@ -95,6 +102,13 @@ def test_material_upload_keeps_packed_abi() raises:
         0.5,
         4.0,
         5.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
     ]
     assert_equal(len(coated), len(expected))
     for index in range(len(expected)):
@@ -161,6 +175,26 @@ def test_material_texture_tables_address_second_record() raises:
     assert_equal(color.x, Float32(0.0625))
     assert_equal(color.y, Float32(0.25))
     assert_equal(color.z, Float32(0.75))
+
+
+def test_conductor_upload_preserves_optics_and_substrate_roughness() raises:
+    var builder = SceneBuilder()
+    var surface = builder.surfaces.add_coated_conductor(
+        Color(1.2, 0.9, 0.6), Color(7.2, 6.6, 5.4), 0.2, 0.1, 1.5
+    )
+    builder.add_sphere(Point3f32[.WORLD](0.0), 1.0, surface)
+    var world = builder^.finish()
+    var records = _flatten_coated_diffuses(world)
+    var parameters = _load_gpu_coated_parameters(
+        records.unsafe_ptr()
+        .unsafe_mut_cast[False]()
+        .unsafe_origin_cast[ImmutAnyOrigin](),
+        0,
+    )
+    assert_equal(parameters.conductor_eta.x[0], Float32(1.2) / Float32(1.5))
+    assert_equal(parameters.conductor_k.z[0], Float32(5.4) / Float32(1.5))
+    assert_equal(parameters.conductor_roughness, Float32(0.2))
+    assert_equal(parameters.roughness, Float32(0.1))
 
 
 def main() raises:

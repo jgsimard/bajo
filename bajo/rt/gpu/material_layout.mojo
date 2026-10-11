@@ -20,7 +20,7 @@ struct GpuMetalLayout:
 
 
 struct GpuCoatedDiffuseLayout:
-    comptime STRIDE = 15
+    comptime STRIDE = 22
     comptime ALBEDO = 0
     comptime ROUGHNESS = 3
     comptime ETA = 4
@@ -32,6 +32,9 @@ struct GpuCoatedDiffuseLayout:
     comptime DISPLACEMENT_SCALE = 12
     comptime DISPLACEMENT_U_SCALE = 13
     comptime DISPLACEMENT_V_SCALE = 14
+    comptime CONDUCTOR_ETA = 15
+    comptime CONDUCTOR_K = 18
+    comptime CONDUCTOR_ROUGHNESS = 21
 
     comptime TEXTURE_STRIDE = 2
     comptime ALBEDO_TEXTURE = 0
@@ -67,6 +70,9 @@ struct _GpuCoatedDiffuseParameters(TrivialRegisterPassable):
     var g: Float32
     var max_depth: Float32
     var n_samples: Float32
+    var conductor_eta: Color
+    var conductor_k: Color
+    var conductor_roughness: Float32
 
 
 @always_inline
@@ -84,4 +90,11 @@ def _load_gpu_coated_parameters(
         data[unsafe_offset=base + GpuCoatedDiffuseLayout.G],
         data[unsafe_offset=base + GpuCoatedDiffuseLayout.MAX_DEPTH],
         data[unsafe_offset=base + GpuCoatedDiffuseLayout.N_SAMPLES],
+        _load_gpu_material_color(
+            data, base + GpuCoatedDiffuseLayout.CONDUCTOR_ETA
+        ),
+        _load_gpu_material_color(
+            data, base + GpuCoatedDiffuseLayout.CONDUCTOR_K
+        ),
+        data[unsafe_offset=base + GpuCoatedDiffuseLayout.CONDUCTOR_ROUGHNESS],
     )

@@ -88,6 +88,8 @@ struct GpuRtSceneView(Copyable, DevicePassable):
     var coated_diffuse_texture_indices: Pointer[UInt32, ImmUntrackedOrigin]
     var texture_descs: Pointer[UInt32, ImmUntrackedOrigin]
     var texture_pixels: Pointer[Float32, ImmUntrackedOrigin]
+    var mix_surfaces: Pointer[UInt32, ImmUntrackedOrigin]
+    var mix_amounts: Pointer[Float32, ImmUntrackedOrigin]
     var light_kinds: Pointer[UInt32, ImmUntrackedOrigin]
     var light_fields: Pointer[Float32, ImmUntrackedOrigin]
     var light_count: Int32

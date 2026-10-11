@@ -63,6 +63,9 @@ def evaluate_bsdf(
                 SIMD[.float32, 1](Float32(material.max_depth)),
                 SIMD[.float32, 1](Float32(material.n_samples)),
                 out_direction,
+                conductor_eta=material.conductor_eta,
+                conductor_k=material.conductor_k,
+                conductor_alpha=material.conductor_roughness,
             )
 
         case .DIELECTRIC:
@@ -81,6 +84,28 @@ def evaluate_bsdf(
                 Color(0.0),
                 SIMD[.float32, 1](1.0),
                 out_direction,
+            )
+        case .MIX:
+            var index = Int(surface.index())
+            var first = evaluate_bsdf(
+                SurfaceId.from_raw(surfaces.mix_surfaces[2 * index]),
+                surfaces,
+                ray,
+                hit,
+                out_direction,
+            )
+            var second = evaluate_bsdf(
+                SurfaceId.from_raw(surfaces.mix_surfaces[2 * index + 1]),
+                surfaces,
+                ray,
+                hit,
+                out_direction,
+            )
+            var amount = surfaces.mix_amounts[index]
+            return BsdfEvaluation[1](
+                first.value * (1.0 - amount) + second.value * amount,
+                first.pdf * (1.0 - amount) + second.pdf * amount,
+                first.delta & second.delta,
             )
 
 
@@ -138,6 +163,9 @@ def sample_bsdf(
                 SIMD[.float32, 1](Float32(material.n_samples)),
                 SIMD[.float32, 1](rng.f32()),
                 SIMD[.float32, 1](rng.f32()),
+                conductor_eta=material.conductor_eta,
+                conductor_k=material.conductor_k,
+                conductor_alpha=material.conductor_roughness,
             )
 
         case .DIELECTRIC:
@@ -173,3 +201,24 @@ def sample_bsdf(
                 False,
                 False,
             )
+        case .MIX:
+            var index = Int(surface.index())
+            var amount = surfaces.mix_amounts[index]
+            var choose_second = rng.f32() < amount
+            var selected = SurfaceId.from_raw(
+                surfaces.mix_surfaces[2 * index + (1 if choose_second else 0)]
+            )
+            var sampled = sample_bsdf(selected, surfaces, ray, hit, rng)
+            if sampled.ok[0]:
+                if sampled.delta[0]:
+                    sampled.pdf *= amount if choose_second else (1.0 - amount)
+                else:
+                    var evaluated = evaluate_bsdf(
+                        surface, surfaces, ray, hit, sampled.direction
+                    )
+                    sampled.pdf = evaluated.pdf
+                    sampled.weight = evaluated.value * (
+                        max(dot(hit.normal, sampled.direction), 0.0)
+                        / max(evaluated.pdf, Float32(1.0e-20))
+                    )
+            return sampled^

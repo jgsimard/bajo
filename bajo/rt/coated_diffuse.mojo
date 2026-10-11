@@ -1,7 +1,7 @@
-"""PBRT-style GGX dielectric coating over a diffuse substrate.
+"""PBRT-style GGX dielectric coating over diffuse or conductor substrates.
 
 The coating is sampled as a real dielectric interface.  Paths transmitted
-through it bounce between the Lambertian substrate and the coat until they
+through it bounce between the substrate and the coat until they
 leave the layer or Russian roulette terminates them.  Evaluation and PDF use
 the corresponding Monte Carlo estimators from PBRT's LayeredBxDF.
 """
@@ -388,6 +388,141 @@ def _sample_diffuse(
 
 
 @always_inline
+def _fresnel_conductor(
+    cosine: Float32,
+    eta: Vec3[.float32, .WORLD],
+    k: Vec3[.float32, .WORLD],
+) -> Vec3[.float32, .WORLD]:
+    """Unpolarized complex-IOR Fresnel reflectance, evaluated per RGB channel.
+    """
+    var c = abs(cosine).clamp(0.0, 1.0)
+    var c2 = c * c
+    var s2 = 1.0 - c2
+    var result = Vec3[.float32, .WORLD](0.0)
+    for lane in range(3):
+        var e = eta.x[0] if lane == 0 else eta.y[0] if lane == 1 else eta.z[0]
+        var extinction = (
+            k.x[0] if lane == 0 else k.y[0] if lane == 1 else k.z[0]
+        )
+        var e2 = e * e
+        var k2 = extinction * extinction
+        var t = e2 - k2 - s2
+        var magnitude = sqrt(t * t + 4.0 * e2 * k2)
+        var real = sqrt(max(Float32(0.0), (magnitude + t) * 0.5))
+        var rs = (magnitude + c2 - 2.0 * c * real) / max(
+            Float32(1.0e-20), magnitude + c2 + 2.0 * c * real
+        )
+        var rp = (
+            rs
+            * (c2 * magnitude + s2 * s2 - 2.0 * c * real * s2)
+            / max(
+                Float32(1.0e-20), c2 * magnitude + s2 * s2 + 2.0 * c * real * s2
+            )
+        )
+        var value = ((rs + rp) * 0.5).clamp(0.0, 1.0)
+        if lane == 0:
+            result.x = value
+        elif lane == 1:
+            result.y = value
+        else:
+            result.z = value
+    return result
+
+
+@always_inline
+def _substrate_f(
+    wo: Vec3[.float32, .WORLD],
+    wi: Vec3[.float32, .WORLD],
+    albedo: Vec3[.float32, .WORLD],
+    conductor_eta: Vec3[.float32, .WORLD],
+    conductor_k: Vec3[.float32, .WORLD],
+    conductor_alpha: Float32,
+) -> Vec3[.float32, .WORLD]:
+    if wo.z[0] * wi.z[0] <= 0.0:
+        return Vec3[.float32, .WORLD](0.0)
+    if (
+        _max_component(conductor_eta) == 0.0
+        and _max_component(conductor_k) == 0.0
+    ):
+        return albedo * _INV_PI
+    if conductor_alpha < 1.0e-3 or length2(wo + wi)[0] == 0.0:
+        return Vec3[.float32, .WORLD](0.0)
+    var wm = normalize(wo + wi)
+    return _fresnel_conductor(dot(wo, wm)[0], conductor_eta, conductor_k) * (
+        _ggx_d(wm, conductor_alpha)
+        * _ggx_g(wo, wi, conductor_alpha)
+        / abs(4.0 * wo.z[0] * wi.z[0])
+    )
+
+
+@always_inline
+def _substrate_pdf(
+    wo: Vec3[.float32, .WORLD],
+    wi: Vec3[.float32, .WORLD],
+    conductor_eta: Vec3[.float32, .WORLD],
+    conductor_alpha: Float32,
+    conductor_k: Vec3[.float32, .WORLD] = Vec3[.float32, .WORLD](0.0),
+) -> Float32:
+    if wo.z[0] * wi.z[0] <= 0.0:
+        return 0.0
+    if (
+        _max_component(conductor_eta) == 0.0
+        and _max_component(conductor_k) == 0.0
+    ):
+        return abs(wi.z[0]) * _INV_PI
+    if conductor_alpha < 1.0e-3 or length2(wo + wi)[0] == 0.0:
+        return 0.0
+    var wm = normalize(wo + wi)
+    if wm.z[0] < 0.0:
+        wm = -wm
+    return _ggx_visible_pdf(wo, wm, conductor_alpha) / max(
+        Float32(1.0e-20), 4.0 * abs(dot(wo, wm)[0])
+    )
+
+
+@always_inline
+def _sample_substrate(
+    wo: Vec3[.float32, .WORLD],
+    albedo: Vec3[.float32, .WORLD],
+    conductor_eta: Vec3[.float32, .WORLD],
+    conductor_k: Vec3[.float32, .WORLD],
+    conductor_alpha: Float32,
+    u: Float32,
+    v: Float32,
+) -> BsdfSample[1]:
+    if (
+        _max_component(conductor_eta) == 0.0
+        and _max_component(conductor_k) == 0.0
+    ):
+        return _sample_diffuse(wo, albedo, u, v)
+    var smooth = conductor_alpha < 1.0e-3
+    var wm = Vec3[.float32, .WORLD](0.0, 0.0, 1.0)
+    if not smooth:
+        wm = _sample_ggx_visible_normal(wo, conductor_alpha, u, v)
+    var wi = _reflect_about(wo, wm)
+    if wo.z[0] * wi.z[0] <= 0.0:
+        return BsdfSample[1](
+            wi, Vec3[.float32, .WORLD](0.0), 0.0, smooth, False
+        )
+    var fresnel = _fresnel_conductor(dot(wo, wm)[0], conductor_eta, conductor_k)
+    if smooth:
+        return BsdfSample[1](wi, fresnel, 1.0, True, True)
+    var pdf = _substrate_pdf(
+        wo, wi, conductor_eta, conductor_alpha, conductor_k
+    )
+    var value = _substrate_f(
+        wo, wi, albedo, conductor_eta, conductor_k, conductor_alpha
+    )
+    return BsdfSample[1](
+        wi,
+        value * (abs(wi.z[0]) / max(pdf, Float32(1.0e-20))),
+        pdf,
+        False,
+        pdf > 0.0,
+    )
+
+
+@always_inline
 def _transmittance(distance: Float32, w: Vec3[.float32, .WORLD]) -> Float32:
     if abs(w.z[0]) <= 1.0e-20:
         return 0.0
@@ -441,6 +576,9 @@ def _layered_pdf(
     eta: Float32,
     n_samples: Int,
     seed: UInt32,
+    conductor_eta: Vec3[.float32, .WORLD] = Vec3[.float32, .WORLD](0.0),
+    conductor_k: Vec3[.float32, .WORLD] = Vec3[.float32, .WORLD](0.0),
+    conductor_alpha: Float32 = 0.0,
 ) -> Float32:
     if wo.z[0] * wi.z[0] <= 0.0:
         return 0.0
@@ -470,13 +608,22 @@ def _layered_pdf(
             2,
         )
         if wos.ok and wis.ok:
-            var diffuse_pdf = abs(wis.direction.z[0]) * _INV_PI
+            var substrate_pdf = _substrate_pdf(
+                -wos.direction,
+                -wis.direction,
+                conductor_eta,
+                conductor_alpha,
+                conductor_k,
+            )
             if alpha < 1.0e-3:
-                pdf_sum += diffuse_pdf
+                pdf_sum += substrate_pdf
             else:
-                var reflected = _sample_diffuse(
+                var reflected = _sample_substrate(
                     -wos.direction,
                     Vec3[.float32, .WORLD](1.0),
+                    conductor_eta,
+                    conductor_k,
+                    conductor_alpha,
                     _random(seed, dimension + 6),
                     _random(seed, dimension + 7),
                 )
@@ -484,10 +631,16 @@ def _layered_pdf(
                 var exit_pdf = _dielectric_pdf(
                     -reflected_direction, wi, alpha, eta, 2
                 )
-                pdf_sum += (
-                    _power_heuristic(wis.pdf, diffuse_pdf) * diffuse_pdf
-                    + _power_heuristic(reflected.pdf[0], exit_pdf) * exit_pdf
-                )
+                if not reflected.ok[0]:
+                    continue
+                if reflected.delta[0]:
+                    pdf_sum += exit_pdf
+                else:
+                    pdf_sum += (
+                        _power_heuristic(wis.pdf, substrate_pdf) * substrate_pdf
+                        + _power_heuristic(reflected.pdf[0], exit_pdf)
+                        * exit_pdf
+                    )
     var estimate = pdf_sum / Float32(max(n_samples, 1))
     return Float32(0.1) * _INV_4_PI + Float32(0.9) * estimate
 
@@ -505,6 +658,9 @@ def _evaluate_layered(
     max_depth: Int,
     n_samples: Int,
     seed: UInt32,
+    conductor_eta: Vec3[.float32, .WORLD] = Vec3[.float32, .WORLD](0.0),
+    conductor_k: Vec3[.float32, .WORLD] = Vec3[.float32, .WORLD](0.0),
+    conductor_alpha: Float32 = 0.0,
 ) -> Vec3[.float32, .WORLD]:
     if wo.z[0] <= 0.0 or wi.z[0] <= 0.0:
         return Vec3[.float32, .WORLD](0.0)
@@ -616,32 +772,45 @@ def _evaluate_layered(
                 continue
 
             var target = -wis.direction
-            var diffuse_pdf = abs(target.z[0]) * _INV_PI
+            var substrate_pdf = _substrate_pdf(
+                -w, target, conductor_eta, conductor_alpha, conductor_k
+            )
             var nee_weight = Float32(1.0)
             if alpha >= 1.0e-3:
-                nee_weight = _power_heuristic(wis.pdf, diffuse_pdf)
+                nee_weight = _power_heuristic(wis.pdf, substrate_pdf)
             indirect += (
                 beta
-                * albedo
-                * _INV_PI
+                * _substrate_f(
+                    -w,
+                    target,
+                    albedo,
+                    conductor_eta,
+                    conductor_k,
+                    conductor_alpha,
+                )
                 * abs(wis.direction.z[0])
                 * nee_weight
                 * _transmittance(thickness, wis.direction)
                 * (wis.value / wis.pdf)
             )
-            var reflected = _sample_diffuse(
+            var reflected = _sample_substrate(
                 -w,
                 albedo,
+                conductor_eta,
+                conductor_k,
+                conductor_alpha,
                 _random(seed, dimension + 5),
                 _random(seed, dimension + 6),
             )
+            if not reflected.ok[0]:
+                break
             beta *= reflected.weight
             w = reflected.direction
             var exit_value = _dielectric_f(-w, wi, alpha, eta, True)
             if exit_value > 0.0:
                 var exit_pdf = _dielectric_pdf(-w, wi, alpha, eta, 2)
                 var exit_weight = Float32(1.0)
-                if alpha >= 1.0e-3:
+                if alpha >= 1.0e-3 and not reflected.delta[0]:
                     exit_weight = _power_heuristic(reflected.pdf[0], exit_pdf)
                 indirect += (
                     beta
@@ -698,10 +867,29 @@ def _evaluate_coated_diffuse_scalar(
     max_depth: Int,
     n_samples: Int,
     out_direction: Vec3[.float32, .WORLD],
+    conductor_eta: Vec3[.float32, .WORLD] = Vec3[.float32, .WORLD](0.0),
+    conductor_k: Vec3[.float32, .WORLD] = Vec3[.float32, .WORLD](0.0),
+    conductor_alpha: Float32 = 0.0,
 ) -> BsdfEvaluation[1]:
     var tangent, bitangent = _basis(normal)
     var wo = _to_local(-normalize(ray_direction), tangent, bitangent, normal)
     var wi = _to_local(normalize(out_direction), tangent, bitangent, normal)
+    if (
+        (
+            _max_component(conductor_eta) > 0.0
+            or _max_component(conductor_k) > 0.0
+        )
+        and eta == 1.0
+        and thickness == 0.0
+        and _max_component(layer_albedo) == 0.0
+    ):
+        return BsdfEvaluation[1](
+            _substrate_f(
+                wo, wi, albedo, conductor_eta, conductor_k, conductor_alpha
+            ),
+            _substrate_pdf(wo, wi, conductor_eta, conductor_alpha, conductor_k),
+            conductor_alpha < 1.0e-3,
+        )
     var seed = _direction_seed(wo, wi)
     var safe_thickness = max(thickness, Float32(1.0e-20))
     var value = _evaluate_layered(
@@ -716,8 +904,21 @@ def _evaluate_coated_diffuse_scalar(
         max_depth,
         n_samples,
         seed,
+        conductor_eta,
+        conductor_k,
+        conductor_alpha,
     )
-    var pdf = _layered_pdf(wo, wi, roughness, eta, n_samples, seed)
+    var pdf = _layered_pdf(
+        wo,
+        wi,
+        roughness,
+        eta,
+        n_samples,
+        seed,
+        conductor_eta,
+        conductor_k,
+        conductor_alpha,
+    )
     return BsdfEvaluation[1](value, pdf, False)
 
 
@@ -735,11 +936,36 @@ def _sample_coated_diffuse_scalar(
     n_samples: Int,
     random_u: Float32,
     random_v: Float32,
+    conductor_eta: Vec3[.float32, .WORLD] = Vec3[.float32, .WORLD](0.0),
+    conductor_k: Vec3[.float32, .WORLD] = Vec3[.float32, .WORLD](0.0),
+    conductor_alpha: Float32 = 0.0,
 ) -> BsdfSample[1]:
     var tangent, bitangent = _basis(normal)
     var wo = _to_local(-normalize(ray_direction), tangent, bitangent, normal)
     if wo.z[0] <= 0.0:
         return BsdfSample[1](normal, albedo, 0.0, False, False)
+    if (
+        (
+            _max_component(conductor_eta) > 0.0
+            or _max_component(conductor_k) > 0.0
+        )
+        and eta == 1.0
+        and thickness == 0.0
+        and _max_component(layer_albedo) == 0.0
+    ):
+        var sampled = _sample_substrate(
+            wo,
+            albedo,
+            conductor_eta,
+            conductor_k,
+            conductor_alpha,
+            random_u,
+            random_v,
+        )
+        sampled.direction = normalize(
+            _from_local(sampled.direction, tangent, bitangent, normal)
+        )
+        return sampled^
     var seed = _sample_seed(random_u, random_v)
     var safe_thickness = max(thickness, Float32(1.0e-20))
     var interface_sample = _sample_dielectric(
@@ -771,6 +997,9 @@ def _sample_coated_diffuse_scalar(
                 eta,
                 n_samples,
                 _direction_seed(wo, interface_sample.direction),
+                conductor_eta,
+                conductor_k,
+                conductor_alpha,
             )
         return BsdfSample[1](
             world_direction, weight, pdf, interface_sample.delta, True
@@ -840,20 +1069,28 @@ def _sample_coated_diffuse_scalar(
                         eta,
                         n_samples,
                         _direction_seed(wo, w),
+                        conductor_eta,
+                        conductor_k,
+                        conductor_alpha,
                     )
                 return BsdfSample[1](
                     world_direction, weight, pdf, specular_path, True
                 )
             continue
 
-        var sampled = _sample_diffuse(
+        var sampled = _sample_substrate(
             -w,
             albedo,
+            conductor_eta,
+            conductor_k,
+            conductor_alpha,
             _random(seed, dimension + 4),
             _random(seed, dimension + 5),
         )
         weight *= sampled.weight
-        specular_path = False
+        if not sampled.ok[0]:
+            return BsdfSample[1](normal, albedo, 0.0, False, False)
+        specular_path = specular_path and sampled.delta[0]
         w = sampled.direction
     return BsdfSample[1](normal, albedo, 0.0, False, False)
 
@@ -874,6 +1111,13 @@ def _evaluate_coated_diffuse[
     n_samples: SIMD[.float32, length],
     out_direction: Vec3[.float32, .WORLD, length],
     active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+    conductor_eta: Vec3[.float32, .WORLD, length] = Vec3[
+        .float32, .WORLD, length
+    ](0.0),
+    conductor_k: Vec3[.float32, .WORLD, length] = Vec3[
+        .float32, .WORLD, length
+    ](0.0),
+    conductor_alpha: SIMD[.float32, length] = 0.0,
 ) -> BsdfEvaluation[length]:
     var result = BsdfEvaluation[length](
         Vec3[.float32, .WORLD, length](0.0),
@@ -911,11 +1155,21 @@ def _evaluate_coated_diffuse[
                 out_direction.y[lane],
                 out_direction.z[lane],
             ),
+            Vec3[.float32, .WORLD](
+                conductor_eta.x[lane],
+                conductor_eta.y[lane],
+                conductor_eta.z[lane],
+            ),
+            Vec3[.float32, .WORLD](
+                conductor_k.x[lane], conductor_k.y[lane], conductor_k.z[lane]
+            ),
+            conductor_alpha[lane],
         )
         result.value.x[lane] = evaluated.value.x[0]
         result.value.y[lane] = evaluated.value.y[0]
         result.value.z[lane] = evaluated.value.z[0]
         result.pdf[lane] = evaluated.pdf[0]
+        result.delta[lane] = evaluated.delta[0]
     return result^
 
 
@@ -936,6 +1190,13 @@ def _sample_coated_diffuse[
     random_u: SIMD[.float32, length],
     random_v: SIMD[.float32, length],
     active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+    conductor_eta: Vec3[.float32, .WORLD, length] = Vec3[
+        .float32, .WORLD, length
+    ](0.0),
+    conductor_k: Vec3[.float32, .WORLD, length] = Vec3[
+        .float32, .WORLD, length
+    ](0.0),
+    conductor_alpha: SIMD[.float32, length] = 0.0,
 ) -> BsdfSample[length]:
     var result = BsdfSample[length](
         normal,
@@ -972,6 +1233,15 @@ def _sample_coated_diffuse[
             Int(n_samples[lane]),
             random_u[lane],
             random_v[lane],
+            Vec3[.float32, .WORLD](
+                conductor_eta.x[lane],
+                conductor_eta.y[lane],
+                conductor_eta.z[lane],
+            ),
+            Vec3[.float32, .WORLD](
+                conductor_k.x[lane], conductor_k.y[lane], conductor_k.z[lane]
+            ),
+            conductor_alpha[lane],
         )
         result.direction.x[lane] = sampled.direction.x[0]
         result.direction.y[lane] = sampled.direction.y[0]

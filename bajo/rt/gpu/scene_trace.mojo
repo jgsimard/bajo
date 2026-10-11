@@ -37,6 +37,8 @@ from bajo.rt.render_types import (
 from bajo.rt.material_types import (
     EnvironmentKind,
     Integrator,
+    SurfaceId,
+    resolve_mix_surface,
 )
 from bajo.rt.lighting_types import _light_importance
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
@@ -44,6 +46,7 @@ from bajo.rt.wavefront_contract import (
     DeviceWavePath,
     DeviceWaveShadow,
     WAVE_COUNTER,
+    wavefront_rng_material_stage,
 )
 from bajo.rt.gpu.wavefront_contract import (
     _reserve_slot,
@@ -444,6 +447,16 @@ def _gpu_rt_scene_trace_path[
             )
         return
 
+    if SurfaceId.kind_from_raw(surface_value) == .MIX:
+        var material_rng = path_stage_rng(
+            sampling, path.path_id, wavefront_rng_material_stage(UInt32(bounce))
+        )
+        surface_value = resolve_mix_surface(
+            surface_value,
+            scene.mix_surfaces.unsafe_origin_cast[ImmutAnyOrigin](),
+            scene.mix_amounts.unsafe_origin_cast[ImmutAnyOrigin](),
+            material_rng.f32(),
+        )
     var oriented = orient_surface_normal(ray.d, outward)
     var normal = oriented.normal
     normal = _gpu_coated_shading_normal(

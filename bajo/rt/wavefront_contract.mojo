@@ -38,11 +38,12 @@ struct WAVE_RNG_DOMAIN(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     comptime BSDF = Self(0)
     comptime ROULETTE = Self(1)
     comptime LIGHT = Self(2)
+    comptime MATERIAL = Self(3)
     comptime _enum_case_names = ParameterList.of[
-        "BSDF".value, "ROULETTE".value, "LIGHT".value
+        "BSDF".value, "ROULETTE".value, "LIGHT".value, "MATERIAL".value
     ].values
     comptime _enum_case_types = TypeList.of[
-        Trait=AnyType, NoneType, NoneType, NoneType
+        Trait=AnyType, NoneType, NoneType, NoneType, NoneType
     ].values
 
     def _get_enum_discriminant(self) -> Int:
@@ -148,6 +149,14 @@ def wavefront_rng_roulette_stage(bounce: UInt32) -> UInt32:
 def wavefront_rng_light_stage(bounce: UInt32) -> UInt32:
     """Independent Philox domain for zero-based-bounce light sampling."""
     return (WAVE_RNG_DOMAIN.LIGHT.v << WAVE_RNG_DOMAIN.SHIFT) | (
+        bounce + UInt32(1)
+    )
+
+
+@always_inline
+def wavefront_rng_material_stage(bounce: UInt32) -> UInt32:
+    """Independent material selection shared by CPU and GPU schedulers."""
+    return (WAVE_RNG_DOMAIN.MATERIAL.v << WAVE_RNG_DOMAIN.SHIFT) | (
         bounce + UInt32(1)
     )
 

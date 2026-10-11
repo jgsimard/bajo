@@ -4,11 +4,13 @@ from std.bit import count_trailing_zeros, pop_count
 from std.math import abs, cos, pi, sin, sqrt
 from std.memory import pack_bits
 from std.sys import num_logical_cores, simd_width_of
+from bajo.core.random import Sampler
 
 from bajo.bvh import Camera
 from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32
 from bajo.parser.number import parse_f32_fast_at, parse_int_f32
 from bajo.parser.ply.pack import _pack_ply_mesh
+from bajo.parser.ply.pack import _remove_degenerate_triangles
 from bajo.rt.render_types import (
     Color,
     RenderSettings,
@@ -24,6 +26,7 @@ from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.scene_description import SceneDescription
 
 from bajo.parser.asset_loader import AssetLoader
+from bajo.parser.pbrt.spectrum import _named_optical_constant
 
 
 comptime _Transform = Affine3f32[.LOCAL, .WORLD]
@@ -390,6 +393,7 @@ struct _Builder(
     var image_width: Int
     var image_height: Int
     var samples_per_pixel: Int
+    var sampler: Sampler
     var max_depth: Int
     var integrator: Integrator
     var environment: Environment
@@ -417,6 +421,7 @@ struct _Builder(
         self.image_width = 640
         self.image_height = 480
         self.samples_per_pixel = 16
+        self.sampler = .INDEPENDENT
         self.max_depth = 8
         self.integrator = .PATH
         self.environment = Environment.black()
@@ -478,6 +483,7 @@ struct _Builder(
             )
             return
         var mesh = loader.read_ply_mesh(path)
+        _remove_degenerate_triangles(mesh)
         var packed = _pack_ply_mesh(
             mesh, self.state.reverse_orientation, min(8, num_logical_cores())
         )
@@ -561,6 +567,7 @@ struct _Builder(
             self.samples_per_pixel,
             UInt64(2026),
             self.max_depth,
+            self.sampler,
         )
         self.scene.set_environment(self.environment)
         return (camera, settings^)
@@ -833,10 +840,71 @@ def _texture(
     raise Error("unsupported PBRT texture value type: " + value_type)
 
 
+def _optical_constant(
+    params: _Parameters, name: String, default: Color
+) raises -> Color:
+    var values = params.values("spectrum " + name)
+    if len(values) == 0:
+        return params.color(name, default)
+    if len(values) == 1:
+        var text = values[0]
+        if text.find("metal-") == 0:
+            return _named_optical_constant(text)
+        return Color(_parse_f32(text))
+    if len(values) == 3:
+        return Color(
+            _parse_f32(values[0]), _parse_f32(values[1]), _parse_f32(values[2])
+        )
+    raise Error("PBRT optical constants require a named spectrum or RGB values")
+
+
+def _material_roughness(
+    params: _Parameters, prefix: String, default: Float32
+) raises -> Float32:
+    var roughness = params.f32("float " + prefix + "roughness", default)
+    var u = params.f32("float " + prefix + "uroughness", roughness)
+    var v = params.f32("float " + prefix + "vroughness", roughness)
+    var alpha = sqrt(max(u, 0.0) * max(v, 0.0)).clamp(0.0, 1.0)
+    var remap = params.string("bool remaproughness")
+    if not remap or remap.value() != ImmStringSpan("false"):
+        alpha = _roughness_to_alpha(alpha)
+    return alpha
+
+
 def _surface(
     mut builder: _Builder, model: ImmStringSpan, params: _Parameters
 ) raises -> SurfaceId[1]:
     __match model:
+        case "mix":
+            var names = params.values("string materials")
+            if len(names) != 2:
+                raise Error("PBRT mix requires two named materials")
+            var first = String(names[0])
+            var second = String(names[1])
+            if (
+                first not in builder.named_materials
+                or second not in builder.named_materials
+            ):
+                raise Error("unknown PBRT mix material reference")
+            return builder.scene.surfaces.add_mix(
+                builder.named_materials[first],
+                builder.named_materials[second],
+                params.f32("float amount", 0.5),
+            )
+        case "coatedconductor":
+            var interface_eta = params.f32("float interface.eta", 1.5)
+            return builder.scene.surfaces.add_coated_conductor(
+                _optical_constant(params, "conductor.eta", Color(1.0)),
+                _optical_constant(params, "conductor.k", Color(1.0)),
+                _material_roughness(params, "conductor.", 0.0),
+                _material_roughness(params, "interface.", 0.0),
+                interface_eta,
+                params.f32("float thickness", 0.01),
+                params.color("albedo", Color(0.0)),
+                params.f32("float g", 0.0),
+                params.integer("integer maxdepth", 10),
+                params.integer("integer nsamples", 1),
+            )
         case "coateddiffuse":
             var reflectance = _color_texture_parameter(
                 builder, params, "reflectance", Color(0.5)
@@ -876,6 +944,17 @@ def _surface(
                 reflectance.scale, reflectance.image_index
             )
         case "conductor" | "metal":
+            if (
+                params.has("spectrum eta")
+                or params.has("spectrum k")
+                or params.has("rgb eta")
+                or params.has("rgb k")
+            ):
+                return builder.scene.surfaces.add_conductor(
+                    _optical_constant(params, "eta", Color(1.0)),
+                    _optical_constant(params, "k", Color(1.0)),
+                    _material_roughness(params, "", 0.0),
+                )
             var roughness = params.f32("float roughness", 0.05).clamp(0.0, 1.0)
             var reflectance = _color_texture_parameter(
                 builder, params, "reflectance", Color(0.9)
@@ -1083,7 +1162,15 @@ def _parse_text[
                 )
 
             case "Sampler":
-                var params = _named_params(lexer)
+                var sampler_name = lexer.next().value
+                __match sampler_name:
+                    case "halton":
+                        builder.sampler = .HALTON
+                    case "sobol":
+                        builder.sampler = .OWEN_SOBOL
+                    case _:
+                        builder.sampler = .INDEPENDENT
+                var params = _parse_params(lexer)
                 builder.samples_per_pixel = params.integer(
                     "integer pixelsamples", 16
                 )

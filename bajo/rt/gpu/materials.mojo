@@ -143,6 +143,25 @@ def _flatten_coated_diffuses(world: SceneData) -> List[Float32]:
         out[
             base + GpuCoatedDiffuseLayout.DISPLACEMENT_V_SCALE
         ] = material.displacement_v_scale
+        out[
+            base + GpuCoatedDiffuseLayout.CONDUCTOR_ETA
+        ] = material.conductor_eta.x
+        out[
+            base + GpuCoatedDiffuseLayout.CONDUCTOR_ETA + 1
+        ] = material.conductor_eta.y
+        out[
+            base + GpuCoatedDiffuseLayout.CONDUCTOR_ETA + 2
+        ] = material.conductor_eta.z
+        out[base + GpuCoatedDiffuseLayout.CONDUCTOR_K] = material.conductor_k.x
+        out[
+            base + GpuCoatedDiffuseLayout.CONDUCTOR_K + 1
+        ] = material.conductor_k.y
+        out[
+            base + GpuCoatedDiffuseLayout.CONDUCTOR_K + 2
+        ] = material.conductor_k.z
+        out[
+            base + GpuCoatedDiffuseLayout.CONDUCTOR_ROUGHNESS
+        ] = material.conductor_roughness
     return out^
 
 
@@ -187,6 +206,8 @@ struct GpuRtMaterials:
     var coated_diffuse_texture_indices: DeviceBuffer[.uint32]
     var texture_descs: DeviceBuffer[.uint32]
     var texture_pixels: DeviceBuffer[.float32]
+    var mix_surfaces: DeviceBuffer[.uint32]
+    var mix_amounts: DeviceBuffer[.float32]
     var stages: GpuRtShadeStages
 
     def __init__(
@@ -216,6 +237,8 @@ struct GpuRtMaterials:
         self.texture_pixels = _upload_nonempty(
             ctx, _flatten_texture_pixels(world)
         )
+        self.mix_surfaces = _upload_nonempty(ctx, world.surfaces().mix_surfaces)
+        self.mix_amounts = _upload_nonempty(ctx, world.surfaces().mix_amounts)
         self.stages = GpuRtShadeStages(
             len(world.surfaces().metals) > 0
             or len(world.surfaces().dielectrics) > 0,

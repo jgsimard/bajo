@@ -203,6 +203,8 @@ struct GpuRtScene[
             _immut(self.materials.coated_diffuse_texture_indices),
             _immut(self.materials.texture_descs),
             _immut(self.materials.texture_pixels),
+            _immut(self.materials.mix_surfaces),
+            _immut(self.materials.mix_amounts),
             _immut(self.lights.kinds),
             _immut(self.lights.fields),
             Int32(self.lights.count),

@@ -494,6 +494,24 @@ struct SceneData:
             finalized_instance.bounds = world_bounds
 
     def _validate_materials(self) raises:
+        if len(self._surfaces.mix_surfaces) != 2 * len(
+            self._surfaces.mix_amounts
+        ):
+            raise Error("mix material reference storage has an invalid length")
+        for index, amount in enumerate(self._surfaces.mix_amounts):
+            if not isfinite(amount) or amount < 0.0 or amount > 1.0:
+                raise Error("mix amount must be within [0, 1]")
+            for lane in range(2):
+                var surface = SurfaceId.from_raw(
+                    self._surfaces.mix_surfaces[2 * index + lane]
+                )
+                if (
+                    not self._surfaces.contains(surface)
+                    or surface.kind() == .EMISSIVE
+                ):
+                    raise Error("mix material must reference an existing BSDF")
+                if surface.kind() == .MIX and Int(surface.index()) >= index:
+                    raise Error("mix material references must be acyclic")
         for material in self._surfaces.lambertians:
             material.validate()
             if (

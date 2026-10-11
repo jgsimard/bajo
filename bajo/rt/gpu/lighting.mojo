@@ -450,6 +450,9 @@ def _sample_direct_light_candidate[
                     coated.max_depth,
                     coated.n_samples,
                     geometry.direction,
+                    conductor_eta=coated.conductor_eta,
+                    conductor_k=coated.conductor_k,
+                    conductor_alpha=coated.conductor_roughness,
                 )
                 value = evaluation.value
                 bsdf_pdf = evaluation.pdf

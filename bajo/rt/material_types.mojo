@@ -145,21 +145,30 @@ struct MaterialKind(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     comptime DIELECTRIC = Self(2)
     comptime EMISSIVE = Self(3)
     comptime COATED_DIFFUSE = Self(4)
+    comptime MIX = Self(5)
     comptime _enum_case_names = ParameterList.of[
         "LAMBERTIAN".value,
         "METAL".value,
         "DIELECTRIC".value,
         "EMISSIVE".value,
         "COATED_DIFFUSE".value,
+        "MIX".value,
     ].values
     comptime _enum_case_types = TypeList.of[
-        Trait=AnyType, NoneType, NoneType, NoneType, NoneType, NoneType
+        Trait=AnyType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
+        NoneType,
     ].values
     comptime has_bsdf[kind: Self] = (
         kind.value == Self.LAMBERTIAN.value
         or kind.value == Self.METAL.value
         or kind.value == Self.DIELECTRIC.value
         or kind.value == Self.COATED_DIFFUSE.value
+        or kind.value == Self.MIX.value
     )
 
     def _get_enum_discriminant(self) -> Int:
@@ -182,6 +191,30 @@ comptime SURFACE_INDEX_MASK = UInt32((1 << SURFACE_INDEX_BITS) - 1)
 comptime PRIMITIVE_KIND_BITS = UInt32(4)
 comptime PRIMITIVE_INDEX_BITS = 32 - PRIMITIVE_KIND_BITS
 comptime PRIMITIVE_INDEX_MASK = UInt32((1 << PRIMITIVE_INDEX_BITS) - 1)
+
+
+@always_inline
+def resolve_mix_surface(
+    var surface: UInt32,
+    references: Pointer[UInt32, ImmutAnyOrigin],
+    amounts: Pointer[Float32, ImmutAnyOrigin],
+    var random: Float32,
+) -> UInt32:
+    """Choose one BSDF per hit, shared by direct lighting and continuation.
+
+    Remapping the variate preserves conditional probabilities for nested mixes.
+    The selected BSDF's value and PDF stay paired for MIS.
+    """
+    while SurfaceId.kind_from_raw(surface) == .MIX:
+        var index = Int(SurfaceId.index_from_raw(surface))
+        var amount = amounts[unsafe_offset=index]
+        if random < amount:
+            surface = references[unsafe_offset=2 * index + 1]
+            random /= amount
+        else:
+            surface = references[unsafe_offset=2 * index]
+            random = (random - amount) / (1.0 - amount)
+    return surface
 
 
 @fieldwise_init
@@ -359,9 +392,12 @@ struct Metal(Copyable, Writable):
             raise Error("metal fuzz must be within [0, 1]")
 
 
-@fieldwise_init
 struct CoatedDiffuse(Copyable, Writable):
-    """Diffuse substrate below a rough dielectric coating."""
+    """Shared layered material: dielectric coat over diffuse or conductor.
+
+    Zero conductor eta and k select the diffuse substrate. The historical type and
+    surface kind retain one CPU/GPU shading pipeline for both substrates.
+    """
 
     var albedo: Color
     var roughness: Float32
@@ -376,8 +412,68 @@ struct CoatedDiffuse(Copyable, Writable):
     var g: Float32
     var max_depth: Int
     var n_samples: Int
+    var conductor_eta: Color
+    var conductor_k: Color
+    var conductor_roughness: Float32
+
+    def __init__(
+        out self,
+        albedo: Color,
+        roughness: Float32,
+        eta: Float32,
+        texture_index: UInt32,
+        displacement_texture_index: UInt32,
+        displacement_scale: Float32,
+        displacement_u_scale: Float32,
+        displacement_v_scale: Float32,
+        thickness: Float32,
+        layer_albedo: Color,
+        g: Float32,
+        max_depth: Int,
+        n_samples: Int,
+        conductor_eta: Color = Color(0.0),
+        conductor_k: Color = Color(0.0),
+        conductor_roughness: Float32 = 0.0,
+    ):
+        self.albedo = albedo
+        self.roughness = roughness
+        self.eta = eta
+        self.texture_index = texture_index
+        self.displacement_texture_index = displacement_texture_index
+        self.displacement_scale = displacement_scale
+        self.displacement_u_scale = displacement_u_scale
+        self.displacement_v_scale = displacement_v_scale
+        self.thickness = thickness
+        self.layer_albedo = layer_albedo
+        self.g = g
+        self.max_depth = max_depth
+        self.n_samples = n_samples
+        self.conductor_eta = conductor_eta
+        self.conductor_k = conductor_k
+        self.conductor_roughness = conductor_roughness
 
     def validate(self) raises:
+        if (
+            not self.conductor_eta.is_finite()[0]
+            or not self.conductor_k.is_finite()[0]
+        ):
+            raise Error("conductor optical constants must be finite")
+        for value in [
+            self.conductor_eta.x[0],
+            self.conductor_eta.y[0],
+            self.conductor_eta.z[0],
+            self.conductor_k.x[0],
+            self.conductor_k.y[0],
+            self.conductor_k.z[0],
+        ]:
+            if value < 0.0:
+                raise Error("conductor optical constants must be non-negative")
+        if (
+            not isfinite(self.conductor_roughness)
+            or self.conductor_roughness < 0.0
+            or self.conductor_roughness > 1.0
+        ):
+            raise Error("conductor roughness must be within [0, 1]")
         if not self.albedo.is_finite()[0]:
             raise Error("coated diffuse albedo must be finite")
         if (
@@ -456,6 +552,9 @@ struct SurfaceStore:
     var emissives: List[Emissive]
     var coated_diffuses: List[CoatedDiffuse]
     var image_textures: List[ImageTexture]
+    # Mix nodes refer only to existing surfaces, forming an acyclic graph.
+    var mix_surfaces: List[UInt32]
+    var mix_amounts: List[Float32]
 
     def __init__(out self):
         self.lambertians = List[Lambertian]()
@@ -464,6 +563,8 @@ struct SurfaceStore:
         self.emissives = List[Emissive]()
         self.coated_diffuses = List[CoatedDiffuse]()
         self.image_textures = List[ImageTexture]()
+        self.mix_surfaces = List[UInt32]()
+        self.mix_amounts = List[Float32]()
 
     def contains(self, surface: SurfaceId[1]) -> Bool:
         __match surface.kind():
@@ -477,6 +578,40 @@ struct SurfaceStore:
                 return surface.index() < UInt32(len(self.emissives))
             case .COATED_DIFFUSE:
                 return surface.index() < UInt32(len(self.coated_diffuses))
+            case .MIX:
+                return surface.index() < UInt32(len(self.mix_amounts))
+
+    def add_mix(
+        mut self, first: SurfaceId[1], second: SurfaceId[1], amount: Float32
+    ) raises -> SurfaceId[1]:
+        if not isfinite(amount) or amount < 0.0 or amount > 1.0:
+            raise Error("mix amount must be within [0, 1]")
+        if not self.contains(first) or not self.contains(second):
+            raise Error("mix material reference is out of range")
+        if first.kind() == .EMISSIVE or second.kind() == .EMISSIVE:
+            raise Error("mix materials must reference BSDFs")
+        var index = UInt32(len(self.mix_amounts))
+        self.mix_surfaces.append(first.value[0])
+        self.mix_surfaces.append(second.value[0])
+        self.mix_amounts.append(amount)
+        return SurfaceId(.MIX, index)
+
+    @always_inline
+    def resolve_mix(
+        self, surface: SurfaceId[1], random: Float32
+    ) -> SurfaceId[1]:
+        return SurfaceId.from_raw(
+            resolve_mix_surface(
+                surface.value[0],
+                self.mix_surfaces.unsafe_ptr().unsafe_origin_cast[
+                    ImmutAnyOrigin
+                ](),
+                self.mix_amounts.unsafe_ptr().unsafe_origin_cast[
+                    ImmutAnyOrigin
+                ](),
+                random,
+            )
+        )
 
     def emitted_radiance(
         self, surface: SurfaceId[1], front_face: Bool
@@ -622,6 +757,52 @@ struct SurfaceStore:
             )
         )
         return SurfaceId(.COATED_DIFFUSE, index)
+
+    def add_coated_conductor(
+        mut self,
+        conductor_eta: Color,
+        conductor_k: Color,
+        conductor_roughness: Float32,
+        roughness: Float32 = 0.0,
+        eta: Float32 = 1.5,
+        thickness: Float32 = 0.01,
+        layer_albedo: Color = Color(0.0),
+        g: Float32 = 0.0,
+        max_depth: Int = 10,
+        n_samples: Int = 1,
+    ) -> SurfaceId[1]:
+        var index = UInt32(len(self.coated_diffuses))
+        self.coated_diffuses.append(
+            CoatedDiffuse(
+                Color(1.0),
+                roughness,
+                eta,
+                NO_TEXTURE,
+                NO_TEXTURE,
+                0.0,
+                1.0,
+                1.0,
+                thickness,
+                layer_albedo,
+                g,
+                max_depth,
+                n_samples,
+                conductor_eta / eta,
+                conductor_k / eta,
+                conductor_roughness,
+            )
+        )
+        return SurfaceId(.COATED_DIFFUSE, index)
+
+    def add_conductor(
+        mut self,
+        eta: Color,
+        k: Color,
+        roughness: Float32,
+    ) -> SurfaceId[1]:
+        # A unit-IOR, zero-thickness interface is evaluated directly as a GGX
+        # conductor, sharing the layered table and queue.
+        return self.add_coated_conductor(eta, k, roughness, 0.0, 1.0, 0.0)
 
     def add_emissive(mut self, radiance: Color) -> SurfaceId[1]:
         var index = UInt32(len(self.emissives))

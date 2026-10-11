@@ -284,6 +284,9 @@ def _shade_coated_diffuse_inline[
         coated.n_samples,
         rng.f32(),
         rng.f32(),
+        conductor_eta=coated.conductor_eta,
+        conductor_k=coated.conductor_k,
+        conductor_alpha=coated.conductor_roughness,
     )
     _continue_gpu_path[integrator](
         path,
@@ -345,6 +348,11 @@ def _route_surface_hit[
 
     var kind = SurfaceId.kind_from_raw(surface_value)
     __match kind:
+        case .MIX:
+            debug_assert["safe"](
+                False, "mix surfaces must be resolved before shading"
+            )
+            return
         case .EMISSIVE:
             if front_face:
                 var material_idx = Int(SurfaceId.index_from_raw(surface_value))

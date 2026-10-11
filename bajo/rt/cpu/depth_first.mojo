@@ -40,6 +40,7 @@ from .lighting import (
 from bajo.rt.wavefront_contract import (
     wavefront_rng_light_stage,
     wavefront_rng_stage,
+    wavefront_rng_material_stage,
 )
 
 
@@ -66,6 +67,17 @@ def _trace_path[
     for _bounce in range(settings.max_depth):
         var hit = world.trace_surface(cur_ray)
         if hit.hit:
+            if hit.surface.kind() == .MIX:
+                var material_rng = path_stage_rng(
+                    sampling,
+                    path_id,
+                    wavefront_rng_material_stage(UInt32(_bounce)),
+                )
+                hit.surface = (
+                    world.scene_data()
+                    .surfaces()
+                    .resolve_mix(hit.surface, material_rng.f32())
+                )
             var point = ShadingPoint.from_hit(cur_ray, hit)
             point.normal = (
                 world.scene_data()

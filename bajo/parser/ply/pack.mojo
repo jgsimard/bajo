@@ -3,8 +3,49 @@
 from max.algorithm import parallelize
 from std.math import ceildiv
 
-from bajo.core import AABB, Point3f32
+from bajo.core import AABB, Point3f32, cross, length2
+from std.utils.numerics import isfinite
 from bajo.parser.ply.types import PlyMesh
+
+
+def _remove_degenerate_triangles(mut mesh: PlyMesh) raises:
+    """Compact imported indices, preserving attributes and valid face order.
+
+    Zero-area faces cannot intersect a ray. Invalid indices and non-finite
+    geometry remain errors; this does not relax finalized-scene validation.
+    """
+    if len(mesh.indices) % 3:
+        raise Error("PLY triangles require complete index triples")
+
+    @always_inline
+    def point(index: UInt32) raises {mesh} -> Point3f32[.LOCAL]:
+        if index >= UInt32(mesh.vertex_count()):
+            raise Error("PLY face index is out of range")
+        var source = 3 * Int(index)
+        var result = Point3f32[.LOCAL](
+            mesh.positions[source],
+            mesh.positions[source + 1],
+            mesh.positions[source + 2],
+        )
+        if not result.is_finite()[0]:
+            raise Error("PLY triangle vertices must be finite")
+        return result
+
+    var write = 0
+    for base in range(0, len(mesh.indices), 3):
+        var p0 = point(mesh.indices[base])
+        var p1 = point(mesh.indices[base + 1])
+        var p2 = point(mesh.indices[base + 2])
+        var area = length2(cross(p1 - p0, p2 - p0))[0]
+        if not isfinite(area):
+            raise Error("PLY triangle area must be finite")
+        if area == 0.0:
+            continue
+        if write != base:
+            for lane in range(3):
+                mesh.indices[write + lane] = mesh.indices[base + lane]
+        write += 3
+    mesh.indices.resize(write, fill=UInt32(0))
 
 
 @fieldwise_init

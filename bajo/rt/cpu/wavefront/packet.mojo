@@ -49,7 +49,10 @@ from bajo.rt.wavefront_queue import (
     PathPacket,
     ShadePacket,
 )
-from bajo.rt.wavefront_contract import wavefront_rng_light_stage
+from bajo.rt.wavefront_contract import (
+    wavefront_rng_light_stage,
+    wavefront_rng_material_stage,
+)
 
 
 from ..lighting import (
@@ -101,6 +104,9 @@ struct _MaterialParameters[length: SIMDLength]:
     var g: SIMD[.float32, Self.length]
     var layer_max_depth: SIMD[.float32, Self.length]
     var layer_samples: SIMD[.float32, Self.length]
+    var conductor_eta: Vec3[.float32, .WORLD, Self.length]
+    var conductor_k: Vec3[.float32, .WORLD, Self.length]
+    var conductor_alpha: SIMD[.float32, Self.length]
 
     def __init__(out self):
         self.albedo = Vec3[.float32, .WORLD, Self.length](0.0)
@@ -111,6 +117,9 @@ struct _MaterialParameters[length: SIMDLength]:
         self.g = SIMD[.float32, Self.length](0.0)
         self.layer_max_depth = SIMD[.float32, Self.length](10.0)
         self.layer_samples = SIMD[.float32, Self.length](1.0)
+        self.conductor_eta = Vec3[.float32, .WORLD, Self.length](0.0)
+        self.conductor_k = Vec3[.float32, .WORLD, Self.length](0.0)
+        self.conductor_alpha = 0.0
 
     @always_inline
     def gather_lane[
@@ -145,6 +154,13 @@ struct _MaterialParameters[length: SIMDLength]:
                 self.g[lane] = material.g
                 self.layer_max_depth[lane] = Float32(material.max_depth)
                 self.layer_samples[lane] = Float32(material.n_samples)
+                self.conductor_eta.x[lane] = material.conductor_eta.x
+                self.conductor_eta.y[lane] = material.conductor_eta.y
+                self.conductor_eta.z[lane] = material.conductor_eta.z
+                self.conductor_k.x[lane] = material.conductor_k.x
+                self.conductor_k.y[lane] = material.conductor_k.y
+                self.conductor_k.z[lane] = material.conductor_k.z
+                self.conductor_alpha[lane] = material.conductor_roughness
             case .DIELECTRIC:
                 self.parameter[lane] = surfaces.dielectrics[
                     Int(surface_index)
@@ -217,6 +233,9 @@ def _accumulate_direct_light_packet[
         lights.sample.direction,
         lights.sample.valid
         & lights.surface_kinds.eq(MaterialKind.COATED_DIFFUSE.value),
+        material.conductor_eta,
+        material.conductor_k,
+        material.conductor_alpha,
     )
     var is_lambertian = lights.surface_kinds.eq(MaterialKind.LAMBERTIAN.value)
     var is_metal = lights.surface_kinds.eq(MaterialKind.METAL.value)
@@ -314,6 +333,9 @@ def _sample_bsdf_batch[
             random_u,
             random_v,
             active,
+            material.conductor_eta,
+            material.conductor_k,
+            material.conductor_alpha,
         )
     else:
         sampled = _sample_material[MATERIAL_KIND, length](
@@ -496,6 +518,17 @@ def _trace_path_packets[
                 )
                 var hit = surface_hits.get(lane)
                 if hit.hit:
+                    if hit.surface.kind() == .MIX:
+                        var material_rng = path_stage_rng(
+                            sampling,
+                            packet.path_ids[lane],
+                            wavefront_rng_material_stage(UInt32(bounce)),
+                        )
+                        hit.surface = (
+                            world.scene_data()
+                            .surfaces()
+                            .resolve_mix(hit.surface, material_rng.f32())
+                        )
                     hit.normal = (
                         world.scene_data()
                         .surfaces()

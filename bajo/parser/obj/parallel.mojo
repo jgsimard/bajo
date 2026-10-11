@@ -1,8 +1,12 @@
 """Count OBJ chunks, decode disjoint ranges, then resolve ordered metadata."""
 
 from max.algorithm import parallelize
+from std.bit import count_trailing_zeros, pop_count
 from std.math import ceildiv
+from std.memory import pack_bits
+from std.sys import simd_width_of
 from .types import ObjMesh, ObjGroup, ObjIndex
+from .lines import _ObjLines
 from .cursor import ObjIndexLimit, ObjLineCursor
 from .constants import *
 from .primitives import _is_ws_or_line_cut
@@ -98,11 +102,41 @@ def _record_kind(mut cur: ObjLineCursor) -> Int:
 
 
 @always_inline
-def _word_count(mut cur: ObjLineCursor) -> Int:
+def _word_count(bytes: ImmSpan[UInt8, _], begin: Int, end: Int) -> Int:
+    # Loads may extend past this line, but never past the complete input span.
+    # Masking the extra lanes lets short OBJ records use SIMD as well.
+    comptime width = min(64, simd_width_of[UInt8]())
     var count = 0
-    while cur.has_next():
-        _ = cur.next_word()
-        count += 1
+    var pos = begin
+    var previous_token = UInt64(0)
+    while pos < end and len(bytes) - pos >= width:
+        var block = (
+            bytes.unsafe_ptr()
+            .unsafe_offset(pos)
+            .unsafe_load[width=width, alignment=1]()
+        )
+        var valid = min(width, end - pos)
+        var cuts = UInt64(pack_bits(block.eq(CR) | block.eq(HASH)))
+        var stop = min(valid, Int(count_trailing_zeros(cuts)))
+        if stop == 0:
+            return count
+        var active = ~UInt64(0) >> UInt64(64 - stop)
+        var whitespace = UInt64(pack_bits(block.eq(SPACE) | block.eq(TAB)))
+        var tokens = ~whitespace & active
+        var starts = tokens & ~((tokens << 1) | previous_token)
+        count += Int(pop_count(starts))
+        if stop < valid:
+            return count
+        previous_token = (tokens >> UInt64(valid - 1)) & 1
+        pos += valid
+    while pos < end:
+        var byte = bytes.unsafe_get(pos)
+        if byte == CR or byte == HASH:
+            break
+        var token = UInt64(byte != SPACE and byte != TAB)
+        count += Int(token & ~previous_token)
+        previous_token = token
+        pos += 1
     return count
 
 
@@ -112,14 +146,13 @@ def _count_chunk(text: ImmStringSpan, begin: Int, end: Int) -> _ObjChunk:
     chunk.end = end
     var bytes = text.as_bytes()
     var start = begin
+    var lines = _ObjLines(bytes, begin, end)
     while start < end:
-        var stop = text.find("\n", start)
-        if stop == -1:
-            stop = end
+        var stop = lines.next_end()
         var cur = ObjLineCursor(bytes[start:stop])
         var kind = _record_kind(cur)
         if kind >= 1 and kind <= 5:
-            var count = _word_count(cur)
+            var count = _word_count(bytes, start + cur.pos, stop)
             __match kind:
                 case 1:
                     if count >= 3:
@@ -337,10 +370,9 @@ def _decode_chunk(
     var indices = Span(mesh.indices)[
         chunk.index_offset : chunk.index_offset + chunk.indices
     ]
+    var lines = _ObjLines(bytes, chunk.begin, chunk.end)
     while start < chunk.end:
-        var stop = text.find("\n", start)
-        if stop == -1:
-            stop = chunk.end
+        var stop = lines.next_end()
         var cur = ObjLineCursor(bytes[start:stop])
         var kind = _record_kind(cur)
         __match kind:

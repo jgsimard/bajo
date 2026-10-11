@@ -2,8 +2,9 @@
 
 from max.algorithm import parallelize
 from std.math import ceildiv
-from std.memory import bitcast
-from std.sys import num_logical_cores
+from std.memory import bitcast, pack_bits
+from std.sys import num_logical_cores, simd_width_of
+from std.utils import IndexList
 
 from bajo.parser.ply.types import PlyMesh
 
@@ -457,7 +458,12 @@ def _store_vertex_value(
 
 
 def _parse_ply_serial(bytes: ImmSpan[UInt8, _]) raises -> PlyMesh:
-    var header = _parse_header(bytes)
+    return _parse_ply_serial_from_header(bytes, _parse_header(bytes))
+
+
+def _parse_ply_serial_from_header(
+    bytes: ImmSpan[UInt8, _], header: _Header
+) raises -> PlyMesh:
     var cursor = _BinaryCursor(bytes, header.data_offset)
     var mesh = PlyMesh()
     mesh.positions = List[Float32](length=header.vertex_count * 3, fill=0.0)
@@ -538,6 +544,93 @@ def _decode_vertex_property(
             output[vertex * output_stride + lane] = cursor.read_number(kind)
 
 
+def _vertex_permutation[
+    record_width: Int, first: Int, components: Int, width: Int
+]() -> IndexList[width]:
+    var result = IndexList[width]()
+    comptime for lane in range(width):
+        result[lane] = (
+            record_width * (lane // components)
+            + first
+            + lane % components if lane
+            < components * (width // 8) else width
+        )
+    return result
+
+
+def _decode_common_vertices[
+    record_width: Int
+](
+    bytes: ImmSpan[UInt8, _],
+    data_offset: Int,
+    positions: MutSpan[Float32, _],
+    normals: MutSpan[Float32, _],
+    texcoords: MutSpan[Float32, _],
+    begin: Int,
+    end: Int,
+):
+    comptime width = simd_width_of[Float32]()
+    comptime batch = width // 4
+    comptime position_mask = _vertex_permutation[
+        record_width, 0, 3, 2 * width
+    ]()
+    comptime normal_mask = _vertex_permutation[record_width, 3, 3, 2 * width]()
+    comptime zero = SIMD[.float32, 2 * width](0)
+    var source = (
+        bytes.unsafe_ptr().unsafe_offset(data_offset).unsafe_bitcast[Float32]()
+    )
+    var vertex = begin
+    while (end - vertex) * record_width >= 2 * width and 3 * (
+        end - vertex
+    ) >= width:
+        var block = source.unsafe_offset(record_width * vertex).unsafe_load[
+            width=2 * width, alignment=1
+        ]()
+        var p = block.shuffle[position_mask](zero).slice[width]()
+        var n = block.shuffle[normal_mask](zero).slice[width]()
+        # Padded xyz lanes overlap subsequent vertices owned by this task.
+        # The loop bounds keep full stores inside its range; the tail replaces
+        # padding and copies all remaining values, including their exact bits.
+        positions.unsafe_ptr().unsafe_offset(3 * vertex).unsafe_store[
+            width=width
+        ](p)
+        normals.unsafe_ptr().unsafe_offset(3 * vertex).unsafe_store[
+            width=width
+        ](n)
+        comptime if record_width == 8:
+            comptime uv_mask = _vertex_permutation[
+                record_width, 6, 2, 2 * width
+            ]()
+            var uv = block.shuffle[uv_mask](zero).slice[width // 2]()
+            texcoords.unsafe_ptr().unsafe_offset(2 * vertex).unsafe_store[
+                width=width // 2
+            ](uv)
+        vertex += batch
+    for index in range(vertex, end):
+        comptime for lane in range(3):
+            positions.unsafe_ptr()[
+                unsafe_offset=3 * index + lane
+            ] = source.unsafe_offset(record_width * index + lane).unsafe_load[
+                alignment=1
+            ]()
+            normals.unsafe_ptr()[
+                unsafe_offset=3 * index + lane
+            ] = source.unsafe_offset(
+                record_width * index + 3 + lane
+            ).unsafe_load[
+                alignment=1
+            ]()
+        comptime if record_width == 8:
+            comptime for lane in range(2):
+                texcoords.unsafe_ptr()[
+                    unsafe_offset=2 * index + lane
+                ] = source.unsafe_offset(
+                    record_width * index + 6 + lane
+                ).unsafe_load[
+                    alignment=1
+                ]()
+
+
 def _decode_vertices(
     bytes: ImmSpan[UInt8, _], header: _Header, mut mesh: PlyMesh, workers: Int
 ) raises:
@@ -548,12 +641,35 @@ def _decode_vertices(
         max(1, workers) * 4, max(1, ceildiv(header.vertex_count, 16 * 1024))
     )
     var failed = List[UInt8](length=tasks, fill=0)
+    var common = _common_vertices(header)
 
     def decode(task: Int) {imm, mut mesh, mut failed}:
         var begin = header.vertex_count * task // tasks
         var end = header.vertex_count * (task + 1) // tasks
         var offset = header.data_offset
         try:
+            if common:
+                if len(header.vertex_properties) == 6:
+                    _decode_common_vertices[6](
+                        bytes,
+                        offset,
+                        mesh.positions,
+                        mesh.normals,
+                        mesh.texcoords,
+                        begin,
+                        end,
+                    )
+                else:
+                    _decode_common_vertices[8](
+                        bytes,
+                        offset,
+                        mesh.positions,
+                        mesh.normals,
+                        mesh.texcoords,
+                        begin,
+                        end,
+                    )
+                return
             for prop in header.vertex_properties:
                 if prop.semantic >= _X and prop.semantic <= _Z:
                     _decode_vertex_property(
@@ -614,6 +730,133 @@ struct _FaceChunk(TrivialRegisterPassable):
     var output_count: Int
 
 
+def _common_vertices(header: _Header) -> Bool:
+    var count = len(header.vertex_properties)
+    if count != 6 and count != 8:
+        return False
+    for index in range(count):
+        var prop = header.vertex_properties[index]
+        if prop.scalar_type != .F32 or prop.semantic != UInt8(index + 1):
+            return False
+    return True
+
+
+def _triangle_layout(header: _Header) -> Bool:
+    if len(header.face_properties) != 1:
+        return False
+    var prop = header.face_properties[0]
+    return (
+        prop.is_list
+        and prop.semantic == _VERTEX_INDICES
+        and prop.scalar_type == .U8
+        and prop.list_item_type == .I32
+    )
+
+
+def _triangle_permutation[width: Int]() -> IndexList[width]:
+    var result = IndexList[width]()
+    comptime for byte in range(width):
+        # Drop one count byte from each 13-byte triangle record. Padding
+        # selects the zero vector used as the shuffle's second operand.
+        result[byte] = (
+            1 + byte + byte // 12 if byte < 12 * (width // 16) else width
+        )
+    return result
+
+
+def _triangle_count_mask[width: Int]() -> UInt64:
+    var result = UInt64(0)
+    comptime for face in range(width // 16):
+        result |= UInt64(1) << UInt64(13 * face)
+    return result
+
+
+def _triangle_face_chunks(
+    bytes: ImmSpan[UInt8, _], header: _Header, begin: Int
+) -> Optional[List[_FaceChunk]]:
+    if not _triangle_layout(header) or (
+        header.face_count > 0 and header.vertex_count < 3
+    ):
+        return Optional[List[_FaceChunk]]()
+    if header.face_count > (len(bytes) - begin) // 13:
+        return Optional[List[_FaceChunk]]()
+    comptime width = min(64, simd_width_of[UInt8]())
+    comptime faces_per_block = width // 16
+    comptime mask = _triangle_count_mask[width]()
+    var end = begin + 13 * header.face_count
+    var pos = begin
+    while end - pos >= width:
+        var block = (
+            bytes.unsafe_ptr()
+            .unsafe_offset(pos)
+            .unsafe_load[width=width, alignment=1]()
+        )
+        if UInt64(pack_bits(block.eq(UInt8(3)))) & mask != mask:
+            return Optional[List[_FaceChunk]]()
+        pos += 13 * faces_per_block
+    while pos < end:
+        if bytes.unsafe_get(pos) != UInt8(3):
+            return Optional[List[_FaceChunk]]()
+        pos += 13
+    var chunks = List[_FaceChunk](capacity=ceildiv(header.face_count, 4096))
+    for face in range(0, header.face_count, 4096):
+        var count = min(4096, header.face_count - face)
+        chunks.append(
+            _FaceChunk(
+                begin + 13 * face,
+                begin + 13 * (face + count),
+                count,
+                3 * face,
+                3 * count,
+            )
+        )
+    return Optional(chunks^)
+
+
+def _emit_triangles(
+    bytes: ImmSpan[UInt8, _], output: MutSpan[UInt32, _], vertex_count: Int
+) raises:
+    comptime width = min(64, simd_width_of[UInt8]())
+    comptime lanes = width // 4
+    comptime faces_per_block = width // 16
+    comptime permutation = _triangle_permutation[width]()
+    comptime zero = SIMD[.uint8, width](0)
+    # Signed source indices must be nonnegative even for very large meshes.
+    var limit = UInt32(min(vertex_count, 0x80000000))
+    var pos = 0
+    var write = 0
+    while len(bytes) - pos >= width and len(output) - write >= lanes:
+        var block = (
+            bytes.unsafe_ptr()
+            .unsafe_offset(pos)
+            .unsafe_load[width=width, alignment=1]()
+        )
+        var indices = bitcast[.uint32, lanes](block.shuffle[permutation](zero))
+        if not indices.lt(limit).reduce_and():
+            raise Error("PLY face index is out of range")
+        # The padded lanes overlap the next records in this worker's slice;
+        # subsequent stores overwrite them. Both spans bound every full load
+        # and store, and the scalar tail fills all remaining indices.
+        output.unsafe_ptr().unsafe_offset(write).unsafe_store[width=lanes](
+            indices
+        )
+        pos += 13 * faces_per_block
+        write += 3 * faces_per_block
+    while pos < len(bytes):
+        for corner in range(3):
+            var index = (
+                bytes.unsafe_ptr()
+                .unsafe_offset(pos + 1 + 4 * corner)
+                .unsafe_bitcast[UInt32]()
+                .unsafe_load[alignment=1]()
+            )
+            if index >= limit:
+                raise Error("PLY face index is out of range")
+            output.unsafe_ptr()[unsafe_offset=write + corner] = index
+        pos += 13
+        write += 3
+
+
 def _face_chunks(
     bytes: ImmSpan[UInt8, _], header: _Header
 ) raises -> List[_FaceChunk]:
@@ -623,6 +866,9 @@ def _face_chunks(
     var cursor = _BinaryCursor(
         bytes, header.data_offset + header.vertex_count * stride
     )
+    var triangles = _triangle_face_chunks(bytes, header, cursor.pos)
+    if triangles:
+        return triangles.take()
     var min_face_bytes = 0
     for prop in header.face_properties:
         min_face_bytes += prop.scalar_type.byte_width()
@@ -675,6 +921,15 @@ def _emit_faces(
     chunk: _FaceChunk,
     output: MutSpan[UInt32, _],
 ) raises:
+    if (
+        _triangle_layout(header)
+        and chunk.output_count == 3 * chunk.face_count
+        and chunk.end - chunk.begin == 13 * chunk.face_count
+    ):
+        _emit_triangles(
+            bytes[chunk.begin : chunk.end], output, header.vertex_count
+        )
+        return
     # Limit each cursor and output span to its chunk, including malformed input.
     var cursor = _BinaryCursor(bytes[chunk.begin : chunk.end], 0)
     var write = 0
@@ -707,7 +962,12 @@ def _emit_faces(
 
 
 def _parse_ply_bulk(bytes: ImmSpan[UInt8, _], workers: Int) raises -> PlyMesh:
-    var header = _parse_header(bytes)
+    return _parse_ply_bulk_from_header(bytes, _parse_header(bytes), workers)
+
+
+def _parse_ply_bulk_from_header(
+    bytes: ImmSpan[UInt8, _], header: _Header, workers: Int
+) raises -> PlyMesh:
     var chunks = _face_chunks(bytes, header)
     var mesh = PlyMesh()
     mesh.positions.resize(unsafe_uninit_length=header.vertex_count * 3)
@@ -751,10 +1011,14 @@ def _parse_ply_bulk(bytes: ImmSpan[UInt8, _], workers: Int) raises -> PlyMesh:
 
 
 def _parse_ply(bytes: ImmSpan[UInt8, _]) raises -> PlyMesh:
-    if len(bytes) < 256 * 1024:
-        return _parse_ply_serial(bytes)
+    var header = _parse_header(bytes)
+    var small = len(bytes) < 256 * 1024
+    if small and not (_common_vertices(header) and _triangle_layout(header)):
+        return _parse_ply_serial_from_header(bytes, header)
     try:
-        return _parse_ply_bulk(bytes, min(8, num_logical_cores()))
+        return _parse_ply_bulk_from_header(
+            bytes, header, 1 if small else min(8, num_logical_cores())
+        )
     except:
         # Preserve the original diagnostics and validation order on invalid input.
-        return _parse_ply_serial(bytes)
+        return _parse_ply_serial_from_header(bytes, header)

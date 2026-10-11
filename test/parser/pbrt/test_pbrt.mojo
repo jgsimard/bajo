@@ -15,6 +15,8 @@ from bajo.parser.pbrt import (
     read_pbrt_camera,
 )
 from bajo.parser.number import parse_f32_at, parse_int_f32
+from bajo.parser.pbrt.parser import _Lexer
+from std.sys import simd_width_of
 from bajo.parser.asset_loader import AssetLoader
 from bajo.parser.ply import PlyMesh
 from std.testing import assert_equal
@@ -839,6 +841,70 @@ def test_integer_fast_path_preserves_float32_fallback_semantics() raises:
     for spelling in ["1.5", "1x", "1e", "1e309", "++1", "-+1"]:
         with assert_raises():
             _ = parse_int_f32(StringSpan(spelling), "PBRT")
+
+
+def test_simd_lexer_preserves_tokens_quotes_comments_and_line_numbers() raises:
+    comptime width = min(64, simd_width_of[UInt8]())
+    for length in range(3 * width + 4):
+        var prefix = String()
+        for _ in range(length):
+            prefix += "x"
+        var text = (
+            prefix
+            + '\t # ignored "[\n[\n"rgb\n L"\t-1.25# ignored'
+            ' ]"\n]\r\nword"inner"# tail\n'
+        )
+        var lexer = _Lexer(StringSpan(text).as_bytes())
+        if length:
+            var token = lexer.next()
+            assert_equal(token.value, StringSpan(prefix))
+            assert_equal(token.line, 1)
+            assert_true(not token.quoted)
+        var values = ["[", "rgb\n L", "-1.25", "]", 'word"inner"']
+        var lines = [2, 3, 4, 5, 6]
+        for index in range(len(values)):
+            assert_true(lexer.has_next())
+            assert_equal(lexer.next_is_quoted(), index == 1)
+            assert_true(lexer.has_next())
+            var token = lexer.next()
+            assert_equal(token.value, StringSpan(values[index]))
+            assert_equal(token.line, lines[index])
+            assert_equal(token.quoted, index == 1)
+        assert_true(not lexer.has_next())
+        assert_equal(lexer.line, 7)
+
+
+def test_simd_lexer_handles_partial_blocks_and_unterminated_multiline_quotes() raises:
+    comptime width = min(64, simd_width_of[UInt8]())
+    for length in range(3 * width + 4):
+        var prefix = String()
+        var start_line = 1
+        var body_lines = 0
+        var body = String()
+        for index in range(length):
+            if index % 7 == 0:
+                prefix += "\n"
+                start_line += 1
+            else:
+                prefix += "\t "
+            if index % 11 == 0:
+                body += "\n"
+                body_lines += 1
+            else:
+                body += "β#["
+        var text = prefix + '"' + body + '"'
+        var lexer = _Lexer(StringSpan(text).as_bytes())
+        var token = lexer.next()
+        assert_true(token.quoted)
+        assert_equal(token.value, StringSpan(body))
+        assert_equal(token.line, start_line)
+        assert_true(not lexer.has_next())
+        assert_equal(lexer.line, start_line + body_lines)
+        var incomplete = prefix + '"' + body
+        var bad = _Lexer(StringSpan(incomplete).as_bytes())
+        with assert_raises():
+            _ = bad.next()
+        assert_equal(bad.line, start_line + body_lines)
 
 
 def main() raises:

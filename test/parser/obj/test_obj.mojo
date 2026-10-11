@@ -20,11 +20,12 @@ from bajo.parser.obj.pack import (
 )
 from bajo.parser.obj.cursor import ObjIndexLimit
 from bajo.parser.obj.types import ObjIndex
-from std.sys import size_of
+from std.sys import simd_width_of, size_of
 from std.memory import bitcast
 from bajo.parser.number import F32ParseResult, parse_f32_at
 from bajo.parser.number import parse_f32_fast_at
-from bajo.parser.obj.parallel import _parse_obj_bulk
+from bajo.parser.obj.parallel import _parse_obj_bulk, _word_count
+from bajo.parser.obj.lines import _ObjLines
 from bajo.parser.obj.serial import _parse_obj_serial
 from bajo.parser.obj.triangulate import _triangulated_indices_parallel
 
@@ -615,13 +616,13 @@ def test_bulk_decoder_retains_validation_and_unusual_input_behavior() raises:
 
 
 def test_decimal_blocks_reject_every_nondigit_byte() raises:
-    for lane in range(8):
+    for lane in range(16):
         for byte in range(256):
-            var bytes = List[UInt8](length=11, fill=UInt8(49))
+            var bytes = List[UInt8](length=19, fill=UInt8(49))
             bytes[0] = UInt8(48)
             bytes[1] = UInt8(46)
             bytes[2 + lane] = UInt8(byte)
-            bytes[10] = UInt8(32)
+            bytes[18] = UInt8(32)
             var expected = F32ParseResult(0.0, 0)
             var reference_raised = False
             try:
@@ -638,6 +639,137 @@ def test_decimal_blocks_reject_every_nondigit_byte() raises:
                     bitcast[.uint32](actual.value)
                     == bitcast[.uint32](expected.value)
                 )
+
+
+def _assert_line_ends(bytes: ImmSpan[UInt8, _], begin: Int, end: Int) raises:
+    var lines = _ObjLines(bytes, begin, end)
+    var pos = begin
+    while pos < end:
+        while pos < end and bytes[pos] != UInt8(10):
+            pos += 1
+        assert_true(lines.next_end() == pos)
+        pos += 1
+    assert_true(lines.next_end() == end)
+    assert_true(lines.next_end() == end)
+
+
+def test_simd_line_scanner_preserves_offsets_bounds_and_tails() raises:
+    comptime width = min(64, simd_width_of[UInt8]())
+    for offset in range(17):
+        for length in range(3 * width + 4):
+            var end = offset + length
+            var bytes = List[UInt8](length=end + width, fill=UInt8(10))
+            for pos in range(length):
+                bytes[offset + pos] = UInt8(
+                    10
+                ) if pos % 5 == 0 or pos % 31 == 1 else UInt8(pos % 256)
+            _assert_line_ends(bytes, offset, end)
+            _assert_line_ends(Span(bytes)[:end], offset, end)
+    var long_line = List[UInt8](length=4 * width + 3, fill=UInt8(49))
+    _assert_line_ends(long_line, 0, len(long_line))
+
+
+def test_simd_line_scanner_only_splits_on_newline() raises:
+    comptime width = min(64, simd_width_of[UInt8]())
+    for pos in range(2 * width + 3):
+        for byte in range(256):
+            var bytes = List[UInt8](length=3 * width + 5, fill=UInt8(49))
+            bytes[pos] = UInt8(byte)
+            _assert_line_ends(bytes, 0, len(bytes))
+
+
+def test_simd_fraction_blocks_preserve_rounding_at_unaligned_offsets_and_tails() raises:
+    for offset in range(17):
+        for digits in range(40):
+            for negative in [False, True]:
+                var text = String()
+                for _ in range(offset):
+                    text += "x"
+                text += "-0." if negative else "12345."
+                for digit in range(digits):
+                    text += String(1 + digit % 9)
+                for suffix in ["", " ", "#tail", "e-3", "E+4", " invalid"]:
+                    var input = text + suffix
+                    var bytes = StringSpan(input).as_bytes()
+                    var expected = parse_f32_at(bytes, offset)
+                    var actual = parse_f32_fast_at(bytes, offset)
+                    assert_true(actual.pos == expected.pos)
+                    assert_true(
+                        bitcast[.uint32](actual.value)
+                        == bitcast[.uint32](expected.value)
+                    )
+
+
+def _reference_word_count(
+    bytes: ImmSpan[UInt8, _], begin: Int, end: Int
+) -> Int:
+    var count = 0
+    var previous_token = False
+    for pos in range(begin, end):
+        var byte = bytes[pos]
+        if byte == UInt8(13) or byte == UInt8(35):
+            break
+        var token = byte != UInt8(32) and byte != UInt8(9)
+        if token and not previous_token:
+            count += 1
+        previous_token = token
+    return count
+
+
+def test_simd_word_count_matches_scalar_at_boundaries_and_unaligned_offsets() raises:
+    comptime width = min(64, simd_width_of[UInt8]())
+    for offset in range(17):
+        for length in range(3 * width + 4):
+            var bytes = List[UInt8](
+                length=offset + length + width, fill=UInt8(35)
+            )
+            for pos in range(length):
+                bytes[offset + pos] = (
+                    UInt8(32) if pos % 7
+                    == 0 else UInt8(9) if pos % 11
+                    == 0 else UInt8(49)
+                )
+            var expected = _reference_word_count(bytes, offset, offset + length)
+            assert_true(_word_count(bytes, offset, offset + length) == expected)
+            # Remove the lookahead padding to exercise the scalar input tail.
+            assert_true(
+                _word_count(
+                    Span(bytes)[: offset + length], offset, offset + length
+                )
+                == expected
+            )
+    # One long token must only be counted once across several SIMD blocks.
+    var long_token = List[UInt8](length=4 * width + 3, fill=UInt8(49))
+    assert_true(_word_count(long_token, 0, len(long_token)) == 1)
+
+
+def test_simd_word_count_preserves_every_byte_and_comment_boundary() raises:
+    comptime width = min(64, simd_width_of[UInt8]())
+    for pos in range(2 * width + 3):
+        for byte in range(256):
+            var bytes = List[UInt8](length=3 * width + 5, fill=UInt8(49))
+            bytes[pos] = UInt8(byte)
+            var expected = _reference_word_count(bytes, 0, len(bytes))
+            assert_true(_word_count(bytes, 0, len(bytes)) == expected)
+
+
+def test_bulk_simd_scanning_preserves_long_faces_comments_and_line_endings() raises:
+    comptime width = min(64, simd_width_of[UInt8]())
+    var loader = MemoryAssetLoader()
+    var text = String("v -0.0 0 0\nv 1 0 0\nv 0 1 0\n")
+    for length in range(3 * width + 3):
+        text += "f 1 2 3"
+        for _ in range(length):
+            text += "\t1"
+        text += " # ignored 1 2 3\r\n"
+        text += "v 0 0 0\r ignored 99 99\n"
+    text += "f 1 2 3"
+    var expected = _parse_obj_serial("simd.obj", StringSpan(text), loader)
+    for workers in [1, 8]:
+        var actual = _parse_obj_bulk(
+            "simd.obj", StringSpan(text), loader, workers, 127
+        )
+        _assert_mesh_equal(actual, expected)
 
 
 def main() raises:

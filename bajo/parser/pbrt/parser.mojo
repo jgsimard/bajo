@@ -1,7 +1,9 @@
 import std.os.path
 from max.algorithm import parallelize
+from std.bit import count_trailing_zeros, pop_count
 from std.math import abs, cos, pi, sin, sqrt
-from std.sys import num_logical_cores
+from std.memory import pack_bits
+from std.sys import num_logical_cores, simd_width_of
 
 from bajo.bvh import Camera
 from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32
@@ -42,22 +44,128 @@ struct _Lexer[origin: ImmOrigin]:
     var bytes: ImmSpan[UInt8, Self.origin]
     var pos: Int
     var line: Int
+    var _block_begin: Int
+    var _block_end: Int
+    var _delimiters: UInt64
+    var _quotes: UInt64
+    var _newlines: UInt64
 
     def __init__(out self, bytes: ImmSpan[UInt8, Self.origin]):
         self.bytes = bytes
         self.pos = 0
         self.line = 1
+        self._block_begin = 0
+        self._block_end = 0
+        self._delimiters = 0
+        self._quotes = 0
+        self._newlines = 0
 
-    def _skip_space(mut self):
+    def _refill(mut self) -> Bool:
+        # Each byte block is classified once, then its masks serve several
+        # short tokens. The final partial block uses the scalar scanner.
+        comptime width = min(64, simd_width_of[UInt8]())
+        if len(self.bytes) - self.pos < width:
+            return False
+        var block = (
+            self.bytes.unsafe_ptr()
+            .unsafe_offset(self.pos)
+            .unsafe_load[width=width, alignment=1]()
+        )
+        var spaces = (
+            block.eq(UInt8(9))
+            | block.eq(UInt8(10))
+            | block.eq(UInt8(13))
+            | block.eq(UInt8(32))
+        )
+        self._delimiters = UInt64(
+            pack_bits(
+                spaces
+                | block.eq(UInt8(35))
+                | block.eq(UInt8(91))
+                | block.eq(UInt8(93))
+            )
+        )
+        self._quotes = UInt64(pack_bits(block.eq(UInt8(34))))
+        self._newlines = UInt64(pack_bits(block.eq(UInt8(10))))
+        self._block_begin = self.pos
+        self._block_end = self.pos + width
+        return True
+
+    @staticmethod
+    @always_inline
+    def _prefix_mask(count: Int) -> UInt64:
+        return ~UInt64(0) >> UInt64(64 - count) if count else UInt64(0)
+
+    def _skip_comment(mut self):
         while self.pos < len(self.bytes):
-            var c = self.bytes.unsafe_get(self.pos)
-            if c == UInt8(35):  # # comment
-                while self.pos < len(self.bytes):
-                    c = self.bytes.unsafe_get(self.pos)
+            if self.pos < self._block_end or self._refill():
+                var bits = self._newlines >> UInt64(
+                    self.pos - self._block_begin
+                )
+                var count = min(
+                    self._block_end - self.pos, Int(count_trailing_zeros(bits))
+                )
+                self.pos += count
+                if self.pos < self._block_end:
                     self.pos += 1
+                    self.line += 1
+                    return
+            else:
+                var c = self.bytes.unsafe_get(self.pos)
+                self.pos += 1
+                if c == UInt8(10):
+                    self.line += 1
+                    return
+
+    @always_inline
+    def _scan_token_end(mut self, quoted: Bool):
+        while self.pos < len(self.bytes):
+            if self.pos < self._block_end or self._refill():
+                var offset = UInt64(self.pos - self._block_begin)
+                var bits = (
+                    self._quotes if quoted else self._delimiters
+                ) >> offset
+                var count = min(
+                    self._block_end - self.pos, Int(count_trailing_zeros(bits))
+                )
+                if quoted:
+                    self.line += Int(
+                        pop_count(
+                            (self._newlines >> offset)
+                            & Self._prefix_mask(count)
+                        )
+                    )
+                self.pos += count
+                if self.pos < self._block_end:
+                    return
+            else:
+                var c = self.bytes.unsafe_get(self.pos)
+                if quoted:
+                    if c == UInt8(34):
+                        return
                     if c == UInt8(10):
                         self.line += 1
-                        break
+                elif (
+                    c == UInt8(9)
+                    or c == UInt8(10)
+                    or c == UInt8(13)
+                    or c == UInt8(32)
+                    or c == UInt8(35)
+                    or c == UInt8(91)
+                    or c == UInt8(93)
+                ):
+                    return
+                self.pos += 1
+
+    @always_inline
+    def _skip_space(mut self):
+        # Whitespace runs between numeric tokens are usually one byte. Keep
+        # that short path cheap; comments and token bodies use the SIMD masks.
+        while self.pos < len(self.bytes):
+            var c = self.bytes.unsafe_get(self.pos)
+            if c == UInt8(35):
+                self.pos += 1
+                self._skip_comment()
             elif c == UInt8(10):
                 self.pos += 1
                 self.line += 1
@@ -76,6 +184,7 @@ struct _Lexer[origin: ImmOrigin]:
             self.pos
         ) == UInt8(34)
 
+    @always_inline
     def next(mut self) raises -> _Token[Self.origin]:
         self._skip_space()
         if self.pos >= len(self.bytes):
@@ -97,33 +206,17 @@ struct _Lexer[origin: ImmOrigin]:
         if quoted:
             self.pos += 1
             var start = self.pos
-            while self.pos < len(self.bytes):
-                var c = self.bytes.unsafe_get(self.pos)
-                if c == UInt8(34):
-                    var value = StringSpan[Self.origin](
-                        unsafe_from_utf8=self.bytes[start : self.pos]
-                    )
-                    self.pos += 1
-                    return _Token(value, True, token_line)
-                if c == UInt8(10):
-                    self.line += 1
+            self._scan_token_end(True)
+            if self.pos < len(self.bytes):
+                var value = StringSpan[Self.origin](
+                    unsafe_from_utf8=self.bytes[start : self.pos]
+                )
                 self.pos += 1
+                return _Token(value, True, token_line)
             raise Error(t"unterminated PBRT string at line {token_line}")
 
         var start = self.pos
-        while self.pos < len(self.bytes):
-            var c = self.bytes.unsafe_get(self.pos)
-            if (
-                c == UInt8(9)
-                or c == UInt8(10)
-                or c == UInt8(13)
-                or c == UInt8(32)
-                or c == UInt8(35)
-                or c == UInt8(91)
-                or c == UInt8(93)
-            ):
-                break
-            self.pos += 1
+        self._scan_token_end(False)
         return _Token(
             StringSpan[Self.origin](
                 unsafe_from_utf8=self.bytes[start : self.pos]

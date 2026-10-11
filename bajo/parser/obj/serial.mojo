@@ -1,3 +1,4 @@
+from .lines import _ObjLines
 from .types import ObjGroup, ObjMaterial, ObjMesh
 from .mtl import _read_mtl_file
 from .primitives import _is_ws_or_line_cut
@@ -276,11 +277,10 @@ def _parse_obj_serial[
     var text_len = text.byte_length()
     var bytes = Span(unsafe_ptr=text.unsafe_ptr(), length=text.byte_length())
     var line_start = 0
+    var lines = _ObjLines(bytes, 0, len(bytes))
 
     while line_start < text_len:
-        var line_end = text.find("\n", line_start)
-        if line_end == -1:
-            line_end = text_len
+        var line_end = lines.next_end()
 
         var cur = ObjLineCursor(bytes[line_start:line_end])
         cur.skip_ws()

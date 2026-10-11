@@ -1,4 +1,5 @@
 from std.bit import count_trailing_zeros
+from std.memory import bitcast, pack_bits
 
 
 comptime _MINUS = UInt8(45)
@@ -119,6 +120,18 @@ def parse_f32_at(bytes: ImmSpan[UInt8, _], pos: Int) raises -> F32ParseResult:
 
 
 @always_inline
+def _decimal_prefix8(word: UInt64, digits: Int) -> UInt64:
+    # The first 1..8 bytes are digits. Drop the suffix and zero-pad the start.
+    var lower = word - UInt64(0x3030303030303030)
+    if digits < 8:
+        lower &= (UInt64(1) << UInt64(8 * digits)) - 1
+        lower <<= UInt64(8 * (8 - digits))
+    var pairs = (lower * 10 + (lower >> 8)) & UInt64(0x00FF00FF00FF00FF)
+    var groups = (pairs * 100 + (pairs >> 16)) & UInt64(0x0000FFFF0000FFFF)
+    return (groups * 10000 + (groups >> 32)) & UInt64(0xFFFFFFFF)
+
+
+@always_inline
 def parse_f32_fast_at(
     bytes: ImmSpan[UInt8, _], pos: Int
 ) raises -> F32ParseResult:
@@ -152,28 +165,45 @@ def parse_f32_fast_at(
         if end - p >= 8:
             # Find the first non-digit in an eight-byte block. Any carry or
             # borrow only affects bytes after that first non-digit.
-            var word = UInt64(0)
-            comptime for lane in range(8):
-                word |= UInt64(bytes.unsafe_get(p + lane)) << UInt64(8 * lane)
+            var word = (
+                bytes.unsafe_ptr()
+                .unsafe_offset(p)
+                .unsafe_bitcast[UInt64]()
+                .unsafe_load[alignment=1]()
+            )
             var lower = word - UInt64(0x3030303030303030)
             var upper = word + UInt64(0x4646464646464646)
             var nondigits = (lower | upper) & UInt64(0x8080808080808080)
             digits = Int(count_trailing_zeros(nondigits)) // 8
             if digits > 0:
-                if digits < 8:
-                    lower &= (UInt64(1) << UInt64(8 * digits)) - 1
-                    # Zero-pad the beginning, retaining the decimal value.
-                    lower <<= UInt64(8 * (8 - digits))
-                var pairs = (lower * 10 + (lower >> 8)) & UInt64(
-                    0x00FF00FF00FF00FF
-                )
-                var groups = (pairs * 100 + (pairs >> 16)) & UInt64(
-                    0x0000FFFF0000FFFF
-                )
-                fraction = (groups * 10000 + (groups >> 32)) & UInt64(
-                    0xFFFFFFFF
-                )
+                fraction = _decimal_prefix8(word, digits)
                 p += digits
+        if digits == 8 and end - p >= 8:
+            # Long decimals commonly have 15..17 fraction digits. Classify
+            # the next eight bytes together, then accumulate up to 15 digits
+            # exactly before continuing the original float64 operations.
+            var block = (
+                bytes.unsafe_ptr()
+                .unsafe_offset(p)
+                .unsafe_load[width=8, alignment=1]()
+            )
+            var extra = min(
+                7,
+                Int(
+                    count_trailing_zeros(
+                        ~UInt32(pack_bits((block - _ZERO).le(UInt8(9))))
+                    )
+                ),
+            )
+            if extra > 0:
+                comptime powers = SIMD[.uint64, 8](
+                    1, 10, 100, 1000, 10000, 100000, 1000000, 10000000
+                )
+                fraction = fraction * powers[extra] + _decimal_prefix8(
+                    bitcast[.uint64, 1](block), extra
+                )
+                digits += extra
+                p += extra
         while digits < 15 and p < end and _is_digit(bytes.unsafe_get(p)):
             fraction = fraction * 10 + UInt64(bytes.unsafe_get(p) - _ZERO)
             digits += 1

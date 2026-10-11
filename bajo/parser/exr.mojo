@@ -4,7 +4,7 @@ from std.ffi import OwnedDLHandle
 from std.memory import bitcast
 from max.algorithm import parallelize
 from std.math import ceildiv
-from std.sys import num_logical_cores
+from std.sys import num_logical_cores, simd_width_of
 from std.utils.numerics import isfinite
 
 from bajo.parser.mmap import MMap
@@ -232,24 +232,65 @@ def _parse_header(bytes: ImmSpan[UInt8, _]) raises -> _Header:
     return header^
 
 
-def _undo_zip_prediction(mut bytes: List[UInt8]):
-    for index in range(1, len(bytes)):
-        bytes[index] = UInt8(
-            (Int(bytes[index - 1]) + Int(bytes[index]) - 128) & 255
-        )
+def _undo_zip_prediction(bytes: MutSpan[UInt8, _]):
+    if len(bytes) == 0:
+        return
+    # Decode the recurrence as an inclusive prefix sum modulo 256. Keep
+    # 16-byte blocks so every shuffle fits one 128-bit register.
+    var carry = bytes[0]
+    var vector_end = 1 + (len(bytes) - 1) // 16 * 16
+    comptime zero = SIMD[.uint8, 16](0)
+    for index in range(1, vector_end, 16):
+        var ptr = bytes.unsafe_ptr().unsafe_offset(index)
+        var values = ptr.unsafe_load[width=16]() - SIMD[.uint8, 16](128)
+        values += values.shuffle[
+            16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
+        ](zero)
+        values += values.shuffle[
+            16, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+        ](zero)
+        values += values.shuffle[
+            16, 16, 16, 16, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+        ](zero)
+        values += values.shuffle[
+            16, 16, 16, 16, 16, 16, 16, 16, 0, 1, 2, 3, 4, 5, 6, 7
+        ](zero)
+        values += SIMD[.uint8, 16](carry)
+        ptr.unsafe_store[width=16](values)
+        carry = values[15]
+    for index in range(vector_end, len(bytes)):
+        carry = UInt8((Int(carry) + Int(bytes[index]) - 128) & 255)
+        bytes[index] = carry
 
 
-def _undo_zip_interleave(encoded: List[UInt8]) -> List[UInt8]:
-    var decoded = List[UInt8](length=len(encoded), fill=0)
-    var first = 0
-    var second = (len(encoded) + 1) / 2
-    for index in range(len(encoded)):
-        if index % 2 == 0:
-            decoded[index] = encoded[first]
-            first += 1
-        else:
-            decoded[index] = encoded[second]
-            second += 1
+def _undo_zip_interleave_into(
+    encoded: ImmSpan[UInt8, _], decoded: MutSpan[UInt8, _]
+):
+    var half = (len(encoded) + 1) // 2
+    var pairs = len(encoded) // 2
+    var vector_end = pairs - pairs % 16
+    var source = encoded.unsafe_ptr()
+    var destination = decoded.unsafe_ptr()
+    for index in range(0, vector_end, 16):
+        var first = source.unsafe_offset(index).unsafe_load[width=16]()
+        var second = source.unsafe_offset(half + index).unsafe_load[width=16]()
+        # Pack each pair in the little-endian order used by the decoder's
+        # native unaligned loads.
+        var values = first.cast[.uint16]() | (second.cast[.uint16]() << 8)
+        destination.unsafe_offset(2 * index).unsafe_bitcast[
+            UInt16
+        ]().unsafe_store[width=16, alignment=1](values)
+    for index in range(vector_end, pairs):
+        decoded[2 * index] = encoded[index]
+        decoded[2 * index + 1] = encoded[half + index]
+    if len(encoded) % 2:
+        decoded[len(encoded) - 1] = encoded[half - 1]
+
+
+def _undo_zip_interleave(encoded: ImmSpan[UInt8, _]) -> List[UInt8]:
+    var decoded = List[UInt8]()
+    decoded.resize(unsafe_uninit_length=len(encoded))
+    _undo_zip_interleave_into(encoded, decoded)
     return decoded^
 
 
@@ -477,7 +518,38 @@ def _decode_channel[
     lane: Int,
     width: Int,
 ) raises:
-    for x in range(width):
+    comptime vector_width = simd_width_of[Float32]()
+    var vector_end = width - width % vector_width
+    var offsets = SIMD[.int32, vector_width](0)
+    comptime for index in range(vector_width):
+        offsets[index] = Int32(3 * index)
+    for x in range(0, vector_end, vector_width):
+        var values: SIMD[.float32, vector_width]
+        comptime if pixel_type == 1:
+            var bits = (
+                bytes.unsafe_ptr()
+                .unsafe_offset(2 * x)
+                .unsafe_bitcast[UInt16]()
+                .unsafe_load[width=vector_width, alignment=1]()
+            )
+            values = bitcast[.float16](bits).cast[.float32]()
+        else:
+            var bits = (
+                bytes.unsafe_ptr()
+                .unsafe_offset(4 * x)
+                .unsafe_bitcast[UInt32]()
+                .unsafe_load[width=vector_width, alignment=1]()
+            )
+            comptime if pixel_type == 0:
+                values = bits.cast[.float32]()
+            else:
+                values = bitcast[.float32](bits)
+        if not isfinite(values).reduce_and():
+            raise Error("OpenEXR environment contains a non-finite value")
+        output.unsafe_ptr().unsafe_offset(3 * x + lane).unsafe_scatter(
+            offsets, values
+        )
+    for x in range(vector_end, width):
         var value: Float32
         comptime if pixel_type == 1:
             var bits = (
@@ -545,16 +617,8 @@ def _inflate_chunk(
     )
     if status != 0 or Int(result_size[0]) != len(predicted):
         raise Error("zlib failed to decompress OpenEXR scanlines")
-    for i in range(1, len(predicted)):
-        predicted[i] = UInt8(
-            (Int(predicted[i - 1]) + Int(predicted[i]) - 128) & 255
-        )
-    var half = (len(predicted) + 1) // 2
-    for i in range(len(predicted) // 2):
-        decoded[2 * i] = predicted[i]
-        decoded[2 * i + 1] = predicted[half + i]
-    if len(predicted) % 2:
-        decoded[len(predicted) - 1] = predicted[half - 1]
+    _undo_zip_prediction(predicted)
+    _undo_zip_interleave_into(predicted, decoded)
 
 
 def _parse_exr_bulk(

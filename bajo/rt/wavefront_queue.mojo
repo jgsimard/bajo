@@ -9,11 +9,23 @@ comptime FRONT_FACE_BIT = UInt32(0x80000000)
 comptime PATH_INDEX_MASK = UInt32(0x7FFFFFFF)
 
 
-@fieldwise_init
 struct WavePath(Copyable, Writable):
     var path_id: UInt32
     var ray: Rayf32[.WORLD]
     var throughput: Color
+    var medium_id: UInt32
+
+    def __init__(
+        out self,
+        path_id: UInt32,
+        ray: Rayf32[.WORLD],
+        throughput: Color,
+        medium_id: UInt32 = 0,
+    ):
+        self.path_id = path_id
+        self.ray = ray
+        self.throughput = throughput
+        self.medium_id = medium_id
 
 
 @fieldwise_init
@@ -37,6 +49,7 @@ struct PathPacket[length: SIMDLength](Copyable):
     var tz: SIMD[.float32, Self.length]
     var bsdf_pdfs: SIMD[.float32, Self.length]
     var deltas: SIMD[.bool, Self.length]
+    var medium_ids: SIMD[.uint32, Self.length]
 
     def __init__(out self):
         self.path_ids = 0
@@ -53,6 +66,7 @@ struct PathPacket[length: SIMDLength](Copyable):
         self.tz = 0.0
         self.bsdf_pdfs = 0.0
         self.deltas = SIMD[.bool, Self.length](fill=True)
+        self.medium_ids = 0
 
 
 struct PacketPathQueue[length: SIMDLength](Sized):
@@ -99,6 +113,9 @@ struct PacketPathQueue[length: SIMDLength](Sized):
         destination.tz[destination_lane] = packet.tz[source_lane]
         destination.bsdf_pdfs[destination_lane] = packet.bsdf_pdfs[source_lane]
         destination.deltas[destination_lane] = packet.deltas[source_lane]
+        destination.medium_ids[destination_lane] = packet.medium_ids[
+            source_lane
+        ]
         self.count += 1
 
     @always_inline
@@ -152,6 +169,11 @@ struct ShadePacket[length: SIMDLength](Copyable):
     var hit_t: SIMD[.float32, Self.length]
     var surface_indices: SIMD[.uint32, Self.length]
     var front_faces: SIMD[.bool, Self.length]
+    var medium_ids: SIMD[.uint32, Self.length]
+    var medium_boundaries: SIMD[.uint32, Self.length]
+    var gnx: SIMD[.float32, Self.length]
+    var gny: SIMD[.float32, Self.length]
+    var gnz: SIMD[.float32, Self.length]
 
     def __init__(out self):
         self.path_ids = 0
@@ -172,6 +194,11 @@ struct ShadePacket[length: SIMDLength](Copyable):
         self.hit_t = 0.0
         self.surface_indices = 0
         self.front_faces = SIMD[.bool, Self.length](fill=False)
+        self.medium_ids = 0
+        self.medium_boundaries = 0
+        self.gnx = 0.0
+        self.gny = 0.0
+        self.gnz = 0.0
 
 
 struct PacketShadeQueue[length: SIMDLength](Sized):
@@ -205,6 +232,11 @@ struct PacketShadeQueue[length: SIMDLength](Sized):
             self.packets.append(ShadePacket[Self.length]())
         ref shade = self.packets[self.count / Self.length]
         shade.path_ids[shade_lane] = path_packet.path_ids[path_lane]
+        shade.medium_ids[shade_lane] = path_packet.medium_ids[path_lane]
+        shade.medium_boundaries[shade_lane] = hit.medium_boundary
+        shade.gnx[shade_lane] = hit.geometric_normal.x
+        shade.gny[shade_lane] = hit.geometric_normal.y
+        shade.gnz[shade_lane] = hit.geometric_normal.z
         shade.ox[shade_lane] = path_packet.ox[path_lane]
         shade.oy[shade_lane] = path_packet.oy[path_lane]
         shade.oz[shade_lane] = path_packet.oz[path_lane]

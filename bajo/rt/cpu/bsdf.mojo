@@ -65,7 +65,9 @@ def evaluate_bsdf(
                 out_direction,
                 conductor_eta=material.conductor_eta,
                 conductor_k=material.conductor_k,
-                conductor_alpha=material.conductor_roughness,
+                conductor_alpha=surfaces.sample_conductor_roughness(
+                    surface, hit.uv_u[0], hit.uv_v[0]
+                ),
             )
 
         case .DIELECTRIC:
@@ -101,7 +103,9 @@ def evaluate_bsdf(
                 hit,
                 out_direction,
             )
-            var amount = surfaces.mix_amounts[index]
+            var amount = surfaces.sample_mix_amount(
+                index, hit.uv_u[0], hit.uv_v[0]
+            )
             return BsdfEvaluation[1](
                 first.value * (1.0 - amount) + second.value * amount,
                 first.pdf * (1.0 - amount) + second.pdf * amount,
@@ -165,7 +169,9 @@ def sample_bsdf(
                 SIMD[.float32, 1](rng.f32()),
                 conductor_eta=material.conductor_eta,
                 conductor_k=material.conductor_k,
-                conductor_alpha=material.conductor_roughness,
+                conductor_alpha=surfaces.sample_conductor_roughness(
+                    surface, hit.uv_u[0], hit.uv_v[0]
+                ),
             )
 
         case .DIELECTRIC:
@@ -203,7 +209,9 @@ def sample_bsdf(
             )
         case .MIX:
             var index = Int(surface.index())
-            var amount = surfaces.mix_amounts[index]
+            var amount = surfaces.sample_mix_amount(
+                index, hit.uv_u[0], hit.uv_v[0]
+            )
             var choose_second = rng.f32() < amount
             var selected = SurfaceId.from_raw(
                 surfaces.mix_surfaces[2 * index + (1 if choose_second else 0)]

@@ -41,14 +41,14 @@ def _path(path_id: UInt32) -> WavePath:
 
 
 def test_wavefront_contract_abi_and_philox_ownership() raises:
-    assert_equal(WavePathFloatAbi.PLANES, 12)
+    assert_equal(WavePathFloatAbi.PLANES, 13)
     assert_equal(WaveShadeFloatAbi.PLANES, 4)
     assert_equal(WaveShadowFloatAbi.PLANES, 11)
     assert_equal(WAVE_COUNTER.SHADE, 2)
     assert_equal(WAVE_COUNTER.SHADOW, 3)
     assert_equal(WAVE_COUNTER.STATUS, 4)
     assert_equal(WAVE_COUNTER.COUNT, 5)
-    assert_equal(size_of[DeviceWavePath](), 56)
+    assert_equal(size_of[DeviceWavePath](), 60)
     assert_equal(size_of[DeviceWaveShade](), 28)
     assert_equal(size_of[DeviceWaveShadow](), 48)
 

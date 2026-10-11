@@ -354,6 +354,7 @@ def test_camera_include_stops_parent_at_world_begin() raises:
         Vec3f32[.WORLD](0.0, 0.0, 1.0),
         31.0,
     )
+    expected.right = -expected.right
     _assert_same_camera(camera, expected)
 
 

@@ -41,3 +41,6 @@ from .shading_types import (
     SurfaceHit,
 )
 from .scene_data import SceneBuilder, SceneData
+
+from .media import SceneMedia, medium_transmittance
+from .film import FilmResponse

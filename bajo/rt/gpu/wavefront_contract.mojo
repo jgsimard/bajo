@@ -1,5 +1,6 @@
 """GPU arena and executable probe for the shared wavefront ABI."""
 
+from std.memory import bitcast
 from std.atomic import Atomic, Ordering
 from max.gpu import global_idx
 from std.math import ceildiv
@@ -35,10 +36,17 @@ from bajo.rt.wavefront_contract import (
 
 comptime WAVEFRONT_CONTRACT_BLOCK_SIZE = 128
 # Deferred coatings retain hit UVs after traversal. The shared CPU ABI remains
-# the four normal/distance planes; these two planes belong to the GPU arena.
+# the four normal/distance planes; these extra planes belong to the GPU arena.
 comptime GPU_SHADE_U = WaveShadeFloatAbi.PLANES
 comptime GPU_SHADE_V = GPU_SHADE_U + 1
-comptime GPU_SHADE_PLANES = GPU_SHADE_V + 1
+comptime GPU_SHADE_BOUNDARY = GPU_SHADE_V + 1
+comptime GPU_SHADE_GNX = GPU_SHADE_BOUNDARY + 1
+comptime GPU_SHADE_GNY = GPU_SHADE_GNX + 1
+comptime GPU_SHADE_GNZ = GPU_SHADE_GNY + 1
+comptime GPU_SHADE_TX = GPU_SHADE_GNZ + 1
+comptime GPU_SHADE_TY = GPU_SHADE_TX + 1
+comptime GPU_SHADE_TZ = GPU_SHADE_TY + 1
+comptime GPU_SHADE_PLANES = GPU_SHADE_TZ + 1
 
 
 @always_inline
@@ -79,6 +87,15 @@ def load_gpu_rt_path[
                 WavePathFloatAbi.BSDF_PDF, capacity, idx
             )
         ]
+    var medium_id = UInt32(0)
+    comptime if Integrator.is_path_tracing[integrator]:
+        medium_id = bitcast[.uint32](
+            fields[
+                unsafe_offset=wavefront_plane_index(
+                    WavePathFloatAbi.MEDIUM, capacity, idx
+                )
+            ]
+        )
     var delta = True
     comptime if Integrator.uses_direct_lighting[integrator]:
         delta = (packed_path_id & WAVE_PATH_DELTA_BIT) != 0
@@ -121,6 +138,7 @@ def load_gpu_rt_path[
         tz,
         bsdf_pdf,
         delta,
+        medium_id,
     )
 
 
@@ -141,6 +159,11 @@ def store_gpu_rt_path[
         if path.delta:
             packed_path_id |= WAVE_PATH_DELTA_BIT
     path_ids[unsafe_offset=idx] = packed_path_id
+    fields[
+        unsafe_offset=wavefront_plane_index(
+            WavePathFloatAbi.MEDIUM, capacity, idx
+        )
+    ] = bitcast[.float32](path.medium_id)
     fields[
         unsafe_offset=wavefront_plane_index(WavePathFloatAbi.OX, capacity, idx)
     ] = path.ox

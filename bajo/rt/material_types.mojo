@@ -1,6 +1,6 @@
 """Material, texture, environment, and surface storage types."""
 
-from std.math import abs, floor
+from std.math import sqrt, abs, floor
 from std.utils.numerics import isfinite
 
 from bajo.core import Affine3f32, Vec3f32, cross, normalize
@@ -350,11 +350,11 @@ struct Lambertian(Copyable, Writable):
             raise Error("lambertian albedo must be finite")
         if (
             self.albedo.x[0] < 0.0
-            or self.albedo.x[0] > 1.0
+            or (self.texture_index == NO_TEXTURE and self.albedo.x[0] > 1.0)
             or self.albedo.y[0] < 0.0
-            or self.albedo.y[0] > 1.0
+            or (self.texture_index == NO_TEXTURE and self.albedo.y[0] > 1.0)
             or self.albedo.z[0] < 0.0
-            or self.albedo.z[0] > 1.0
+            or (self.texture_index == NO_TEXTURE and self.albedo.z[0] > 1.0)
         ):
             raise Error("lambertian albedo must be within [0, 1]")
 
@@ -379,11 +379,11 @@ struct Metal(Copyable, Writable):
             raise Error("metal albedo must be finite")
         if (
             self.albedo.x[0] < 0.0
-            or self.albedo.x[0] > 1.0
+            or (self.texture_index == NO_TEXTURE and self.albedo.x[0] > 1.0)
             or self.albedo.y[0] < 0.0
-            or self.albedo.y[0] > 1.0
+            or (self.texture_index == NO_TEXTURE and self.albedo.y[0] > 1.0)
             or self.albedo.z[0] < 0.0
-            or self.albedo.z[0] > 1.0
+            or (self.texture_index == NO_TEXTURE and self.albedo.z[0] > 1.0)
         ):
             raise Error("metal albedo must be within [0, 1]")
         if not isfinite(self.fuzz):
@@ -415,6 +415,11 @@ struct CoatedDiffuse(Copyable, Writable):
     var conductor_eta: Color
     var conductor_k: Color
     var conductor_roughness: Float32
+    var roughness_texture_index: UInt32
+    var roughness_scale: Float32
+    var roughness_u_scale: Float32
+    var roughness_v_scale: Float32
+    var remap_roughness: Bool
 
     def __init__(
         out self,
@@ -451,6 +456,11 @@ struct CoatedDiffuse(Copyable, Writable):
         self.conductor_eta = conductor_eta
         self.conductor_k = conductor_k
         self.conductor_roughness = conductor_roughness
+        self.roughness_texture_index = NO_TEXTURE
+        self.roughness_scale = 1.0
+        self.roughness_u_scale = 1.0
+        self.roughness_v_scale = 1.0
+        self.remap_roughness = True
 
     def validate(self) raises:
         if (
@@ -469,6 +479,13 @@ struct CoatedDiffuse(Copyable, Writable):
             if value < 0.0:
                 raise Error("conductor optical constants must be non-negative")
         if (
+            not isfinite(self.roughness_scale)
+            or not isfinite(self.roughness_u_scale)
+            or not isfinite(self.roughness_v_scale)
+            or self.roughness_scale < 0.0
+        ):
+            raise Error("conductor roughness texture parameters are invalid")
+        if (
             not isfinite(self.conductor_roughness)
             or self.conductor_roughness < 0.0
             or self.conductor_roughness > 1.0
@@ -478,11 +495,11 @@ struct CoatedDiffuse(Copyable, Writable):
             raise Error("coated diffuse albedo must be finite")
         if (
             self.albedo.x[0] < 0.0
-            or self.albedo.x[0] > 1.0
+            or (self.texture_index == NO_TEXTURE and self.albedo.x[0] > 1.0)
             or self.albedo.y[0] < 0.0
-            or self.albedo.y[0] > 1.0
+            or (self.texture_index == NO_TEXTURE and self.albedo.y[0] > 1.0)
             or self.albedo.z[0] < 0.0
-            or self.albedo.z[0] > 1.0
+            or (self.texture_index == NO_TEXTURE and self.albedo.z[0] > 1.0)
         ):
             raise Error("coated diffuse albedo must be within [0, 1]")
         if (
@@ -519,11 +536,34 @@ struct CoatedDiffuse(Copyable, Writable):
             raise Error("coated diffuse displacement parameters must be finite")
 
 
-@fieldwise_init
 struct Dielectric(Copyable, Writable):
     var refraction_index: Float32
+    var displacement_texture_index: UInt32
+    var displacement_scale: Float32
+    var displacement_u_scale: Float32
+    var displacement_v_scale: Float32
+
+    def __init__(
+        out self,
+        refraction_index: Float32,
+        displacement_texture_index: UInt32 = NO_TEXTURE,
+        displacement_scale: Float32 = 0.0,
+        displacement_u_scale: Float32 = 1.0,
+        displacement_v_scale: Float32 = 1.0,
+    ):
+        self.refraction_index = refraction_index
+        self.displacement_texture_index = displacement_texture_index
+        self.displacement_scale = displacement_scale
+        self.displacement_u_scale = displacement_u_scale
+        self.displacement_v_scale = displacement_v_scale
 
     def validate(self) raises:
+        if (
+            not isfinite(self.displacement_scale)
+            or not isfinite(self.displacement_u_scale)
+            or not isfinite(self.displacement_v_scale)
+        ):
+            raise Error("dielectric displacement parameters must be finite")
         if not isfinite(self.refraction_index):
             raise Error("dielectric refraction index must be finite")
         if self.refraction_index <= 0.0:
@@ -555,6 +595,8 @@ struct SurfaceStore:
     # Mix nodes refer only to existing surfaces, forming an acyclic graph.
     var mix_surfaces: List[UInt32]
     var mix_amounts: List[Float32]
+    var mix_texture_indices: List[UInt32]
+    var mix_uv_scales: List[Float32]
 
     def __init__(out self):
         self.lambertians = List[Lambertian]()
@@ -565,6 +607,8 @@ struct SurfaceStore:
         self.image_textures = List[ImageTexture]()
         self.mix_surfaces = List[UInt32]()
         self.mix_amounts = List[Float32]()
+        self.mix_texture_indices = List[UInt32]()
+        self.mix_uv_scales = List[Float32]()
 
     def contains(self, surface: SurfaceId[1]) -> Bool:
         __match surface.kind():
@@ -582,7 +626,13 @@ struct SurfaceStore:
                 return surface.index() < UInt32(len(self.mix_amounts))
 
     def add_mix(
-        mut self, first: SurfaceId[1], second: SurfaceId[1], amount: Float32
+        mut self,
+        first: SurfaceId[1],
+        second: SurfaceId[1],
+        amount: Float32,
+        texture_index: UInt32 = NO_TEXTURE,
+        u_scale: Float32 = 1.0,
+        v_scale: Float32 = 1.0,
     ) raises -> SurfaceId[1]:
         if not isfinite(amount) or amount < 0.0 or amount > 1.0:
             raise Error("mix amount must be within [0, 1]")
@@ -594,24 +644,57 @@ struct SurfaceStore:
         self.mix_surfaces.append(first.value[0])
         self.mix_surfaces.append(second.value[0])
         self.mix_amounts.append(amount)
+        self.mix_texture_indices.append(texture_index)
+        self.mix_uv_scales.append(u_scale)
+        self.mix_uv_scales.append(v_scale)
         return SurfaceId(.MIX, index)
+
+    def sample_mix_amount(self, index: Int, u: Float32, v: Float32) -> Float32:
+        var amount = self.mix_amounts[index]
+        var texture_index = self.mix_texture_indices[index]
+        if texture_index != NO_TEXTURE:
+            amount *= self.image_textures[Int(texture_index)].sample_scalar(
+                u * self.mix_uv_scales[2 * index],
+                v * self.mix_uv_scales[2 * index + 1],
+            )
+        return amount.clamp(0.0, 1.0)
 
     @always_inline
     def resolve_mix(
-        self, surface: SurfaceId[1], random: Float32
+        self,
+        surface: SurfaceId[1],
+        var random: Float32,
+        u: Float32 = 0.0,
+        v: Float32 = 0.0,
     ) -> SurfaceId[1]:
-        return SurfaceId.from_raw(
-            resolve_mix_surface(
-                surface.value[0],
-                self.mix_surfaces.unsafe_ptr().unsafe_origin_cast[
-                    ImmutAnyOrigin
-                ](),
-                self.mix_amounts.unsafe_ptr().unsafe_origin_cast[
-                    ImmutAnyOrigin
-                ](),
-                random,
+        var selected = surface.copy()
+        random = random.clamp(0.0, 0.99999994)
+        while selected.kind() == .MIX:
+            var index = Int(selected.index())
+            var amount = self.sample_mix_amount(index, u, v)
+            if random < amount:
+                selected = SurfaceId.from_raw(self.mix_surfaces[2 * index + 1])
+                random /= amount
+            else:
+                selected = SurfaceId.from_raw(self.mix_surfaces[2 * index])
+                random = (random - amount) / (1.0 - amount)
+        return selected^
+
+    def sample_conductor_roughness(
+        self, surface: SurfaceId[1], u: Float32, v: Float32
+    ) -> Float32:
+        ref material = self.coated_diffuses[Int(surface.index())]
+        if material.roughness_texture_index == NO_TEXTURE:
+            return material.conductor_roughness
+        var roughness = (
+            material.roughness_scale
+            * self.image_textures[
+                Int(material.roughness_texture_index)
+            ].sample_scalar(
+                u * material.roughness_u_scale, v * material.roughness_v_scale
             )
-        )
+        ).clamp(0.0, 1.0)
+        return sqrt(roughness) if material.remap_roughness else roughness
 
     def emitted_radiance(
         self, surface: SurfaceId[1], front_face: Bool
@@ -632,23 +715,38 @@ struct SurfaceStore:
             case .LAMBERTIAN:
                 ref material = self.lambertians[Int(surface.index())]
                 if material.texture_index != NO_TEXTURE:
-                    return material.albedo * self.image_textures[
+                    var value = material.albedo * self.image_textures[
                         Int(material.texture_index)
                     ].sample(u, v)
+                    return Color(
+                        value.x.clamp(0.0, 1.0),
+                        value.y.clamp(0.0, 1.0),
+                        value.z.clamp(0.0, 1.0),
+                    )
                 return material.albedo
             case .METAL:
                 ref material = self.metals[Int(surface.index())]
                 if material.texture_index != NO_TEXTURE:
-                    return material.albedo * self.image_textures[
+                    var value = material.albedo * self.image_textures[
                         Int(material.texture_index)
                     ].sample(u, v)
+                    return Color(
+                        value.x.clamp(0.0, 1.0),
+                        value.y.clamp(0.0, 1.0),
+                        value.z.clamp(0.0, 1.0),
+                    )
                 return material.albedo
             case .COATED_DIFFUSE:
                 ref material = self.coated_diffuses[Int(surface.index())]
                 if material.texture_index != NO_TEXTURE:
-                    return material.albedo * self.image_textures[
+                    var value = material.albedo * self.image_textures[
                         Int(material.texture_index)
                     ].sample(u, v)
+                    return Color(
+                        value.x.clamp(0.0, 1.0),
+                        value.y.clamp(0.0, 1.0),
+                        value.z.clamp(0.0, 1.0),
+                    )
                 return material.albedo
             case _:
                 return Color(0.0)
@@ -660,19 +758,30 @@ struct SurfaceStore:
         u: Float32,
         v: Float32,
     ) -> Vec3f32[.WORLD]:
-        if surface.kind() != .COATED_DIFFUSE:
+        var texture_index: UInt32
+        var scale: Float32
+        var u_scale: Float32
+        var v_scale: Float32
+        __match surface.kind():
+            case .COATED_DIFFUSE:
+                ref material = self.coated_diffuses[Int(surface.index())]
+                texture_index = material.displacement_texture_index
+                scale = material.displacement_scale
+                u_scale = material.displacement_u_scale
+                v_scale = material.displacement_v_scale
+            case .DIELECTRIC:
+                ref material = self.dielectrics[Int(surface.index())]
+                texture_index = material.displacement_texture_index
+                scale = material.displacement_scale
+                u_scale = material.displacement_u_scale
+                v_scale = material.displacement_v_scale
+            case _:
+                return normal
+        if texture_index == NO_TEXTURE or scale == 0.0:
             return normal
-        ref material = self.coated_diffuses[Int(surface.index())]
-        if (
-            material.displacement_texture_index == NO_TEXTURE
-            or material.displacement_scale == 0.0
-        ):
-            return normal
-        ref texture = self.image_textures[
-            Int(material.displacement_texture_index)
-        ]
-        var texture_u = u * material.displacement_u_scale
-        var texture_v = v * material.displacement_v_scale
+        ref texture = self.image_textures[Int(texture_index)]
+        var texture_u = u * u_scale
+        var texture_v = v * v_scale
         var du = Float32(0.5) / Float32(texture.width)
         var dv = Float32(0.5) / Float32(texture.height)
         var slope_u = (
@@ -681,8 +790,8 @@ struct SurfaceStore:
                 - texture.sample_scalar(texture_u - du, texture_v)
             )
             * Float32(texture.width)
-            * material.displacement_u_scale
-            * material.displacement_scale
+            * u_scale
+            * scale
         )
         var slope_v = (
             (
@@ -690,8 +799,8 @@ struct SurfaceStore:
                 - texture.sample_scalar(texture_u, texture_v - dv)
             )
             * Float32(texture.height)
-            * material.displacement_v_scale
-            * material.displacement_scale
+            * v_scale
+            * scale
         )
         var helper = Vec3f32[.WORLD](0.0, 1.0, 0.0)
         if abs(normal.y[0]) > 0.99:

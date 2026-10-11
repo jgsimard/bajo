@@ -8,14 +8,14 @@ from std.sys.arg import argv
 
 comptime SCENE_PATH = "examples/scenes/pbrt_showcase.pbrt"
 comptime OUTPUT_PATH = "pbrt_showcase_mis.ppm"
-comptime MAX_DEPTH = 10
 
 
 def main() raises:
     var args = argv()
-    if len(args) > 5:
+    if len(args) > 6:
         raise Error(
             "usage: pbrt_scene [scene.pbrt] [output.ppm] [width] [samples]"
+            " [depth]"
         )
     var path = String(args[1]) if len(args) > 1 else String(SCENE_PATH)
     var output = String(args[2]) if len(args) > 2 else String(OUTPUT_PATH)
@@ -34,7 +34,11 @@ def main() raises:
             raise Error("samples must be positive")
         scene.settings.samples_per_pixel = samples
         scene.settings.sample_sequence_length = samples
-    scene.settings.max_depth = MAX_DEPTH
+    if len(args) > 5:
+        var depth = parse_int_f32(StringSpan(args[5]), "max depth")
+        if depth <= 0:
+            raise Error("max depth must be positive")
+        scene.settings.max_depth = depth
     var settings = scene.settings.copy()
     var camera = scene.camera
     var world = CpuScene[16, 16](scene^.take_data())

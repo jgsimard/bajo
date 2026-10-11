@@ -8,6 +8,10 @@ control meshes are accepted as their unsmoothed triangle control cages, and
 binary little-endian PLY meshes are loaded relative to their declaring file.
 PBRT constant/scale texture graphs and PNG spectrum image maps are loaded.
 PLY vertex UVs and normals are retained for CPU and GPU shading.
+Homogeneous absorption media are tracked across geometry boundaries on both
+backends. Scalar image maps support material mixing, conductor roughness and
+bump mapping. Optical spectra and Canon sensor response use RGB approximations;
+dielectric IOR curves use their 550 nm value, without spectral dispersion.
 """
 
 from bajo.parser.asset_loader import (

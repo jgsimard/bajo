@@ -29,6 +29,7 @@ from bajo.rt.lighting import (
 from bajo.rt.rays import spawn_surface_ray
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.render_types import Color
+from bajo.rt.media import medium_transmittance
 from bajo.rt.material_types import (
     Integrator,
     SurfaceId,
@@ -316,12 +317,18 @@ def sample_direct_lighting[
     incoming_ray: Rayf32[.WORLD],
     point: ShadingPoint[1],
     mut rng: Rng,
+    medium_id: UInt32 = 0,
 ) -> Color:
     """Sample direct illumination and apply the scalar reference BSDF."""
     comptime assert Integrator.uses_direct_lighting[integrator]
     var light = _sample_direct_light(world, point, rng)
     if not light.valid:
         return Color(0.0)
+    if medium_id != 0:
+        light.emission *= medium_transmittance(
+            world.scene_data().media().absorption[Int(medium_id)],
+            light.shadow_t_max,
+        )
     var evaluation = evaluate_bsdf(
         surface,
         world.scene_data().surfaces(),

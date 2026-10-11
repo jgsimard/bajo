@@ -16,6 +16,7 @@ from bajo.rt.material_types import (
     SurfaceStore,
 )
 from bajo.rt.render_types import Color
+from bajo.rt.media import SceneMedia
 
 
 struct SceneBuilder(
@@ -32,6 +33,7 @@ struct SceneBuilder(
     var triangle_instance_surfaces: List[SurfaceId[1]]
     var surfaces: SurfaceStore
     var environment: Environment
+    var media: SceneMedia
 
     def __init__(out self):
         self.spheres = List[Sphere[.WORLD]]()
@@ -45,6 +47,7 @@ struct SceneBuilder(
         self.triangle_instance_surfaces = List[SurfaceId[1]]()
         self.surfaces = SurfaceStore()
         self.environment = Environment()
+        self.media = SceneMedia()
 
     def __init__(
         out self,
@@ -71,6 +74,7 @@ struct SceneBuilder(
         self.triangle_instance_surfaces = triangle_instance_surfaces^
         self.surfaces = surfaces^
         self.environment = environment.copy()
+        self.media = SceneMedia()
 
     def set_environment(mut self, environment: Environment):
         self.environment = environment.copy()
@@ -221,6 +225,7 @@ struct SceneBuilder(
             self.triangle_instance_surfaces^,
             self.surfaces^,
             self.environment,
+            self.media^,
         )
 
     def abort(deinit self):
@@ -243,6 +248,7 @@ struct SceneData:
     var _triangle_instance_surfaces: List[SurfaceId[1]]
     var _surfaces: SurfaceStore
     var _lights: LightStore
+    var _media: SceneMedia
     var _environment: Environment
     var _environment_weight: Float32
     var _environment_cdf_total: Float32
@@ -261,6 +267,7 @@ struct SceneData:
         var triangle_instance_surfaces: List[SurfaceId[1]],
         var surfaces: SurfaceStore,
         environment: Environment,
+        var media: SceneMedia = SceneMedia(),
     ) raises:
         self._spheres = spheres^
         self._sphere_surfaces = sphere_surfaces^
@@ -273,6 +280,7 @@ struct SceneData:
         self._triangle_instance_surfaces = triangle_instance_surfaces^
         self._surfaces = surfaces^
         self._lights = LightStore()
+        self._media = media^
         self._environment = environment.copy()
         self._environment_weight = 0.0
         self._environment_cdf_total = 0.0
@@ -327,6 +335,9 @@ struct SceneData:
     ) -> ref[self._triangle_instance_surfaces] List[SurfaceId[1]]:
         return self._triangle_instance_surfaces
 
+    def media(self) -> ref[self._media] SceneMedia:
+        return self._media
+
     def surfaces(self) -> ref[self._surfaces] SurfaceStore:
         return self._surfaces
 
@@ -374,6 +385,11 @@ struct SceneData:
         if len(self._triangle_meshes) != len(self._triangle_mesh_texcoords):
             raise Error("triangle mesh texcoord sidecar lengths must match")
 
+        self._media.validate(
+            len(self._spheres),
+            len(self._triangle_surfaces),
+            len(self._triangle_instances),
+        )
         self._validate_materials()
 
         if not self._environment.world_to_light.is_finite()[0]:
@@ -494,6 +510,20 @@ struct SceneData:
             finalized_instance.bounds = world_bounds
 
     def _validate_materials(self) raises:
+        if len(self._surfaces.mix_texture_indices) != len(
+            self._surfaces.mix_amounts
+        ) or len(self._surfaces.mix_uv_scales) != 2 * len(
+            self._surfaces.mix_amounts
+        ):
+            raise Error("mix texture sidecars have invalid lengths")
+        for scale in self._surfaces.mix_uv_scales:
+            if not isfinite(scale):
+                raise Error("mix UV scale must be finite")
+        for texture_index in self._surfaces.mix_texture_indices:
+            if texture_index != NO_TEXTURE and texture_index >= UInt32(
+                len(self._surfaces.image_textures)
+            ):
+                raise Error("mix texture index is out of range")
         if len(self._surfaces.mix_surfaces) != 2 * len(
             self._surfaces.mix_amounts
         ):
@@ -532,9 +562,23 @@ struct SceneData:
 
         for material in self._surfaces.dielectrics:
             material.validate()
+            if (
+                material.displacement_texture_index != NO_TEXTURE
+                and material.displacement_texture_index
+                >= UInt32(len(self._surfaces.image_textures))
+            ):
+                raise Error(
+                    "dielectric displacement texture index is out of range"
+                )
 
         for material in self._surfaces.coated_diffuses:
             material.validate()
+            if (
+                material.roughness_texture_index != NO_TEXTURE
+                and material.roughness_texture_index
+                >= UInt32(len(self._surfaces.image_textures))
+            ):
+                raise Error("conductor roughness texture index is out of range")
             if (
                 material.texture_index != NO_TEXTURE
                 and material.texture_index

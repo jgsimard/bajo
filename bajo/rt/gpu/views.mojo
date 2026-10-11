@@ -90,6 +90,15 @@ struct GpuRtSceneView(Copyable, DevicePassable):
     var texture_pixels: Pointer[Float32, ImmUntrackedOrigin]
     var mix_surfaces: Pointer[UInt32, ImmUntrackedOrigin]
     var mix_amounts: Pointer[Float32, ImmUntrackedOrigin]
+    var mix_texture_indices: Pointer[UInt32, ImmUntrackedOrigin]
+    var mix_uv_scales: Pointer[Float32, ImmUntrackedOrigin]
+    var medium_absorption: Pointer[Float32, ImmUntrackedOrigin]
+    var sphere_media: Pointer[UInt32, ImmUntrackedOrigin]
+    var triangle_media: Pointer[UInt32, ImmUntrackedOrigin]
+    var instance_media: Pointer[UInt32, ImmUntrackedOrigin]
+    var sphere_media_count: Int32
+    var triangle_media_count: Int32
+    var instance_media_count: Int32
     var light_kinds: Pointer[UInt32, ImmUntrackedOrigin]
     var light_fields: Pointer[Float32, ImmUntrackedOrigin]
     var light_count: Int32

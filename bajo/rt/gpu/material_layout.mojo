@@ -20,7 +20,7 @@ struct GpuMetalLayout:
 
 
 struct GpuCoatedDiffuseLayout:
-    comptime STRIDE = 22
+    comptime STRIDE = 26
     comptime ALBEDO = 0
     comptime ROUGHNESS = 3
     comptime ETA = 4
@@ -35,10 +35,24 @@ struct GpuCoatedDiffuseLayout:
     comptime CONDUCTOR_ETA = 15
     comptime CONDUCTOR_K = 18
     comptime CONDUCTOR_ROUGHNESS = 21
+    comptime ROUGHNESS_SCALE = 22
+    comptime ROUGHNESS_U_SCALE = 23
+    comptime ROUGHNESS_V_SCALE = 24
+    comptime REMAP_ROUGHNESS = 25
 
-    comptime TEXTURE_STRIDE = 2
+    comptime TEXTURE_STRIDE = 3
     comptime ALBEDO_TEXTURE = 0
     comptime DISPLACEMENT_TEXTURE = 1
+    comptime ROUGHNESS_TEXTURE = 2
+
+
+struct GpuDielectricLayout:
+    comptime STRIDE = 5
+    comptime ETA = 0
+    comptime DISPLACEMENT_SCALE = 1
+    comptime DISPLACEMENT_U_SCALE = 2
+    comptime DISPLACEMENT_V_SCALE = 3
+    comptime DISPLACEMENT_TEXTURE = 4
 
 
 struct GpuTextureDescLayout:

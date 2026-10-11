@@ -1,5 +1,6 @@
 """Shared CPU/GPU ABI and orchestration contract for wavefront rendering."""
 
+from std.memory import bitcast
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 
 from bajo.core import Point3f32, Rayf32, Vec3f32
@@ -73,7 +74,8 @@ struct WavePathFloatAbi:
     comptime TY = 9
     comptime TZ = 10
     comptime BSDF_PDF = 11
-    comptime PLANES = 12
+    comptime MEDIUM = 12
+    comptime PLANES = 13
 
 
 # The path queue owns the full UInt32 ID word, unlike material path references.
@@ -161,7 +163,6 @@ def wavefront_rng_material_stage(bounce: UInt32) -> UInt32:
     )
 
 
-@fieldwise_init
 struct DeviceWavePath(DevicePassable, TrivialRegisterPassable, Writable):
     """Register representation reconstructed from coalesced device planes."""
 
@@ -179,6 +180,41 @@ struct DeviceWavePath(DevicePassable, TrivialRegisterPassable, Writable):
     var tz: Float32
     var bsdf_pdf: Float32
     var delta: Bool
+    var medium_id: UInt32
+
+    def __init__(
+        out self,
+        path_id: UInt32,
+        ox: Float32,
+        oy: Float32,
+        oz: Float32,
+        t_min: Float32,
+        dx: Float32,
+        dy: Float32,
+        dz: Float32,
+        t_max: Float32,
+        tx: Float32,
+        ty: Float32,
+        tz: Float32,
+        bsdf_pdf: Float32,
+        delta: Bool,
+        medium_id: UInt32 = 0,
+    ):
+        self.path_id = path_id
+        self.ox = ox
+        self.oy = oy
+        self.oz = oz
+        self.t_min = t_min
+        self.dx = dx
+        self.dy = dy
+        self.dz = dz
+        self.t_max = t_max
+        self.tx = tx
+        self.ty = ty
+        self.tz = tz
+        self.bsdf_pdf = bsdf_pdf
+        self.delta = delta
+        self.medium_id = medium_id
 
     comptime device_type: AnyType = Self
 
@@ -208,6 +244,7 @@ struct DeviceWavePath(DevicePassable, TrivialRegisterPassable, Writable):
             path.throughput.z,
             0.0,
             True,
+            path.medium_id,
         )
 
     def to_path(self) -> WavePath:
@@ -220,6 +257,7 @@ struct DeviceWavePath(DevicePassable, TrivialRegisterPassable, Writable):
                 self.t_max,
             ),
             Color(self.tx, self.ty, self.tz),
+            self.medium_id,
         )
 
 
@@ -371,6 +409,13 @@ def load_device_wave_path(
             )
         ],
         (packed_path_id & WAVE_PATH_DELTA_BIT) != 0,
+        bitcast[.uint32](
+            fields[
+                unsafe_offset=wavefront_plane_index(
+                    WavePathFloatAbi.MEDIUM, capacity, idx
+                )
+            ]
+        ),
     )
 
 
@@ -427,6 +472,11 @@ def store_device_wave_path(
             WavePathFloatAbi.BSDF_PDF, capacity, idx
         )
     ] = path.bsdf_pdf
+    fields[
+        unsafe_offset=wavefront_plane_index(
+            WavePathFloatAbi.MEDIUM, capacity, idx
+        )
+    ] = bitcast[.float32](path.medium_id)
 
 
 @always_inline
@@ -566,6 +616,9 @@ struct PackedWavePathQueue(Sized):
         self.fields[
             wavefront_plane_index(WavePathFloatAbi.BSDF_PDF, self.capacity, idx)
         ] = path.bsdf_pdf
+        self.fields[
+            wavefront_plane_index(WavePathFloatAbi.MEDIUM, self.capacity, idx)
+        ] = bitcast[.float32](path.medium_id)
 
     def get(self, idx: Int) -> WavePath:
         debug_assert["safe", _use_compiler_assume=True](
@@ -616,6 +669,13 @@ struct PackedWavePathQueue(Sized):
                 )
             ],
             (self.path_ids[idx] & WAVE_PATH_DELTA_BIT) != 0,
+            bitcast[.uint32](
+                self.fields[
+                    wavefront_plane_index(
+                        WavePathFloatAbi.MEDIUM, self.capacity, idx
+                    )
+                ]
+            ),
         ).to_path()
 
 

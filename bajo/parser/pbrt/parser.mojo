@@ -1,13 +1,14 @@
 import std.os.path
 from max.algorithm import parallelize
 from std.bit import count_trailing_zeros, pop_count
-from std.math import abs, cos, pi, sin, sqrt
+from std.math import abs, cos, pi, sin, sqrt, tan
+from std.utils.numerics import isfinite
 from std.memory import pack_bits
 from std.sys import num_logical_cores, simd_width_of
 from bajo.core.random import Sampler
 
 from bajo.bvh import Camera
-from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32
+from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32, dot
 from bajo.parser.number import parse_f32_fast_at, parse_int_f32
 from bajo.parser.ply.pack import _pack_ply_mesh
 from bajo.parser.ply.pack import _remove_degenerate_triangles
@@ -23,10 +24,12 @@ from bajo.rt.material_types import (
     SurfaceId,
 )
 from bajo.rt.scene_data import SceneBuilder
+from bajo.rt.media import SceneMedia
+from bajo.rt.film import FilmResponse
 from bajo.rt.scene_description import SceneDescription
 
 from bajo.parser.asset_loader import AssetLoader
-from bajo.parser.pbrt.spectrum import _named_optical_constant
+from bajo.parser.pbrt.spectrum import _named_optical_constant, _blackbody_rgb
 
 
 comptime _Transform = Affine3f32[.LOCAL, .WORLD]
@@ -321,18 +324,54 @@ struct _CameraOptions(Copyable):
     var target: _PointW
     var up: _VecW
     var fov: Float32
+    var lens_radius: Float32
+    var focal_distance: Float32
+    var image_width: Int
+    var image_height: Int
+    var transform: _Transform
+    var camera_transform: _Transform
+    var has_look_at: Bool
 
     def __init__(out self):
         self.origin = _PointW(0.0, 0.0, 5.0)
         self.target = _PointW(0.0, 0.0, 0.0)
         self.up = _VecW(0.0, 1.0, 0.0)
         self.fov = 45.0
+        self.lens_radius = 0.0
+        self.focal_distance = 1.0
+        self.image_width = 640
+        self.image_height = 480
+        self.transform = _Transform.identity()
+        self.camera_transform = _Transform.identity()
+        self.has_look_at = False
 
     def parse_look_at(mut self, mut lexer: _Lexer) raises:
         var values = _fixed_f32(lexer, 9)
         self.origin = _PointW(values[0], values[1], values[2])
         self.target = _PointW(values[3], values[4], values[5])
         self.up = _VecW(values[6], values[7], values[8])
+        # PBRT uses camera +Z forward and Cross(up, forward) for camera +X.
+        var basis = Camera.from_vfov(self.origin, self.target, self.up, 45.0)
+        var right = -basis.right
+        var up = basis.up
+        var forward = basis.forward
+        var position = _VecW(self.origin.x, self.origin.y, self.origin.z)
+        var view = _Transform(
+            right.x,
+            right.y,
+            right.z,
+            -dot(right, position),
+            up.x,
+            up.y,
+            up.z,
+            -dot(up, position),
+            forward.x,
+            forward.y,
+            forward.z,
+            -dot(forward, position),
+        )
+        self.transform = _compose(self.transform, view)
+        self.has_look_at = True
 
     def parse_camera(mut self, mut lexer: _Lexer) raises:
         var kind = lexer.next().value
@@ -340,9 +379,42 @@ struct _CameraOptions(Copyable):
             raise Error("only PBRT perspective cameras are supported")
         var params = _parse_params(lexer)
         self.fov = params.f32("float fov", 45.0)
+        self.lens_radius = params.f32("float lensradius", 0.0)
+        self.focal_distance = params.f32("float focaldistance", 1.0)
+        self.camera_transform = self.transform.copy()
+        if not isfinite(self.fov) or self.fov <= 0.0 or self.fov >= 180.0:
+            raise Error("perspective fov must be within (0, 180)")
+        if (
+            not isfinite(self.lens_radius)
+            or self.lens_radius < 0.0
+            or not isfinite(self.focal_distance)
+            or self.focal_distance <= 0.0
+        ):
+            raise Error("camera lens radius and focal distance are invalid")
 
-    def to_camera(self) -> Camera:
-        return Camera.from_vfov(self.origin, self.target, self.up, self.fov)
+    def to_camera(self) raises -> Camera:
+        var camera = Camera.from_vfov(
+            self.origin, self.target, self.up, self.fov, self.focal_distance
+        )
+        if self.has_look_at:
+            var inverse = self.camera_transform.inverse()
+            if not inverse.mask[0] or not inverse.inv.is_finite()[0]:
+                raise Error("camera transform must be invertible and finite")
+            var origin = inverse.inv.point(_PointW(0.0))
+            var right = inverse.inv.vector(_VecW(1.0, 0.0, 0.0))
+            var up = inverse.inv.vector(_VecW(0.0, 1.0, 0.0))
+            var forward = inverse.inv.vector(_VecW(0.0, 0.0, 1.0))
+            camera.origin = _PointW(origin.x, origin.y, origin.z)
+            camera.right = _VecW(right.x, right.y, right.z)
+            camera.up = _VecW(up.x, up.y, up.z)
+            camera.forward = _VecW(forward.x, forward.y, forward.z)
+        if self.image_width < self.image_height:
+            camera.fov_scale *= Float32(self.image_height) / Float32(
+                self.image_width
+            )
+        camera.defocus_disk_u = camera.right * self.lens_radius
+        camera.defocus_disk_v = camera.up * self.lens_radius
+        return camera
 
 
 @fieldwise_init
@@ -352,6 +424,7 @@ struct _GraphicsState(Copyable):
     var area_light: Bool
     var emission: Color
     var reverse_orientation: Bool
+    var medium_boundary: UInt32
 
 
 @fieldwise_init
@@ -381,6 +454,7 @@ struct _Builder(
 ):
     var scene: SceneBuilder
     var named_materials: Dict[String, SurfaceId[1]]
+    var named_media: Dict[String, UInt32]
     var color_textures: Dict[String, _ColorTexture]
     var scalar_textures: Dict[String, _FloatTexture]
     var image_paths: List[String]
@@ -396,12 +470,14 @@ struct _Builder(
     var sampler: Sampler
     var max_depth: Int
     var integrator: Integrator
+    var film: FilmResponse
     var environment: Environment
     var has_environment: Bool
 
     def __init__(out self):
         self.scene = SceneBuilder()
         self.named_materials = Dict[String, SurfaceId[1]]()
+        self.named_media = Dict[String, UInt32]()
         self.color_textures = Dict[String, _ColorTexture]()
         self.scalar_textures = Dict[String, _FloatTexture]()
         self.image_paths = List[String]()
@@ -414,6 +490,7 @@ struct _Builder(
             False,
             Color(0.0),
             False,
+            UInt32(0),
         )
         self.attribute_stack = List[_GraphicsState]()
         self.transform_stack = List[_Transform]()
@@ -425,6 +502,7 @@ struct _Builder(
         self.max_depth = 8
         self.integrator = .PATH
         self.environment = Environment.black()
+        self.film = FilmResponse()
         self.has_environment = False
 
     def image_index(mut self, path: String) raises -> UInt32:
@@ -560,6 +638,8 @@ struct _Builder(
             )
             debug_assert(stored_idx == UInt32(image_idx))
 
+        self.camera_options.image_width = self.image_width
+        self.camera_options.image_height = self.image_height
         var camera = self.camera_options.to_camera()
         var settings = RenderSettings(
             self.image_width,
@@ -569,6 +649,7 @@ struct _Builder(
             self.max_depth,
             self.sampler,
         )
+        settings.film = self.film.copy()
         self.scene.set_environment(self.environment)
         return (camera, settings^)
 
@@ -718,6 +799,10 @@ def _color_texture_parameter(
         if texture_name not in builder.color_textures:
             raise Error("unknown PBRT spectrum texture: " + texture_name)
         return builder.color_textures[texture_name].copy()
+    if params.has("float " + name):
+        return _ColorTexture(
+            Color(params.f32("float " + name, 1.0)), NO_TEXTURE
+        )
     return _ColorTexture(params.color(name, default), NO_TEXTURE)
 
 
@@ -855,7 +940,43 @@ def _optical_constant(
         return Color(
             _parse_f32(values[0]), _parse_f32(values[1]), _parse_f32(values[2])
         )
-    raise Error("PBRT optical constants require a named spectrum or RGB values")
+    if len(values) >= 4 and len(values) % 2 == 0:
+        var samples = List[Float32](capacity=len(values))
+        for value in values:
+            samples.append(_parse_f32(value))
+        for i in range(0, len(samples), 2):
+            if (
+                not isfinite(samples[i])
+                or not isfinite(samples[i + 1])
+                or samples[i] <= 0.0
+                or samples[i + 1] < 0.0
+            ):
+                raise Error("optical spectrum samples must be non-negative")
+            if i > 0 and samples[i] <= samples[i - 2]:
+                raise Error("optical spectrum wavelengths must increase")
+        var result = Color(0.0)
+        for channel in range(3):
+            var wavelength = Float32(
+                610 if channel == 0 else 550 if channel == 1 else 460
+            )
+            var value = samples[1]
+            for i in range(2, len(samples), 2):
+                if wavelength >= samples[i]:
+                    value = samples[i + 1]
+                elif wavelength > samples[i - 2]:
+                    var t = (wavelength - samples[i - 2]) / (
+                        samples[i] - samples[i - 2]
+                    )
+                    value = samples[i - 1] * (1.0 - t) + samples[i + 1] * t
+                    break
+                else:
+                    break
+            result[channel] = value
+        return result
+    raise Error(
+        "PBRT optical constants require a named spectrum or wavelength/value"
+        " pairs"
+    )
 
 
 def _material_roughness(
@@ -886,10 +1007,14 @@ def _surface(
                 or second not in builder.named_materials
             ):
                 raise Error("unknown PBRT mix material reference")
+            var amount = _scalar_parameter(builder, params, "amount", 0.5)
             return builder.scene.surfaces.add_mix(
                 builder.named_materials[first],
                 builder.named_materials[second],
-                params.f32("float amount", 0.5),
+                amount.scale,
+                amount.image_index,
+                amount.u_scale,
+                amount.v_scale,
             )
         case "coatedconductor":
             var interface_eta = params.f32("float interface.eta", 1.5)
@@ -950,11 +1075,32 @@ def _surface(
                 or params.has("rgb eta")
                 or params.has("rgb k")
             ):
-                return builder.scene.surfaces.add_conductor(
+                var surface = builder.scene.surfaces.add_conductor(
                     _optical_constant(params, "eta", Color(1.0)),
                     _optical_constant(params, "k", Color(1.0)),
                     _material_roughness(params, "", 0.0),
                 )
+                var roughness = _scalar_parameter(
+                    builder, params, "roughness", 0.0
+                )
+                var bump = _scalar_parameter(
+                    builder, params, "displacement", 0.0
+                )
+                ref material = builder.scene.surfaces.coated_diffuses[
+                    Int(surface.index())
+                ]
+                material.roughness_texture_index = roughness.image_index
+                material.roughness_scale = roughness.scale
+                material.roughness_u_scale = roughness.u_scale
+                material.roughness_v_scale = roughness.v_scale
+                material.remap_roughness = params.string_or_empty(
+                    "bool remaproughness"
+                ) != ImmStringSpan("false")
+                material.displacement_texture_index = bump.image_index
+                material.displacement_scale = bump.scale
+                material.displacement_u_scale = bump.u_scale
+                material.displacement_v_scale = bump.v_scale
+                return surface^
             var roughness = params.f32("float roughness", 0.05).clamp(0.0, 1.0)
             var reflectance = _color_texture_parameter(
                 builder, params, "reflectance", Color(0.9)
@@ -963,9 +1109,20 @@ def _surface(
                 reflectance.scale, roughness, reflectance.image_index
             )
         case "dielectric" | "glass":
-            return builder.scene.surfaces.add_dielectric(
-                params.f32("float eta", 1.5)
+            # One representative wavelength for the existing scalar-IOR BSDF.
+            var eta = _optical_constant(
+                params, "eta", Color(params.f32("float eta", 1.5))
             )
+            var surface = builder.scene.surfaces.add_dielectric(eta.y)
+            var bump = _scalar_parameter(builder, params, "displacement", 0.0)
+            ref material = builder.scene.surfaces.dielectrics[
+                Int(surface.index())
+            ]
+            material.displacement_texture_index = bump.image_index
+            material.displacement_scale = bump.scale
+            material.displacement_u_scale = bump.u_scale
+            material.displacement_v_scale = bump.v_scale
+            return surface^
         case _:
             raise Error("unsupported PBRT material: " + model)
 
@@ -1149,13 +1306,44 @@ def _parse_text[
 
         __match command_token.value:
             case "LookAt":
+                builder.camera_options.transform = (
+                    builder.state.transform.copy()
+                )
                 builder.camera_options.parse_look_at(lexer)
+                builder.state.transform = (
+                    builder.camera_options.transform.copy()
+                )
 
             case "Camera":
+                builder.camera_options.transform = (
+                    builder.state.transform.copy()
+                )
                 builder.camera_options.parse_camera(lexer)
 
             case "Film":
                 var params = _named_params(lexer)
+                var iso = params.f32("float iso", 100.0)
+                if not isfinite(iso) or iso <= 0.0:
+                    raise Error("film ISO must be finite and positive")
+                var sensor = params.string_or_empty("string sensor")
+                builder.film = FilmResponse(iso / 100.0)
+                if sensor == ImmStringSpan("canon_eos_5d_mkiv"):
+                    # RGB least-squares approximation of PBRT's Canon response,
+                    # calibrated with its 24 color swatches under 6500 K daylight.
+                    # Exact spectral sensor rendering is outside the RGB model.
+                    builder.film.red = Color(
+                        0.999688732, 0.000169681, -0.000045901
+                    )
+                    builder.film.green = Color(
+                        0.000976912, 0.998400745, -0.000137268
+                    )
+                    builder.film.blue = Color(
+                        0.000892690, -0.001314436, 0.999711980
+                    )
+                elif sensor.byte_length() != 0 and sensor != ImmStringSpan(
+                    "cie1931"
+                ):
+                    raise Error("unsupported PBRT sensor: " + String(sensor))
                 builder.image_width = params.integer("integer xresolution", 640)
                 builder.image_height = params.integer(
                     "integer yresolution", 480
@@ -1328,11 +1516,49 @@ def _parse_text[
                     raise Error("only diffuse PBRT area lights are supported")
                 var params = _parse_params(lexer)
                 builder.state.area_light = True
-                builder.state.emission = params.color(
-                    "L", Color(1.0)
-                ) * params.f32("float scale", 1.0)
+                var emission = params.color("L", Color(1.0))
+                if params.has("blackbody L"):
+                    emission = _blackbody_rgb(params.f32("blackbody L", 6500.0))
+                builder.state.emission = emission * params.f32(
+                    "float scale", 1.0
+                )
+
+            case "MakeNamedMedium":
+                var name = String(lexer.next().value)
+                var params = _parse_params(lexer)
+                if params.string_or_empty("string type") != ImmStringSpan(
+                    "homogeneous"
+                ):
+                    raise Error(
+                        "only homogeneous absorption media are supported"
+                    )
+                var sigma_s = params.color("sigma_s", Color(0.0))
+                if sigma_s.x != 0.0 or sigma_s.y != 0.0 or sigma_s.z != 0.0:
+                    raise Error("medium scattering is not supported")
+                builder.named_media[name] = builder.scene.media.add(
+                    params.color("sigma_a", Color(0.0))
+                    * params.f32("float scale", 1.0)
+                )
+
+            case "MediumInterface":
+                var inside_name = String(lexer.next().value)
+                var outside_name = String(lexer.next().value)
+                var inside = UInt32(0)
+                var outside = UInt32(0)
+                if inside_name:
+                    if inside_name not in builder.named_media:
+                        raise Error("unknown inside medium: " + inside_name)
+                    inside = builder.named_media[inside_name]
+                if outside_name:
+                    if outside_name not in builder.named_media:
+                        raise Error("unknown outside medium: " + outside_name)
+                    outside = builder.named_media[outside_name]
+                builder.state.medium_boundary = inside | (outside << 16)
 
             case "Shape":
+                var sphere_begin = len(builder.scene.spheres)
+                var triangle_begin = len(builder.scene.triangle_surfaces)
+                var instance_begin = len(builder.scene.triangle_instances)
                 _shape(
                     builder,
                     lexer.next().value,
@@ -1340,6 +1566,26 @@ def _parse_text[
                     path,
                     loader,
                 )
+                var boundary = builder.state.medium_boundary
+                if boundary != 0:
+                    for index in range(
+                        sphere_begin, len(builder.scene.spheres)
+                    ):
+                        SceneMedia.set_boundary(
+                            builder.scene.media.spheres, index, boundary
+                        )
+                    for index in range(
+                        triangle_begin, len(builder.scene.triangle_surfaces)
+                    ):
+                        SceneMedia.set_boundary(
+                            builder.scene.media.triangles, index, boundary
+                        )
+                    for index in range(
+                        instance_begin, len(builder.scene.triangle_instances)
+                    ):
+                        SceneMedia.set_boundary(
+                            builder.scene.media.instances, index, boundary
+                        )
 
             case "Include":
                 var include_path = _include_path(lexer, path)
@@ -1402,7 +1648,19 @@ def _parse_camera_text[
             case "Camera":
                 options.parse_camera(lexer)
 
-            case "Film" | "Sampler" | "Integrator" | "PixelFilter" | "Accelerator":
+            case "Film":
+                var params = _named_params(lexer)
+                try:
+                    options.image_width = params.integer(
+                        "integer xresolution", 640
+                    )
+                    options.image_height = params.integer(
+                        "integer yresolution", 480
+                    )
+                except:
+                    pass
+
+            case "Sampler" | "Integrator" | "PixelFilter" | "Accelerator":
                 _ = _named_params(lexer)
 
             case "ColorSpace":
@@ -1412,16 +1670,33 @@ def _parse_camera_text[
                 _ = _parse_params(lexer)
 
             case "Identity":
-                pass
+                options.transform = _Transform.identity()
 
-            case "Translate" | "Scale":
-                _ = _fixed_f32(lexer, 3)
+            case "Translate":
+                var v = _fixed_f32(lexer, 3)
+                options.transform = _compose(
+                    options.transform, _translation(v[0], v[1], v[2])
+                )
+
+            case "Scale":
+                var v = _fixed_f32(lexer, 3)
+                options.transform = _compose(
+                    options.transform, _scale(v[0], v[1], v[2])
+                )
 
             case "Rotate":
-                _ = _fixed_f32(lexer, 4)
+                var v = _fixed_f32(lexer, 4)
+                options.transform = _compose(
+                    options.transform, _rotation(v[0], v[1], v[2], v[3])
+                )
 
-            case "Transform" | "ConcatTransform":
-                _ = _bracket_values(lexer)
+            case "Transform":
+                options.transform = _matrix(_bracket_values(lexer))
+
+            case "ConcatTransform":
+                options.transform = _compose(
+                    options.transform, _matrix(_bracket_values(lexer))
+                )
 
             case "Include":
                 var include_path = _include_path(lexer, path)

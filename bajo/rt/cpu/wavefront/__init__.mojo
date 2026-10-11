@@ -222,7 +222,7 @@ def render_wavefront_configured[
 
     var scale_factor = 1.0 / Float32(settings.samples_per_pixel)
     for ref pixel in pixels:
-        pixel = pixel * scale_factor
+        pixel = settings.film.apply(pixel * scale_factor)
     var total_t1 = perf_counter_ns()
     return RenderResult(
         pixels^,

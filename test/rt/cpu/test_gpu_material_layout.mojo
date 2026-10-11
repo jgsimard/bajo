@@ -87,6 +87,10 @@ def test_material_upload_keeps_packed_abi() raises:
         0.0,
         0.0,
         0.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
         0.25,
         0.5,
         0.75,
@@ -109,6 +113,10 @@ def test_material_upload_keeps_packed_abi() raises:
         0.0,
         0.0,
         0.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
     ]
     assert_equal(len(coated), len(expected))
     for index in range(len(expected)):
@@ -147,7 +155,14 @@ def test_material_texture_tables_address_second_record() raises:
     var indices = _flatten_coated_diffuse_texture_indices(world)
     var descs = _flatten_texture_descs(world)
     var pixels = _flatten_texture_pixels(world)
-    var expected_indices: List[UInt32] = [0, 1, 1, NO_TEXTURE]
+    var expected_indices: List[UInt32] = [
+        0,
+        1,
+        NO_TEXTURE,
+        1,
+        NO_TEXTURE,
+        NO_TEXTURE,
+    ]
     assert_equal(len(indices), len(expected_indices))
     for index in range(len(expected_indices)):
         assert_equal(indices[index], expected_indices[index])

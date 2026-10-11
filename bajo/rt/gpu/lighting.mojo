@@ -32,11 +32,11 @@ from bajo.rt.gpu.material_layout import (
     GpuMetalLayout,
     GpuTextureDescLayout,
     _load_gpu_material_color,
-    _load_gpu_coated_parameters,
 )
 from bajo.rt.gpu.textures import (
     _sample_gpu_lambertian,
     _sample_gpu_coated_albedo,
+    _sample_gpu_coated_parameters,
 )
 
 
@@ -427,8 +427,14 @@ def _sample_direct_light_candidate[
                 return _empty_direct_light_sample()
         case .COATED_DIFFUSE:
             comptime if coated_pass:
-                var coated = _load_gpu_coated_parameters(
-                    coated_diffuses, material_idx
+                var coated = _sample_gpu_coated_parameters(
+                    coated_diffuses,
+                    material_idx,
+                    uv_u,
+                    uv_v,
+                    coated_diffuse_texture_indices,
+                    texture_descs,
+                    texture_pixels,
                 )
                 var evaluation = _evaluate_coated_diffuse(
                     incoming_ray.d,

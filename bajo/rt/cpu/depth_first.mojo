@@ -17,6 +17,8 @@ from bajo.rt.render_types import (
     SamplingConfig,
 )
 from bajo.rt.material_types import Integrator
+from bajo.rt.media import medium_transmittance, transmitted_medium
+from bajo.core import dot
 from bajo.rt.shading_types import ShadingPoint
 from .scene import CpuScene
 from .scheduler_mode import CpuSchedulerMode
@@ -60,12 +62,20 @@ def _trace_path[
     path_id: UInt32,
 ) -> Color where Integrator.is_path_tracing[integrator]:
     var cur_ray = ray
+    var medium_id = UInt32(0)
     var throughput = Color(1.0)
     var radiance = Color(0.0)
     var previous_delta = True
     var previous_bsdf_pdf = Float32(0.0)
     for _bounce in range(settings.max_depth):
         var hit = world.trace_surface(cur_ray)
+        if medium_id != 0:
+            var distance = (hit.t if hit.hit else cur_ray.t_max) * sqrt(
+                dot(cur_ray.d, cur_ray.d)
+            )
+            throughput *= medium_transmittance(
+                world.scene_data().media().absorption[Int(medium_id)], distance
+            )
         if hit.hit:
             if hit.surface.kind() == .MIX:
                 var material_rng = path_stage_rng(
@@ -76,7 +86,9 @@ def _trace_path[
                 hit.surface = (
                     world.scene_data()
                     .surfaces()
-                    .resolve_mix(hit.surface, material_rng.f32())
+                    .resolve_mix(
+                        hit.surface, material_rng.f32(), hit.uv_u, hit.uv_v
+                    )
                 )
             var point = ShadingPoint.from_hit(cur_ray, hit)
             point.normal = (
@@ -107,7 +119,7 @@ def _trace_path[
                     wavefront_rng_light_stage(UInt32(_bounce)),
                 )
                 var direct = sample_direct_lighting[integrator](
-                    hit.surface, world, cur_ray, point, light_rng
+                    hit.surface, world, cur_ray, point, light_rng, medium_id
                 )
                 radiance += throughput * direct
             var bsdf_rng = path_stage_rng(
@@ -125,6 +137,13 @@ def _trace_path[
             if not scattered.ok:
                 return radiance
 
+            if (
+                hit.medium_boundary != 0
+                and dot(scattered.direction, hit.geometric_normal) < 0.0
+            ):
+                medium_id = transmitted_medium(
+                    hit.medium_boundary, hit.front_face
+                )
             throughput *= scattered.weight
             previous_delta = scattered.delta
             previous_bsdf_pdf = scattered.pdf
@@ -258,7 +277,9 @@ def _render_pixel[
             integrator, world_bvh_width, instance_bvh_width
         ](settings, sampling, world, ray, path_id)
 
-    return pixel_color * (1.0 / Float32(settings.samples_per_pixel))
+    return settings.film.apply(
+        pixel_color * (1.0 / Float32(settings.samples_per_pixel))
+    )
 
 
 def render_depth_first[

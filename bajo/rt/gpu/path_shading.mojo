@@ -1,5 +1,6 @@
 """GPU surface routing, BSDF shading, and path continuation."""
 
+from std.memory import bitcast
 from max.gpu import block_dim, global_idx, grid_dim
 from std.math import ceildiv, sqrt
 from max.gpu.host import DeviceBuffer, DeviceContext
@@ -30,6 +31,13 @@ from bajo.rt.gpu.wavefront_contract import (
     GpuWavefrontArena,
     GPU_SHADE_U,
     GPU_SHADE_V,
+    GPU_SHADE_BOUNDARY,
+    GPU_SHADE_GNX,
+    GPU_SHADE_GNY,
+    GPU_SHADE_GNZ,
+    GPU_SHADE_TX,
+    GPU_SHADE_TY,
+    GPU_SHADE_TZ,
     _mark_status,
     _reserve_slot,
     load_gpu_rt_path,
@@ -39,15 +47,17 @@ from bajo.rt.gpu.wavefront_contract import (
 from bajo.rt.gpu.materials import GpuRtMaterials
 from bajo.rt.gpu.material_layout import (
     GpuRgbMaterialLayout,
+    GpuDielectricLayout,
     GpuMetalLayout,
     _load_gpu_material_color,
-    _load_gpu_coated_parameters,
 )
 from bajo.rt.gpu.textures import (
     _sample_gpu_lambertian,
+    _sample_gpu_coated_parameters,
     _sample_gpu_coated_albedo,
 )
 from bajo.rt.shading_types import BsdfSample
+from bajo.rt.media import transmitted_medium
 
 
 comptime GPU_RT_SHADE_MAX_BLOCKS = GPU_RT_MAX_BLOCKS
@@ -168,6 +178,7 @@ def _continue_gpu_path[
             roulette.throughput.z,
             sampled.pdf,
             sampled.delta,
+            path.medium_id,
         ),
         dst_path_ids,
         dst_path_fields,
@@ -258,7 +269,15 @@ def _shade_coated_diffuse_inline[
     bounce: UInt32,
 ):
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-    var coated = _load_gpu_coated_parameters(coated_diffuses, material_idx)
+    var coated = _sample_gpu_coated_parameters(
+        coated_diffuses,
+        material_idx,
+        uv_u,
+        uv_v,
+        coated_diffuse_texture_indices,
+        texture_descs,
+        texture_pixels,
+    )
     var albedo = _sample_gpu_coated_albedo(
         surface_value,
         uv_u,
@@ -333,6 +352,8 @@ def _route_surface_hit[
     capacity: Int,
     sample_base: UInt32,
     sampling: SamplingConfig,
+    medium_boundary: UInt32 = 0,
+    geometric_normal: Vec3f32[.WORLD] = Vec3f32[.WORLD](0.0),
 ):
     """Route a geometry-independent oriented hit to output or a BSDF queue."""
 
@@ -402,7 +423,7 @@ def _route_surface_hit[
                 sampling,
                 bounce,
             )
-        case .COATED_DIFFUSE:
+        case .COATED_DIFFUSE | .METAL | .DIELECTRIC:
             var slot = _append_shade(
                 DeviceWaveShade(
                     UInt32(active_path_idx),
@@ -430,23 +451,41 @@ def _route_surface_hit[
                         GPU_SHADE_V, capacity, slot
                     )
                 ] = uv_v
-        case .METAL | .DIELECTRIC:
-            _ = _append_shade(
-                DeviceWaveShade(
-                    UInt32(active_path_idx),
-                    normal.x,
-                    normal.y,
-                    normal.z,
-                    surface_value,
-                    hit_t,
-                    front_face,
-                ),
-                shade_path_refs,
-                shade_surfaces,
-                shade_fields,
-                counters,
-                capacity,
-            )
+                shade_fields[
+                    unsafe_offset=wavefront_plane_index(
+                        GPU_SHADE_BOUNDARY, capacity, slot
+                    )
+                ] = bitcast[.float32](medium_boundary)
+                shade_fields[
+                    unsafe_offset=wavefront_plane_index(
+                        GPU_SHADE_GNX, capacity, slot
+                    )
+                ] = geometric_normal.x
+                shade_fields[
+                    unsafe_offset=wavefront_plane_index(
+                        GPU_SHADE_GNY, capacity, slot
+                    )
+                ] = geometric_normal.y
+                shade_fields[
+                    unsafe_offset=wavefront_plane_index(
+                        GPU_SHADE_GNZ, capacity, slot
+                    )
+                ] = geometric_normal.z
+                shade_fields[
+                    unsafe_offset=wavefront_plane_index(
+                        GPU_SHADE_TX, capacity, slot
+                    )
+                ] = path.tx
+                shade_fields[
+                    unsafe_offset=wavefront_plane_index(
+                        GPU_SHADE_TY, capacity, slot
+                    )
+                ] = path.ty
+                shade_fields[
+                    unsafe_offset=wavefront_plane_index(
+                        GPU_SHADE_TZ, capacity, slot
+                    )
+                ] = path.tz
 
 
 @always_inline
@@ -480,6 +519,15 @@ def _gpu_rt_shade_one[
     var path = load_gpu_rt_path[integrator](
         src_path_ids, src_path_fields, capacity, Int(work.path_idx)
     )
+    path.tx = shade_fields[
+        unsafe_offset=wavefront_plane_index(GPU_SHADE_TX, capacity, idx)
+    ]
+    path.ty = shade_fields[
+        unsafe_offset=wavefront_plane_index(GPU_SHADE_TY, capacity, idx)
+    ]
+    path.tz = shade_fields[
+        unsafe_offset=wavefront_plane_index(GPU_SHADE_TZ, capacity, idx)
+    ]
     var ray_direction = Vec3f32[.WORLD](path.dx, path.dy, path.dz)
     var normal = Vec3f32[.WORLD](work.nx, work.ny, work.nz)
     var albedo = Color(0.0)
@@ -507,7 +555,10 @@ def _gpu_rt_shade_one[
                 random_u = rng.f32()
                 random_v = rng.f32()
         case _:
-            parameter = material_data[unsafe_offset=material_idx]
+            parameter = material_data[
+                unsafe_offset=GpuDielectricLayout.STRIDE * material_idx
+                + GpuDielectricLayout.ETA
+            ]
             var ri = Float32(1.0) / parameter if work.front_face else parameter
             var unit_direction = normalize(ray_direction)
             var cos_theta = min(dot(-unit_direction, normal), 1.0)
@@ -524,6 +575,26 @@ def _gpu_rt_shade_one[
         random_u,
         random_v,
     )
+    var boundary = bitcast[.uint32](
+        shade_fields[
+            unsafe_offset=wavefront_plane_index(
+                GPU_SHADE_BOUNDARY, capacity, idx
+            )
+        ]
+    )
+    var geometric = Vec3f32[.WORLD](
+        shade_fields[
+            unsafe_offset=wavefront_plane_index(GPU_SHADE_GNX, capacity, idx)
+        ],
+        shade_fields[
+            unsafe_offset=wavefront_plane_index(GPU_SHADE_GNY, capacity, idx)
+        ],
+        shade_fields[
+            unsafe_offset=wavefront_plane_index(GPU_SHADE_GNZ, capacity, idx)
+        ],
+    )
+    if boundary != 0 and dot(sampled.direction, geometric) < 0.0:
+        path.medium_id = transmitted_medium(boundary, work.front_face)
     _continue_gpu_path[integrator](
         path,
         work.t,

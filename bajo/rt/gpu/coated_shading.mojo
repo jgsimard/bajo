@@ -22,10 +22,14 @@ from bajo.rt.gpu.path_shading import (
     _shade_coated_diffuse_inline,
     GPU_RT_SHADE_BLOCK_SIZE,
 )
+from bajo.rt.media import medium_transmittance
 from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
 from bajo.rt.gpu.wavefront_contract import (
     GPU_SHADE_U,
     GPU_SHADE_V,
+    GPU_SHADE_TX,
+    GPU_SHADE_TY,
+    GPU_SHADE_TZ,
     load_gpu_rt_path,
 )
 
@@ -66,6 +70,15 @@ def gpu_rt_coated_shade_kernel[
                 capacity,
                 Int(work.path_idx),
             )
+            path.tx = fields[
+                unsafe_offset=wavefront_plane_index(GPU_SHADE_TX, capacity, idx)
+            ]
+            path.ty = fields[
+                unsafe_offset=wavefront_plane_index(GPU_SHADE_TY, capacity, idx)
+            ]
+            path.tz = fields[
+                unsafe_offset=wavefront_plane_index(GPU_SHADE_TZ, capacity, idx)
+            ]
             var normal = Vec3f32[.WORLD](work.nx, work.ny, work.nz)
             var ray = Rayf32[.WORLD](
                 Point3f32[.WORLD](path.ox, path.oy, path.oz),
@@ -121,6 +134,16 @@ def gpu_rt_coated_shade_kernel[
                     bounce,
                 )
                 if direct.valid:
+                    if path.medium_id != 0:
+                        var base = 3 * Int(path.medium_id)
+                        direct.contribution *= medium_transmittance(
+                            Color(
+                                scene.medium_absorption[unsafe_offset=base],
+                                scene.medium_absorption[unsafe_offset=base + 1],
+                                scene.medium_absorption[unsafe_offset=base + 2],
+                            ),
+                            direct.shadow_t_max,
+                        )
                     var shadow = spawn_surface_ray(
                         ray.at(work.t), direct.direction, direct.shadow_t_max
                     )

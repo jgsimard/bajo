@@ -1,11 +1,15 @@
 """Device-safe access to GPU material textures and shading normals."""
 
-from std.math import abs, floor
+from std.math import abs, floor, sqrt
+from std.memory import bitcast
 from bajo.core import Vec3f32, cross, normalize
 from bajo.rt.render_types import Color
 from bajo.rt.material_types import NO_TEXTURE, SurfaceId
 from bajo.rt.gpu.material_layout import (
     GpuRgbMaterialLayout,
+    GpuDielectricLayout,
+    _GpuCoatedDiffuseParameters,
+    _load_gpu_coated_parameters,
     GpuCoatedDiffuseLayout,
     GpuTextureDescLayout,
     _load_gpu_material_color,
@@ -60,8 +64,13 @@ def _sample_gpu_lambertian(
     var texture_idx = texture_indices[unsafe_offset=material_idx]
     if texture_idx == NO_TEXTURE:
         return albedo
-    return albedo * _sample_gpu_image_texture(
+    var value = albedo * _sample_gpu_image_texture(
         texture_idx, u, v, texture_descs, texture_pixels
+    )
+    return Color(
+        value.x.clamp(0.0, 1.0),
+        value.y.clamp(0.0, 1.0),
+        value.z.clamp(0.0, 1.0),
     )
 
 
@@ -86,8 +95,13 @@ def _sample_gpu_coated_albedo(
     ]
     if texture_idx == NO_TEXTURE:
         return albedo
-    return albedo * _sample_gpu_image_texture(
+    var value = albedo * _sample_gpu_image_texture(
         texture_idx, u, v, texture_descs, texture_pixels
+    )
+    return Color(
+        value.x.clamp(0.0, 1.0),
+        value.y.clamp(0.0, 1.0),
+        value.z.clamp(0.0, 1.0),
     )
 
 
@@ -123,6 +137,33 @@ def _gpu_coated_shading_normal(
         unsafe_offset=material_base
         + GpuCoatedDiffuseLayout.DISPLACEMENT_V_SCALE
     ]
+    return _gpu_bump_normal(
+        normal,
+        u,
+        v,
+        texture_idx,
+        scale,
+        u_scale,
+        v_scale,
+        texture_descs,
+        texture_pixels,
+    )
+
+
+@always_inline
+def _gpu_bump_normal(
+    normal: Vec3f32[.WORLD],
+    u: Float32,
+    v: Float32,
+    texture_idx: UInt32,
+    scale: Float32,
+    u_scale: Float32,
+    v_scale: Float32,
+    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+) -> Vec3f32[.WORLD]:
+    if texture_idx == NO_TEXTURE or scale == 0.0:
+        return normal
     var desc_base = GpuTextureDescLayout.STRIDE * Int(texture_idx)
     var width = Float32(
         texture_descs[unsafe_offset=desc_base + GpuTextureDescLayout.WIDTH]
@@ -188,3 +229,74 @@ def _gpu_coated_shading_normal(
     var tangent = normalize(cross(helper, normal))
     var bitangent = cross(normal, tangent)
     return normalize(normal - tangent * slope_u - bitangent * slope_v)
+
+
+@always_inline
+def _gpu_dielectric_shading_normal(
+    surface_value: UInt32,
+    normal: Vec3f32[.WORLD],
+    u: Float32,
+    v: Float32,
+    data: Pointer[Float32, ImmutAnyOrigin],
+    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+) -> Vec3f32[.WORLD]:
+    var base = GpuDielectricLayout.STRIDE * Int(
+        SurfaceId.index_from_raw(surface_value)
+    )
+    return _gpu_bump_normal(
+        normal,
+        u,
+        v,
+        bitcast[.uint32](
+            data[unsafe_offset=base + GpuDielectricLayout.DISPLACEMENT_TEXTURE]
+        ),
+        data[unsafe_offset=base + GpuDielectricLayout.DISPLACEMENT_SCALE],
+        data[unsafe_offset=base + GpuDielectricLayout.DISPLACEMENT_U_SCALE],
+        data[unsafe_offset=base + GpuDielectricLayout.DISPLACEMENT_V_SCALE],
+        texture_descs,
+        texture_pixels,
+    )
+
+
+@always_inline
+def _sample_gpu_coated_parameters(
+    data: Pointer[Float32, ImmutAnyOrigin],
+    material_idx: Int,
+    u: Float32,
+    v: Float32,
+    texture_indices: Pointer[UInt32, ImmutAnyOrigin],
+    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+) -> _GpuCoatedDiffuseParameters:
+    var value = _load_gpu_coated_parameters(data, material_idx)
+    var texture_idx = texture_indices[
+        unsafe_offset=GpuCoatedDiffuseLayout.TEXTURE_STRIDE * material_idx
+        + GpuCoatedDiffuseLayout.ROUGHNESS_TEXTURE
+    ]
+    if texture_idx != NO_TEXTURE:
+        var base = GpuCoatedDiffuseLayout.STRIDE * material_idx
+        var color = _sample_gpu_image_texture(
+            texture_idx,
+            u
+            * data[
+                unsafe_offset=base + GpuCoatedDiffuseLayout.ROUGHNESS_U_SCALE
+            ],
+            v
+            * data[
+                unsafe_offset=base + GpuCoatedDiffuseLayout.ROUGHNESS_V_SCALE
+            ],
+            texture_descs,
+            texture_pixels,
+        )
+        var roughness = (
+            (0.2126 * color.x + 0.7152 * color.y + 0.0722 * color.z)
+            * data[unsafe_offset=base + GpuCoatedDiffuseLayout.ROUGHNESS_SCALE]
+        ).clamp(0.0, 1.0)
+        value.conductor_roughness = (
+            sqrt(roughness) if data[
+                unsafe_offset=base + GpuCoatedDiffuseLayout.REMAP_ROUGHNESS
+            ]
+            != 0.0 else roughness
+        )
+    return value

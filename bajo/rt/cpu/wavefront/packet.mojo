@@ -1,6 +1,7 @@
 """Width-generic packet CPU wavefront kernels."""
 
 from std.math import sqrt
+from bajo.rt.media import medium_transmittance, transmitted_medium
 
 from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
 from bajo.core import (
@@ -160,7 +161,11 @@ struct _MaterialParameters[length: SIMDLength]:
                 self.conductor_k.x[lane] = material.conductor_k.x
                 self.conductor_k.y[lane] = material.conductor_k.y
                 self.conductor_k.z[lane] = material.conductor_k.z
-                self.conductor_alpha[lane] = material.conductor_roughness
+                self.conductor_alpha[
+                    lane
+                ] = surfaces.sample_conductor_roughness(
+                    SurfaceId(kind, surface_index), u, v
+                )
             case .DIELECTRIC:
                 self.parameter[lane] = surfaces.dielectrics[
                     Int(surface_index)
@@ -350,6 +355,18 @@ def _sample_bsdf_batch[
 
     var out = PathPacket[length]()
     out.path_ids = batch.path_ids
+    out.medium_ids = batch.medium_ids
+    var geometric = Vec3[.float32, .WORLD, length](
+        batch.gnx, batch.gny, batch.gnz
+    )
+    var transmission = dot(sampled.direction, geometric).lt(0.0)
+    for lane in range(lane_count):
+        if transmission[lane] and batch.medium_boundaries[lane] != 0:
+            # The stored geometric normal faces the incident ray.
+            # Boundary orientation is encoded by the original front-face flag.
+            out.medium_ids[lane] = transmitted_medium(
+                batch.medium_boundaries[lane], batch.front_faces[lane]
+            )
     var next_ray = spawn_surface_ray(
         Point3[.float32, .WORLD, length](
             batch.ox + batch.hit_t * batch.dx,
@@ -485,7 +502,8 @@ def _trace_path_packets[
         dielectric_queue.clear()
         coated_diffuse_queue.clear()
         next_paths.clear()
-        for packet_idx, packet in enumerate(active_paths.packets):
+        for packet_idx, source_packet in enumerate(active_paths.packets):
+            var packet = source_packet.copy()
             var lane_count = min(
                 length, len(active_paths) - packet_idx * length
             )
@@ -517,6 +535,18 @@ def _trace_path_packets[
                     packet.t_max[lane],
                 )
                 var hit = surface_hits.get(lane)
+                var medium_id = Int(packet.medium_ids[lane])
+                if medium_id != 0:
+                    var distance = (hit.t if hit.hit else ray.t_max) * sqrt(
+                        dot(ray.d, ray.d)
+                    )
+                    var attenuation = medium_transmittance(
+                        world.scene_data().media().absorption[medium_id],
+                        distance,
+                    )
+                    packet.tx[lane] *= attenuation.x
+                    packet.ty[lane] *= attenuation.y
+                    packet.tz[lane] *= attenuation.z
                 if hit.hit:
                     if hit.surface.kind() == .MIX:
                         var material_rng = path_stage_rng(
@@ -527,7 +557,12 @@ def _trace_path_packets[
                         hit.surface = (
                             world.scene_data()
                             .surfaces()
-                            .resolve_mix(hit.surface, material_rng.f32())
+                            .resolve_mix(
+                                hit.surface,
+                                material_rng.f32(),
+                                hit.uv_u,
+                                hit.uv_v,
+                            )
                         )
                     hit.normal = (
                         world.scene_data()
@@ -574,6 +609,13 @@ def _trace_path_packets[
                         var direct = _sample_direct_light_candidate(
                             world, point, light_rng
                         )
+                        if direct.valid and medium_id != 0:
+                            direct.emission *= medium_transmittance(
+                                world.scene_data()
+                                .media()
+                                .absorption[medium_id],
+                                direct.shadow_t_max,
+                            )
                         direct_lights.point.normal.x[lane] = hit.normal.x
                         direct_lights.point.normal.y[lane] = hit.normal.y
                         direct_lights.point.normal.z[lane] = hit.normal.z

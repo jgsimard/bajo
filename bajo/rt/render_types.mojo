@@ -3,6 +3,7 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 
 from bajo.core import Vec3f32
+from bajo.rt.film import FilmResponse
 from bajo.core.random import Sampler
 
 
@@ -18,6 +19,7 @@ struct RenderSettings(Copyable, Writable):
     var sampler: Sampler
     var sample_offset: Int
     var sample_sequence_length: Int
+    var film: FilmResponse
 
     def __init__(
         out self,
@@ -29,6 +31,7 @@ struct RenderSettings(Copyable, Writable):
         sampler: Sampler = .INDEPENDENT,
         sample_offset: Int = 0,
         sample_sequence_length: Int = 0,
+        film: FilmResponse = FilmResponse(),
     ):
         debug_assert["safe", _use_compiler_assume=True](
             image_width > 0, "image width must be positive"
@@ -62,9 +65,11 @@ struct RenderSettings(Copyable, Writable):
         self.sampler = sampler
         self.sample_offset = sample_offset
         self.sample_sequence_length = sequence_length
+        self.film = film.copy()
 
     def validate(self) raises:
         """Validate mutable render settings at a host API boundary."""
+        self.film.validate()
         if self.image_width <= 0:
             raise Error("image width must be positive")
         if self.image_height <= 0:

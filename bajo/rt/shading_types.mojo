@@ -14,7 +14,6 @@ struct HitRecord(Copyable, Writable):
     var front_face: Bool
 
 
-@fieldwise_init
 struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
     """Renderer hit without primitive identity or position."""
 
@@ -25,8 +24,12 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
     var t: SIMD[.float32, Self.length]
     var front_face: SIMD[.bool, Self.length]
     var hit: SIMD[.bool, Self.length]
+    var medium_boundary: SIMD[.uint32, Self.length]
+    var geometric_normal: Vec3[.float32, .WORLD, Self.length]
 
     def __init__(out self, t_max: SIMD[.float32, Self.length]):
+        self.medium_boundary = 0
+        self.geometric_normal = Vec3[.float32, .WORLD, Self.length](0.0)
         self.normal = Vec3[.float32, .WORLD, Self.length](0.0)
         self.surface = SurfaceId[Self.length](SIMD[.uint32, Self.length](0))
         self.uv_u = 0.0
@@ -43,6 +46,8 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
         front_face: SIMD[.bool, Self.length],
         hit: SIMD[.bool, Self.length],
     ):
+        self.medium_boundary = 0
+        self.geometric_normal = normal
         self.normal = normal
         self.surface = surface.copy()
         self.uv_u = 0.0
@@ -50,6 +55,30 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
         self.t = t
         self.front_face = front_face
         self.hit = hit
+
+    def __init__(
+        out self,
+        normal: Vec3[.float32, .WORLD, Self.length],
+        surface: SurfaceId[Self.length],
+        uv_u: SIMD[.float32, Self.length],
+        uv_v: SIMD[.float32, Self.length],
+        t: SIMD[.float32, Self.length],
+        front_face: SIMD[.bool, Self.length],
+        hit: SIMD[.bool, Self.length],
+        medium_boundary: SIMD[.uint32, Self.length] = 0,
+        geometric_normal: Vec3[.float32, .WORLD, Self.length] = Vec3[
+            .float32, .WORLD, Self.length
+        ](0.0),
+    ):
+        self.normal = normal
+        self.surface = surface.copy()
+        self.uv_u = uv_u
+        self.uv_v = uv_v
+        self.t = t
+        self.front_face = front_face
+        self.hit = hit
+        self.medium_boundary = medium_boundary
+        self.geometric_normal = geometric_normal
 
     @always_inline
     def get(self, lane: Int) -> SurfaceHit[1]:
@@ -65,6 +94,12 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
             self.t[lane],
             self.front_face[lane],
             self.hit[lane],
+            self.medium_boundary[lane],
+            Vec3f32[.WORLD](
+                self.geometric_normal.x[lane],
+                self.geometric_normal.y[lane],
+                self.geometric_normal.z[lane],
+            ),
         )
 
 

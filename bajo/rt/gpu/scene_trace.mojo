@@ -1,7 +1,7 @@
 """Compile-time-specialized traversal kernel for all GPU RT scene shapes."""
 
 from max.gpu import block_dim, global_idx, grid_dim
-from std.math import ceildiv, pi
+from std.math import sqrt, ceildiv, pi
 from max.gpu.host import DeviceContext
 
 from bajo.bvh import Hit
@@ -34,11 +34,12 @@ from bajo.rt.render_types import (
     Color,
     SamplingConfig,
 )
+from bajo.rt.media import medium_transmittance
 from bajo.rt.material_types import (
+    NO_TEXTURE,
     EnvironmentKind,
     Integrator,
     SurfaceId,
-    resolve_mix_surface,
 )
 from bajo.rt.lighting_types import _light_importance
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
@@ -61,7 +62,11 @@ from bajo.rt.gpu.common_kernels import (
     make_gpu_rt_primary_path,
 )
 from bajo.rt.gpu.lighting import _sample_direct_light_candidate
-from bajo.rt.gpu.textures import _gpu_coated_shading_normal
+from bajo.rt.gpu.textures import (
+    _gpu_coated_shading_normal,
+    _gpu_dielectric_shading_normal,
+    _sample_gpu_image_texture,
+)
 from bajo.rt.gpu.path_shading import (
     _accumulate_sample,
     _append_shadow,
@@ -126,7 +131,7 @@ def _gpu_rt_scene_trace_path[
     light_kind: PrimitiveKind = .UNKNOWN,
 ](
     idx: Int,
-    path: DeviceWavePath,
+    var path: DeviceWavePath,
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
     sampling: SamplingConfig,
@@ -187,6 +192,8 @@ def _gpu_rt_scene_trace_path[
         path.t_min,
         path.t_max,
     )
+    var medium_boundary = UInt32(0)
+    var geometric_outward = Vec3f32[.WORLD](0.0)
     var found = False
     var closest_t = ray.t_max
     var outward = Vec3f32[.WORLD](0.0)
@@ -224,6 +231,10 @@ def _gpu_rt_scene_trace_path[
             var sphere_idx = Int(sphere_hit.prim)
             if signed_radii[unsafe_offset=sphere_idx] < 0.0:
                 outward = -outward
+            geometric_outward = outward
+            medium_boundary = scene.sphere_media[
+                unsafe_offset=sphere_idx
+            ] if sphere_idx < Int(scene.sphere_media_count) else UInt32(0)
             surface_value = sphere_surfaces[unsafe_offset=sphere_idx]
 
     comptime if scene_kind.has_triangles():
@@ -270,6 +281,11 @@ def _gpu_rt_scene_trace_path[
             outward = triangle_hit.normal.unsafe_convert[
                 new_kind=GeoKind.VECTOR
             ]()
+            geometric_outward = outward
+            var triangle_idx = Int(triangle_hit.prim)
+            medium_boundary = scene.triangle_media[
+                unsafe_offset=triangle_idx
+            ] if triangle_idx < Int(scene.triangle_media_count) else UInt32(0)
             surface_value = triangle_surfaces[
                 unsafe_offset=Int(triangle_hit.prim)
             ]
@@ -357,7 +373,11 @@ def _gpu_rt_scene_trace_path[
             outward = instance_hit.normal.unsafe_convert[
                 new_kind=GeoKind.VECTOR
             ]()
+            geometric_outward = outward
             var instance_idx = Int(instance_hit.inst)
+            medium_boundary = scene.instance_media[
+                unsafe_offset=instance_idx
+            ] if instance_idx < Int(scene.instance_media_count) else UInt32(0)
             var mesh_idx = Int(inst_blas_indices[unsafe_offset=instance_idx])
             var triangle_idx = Int(instance_hit.prim)
             var b0 = Float32(1.0) - instance_hit.u - instance_hit.v
@@ -407,6 +427,20 @@ def _gpu_rt_scene_trace_path[
                 outward = shading_normal
             surface_value = instance_surfaces[unsafe_offset=instance_idx]
 
+    if path.medium_id != 0:
+        var base = 3 * Int(path.medium_id)
+        var sigma_a = Color(
+            scene.medium_absorption[unsafe_offset=base],
+            scene.medium_absorption[unsafe_offset=base + 1],
+            scene.medium_absorption[unsafe_offset=base + 2],
+        )
+        var attenuation = medium_transmittance(
+            sigma_a,
+            (closest_t if found else ray.t_max) * sqrt(dot(ray.d, ray.d)),
+        )
+        path.tx *= attenuation.x
+        path.ty *= attenuation.y
+        path.tz *= attenuation.z
     if not found:
         comptime if Integrator.is_path_tracing[integrator]:
             var environment_emission = _gpu_environment_radiance(
@@ -451,12 +485,28 @@ def _gpu_rt_scene_trace_path[
         var material_rng = path_stage_rng(
             sampling, path.path_id, wavefront_rng_material_stage(UInt32(bounce))
         )
-        surface_value = resolve_mix_surface(
-            surface_value,
-            scene.mix_surfaces.unsafe_origin_cast[ImmutAnyOrigin](),
-            scene.mix_amounts.unsafe_origin_cast[ImmutAnyOrigin](),
-            material_rng.f32(),
-        )
+        var random = material_rng.f32()
+        while SurfaceId.kind_from_raw(surface_value) == .MIX:
+            var index = Int(SurfaceId.index_from_raw(surface_value))
+            var amount = scene.mix_amounts[unsafe_offset=index]
+            var texture_index = scene.mix_texture_indices[unsafe_offset=index]
+            if texture_index != NO_TEXTURE:
+                var color = _sample_gpu_image_texture(
+                    texture_index,
+                    uv_u * scene.mix_uv_scales[unsafe_offset=2 * index],
+                    uv_v * scene.mix_uv_scales[unsafe_offset=2 * index + 1],
+                    texture_descs,
+                    texture_pixels,
+                )
+                amount *= 0.2126 * color.x + 0.7152 * color.y + 0.0722 * color.z
+            amount = amount.clamp(0.0, 1.0)
+            if random < amount:
+                surface_value = scene.mix_surfaces[unsafe_offset=2 * index + 1]
+                random /= amount
+            else:
+                surface_value = scene.mix_surfaces[unsafe_offset=2 * index]
+                random = (random - amount) / (1.0 - amount)
+    var geometric = orient_surface_normal(ray.d, geometric_outward)
     var oriented = orient_surface_normal(ray.d, outward)
     var normal = oriented.normal
     normal = _gpu_coated_shading_normal(
@@ -469,6 +519,16 @@ def _gpu_rt_scene_trace_path[
         texture_descs,
         texture_pixels,
     )
+    if SurfaceId.kind_from_raw(surface_value) == .DIELECTRIC:
+        normal = _gpu_dielectric_shading_normal(
+            surface_value,
+            normal,
+            uv_u,
+            uv_v,
+            scene.dielectrics.unsafe_origin_cast[ImmutAnyOrigin](),
+            texture_descs,
+            texture_pixels,
+        )
     comptime if integrator == .AO:
         var ao_rng = path_stage_rng(sampling, path.path_id, UInt32(1))
         var ao_ray = make_ao_ray(ray.at(closest_t), normal, ao_rng)
@@ -530,6 +590,16 @@ def _gpu_rt_scene_trace_path[
             bounce,
         )
         if direct.valid:
+            if path.medium_id != 0:
+                var base = 3 * Int(path.medium_id)
+                direct.contribution *= medium_transmittance(
+                    Color(
+                        scene.medium_absorption[unsafe_offset=base],
+                        scene.medium_absorption[unsafe_offset=base + 1],
+                        scene.medium_absorption[unsafe_offset=base + 2],
+                    ),
+                    direct.shadow_t_max,
+                )
             var shadow_ray = spawn_surface_ray(
                 ray.at(closest_t),
                 direct.direction,
@@ -561,7 +631,7 @@ def _gpu_rt_scene_trace_path[
         path,
         ray.d,
         normal,
-        oriented.front_face,
+        geometric.front_face,
         uv_u,
         uv_v,
         closest_t,
@@ -585,6 +655,8 @@ def _gpu_rt_scene_trace_path[
         capacity,
         sample_base,
         sampling,
+        medium_boundary,
+        geometric.normal,
     )
 
 

@@ -1,11 +1,13 @@
 """Prepared GPU material and texture table ownership."""
 
+from std.memory import bitcast
 from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.rt.material_types import NO_TEXTURE
 from bajo.rt.scene_data import SceneData
 from bajo.rt.gpu.upload import _upload_nonempty
 from bajo.rt.gpu.material_layout import (
     GpuRgbMaterialLayout,
+    GpuDielectricLayout,
     GpuMetalLayout,
     GpuCoatedDiffuseLayout,
     GpuTextureDescLayout,
@@ -83,6 +85,10 @@ def _flatten_dielectrics(world: SceneData) -> List[Float32]:
     var out = List[Float32](capacity=len(world.surfaces().dielectrics))
     for material in world.surfaces().dielectrics:
         out.append(material.refraction_index)
+        out.append(material.displacement_scale)
+        out.append(material.displacement_u_scale)
+        out.append(material.displacement_v_scale)
+        out.append(bitcast[.float32](material.displacement_texture_index))
     return out^
 
 
@@ -162,6 +168,18 @@ def _flatten_coated_diffuses(world: SceneData) -> List[Float32]:
         out[
             base + GpuCoatedDiffuseLayout.CONDUCTOR_ROUGHNESS
         ] = material.conductor_roughness
+        out[
+            base + GpuCoatedDiffuseLayout.ROUGHNESS_SCALE
+        ] = material.roughness_scale
+        out[
+            base + GpuCoatedDiffuseLayout.ROUGHNESS_U_SCALE
+        ] = material.roughness_u_scale
+        out[
+            base + GpuCoatedDiffuseLayout.ROUGHNESS_V_SCALE
+        ] = material.roughness_v_scale
+        out[base + GpuCoatedDiffuseLayout.REMAP_ROUGHNESS] = Float32(
+            1.0 if material.remap_roughness else 0.0
+        )
     return out^
 
 
@@ -180,6 +198,9 @@ def _flatten_coated_diffuse_texture_indices(world: SceneData) -> List[UInt32]:
         out[
             base + GpuCoatedDiffuseLayout.DISPLACEMENT_TEXTURE
         ] = material.displacement_texture_index
+        out[
+            base + GpuCoatedDiffuseLayout.ROUGHNESS_TEXTURE
+        ] = material.roughness_texture_index
     return out^
 
 
@@ -208,6 +229,15 @@ struct GpuRtMaterials:
     var texture_pixels: DeviceBuffer[.float32]
     var mix_surfaces: DeviceBuffer[.uint32]
     var mix_amounts: DeviceBuffer[.float32]
+    var mix_texture_indices: DeviceBuffer[.uint32]
+    var mix_uv_scales: DeviceBuffer[.float32]
+    var medium_absorption: DeviceBuffer[.float32]
+    var sphere_media: DeviceBuffer[.uint32]
+    var triangle_media: DeviceBuffer[.uint32]
+    var instance_media: DeviceBuffer[.uint32]
+    var sphere_media_count: Int32
+    var triangle_media_count: Int32
+    var instance_media_count: Int32
     var stages: GpuRtShadeStages
 
     def __init__(
@@ -239,6 +269,26 @@ struct GpuRtMaterials:
         )
         self.mix_surfaces = _upload_nonempty(ctx, world.surfaces().mix_surfaces)
         self.mix_amounts = _upload_nonempty(ctx, world.surfaces().mix_amounts)
+        self.mix_texture_indices = _upload_nonempty(
+            ctx, world.surfaces().mix_texture_indices
+        )
+        self.mix_uv_scales = _upload_nonempty(
+            ctx, world.surfaces().mix_uv_scales
+        )
+        var absorption = List[Float32](
+            capacity=3 * len(world.media().absorption)
+        )
+        for value in world.media().absorption:
+            absorption.append(value.x)
+            absorption.append(value.y)
+            absorption.append(value.z)
+        self.medium_absorption = _upload_nonempty(ctx, absorption)
+        self.sphere_media = _upload_nonempty(ctx, world.media().spheres)
+        self.triangle_media = _upload_nonempty(ctx, world.media().triangles)
+        self.instance_media = _upload_nonempty(ctx, world.media().instances)
+        self.sphere_media_count = Int32(len(world.media().spheres))
+        self.triangle_media_count = Int32(len(world.media().triangles))
+        self.instance_media_count = Int32(len(world.media().instances))
         self.stages = GpuRtShadeStages(
             len(world.surfaces().metals) > 0
             or len(world.surfaces().dielectrics) > 0,

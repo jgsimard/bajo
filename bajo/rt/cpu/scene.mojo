@@ -39,6 +39,7 @@ from bajo.rt.shading_types import (
     SurfaceHit,
 )
 from bajo.rt.scene_data import SceneData
+from bajo.rt.media import SceneMedia
 
 
 @always_inline
@@ -105,6 +106,8 @@ struct _WorldHit(Copyable, Writable):
     var t: Float32
     var front_face: Bool
     var hit: Bool
+    var medium_boundary: UInt32
+    var geometric_normal: Vec3f32[.WORLD]
 
     @staticmethod
     def miss(t: Float32 = f32_max) -> Self:
@@ -117,6 +120,8 @@ struct _WorldHit(Copyable, Writable):
             t,
             True,
             False,
+            UInt32(0),
+            Vec3f32[.WORLD](0.0),
         )
 
 
@@ -341,6 +346,10 @@ struct CpuScene[
                 result.t[0] = scalar_hit.t
                 result.front_face[0] = scalar_hit.front_face
                 result.hit[0] = scalar_hit.hit
+                result.medium_boundary[0] = scalar_hit.medium_boundary
+                result.geometric_normal.x[0] = scalar_hit.geometric_normal.x
+                result.geometric_normal.y[0] = scalar_hit.geometric_normal.y
+                result.geometric_normal.z[0] = scalar_hit.geometric_normal.z
                 return result^
             return SurfaceHit[length](rays.t_max)
         else:
@@ -424,6 +433,9 @@ struct CpuScene[
             for lane in range(length):
                 if sphere_mask[lane]:
                     var sphere_idx = Int(sphere_hits.prim[lane])
+                    result.medium_boundary[lane] = SceneMedia.boundary(
+                        self._scene.media().spheres, sphere_idx
+                    )
                     ref sphere = self._scene.spheres()[sphere_idx]
                     center_x[lane] = sphere.center.x
                     center_y[lane] = sphere.center.y
@@ -445,6 +457,9 @@ struct CpuScene[
             result.normal = Vec3.select(
                 sphere_mask, oriented.normal, result.normal
             )
+            result.geometric_normal = Vec3.select(
+                sphere_mask, oriented.normal, result.geometric_normal
+            )
             result.surface.value = sphere_mask.select(
                 surface_values, result.surface.value
             )
@@ -465,6 +480,9 @@ struct CpuScene[
             for lane in range(length):
                 if triangle_mask[lane]:
                     var triangle_idx = Int(triangle_hits.prim[lane])
+                    result.medium_boundary[lane] = SceneMedia.boundary(
+                        self._scene.media().triangles, triangle_idx
+                    )
                     surface_values[lane] = self._scene.triangle_surfaces()[
                         triangle_idx
                     ].value
@@ -474,6 +492,9 @@ struct CpuScene[
             var oriented = orient_surface_normal(rays.d, triangle_normal)
             result.normal = Vec3.select(
                 triangle_mask, oriented.normal, result.normal
+            )
+            result.geometric_normal = Vec3.select(
+                triangle_mask, oriented.normal, result.geometric_normal
             )
             result.surface.value = triangle_mask.select(
                 surface_values, result.surface.value
@@ -504,6 +525,9 @@ struct CpuScene[
             for lane in range(length):
                 if instance_mask[lane]:
                     var instance_idx = Int(instance_hits.inst[lane])
+                    result.medium_boundary[lane] = SceneMedia.boundary(
+                        self._scene.media().instances, instance_idx
+                    )
                     var shading = _triangle_instance_shading(
                         self._scene,
                         instance_idx,
@@ -526,7 +550,14 @@ struct CpuScene[
                     ] = self._scene.triangle_instance_surfaces()[
                         instance_idx
                     ].value
+            var geometric = orient_surface_normal(
+                rays.d,
+                instance_hits.normal.unsafe_convert[new_kind=GeoKind.VECTOR](),
+            )
             var oriented = orient_surface_normal(rays.d, instance_normal)
+            result.geometric_normal = Vec3.select(
+                instance_mask, geometric.normal, result.geometric_normal
+            )
             result.normal = Vec3.select(
                 instance_mask, oriented.normal, result.normal
             )
@@ -537,7 +568,7 @@ struct CpuScene[
             result.uv_v = instance_mask.select(texture_v, result.uv_v)
             result.t = instance_mask.select(instance_hits.t, result.t)
             result.front_face = instance_mask.select(
-                oriented.front_face, result.front_face
+                geometric.front_face, result.front_face
             )
             result.hit |= instance_mask
 
@@ -574,6 +605,8 @@ struct CpuScene[
             bvh_hit.t,
             oriented.front_face,
             True,
+            SceneMedia.boundary(self._scene.media().spheres, sphere_idx),
+            orient_surface_normal(ray.d, outward_normal).normal,
         )
 
     def _trace_triangles(self, ray: Rayf32[.WORLD]) -> _WorldHit:
@@ -607,6 +640,8 @@ struct CpuScene[
             bvh_hit.t,
             oriented.front_face,
             True,
+            SceneMedia.boundary(self._scene.media().triangles, tri_idx),
+            orient_surface_normal(ray.d, outward_normal).normal,
         )
 
     def _trace_triangle_instances(self, ray: Rayf32[.WORLD]) -> _WorldHit:
@@ -646,6 +681,12 @@ struct CpuScene[
             texture_u,
             texture_v,
             bvh_hit.t,
-            oriented.front_face,
+            orient_surface_normal(
+                ray.d, bvh_hit.normal.unsafe_convert[new_kind=GeoKind.VECTOR]()
+            ).front_face,
             True,
+            SceneMedia.boundary(self._scene.media().instances, instance_idx),
+            orient_surface_normal(
+                ray.d, bvh_hit.normal.unsafe_convert[new_kind=GeoKind.VECTOR]()
+            ).normal,
         )

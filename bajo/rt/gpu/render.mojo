@@ -35,27 +35,6 @@ from bajo.rt.material_types import Integrator
 from bajo.rt.scene_data import SceneData
 
 
-comptime GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD = 32
-
-
-def _prefer_cwbvh8_triangles(world: SceneData) -> Bool:
-    return (
-        len(world.triangle_vertices()) / 3
-        >= GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD
-    )
-
-
-def _prefer_cwbvh8_blases(world: SceneData) -> Bool:
-    var weighted_triangles = 0
-    for instance in world.triangle_instances():
-        weighted_triangles += (
-            len(world.triangle_meshes()[Int(instance.blas_idx)]) / 3
-        )
-    return weighted_triangles >= (
-        len(world.triangle_instances()) * GPU_RT_CWBVH8_BLAS_TRIANGLE_THRESHOLD
-    )
-
-
 def _enqueue_scene_bounce[
     integrator: Integrator,
     kind: GpuRtSceneKind,
@@ -256,129 +235,51 @@ def render_gpu_configured[
     )
 
 
-def _render_gpu_instances_default[
-    kind: GpuRtSceneKind,
-    integrator: Integrator,
-    sphere_format: GpuRtBvhFormat,
-](
-    settings: RenderSettings,
-    camera: Camera,
-    world: SceneData,
-) raises -> RenderResult:
-    comptime assert kind.has_instances()
-    if _prefer_cwbvh8_blases(world):
-        if kind.has_triangles() and _prefer_cwbvh8_triangles(world):
-            return render_gpu_configured[
-                kind,
-                integrator,
-                sphere_format,
-                GPU_RT_BVH_CWBVH8,
-                GPU_RT_BVH_TLAS2,
-                GPU_RT_BVH_CWBVH8,
-            ](settings, camera, world)
-        return render_gpu_configured[
-            kind,
-            integrator,
-            sphere_format,
-            GPU_RT_BVH_WIDE4,
-            GPU_RT_BVH_TLAS2,
-            GPU_RT_BVH_CWBVH8,
-        ](settings, camera, world)
-    if kind.has_triangles() and _prefer_cwbvh8_triangles(world):
-        return render_gpu_configured[
-            kind,
-            integrator,
-            sphere_format,
-            GPU_RT_BVH_CWBVH8,
-            GPU_RT_BVH_TLAS2,
-            GPU_RT_BVH_WIDE4,
-        ](settings, camera, world)
-    return render_gpu_configured[
-        kind,
-        integrator,
-        sphere_format,
-        GPU_RT_BVH_WIDE4,
-        GPU_RT_BVH_TLAS2,
-        GPU_RT_BVH_WIDE4,
-    ](settings, camera, world)
-
-
 def render_gpu[
     integrator: Integrator = .PATH,
-    node_width: SIMDLength = 4,
-    leaf_width: SIMDLength = node_width,
 ](
     settings: RenderSettings,
     camera: Camera,
     world: SceneData,
 ) raises -> RenderResult:
-    """Select a scene shape on the host; all device paths remain specialized."""
+    """Select geometry with WIDE4 spheres, CWBVH8 triangles/BLASes and TLAS2."""
     comptime assert integrator.is_valid()
-    comptime sphere_format = GpuRtBvhFormat(
-        Int(node_width), Int(leaf_width), .WIDE
-    )
-
     if len(world.triangle_instances()) > 0:
         if len(world.spheres()) > 0:
             if len(world.triangle_vertices()) > 0:
-                return _render_gpu_instances_default[
-                    .ALL, integrator, sphere_format
-                ](settings, camera, world)
-            return _render_gpu_instances_default[
-                .SPHERES_INSTANCES, integrator, sphere_format
-            ](settings, camera, world)
+                return render_gpu_configured[.ALL, integrator](
+                    settings, camera, world
+                )
+            return render_gpu_configured[.SPHERES_INSTANCES, integrator](
+                settings, camera, world
+            )
         if len(world.triangle_vertices()) > 0:
-            return _render_gpu_instances_default[
-                .TRIANGLES_INSTANCES, integrator, sphere_format
-            ](settings, camera, world)
-        return _render_gpu_instances_default[
-            .INSTANCES, integrator, sphere_format
-        ](settings, camera, world)
-
-    if len(world.spheres()) > 0:
-        if len(world.triangle_vertices()) > 0:
-            if _prefer_cwbvh8_triangles(world):
-                return render_gpu_configured[
-                    .SPHERES_TRIANGLES,
-                    integrator,
-                    sphere_format,
-                    GPU_RT_BVH_CWBVH8,
-                ](settings, camera, world)
-            return render_gpu_configured[
-                .SPHERES_TRIANGLES,
-                integrator,
-                sphere_format,
-                GPU_RT_BVH_WIDE4,
-            ](settings, camera, world)
-        return render_gpu_configured[.SPHERES, integrator, sphere_format](
+            return render_gpu_configured[.TRIANGLES_INSTANCES, integrator](
+                settings, camera, world
+            )
+        return render_gpu_configured[.INSTANCES, integrator](
             settings, camera, world
         )
 
-    if _prefer_cwbvh8_triangles(world):
-        return render_gpu_configured[
-            .TRIANGLES,
-            integrator,
-            sphere_format,
-            GPU_RT_BVH_CWBVH8,
-        ](settings, camera, world)
-    return render_gpu_configured[
-        .TRIANGLES,
-        integrator,
-        sphere_format,
-        GPU_RT_BVH_WIDE4,
-    ](settings, camera, world)
+    if len(world.spheres()) > 0:
+        if len(world.triangle_vertices()) > 0:
+            return render_gpu_configured[.SPHERES_TRIANGLES, integrator](
+                settings, camera, world
+            )
+        return render_gpu_configured[.SPHERES, integrator](
+            settings, camera, world
+        )
+    return render_gpu_configured[.TRIANGLES, integrator](
+        settings, camera, world
+    )
 
 
 def render_gpu_viewer[
     integrator: Integrator = .PATH,
-    node_width: SIMDLength = 4,
-    leaf_width: SIMDLength = node_width,
 ](
     settings: RenderSettings,
     camera: Camera,
     world: SceneData,
 ) raises -> RenderResult:
-    """Render the viewer with the measured default GPU BVH policy."""
-    return render_gpu[integrator, node_width, leaf_width](
-        settings, camera, world
-    )
+    """Render the viewer with the fixed default GPU BVH formats."""
+    return render_gpu[integrator](settings, camera, world)

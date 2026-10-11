@@ -15,21 +15,11 @@ from bajo.rt.render_types import RenderSettings
 from bajo.rt.scene_data import SceneData
 from bajo.bvh import Camera
 from bajo.rt.gpu.prepared_renderer import GpuRtPreparedRenderer
-from bajo.rt.gpu.config import (
-    GpuRtBvhFormat,
-    GpuRtSceneKind,
-    GPU_RT_BVH_CWBVH8,
-    GPU_RT_BVH_TLAS2,
-    GPU_RT_BVH_WIDE4,
-)
-from bajo.rt.gpu.render import _prefer_cwbvh8_blases, _prefer_cwbvh8_triangles
+from bajo.rt.gpu.config import GpuRtSceneKind
 from bajo.viewer.common import (
     CpuViewerState,
     _settings,
     _camera,
-    STATE_KIND_MASK,
-    STATE_COMPRESSED_TRIANGLES,
-    STATE_COMPRESSED_BLASES,
 )
 from examples.viewer import (
     _viewer_bvh_stats,
@@ -47,24 +37,8 @@ comptime CPU_VIEWER_BUILD_METHOD = (
 )
 
 
-def _state_tag[
-    kind: GpuRtSceneKind,
-    triangle_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
-]() -> Int:
-    comptime triangle_bit = (
-        STATE_COMPRESSED_TRIANGLES if triangle_format.layout.compressed else 0
-    )
-    comptime blas_bit = (
-        STATE_COMPRESSED_BLASES if blas_format.layout.compressed else 0
-    )
-    return Int(kind.bits) | triangle_bit | blas_bit
-
-
 def _allocate_state[
     kind: GpuRtSceneKind,
-    triangle_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
 ](
     settings: RenderSettings,
     camera: Camera,
@@ -72,57 +46,10 @@ def _allocate_state[
 ) raises -> Tuple[
     Int, Int
 ]:
-    comptime State = GpuRtPreparedRenderer[
-        kind,
-        GPU_RT_BVH_WIDE4,
-        triangle_format,
-        GPU_RT_BVH_TLAS2,
-        blas_format,
-    ]
+    comptime State = GpuRtPreparedRenderer[kind]
     var ptr = unsafe_alloc[State](1)
     ptr.unsafe_write(State(settings, camera, data))
-    return (Int(ptr), _state_tag[kind, triangle_format, blas_format]())
-
-
-def _allocate_kind[
-    kind: GpuRtSceneKind,
-](
-    settings: RenderSettings,
-    camera: Camera,
-    data: SceneData,
-    compressed_triangles: Bool,
-    compressed_blases: Bool,
-) raises -> Tuple[Int, Int]:
-    comptime if kind.has_triangles():
-        if compressed_triangles:
-            comptime if kind.has_instances():
-                if compressed_blases:
-                    return _allocate_state[
-                        kind, GPU_RT_BVH_CWBVH8, GPU_RT_BVH_CWBVH8
-                    ](settings, camera, data)
-                return _allocate_state[
-                    kind, GPU_RT_BVH_CWBVH8, GPU_RT_BVH_WIDE4
-                ](settings, camera, data)
-            return _allocate_state[kind, GPU_RT_BVH_CWBVH8, GPU_RT_BVH_WIDE4](
-                settings, camera, data
-            )
-        comptime if kind.has_instances():
-            if compressed_blases:
-                return _allocate_state[
-                    kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_CWBVH8
-                ](settings, camera, data)
-        return _allocate_state[kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_WIDE4](
-            settings, camera, data
-        )
-
-    comptime if kind.has_instances():
-        if compressed_blases:
-            return _allocate_state[kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_CWBVH8](
-                settings, camera, data
-            )
-    return _allocate_state[kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_WIDE4](
-        settings, camera, data
-    )
+    return (Int(ptr), Int(kind.bits))
 
 
 def _create_gpu_state(
@@ -130,41 +57,19 @@ def _create_gpu_state(
     camera: Camera,
     data: SceneData,
 ) raises -> Tuple[Int, Int]:
-    var compressed_triangles = _prefer_cwbvh8_triangles(data)
-    var compressed_blases = _prefer_cwbvh8_blases(data)
     if len(data.triangle_instances()) > 0:
         if len(data.spheres()) > 0:
             if len(data.triangle_vertices()) > 0:
-                return _allocate_kind[.ALL](
-                    settings,
-                    camera,
-                    data,
-                    compressed_triangles,
-                    compressed_blases,
-                )
-            return _allocate_kind[.SPHERES_INSTANCES](
-                settings, camera, data, False, compressed_blases
-            )
+                return _allocate_state[.ALL](settings, camera, data)
+            return _allocate_state[.SPHERES_INSTANCES](settings, camera, data)
         if len(data.triangle_vertices()) > 0:
-            return _allocate_kind[.TRIANGLES_INSTANCES](
-                settings,
-                camera,
-                data,
-                compressed_triangles,
-                compressed_blases,
-            )
-        return _allocate_kind[.INSTANCES](
-            settings, camera, data, False, compressed_blases
-        )
+            return _allocate_state[.TRIANGLES_INSTANCES](settings, camera, data)
+        return _allocate_state[.INSTANCES](settings, camera, data)
     if len(data.spheres()) > 0:
         if len(data.triangle_vertices()) > 0:
-            return _allocate_kind[.SPHERES_TRIANGLES](
-                settings, camera, data, compressed_triangles, False
-            )
-        return _allocate_kind[.SPHERES](settings, camera, data, False, False)
-    return _allocate_kind[.TRIANGLES](
-        settings, camera, data, compressed_triangles, False
-    )
+            return _allocate_state[.SPHERES_TRIANGLES](settings, camera, data)
+        return _allocate_state[.SPHERES](settings, camera, data)
+    return _allocate_state[.TRIANGLES](settings, camera, data)
 
 
 def create_gpu_state(config: PythonObject) raises -> PythonObject:
@@ -231,63 +136,32 @@ def destroy_cpu_state(handle: PythonObject) raises:
 
 def _destroy_state[
     kind: GpuRtSceneKind,
-    triangle_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
 ](handle: Int):
-    comptime State = GpuRtPreparedRenderer[
-        kind,
-        GPU_RT_BVH_WIDE4,
-        triangle_format,
-        GPU_RT_BVH_TLAS2,
-        blas_format,
-    ]
+    comptime State = GpuRtPreparedRenderer[kind]
     var ptr = Pointer[State, MutUntrackedOrigin](unsafe_from_address=handle)
     ptr.unsafe_deinit_pointee()
     ptr.unsafe_free()
 
 
-def _destroy_kind[
-    kind: GpuRtSceneKind,
-](handle: Int, tag: Int):
-    var compressed_triangles = Bool(tag & STATE_COMPRESSED_TRIANGLES)
-    var compressed_blases = Bool(tag & STATE_COMPRESSED_BLASES)
-    comptime if kind.has_triangles():
-        if compressed_triangles:
-            comptime if kind.has_instances():
-                if compressed_blases:
-                    return _destroy_state[
-                        kind, GPU_RT_BVH_CWBVH8, GPU_RT_BVH_CWBVH8
-                    ](handle)
-            return _destroy_state[kind, GPU_RT_BVH_CWBVH8, GPU_RT_BVH_WIDE4](
-                handle
-            )
-    comptime if kind.has_instances():
-        if compressed_blases:
-            return _destroy_state[kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_CWBVH8](
-                handle
-            )
-    return _destroy_state[kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_WIDE4](handle)
-
-
 def destroy_gpu_state(handle: PythonObject, tag: PythonObject) raises:
     var address = Int(py=handle)
     var state_tag = Int(py=tag)
-    var kind = GpuRtSceneKind(state_tag & STATE_KIND_MASK)
+    var kind = GpuRtSceneKind(state_tag)
     __match kind:
         case .SPHERES:
-            return _destroy_kind[.SPHERES](address, state_tag)
+            return _destroy_state[.SPHERES](address)
         case .TRIANGLES:
-            return _destroy_kind[.TRIANGLES](address, state_tag)
+            return _destroy_state[.TRIANGLES](address)
         case .SPHERES_TRIANGLES:
-            return _destroy_kind[.SPHERES_TRIANGLES](address, state_tag)
+            return _destroy_state[.SPHERES_TRIANGLES](address)
         case .INSTANCES:
-            return _destroy_kind[.INSTANCES](address, state_tag)
+            return _destroy_state[.INSTANCES](address)
         case .SPHERES_INSTANCES:
-            return _destroy_kind[.SPHERES_INSTANCES](address, state_tag)
+            return _destroy_state[.SPHERES_INSTANCES](address)
         case .TRIANGLES_INSTANCES:
-            return _destroy_kind[.TRIANGLES_INSTANCES](address, state_tag)
+            return _destroy_state[.TRIANGLES_INSTANCES](address)
         case .ALL:
-            return _destroy_kind[.ALL](address, state_tag)
+            return _destroy_state[.ALL](address)
 
 
 def pbrt_camera(path: PythonObject) raises -> PythonObject:

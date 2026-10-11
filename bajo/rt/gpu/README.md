@@ -41,10 +41,12 @@ uses a 256K-path fallback. Larger queues trade GPU memory for throughput.
 
 ## BVH defaults
 
-Automatic `render_gpu` selection uses H-PLOC for triangles and instance BLASes,
-choosing CWBVH8 at 32 triangles and wide4 below that (instances use weighted
-mean mesh size). TLAS defaults to LBVH, node2/leaf1; sphere BVHs use wide4.
-Prepared-scene formats/builders can be selected explicitly.
+Automatic `render_gpu` selection and the viewer use CWBVH8 (node8/leaf4)
+with H-PLOC for all triangles and instance BLASes, including small meshes.
+TLAS uses LBVH, node2/leaf1; sphere BVHs use wide4, node4/leaf4.
+One format set per scene kind reduces compilation by eliminating size-based
+layout dispatch. Explicit formats/builders remain available through the
+configured and prepared-scene APIs.
 
 Near-first TLAS traversal orders closest-hit leaf tasks for wide4/leaf4 BLASes.
 Large static-triangle MIS queues use a separate compressed-traversal function.

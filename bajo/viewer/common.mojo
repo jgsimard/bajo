@@ -15,10 +15,6 @@ from bajo.core.utils import degrees_to_radians
 from bajo.rt.cpu.scene import CpuScene
 from bajo.rt.render_types import RenderSettings
 
-comptime STATE_KIND_MASK = 7
-comptime STATE_COMPRESSED_TRIANGLES = 8
-comptime STATE_COMPRESSED_BLASES = 16
-
 
 struct CpuViewerState:
     var world: CpuScene[16, 16]

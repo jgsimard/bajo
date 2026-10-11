@@ -14,21 +14,12 @@ from bajo.rt.cpu.depth_first import render_depth_first
 from bajo.rt.cpu.wavefront import render_wavefront_configured
 from bajo.rt.cpu.scheduler_mode import CpuSchedulerMode
 from bajo.rt.gpu.prepared_renderer import GpuRtPreparedRenderer
-from bajo.rt.gpu.config import (
-    GpuRtBvhFormat,
-    GpuRtSceneKind,
-    GPU_RT_BVH_CWBVH8,
-    GPU_RT_BVH_TLAS2,
-    GPU_RT_BVH_WIDE4,
-)
+from bajo.rt.gpu.config import GpuRtSceneKind
 from bajo.viewer.common import (
     CpuViewerState,
     _settings,
     _camera,
     _linear_frame,
-    STATE_KIND_MASK,
-    STATE_COMPRESSED_TRIANGLES,
-    STATE_COMPRESSED_BLASES,
 )
 
 comptime VIEWER_BACKEND = get_defined_int["VIEWER_BACKEND", 0]()
@@ -102,16 +93,8 @@ def render_cpu_state(
 def _render_state[
     integrator: Integrator,
     kind: GpuRtSceneKind,
-    triangle_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
 ](handle: Int, config: PythonObject) raises -> PythonObject:
-    comptime State = GpuRtPreparedRenderer[
-        kind,
-        GPU_RT_BVH_WIDE4,
-        triangle_format,
-        GPU_RT_BVH_TLAS2,
-        blas_format,
-    ]
+    comptime State = GpuRtPreparedRenderer[kind]
     var ptr = Pointer[State, MutUntrackedOrigin](unsafe_from_address=handle)
     var settings = _settings(config)
     var result = ptr[].render[integrator](settings, _camera(config))
@@ -131,57 +114,27 @@ def _render_state[
     return Python.list(render_ms, init_ms, mrays, frame)
 
 
-def _render_kind[
-    integrator: Integrator,
-    kind: GpuRtSceneKind,
-](handle: Int, tag: Int, config: PythonObject) raises -> PythonObject:
-    var compressed_triangles = Bool(tag & STATE_COMPRESSED_TRIANGLES)
-    var compressed_blases = Bool(tag & STATE_COMPRESSED_BLASES)
-    comptime if kind.has_triangles():
-        if compressed_triangles:
-            comptime if kind.has_instances():
-                if compressed_blases:
-                    return _render_state[
-                        integrator, kind, GPU_RT_BVH_CWBVH8, GPU_RT_BVH_CWBVH8
-                    ](handle, config)
-            return _render_state[
-                integrator, kind, GPU_RT_BVH_CWBVH8, GPU_RT_BVH_WIDE4
-            ](handle, config)
-    comptime if kind.has_instances():
-        if compressed_blases:
-            return _render_state[
-                integrator, kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_CWBVH8
-            ](handle, config)
-    return _render_state[integrator, kind, GPU_RT_BVH_WIDE4, GPU_RT_BVH_WIDE4](
-        handle, config
-    )
-
-
 def _dispatch_render[
     integrator: Integrator
 ](handle: Int, tag: Int, config: PythonObject) raises -> PythonObject:
-    var kind = GpuRtSceneKind(tag & STATE_KIND_MASK)
+    var kind = GpuRtSceneKind(tag)
     __match kind:
         case .SPHERES:
-            return _render_kind[integrator, .SPHERES](handle, tag, config)
+            return _render_state[integrator, .SPHERES](handle, config)
         case .TRIANGLES:
-            return _render_kind[integrator, .TRIANGLES](handle, tag, config)
+            return _render_state[integrator, .TRIANGLES](handle, config)
         case .SPHERES_TRIANGLES:
-            return _render_kind[integrator, .SPHERES_TRIANGLES](
-                handle, tag, config
-            )
+            return _render_state[integrator, .SPHERES_TRIANGLES](handle, config)
         case .INSTANCES:
-            return _render_kind[integrator, .INSTANCES](handle, tag, config)
+            return _render_state[integrator, .INSTANCES](handle, config)
         case .SPHERES_INSTANCES:
-            return _render_kind[integrator, .SPHERES_INSTANCES](
-                handle, tag, config
-            )
+            return _render_state[integrator, .SPHERES_INSTANCES](handle, config)
         case .TRIANGLES_INSTANCES:
-            return _render_kind[integrator, .TRIANGLES_INSTANCES](
-                handle, tag, config
+            return _render_state[integrator, .TRIANGLES_INSTANCES](
+                handle, config
             )
         case .ALL:
-            return _render_kind[integrator, .ALL](handle, tag, config)
+            return _render_state[integrator, .ALL](handle, config)
 
 
 def render_gpu_state(

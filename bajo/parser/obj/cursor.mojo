@@ -1,5 +1,5 @@
 from .types import ObjIndex
-from bajo.parser.number import parse_f32_at
+from .number import parse_obj_f32_at
 from .primitives import (
     _fix_index,
     _is_digit,
@@ -21,7 +21,9 @@ struct ObjIndexLimit(TrivialRegisterPassable):
     var max_magnitude: Int
 
     @always_inline
-    def __init__(out self, count_with_dummy: Int):
+    def __init__(out self, count_with_dummy: Int) raises:
+        if count_with_dummy < 1 or count_with_dummy - 1 > 0x7FFFFFFF:
+            raise Error("OBJ element count exceeds signed 32-bit index storage")
         self.count_with_dummy = count_with_dummy
         self.max_magnitude = count_with_dummy - 1
 
@@ -54,7 +56,7 @@ struct ObjLineCursor[origin: ImmOrigin]:
 
     @always_inline
     def _next_f32_at_pos(mut self) raises -> Float32:
-        var parsed = parse_f32_at(self.bytes, self.pos)
+        var parsed = parse_obj_f32_at(self.bytes, self.pos)
         self.pos = parsed.pos
         return parsed.value
 
@@ -144,10 +146,10 @@ struct ObjLineCursor[origin: ImmOrigin]:
         var needs_fix = self._at_signed_index()
         var p_raw = self._parse_positive_index_int(False, position_limit)
         if needs_fix:
-            return ObjIndex(
+            return ObjIndex._from_validated(
                 _fix_index(p_raw, position_limit.count_with_dummy), 0, 0
             )
-        return ObjIndex(p_raw, 0, 0)
+        return ObjIndex._from_validated(p_raw, 0, 0)
 
     def next_index_p_t_at_token(
         mut self, position_limit: ObjIndexLimit, texcoord_limit: ObjIndexLimit
@@ -166,8 +168,8 @@ struct ObjLineCursor[origin: ImmOrigin]:
         if t_raw == 0:
             raise String("missing OBJ texture index")
         if not needs_fix:
-            return ObjIndex(p_raw, t_raw, 0)
-        return ObjIndex(
+            return ObjIndex._from_validated(p_raw, t_raw, 0)
+        return ObjIndex._from_validated(
             _fix_index(p_raw, position_limit.count_with_dummy),
             _fix_index(t_raw, texcoord_limit.count_with_dummy),
             0,
@@ -195,8 +197,8 @@ struct ObjLineCursor[origin: ImmOrigin]:
         if n_raw == 0:
             raise String("missing OBJ normal index")
         if not needs_fix:
-            return ObjIndex(p_raw, 0, n_raw)
-        return ObjIndex(
+            return ObjIndex._from_validated(p_raw, 0, n_raw)
+        return ObjIndex._from_validated(
             _fix_index(p_raw, position_limit.count_with_dummy),
             0,
             _fix_index(n_raw, normal_limit.count_with_dummy),
@@ -231,8 +233,8 @@ struct ObjLineCursor[origin: ImmOrigin]:
         if t_raw == 0 or n_raw == 0:
             raise String("missing OBJ texture or normal index")
         if not needs_fix:
-            return ObjIndex(p_raw, t_raw, n_raw)
-        return ObjIndex(
+            return ObjIndex._from_validated(p_raw, t_raw, n_raw)
+        return ObjIndex._from_validated(
             _fix_index(p_raw, position_limit.count_with_dummy),
             _fix_index(t_raw, texcoord_limit.count_with_dummy),
             _fix_index(n_raw, normal_limit.count_with_dummy),
@@ -259,7 +261,7 @@ struct ObjLineCursor[origin: ImmOrigin]:
             ):
                 self.pos += 1
                 n_raw = self._parse_index_int(False, normal_limit)
-        return ObjIndex(
+        return ObjIndex._from_validated(
             _fix_index(p_raw, position_limit.count_with_dummy),
             _fix_index(t_raw, texcoord_limit.count_with_dummy),
             _fix_index(n_raw, normal_limit.count_with_dummy),
@@ -305,7 +307,9 @@ struct ObjLineCursor[origin: ImmOrigin]:
                         needs_fix = True
                     n_raw = self._parse_positive_index_int(False, normal_limit)
         if not needs_fix:
-            return FirstFaceIndex(ObjIndex(p_raw, t_raw, n_raw), shape)
+            return FirstFaceIndex(
+                ObjIndex._from_validated(p_raw, t_raw, n_raw), shape
+            )
         var p = _fix_index(p_raw, position_limit.count_with_dummy)
         var t = t_raw
         var n = n_raw
@@ -313,7 +317,7 @@ struct ObjLineCursor[origin: ImmOrigin]:
             t = _fix_index(t_raw, texcoord_limit.count_with_dummy)
         if n_raw != 0:
             n = _fix_index(n_raw, normal_limit.count_with_dummy)
-        return FirstFaceIndex(ObjIndex(p, t, n), shape)
+        return FirstFaceIndex(ObjIndex._from_validated(p, t, n), shape)
 
     def joined_rest_of_line(mut self) -> String:
         self.skip_ws()

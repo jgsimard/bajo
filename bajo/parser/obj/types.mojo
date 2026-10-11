@@ -55,11 +55,37 @@ struct ObjMaterial(Copyable):
         self.map_bump = 0
 
 
-@fieldwise_init
 struct ObjIndex(TrivialRegisterPassable):
-    var p: Int
-    var t: Int
-    var n: Int
+    """Validated OBJ indices; zero denotes an absent UV or normal."""
+
+    var p: Int32
+    var t: Int32
+    var n: Int32
+
+    @always_inline
+    def __init__(out self, p: Int, t: Int, n: Int):
+        debug_assert["safe", _use_compiler_assume=True](
+            p >= 0
+            and p <= 0x7FFFFFFF
+            and t >= 0
+            and t <= 0x7FFFFFFF
+            and n >= 0
+            and n <= 0x7FFFFFFF,
+            "OBJ indices must fit nonnegative signed 32-bit storage",
+        )
+        self.p = Int32(p)
+        self.t = Int32(t)
+        self.n = Int32(n)
+
+    @staticmethod
+    @always_inline
+    def _from_validated(p: Int, t: Int, n: Int) -> Self:
+        """Narrow indices already range-checked by the token decoder."""
+        var index = Self(0, 0, 0)
+        index.p = Int32(p)
+        index.t = Int32(t)
+        index.n = Int32(n)
+        return index
 
 
 @fieldwise_init

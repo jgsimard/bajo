@@ -30,15 +30,15 @@ struct CpuBvhBuildMethod(EnumLike, Equatable, ImplicitlyCopyable):
             pass
 
     def name(self) -> String:
-        if self == Self.MEDIAN:
-            return "median"
-        if self == Self.SAH:
-            return "sah"
-        if self == Self.LBVH:
-            return "lbvh"
-        if self == Self.HPLOC:
-            return "hploc"
-        return "unknown"
+        __match self:
+            case .MEDIAN:
+                return "median"
+            case .SAH:
+                return "sah"
+            case .LBVH:
+                return "lbvh"
+            case .HPLOC:
+                return "hploc"
 
 
 struct CpuBvhBuildTraits[method: CpuBvhBuildMethod]:

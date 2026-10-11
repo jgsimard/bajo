@@ -466,18 +466,17 @@ struct SurfaceStore:
         self.image_textures = List[ImageTexture]()
 
     def contains(self, surface: SurfaceId[1]) -> Bool:
-        if surface.kind() == .LAMBERTIAN:
-            return surface.index() < UInt32(len(self.lambertians))
-        if surface.kind() == .METAL:
-            return surface.index() < UInt32(len(self.metals))
-        if surface.kind() == .DIELECTRIC:
-            return surface.index() < UInt32(len(self.dielectrics))
-        if surface.kind() == .EMISSIVE:
-            return surface.index() < UInt32(len(self.emissives))
-        if surface.kind() == .COATED_DIFFUSE:
-            return surface.index() < UInt32(len(self.coated_diffuses))
-
-        return False
+        __match surface.kind():
+            case .LAMBERTIAN:
+                return surface.index() < UInt32(len(self.lambertians))
+            case .METAL:
+                return surface.index() < UInt32(len(self.metals))
+            case .DIELECTRIC:
+                return surface.index() < UInt32(len(self.dielectrics))
+            case .EMISSIVE:
+                return surface.index() < UInt32(len(self.emissives))
+            case .COATED_DIFFUSE:
+                return surface.index() < UInt32(len(self.coated_diffuses))
 
     def emitted_radiance(
         self, surface: SurfaceId[1], front_face: Bool
@@ -494,28 +493,30 @@ struct SurfaceStore:
     def sample_albedo(
         self, surface: SurfaceId[1], u: Float32, v: Float32
     ) -> Color:
-        if surface.kind() == .LAMBERTIAN:
-            ref material = self.lambertians[Int(surface.index())]
-            if material.texture_index != NO_TEXTURE:
-                return material.albedo * self.image_textures[
-                    Int(material.texture_index)
-                ].sample(u, v)
-            return material.albedo
-        if surface.kind() == .METAL:
-            ref material = self.metals[Int(surface.index())]
-            if material.texture_index != NO_TEXTURE:
-                return material.albedo * self.image_textures[
-                    Int(material.texture_index)
-                ].sample(u, v)
-            return material.albedo
-        if surface.kind() == .COATED_DIFFUSE:
-            ref material = self.coated_diffuses[Int(surface.index())]
-            if material.texture_index != NO_TEXTURE:
-                return material.albedo * self.image_textures[
-                    Int(material.texture_index)
-                ].sample(u, v)
-            return material.albedo
-        return Color(0.0)
+        __match surface.kind():
+            case .LAMBERTIAN:
+                ref material = self.lambertians[Int(surface.index())]
+                if material.texture_index != NO_TEXTURE:
+                    return material.albedo * self.image_textures[
+                        Int(material.texture_index)
+                    ].sample(u, v)
+                return material.albedo
+            case .METAL:
+                ref material = self.metals[Int(surface.index())]
+                if material.texture_index != NO_TEXTURE:
+                    return material.albedo * self.image_textures[
+                        Int(material.texture_index)
+                    ].sample(u, v)
+                return material.albedo
+            case .COATED_DIFFUSE:
+                ref material = self.coated_diffuses[Int(surface.index())]
+                if material.texture_index != NO_TEXTURE:
+                    return material.albedo * self.image_textures[
+                        Int(material.texture_index)
+                    ].sample(u, v)
+                return material.albedo
+            case _:
+                return Color(0.0)
 
     def shading_normal(
         self,

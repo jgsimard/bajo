@@ -159,22 +159,25 @@ def _parse_header(bytes: ImmSpan[UInt8, _]) raises -> _Header:
         var size = Int(cursor.read_u32())
         cursor.require(size)
         var payload = bytes[cursor.pos : cursor.pos + size]
-        if name == "channels":
-            if attribute_type != "chlist":
-                raise Error("invalid OpenEXR channels attribute")
-            _parse_channels(header, payload)
-        elif name == "compression":
-            if attribute_type != "compression" or size != 1:
-                raise Error("invalid OpenEXR compression attribute")
-            header.compression = payload[0]
-        elif name == "dataWindow":
-            if attribute_type != "box2i" or size != 16:
-                raise Error("invalid OpenEXR dataWindow attribute")
-            var window = _Cursor(payload)
-            header.min_x = Int(window.read_i32())
-            header.min_y = Int(window.read_i32())
-            header.max_x = Int(window.read_i32())
-            header.max_y = Int(window.read_i32())
+        __match name:
+            case "channels":
+                if attribute_type != "chlist":
+                    raise Error("invalid OpenEXR channels attribute")
+                _parse_channels(header, payload)
+            case "compression":
+                if attribute_type != "compression" or size != 1:
+                    raise Error("invalid OpenEXR compression attribute")
+                header.compression = payload[0]
+            case "dataWindow":
+                if attribute_type != "box2i" or size != 16:
+                    raise Error("invalid OpenEXR dataWindow attribute")
+                var window = _Cursor(payload)
+                header.min_x = Int(window.read_i32())
+                header.min_y = Int(window.read_i32())
+                header.max_x = Int(window.read_i32())
+                header.max_y = Int(window.read_i32())
+            case _:
+                pass
         cursor.skip(size)
 
     if len(header.channels) == 0:
@@ -296,12 +299,15 @@ def _decode_chunk(
         var pixel_y = chunk_y + line - header.min_y
         for channel in header.channels:
             var output_channel = -1
-            if channel.name == "R":
-                output_channel = 0
-            elif channel.name == "G":
-                output_channel = 1
-            elif channel.name == "B":
-                output_channel = 2
+            __match channel.name:
+                case "R":
+                    output_channel = 0
+                case "G":
+                    output_channel = 1
+                case "B":
+                    output_channel = 2
+                case _:
+                    pass
             for x in range(width):
                 var value = _read_channel_value(
                     chunk, channel_offset, channel.pixel_type

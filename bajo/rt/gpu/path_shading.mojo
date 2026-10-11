@@ -344,94 +344,101 @@ def _route_surface_hit[
         return
 
     var kind = SurfaceId.kind_from_raw(surface_value)
-    if kind == .EMISSIVE:
-        if front_face:
-            var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-            var base = GpuRgbMaterialLayout.STRIDE * material_idx
-            var radiance = _load_gpu_material_color(emissives, base)
-            var light_pdf = Float32(0.0)
-            comptime if integrator == .MIS:
-                if bounce > 0 and not path.delta:
-                    light_pdf = _emissive_hit_light_pdf(
-                        ray_direction,
-                        hit_t,
-                        normal,
-                        radiance,
-                        total_light_weight,
-                    )
-            var emission_weight = _emissive_hit_weight_from_pdf[integrator](
-                bounce, path.delta, path.bsdf_pdf, light_pdf
-            )
-            _accumulate_sample(
-                sample_radiance,
-                capacity,
-                sample_base,
-                path.path_id,
-                Color(path.tx, path.ty, path.tz) * radiance * emission_weight,
-            )
-        return
+    __match kind:
+        case .EMISSIVE:
+            if front_face:
+                var material_idx = Int(SurfaceId.index_from_raw(surface_value))
+                var base = GpuRgbMaterialLayout.STRIDE * material_idx
+                var radiance = _load_gpu_material_color(emissives, base)
+                var light_pdf = Float32(0.0)
+                comptime if integrator == .MIS:
+                    if bounce > 0 and not path.delta:
+                        light_pdf = _emissive_hit_light_pdf(
+                            ray_direction,
+                            hit_t,
+                            normal,
+                            radiance,
+                            total_light_weight,
+                        )
+                var emission_weight = _emissive_hit_weight_from_pdf[integrator](
+                    bounce, path.delta, path.bsdf_pdf, light_pdf
+                )
+                _accumulate_sample(
+                    sample_radiance,
+                    capacity,
+                    sample_base,
+                    path.path_id,
+                    Color(path.tx, path.ty, path.tz)
+                    * radiance
+                    * emission_weight,
+                )
+            return
 
-    if kind == .LAMBERTIAN:
-        _shade_lambertian_inline[integrator](
-            path,
-            ray_direction,
-            normal,
-            uv_u,
-            uv_v,
-            hit_t,
-            surface_value,
-            lambertians,
-            lambertian_texture_indices,
-            texture_descs,
-            texture_pixels,
-            dst_path_ids,
-            dst_path_fields,
-            counters,
-            capacity,
-            sampling,
-            bounce,
-        )
-    elif kind == .COATED_DIFFUSE:
-        var slot = _append_shade(
-            DeviceWaveShade(
-                UInt32(active_path_idx),
-                normal.x,
-                normal.y,
-                normal.z,
-                surface_value,
+        case .LAMBERTIAN:
+            _shade_lambertian_inline[integrator](
+                path,
+                ray_direction,
+                normal,
+                uv_u,
+                uv_v,
                 hit_t,
-                front_face,
-            ),
-            shade_path_refs,
-            shade_surfaces,
-            shade_fields,
-            counters,
-            capacity,
-        )
-        if slot >= 0:
-            shade_fields[
-                unsafe_offset=wavefront_plane_index(GPU_SHADE_U, capacity, slot)
-            ] = uv_u
-            shade_fields[
-                unsafe_offset=wavefront_plane_index(GPU_SHADE_V, capacity, slot)
-            ] = uv_v
-    elif kind == .METAL or kind == .DIELECTRIC:
-        _ = _append_shade(
-            DeviceWaveShade(
-                UInt32(active_path_idx),
-                normal.x,
-                normal.y,
-                normal.z,
                 surface_value,
-                hit_t,
-                front_face,
-            ),
-            shade_path_refs,
-            shade_surfaces,
-            shade_fields,
-            counters,
-            capacity,
-        )
+                lambertians,
+                lambertian_texture_indices,
+                texture_descs,
+                texture_pixels,
+                dst_path_ids,
+                dst_path_fields,
+                counters,
+                capacity,
+                sampling,
+                bounce,
+            )
+        case .COATED_DIFFUSE:
+            var slot = _append_shade(
+                DeviceWaveShade(
+                    UInt32(active_path_idx),
+                    normal.x,
+                    normal.y,
+                    normal.z,
+                    surface_value,
+                    hit_t,
+                    front_face,
+                ),
+                shade_path_refs,
+                shade_surfaces,
+                shade_fields,
+                counters,
+                capacity,
+            )
+            if slot >= 0:
+                shade_fields[
+                    unsafe_offset=wavefront_plane_index(
+                        GPU_SHADE_U, capacity, slot
+                    )
+                ] = uv_u
+                shade_fields[
+                    unsafe_offset=wavefront_plane_index(
+                        GPU_SHADE_V, capacity, slot
+                    )
+                ] = uv_v
+        case .METAL | .DIELECTRIC:
+            _ = _append_shade(
+                DeviceWaveShade(
+                    UInt32(active_path_idx),
+                    normal.x,
+                    normal.y,
+                    normal.z,
+                    surface_value,
+                    hit_t,
+                    front_face,
+                ),
+                shade_path_refs,
+                shade_surfaces,
+                shade_fields,
+                counters,
+                capacity,
+            )
 
 
 @always_inline
@@ -545,38 +552,41 @@ def gpu_rt_shade_dispatch_kernel[
     while idx < work_count:
         var surface_value = shade_surfaces[unsafe_offset=idx]
         var kind = SurfaceId.kind_from_raw(surface_value)
-        if kind == .METAL:
-            _gpu_rt_shade_one[integrator, .METAL](
-                idx,
-                src_path_ids,
-                src_path_fields,
-                shade_path_refs,
-                shade_surfaces,
-                shade_fields,
-                metals,
-                dst_path_ids,
-                dst_path_fields,
-                counters,
-                capacity_i32,
-                sampling,
-                bounce,
-            )
-        elif kind == .DIELECTRIC:
-            _gpu_rt_shade_one[integrator, .DIELECTRIC](
-                idx,
-                src_path_ids,
-                src_path_fields,
-                shade_path_refs,
-                shade_surfaces,
-                shade_fields,
-                dielectrics,
-                dst_path_ids,
-                dst_path_fields,
-                counters,
-                capacity_i32,
-                sampling,
-                bounce,
-            )
+        __match kind:
+            case .METAL:
+                _gpu_rt_shade_one[integrator, .METAL](
+                    idx,
+                    src_path_ids,
+                    src_path_fields,
+                    shade_path_refs,
+                    shade_surfaces,
+                    shade_fields,
+                    metals,
+                    dst_path_ids,
+                    dst_path_fields,
+                    counters,
+                    capacity_i32,
+                    sampling,
+                    bounce,
+                )
+            case .DIELECTRIC:
+                _gpu_rt_shade_one[integrator, .DIELECTRIC](
+                    idx,
+                    src_path_ids,
+                    src_path_fields,
+                    shade_path_refs,
+                    shade_surfaces,
+                    shade_fields,
+                    dielectrics,
+                    dst_path_ids,
+                    dst_path_fields,
+                    counters,
+                    capacity_i32,
+                    sampling,
+                    bounce,
+                )
+            case _:
+                pass
         idx += stride
 
 

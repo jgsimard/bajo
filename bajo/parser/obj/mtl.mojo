@@ -81,54 +81,83 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
             found_d = False
 
         elif have_current:
-            if tag == "Ka":
-                current.Ka = (cur.next_f32(), cur.next_f32(), cur.next_f32())
-            elif tag == "Kd":
-                current.Kd = (cur.next_f32(), cur.next_f32(), cur.next_f32())
-            elif tag == "Ks":
-                current.Ks = (cur.next_f32(), cur.next_f32(), cur.next_f32())
-            elif tag == "Ke":
-                current.Ke = (cur.next_f32(), cur.next_f32(), cur.next_f32())
-            elif tag == "Kt":
-                current.Kt = (cur.next_f32(), cur.next_f32(), cur.next_f32())
-            elif tag == "Tf":
-                current.Tf = (cur.next_f32(), cur.next_f32(), cur.next_f32())
-            elif tag == "Ns":
-                current.Ns = cur.next_f32()
-            elif tag == "Ni":
-                current.Ni = cur.next_f32()
-            elif tag == "illum":
-                current.illum = Int(
-                    cur.next_f32()
-                )  # Can just cast the f32 parser for illum ints
-            elif tag == "d":
-                current.d = cur.next_f32()
-                found_d = True
-            elif tag == "Tr":
-                if not found_d:
-                    current.d = 1.0 - cur.next_f32()
-            elif tag[byte=:4] == "map_" or tag == "bump":
-                var name = _map_name_from_tail(cur)
-                if name.byte_length() > 0:
-                    var val = _add_texture(mesh, name, base)
-                    if tag == "map_Ka":
-                        current.map_Ka = val
-                    elif tag == "map_Kd":
-                        current.map_Kd = val
-                    elif tag == "map_Ks":
-                        current.map_Ks = val
-                    elif tag == "map_Ke":
-                        current.map_Ke = val
-                    elif tag == "map_Kt":
-                        current.map_Kt = val
-                    elif tag == "map_Ns":
-                        current.map_Ns = val
-                    elif tag == "map_Ni":
-                        current.map_Ni = val
-                    elif tag == "map_d":
-                        current.map_d = val
-                    elif tag == "map_bump" or tag == "bump":
-                        current.map_bump = val
+            __match tag:
+                case "Ka":
+                    current.Ka = (
+                        cur.next_f32(),
+                        cur.next_f32(),
+                        cur.next_f32(),
+                    )
+                case "Kd":
+                    current.Kd = (
+                        cur.next_f32(),
+                        cur.next_f32(),
+                        cur.next_f32(),
+                    )
+                case "Ks":
+                    current.Ks = (
+                        cur.next_f32(),
+                        cur.next_f32(),
+                        cur.next_f32(),
+                    )
+                case "Ke":
+                    current.Ke = (
+                        cur.next_f32(),
+                        cur.next_f32(),
+                        cur.next_f32(),
+                    )
+                case "Kt":
+                    current.Kt = (
+                        cur.next_f32(),
+                        cur.next_f32(),
+                        cur.next_f32(),
+                    )
+                case "Tf":
+                    current.Tf = (
+                        cur.next_f32(),
+                        cur.next_f32(),
+                        cur.next_f32(),
+                    )
+                case "Ns":
+                    current.Ns = cur.next_f32()
+                case "Ni":
+                    current.Ni = cur.next_f32()
+                case "illum":
+                    current.illum = Int(
+                        cur.next_f32()
+                    )  # Can just cast the f32 parser for illum ints
+                case "d":
+                    current.d = cur.next_f32()
+                    found_d = True
+                case "Tr":
+                    if not found_d:
+                        current.d = 1.0 - cur.next_f32()
+                case _:
+                    if tag[byte=:4] == "map_" or tag == "bump":
+                        var name = _map_name_from_tail(cur)
+                        if name.byte_length() > 0:
+                            var val = _add_texture(mesh, name, base)
+                            __match tag:
+                                case "map_Ka":
+                                    current.map_Ka = val
+                                case "map_Kd":
+                                    current.map_Kd = val
+                                case "map_Ks":
+                                    current.map_Ks = val
+                                case "map_Ke":
+                                    current.map_Ke = val
+                                case "map_Kt":
+                                    current.map_Kt = val
+                                case "map_Ns":
+                                    current.map_Ns = val
+                                case "map_Ni":
+                                    current.map_Ni = val
+                                case "map_d":
+                                    current.map_d = val
+                                case "map_bump" | "bump":
+                                    current.map_bump = val
+                                case _:
+                                    pass
 
         line_start = line_end + 1
 

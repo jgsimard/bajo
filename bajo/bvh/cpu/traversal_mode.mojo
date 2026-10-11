@@ -31,10 +31,10 @@ struct CpuTraversalMode(EnumLike, Equatable, ImplicitlyCopyable):
             pass
 
     def name(self) -> String:
-        if self == Self.FIXED_PACKET:
-            return "fixed-packet"
-        if self == Self.AUTO_COHERENT:
-            return "auto-coherent"
-        if self == Self.ADAPTIVE:
-            return "adaptive"
-        return "unknown"
+        __match self:
+            case .FIXED_PACKET:
+                return "fixed-packet"
+            case .AUTO_COHERENT:
+                return "auto-coherent"
+            case .ADAPTIVE:
+                return "adaptive"

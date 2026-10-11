@@ -617,79 +617,89 @@ def _texture(
 ) raises:
     if value_type == "spectrum" or value_type == "color":
         var value: _ColorTexture
-        if implementation == "constant":
-            value = _ColorTexture(params.color("value", Color(1.0)), NO_TEXTURE)
-        elif implementation == "scale":
-            var tex = _color_texture_parameter(
-                builder, params, "tex", Color(1.0)
-            )
-            var scale = _color_texture_parameter(
-                builder, params, "scale", Color(1.0)
-            )
-            if (
-                tex.image_index != NO_TEXTURE
-                and scale.image_index != NO_TEXTURE
-            ):
-                raise Error("PBRT scale of two image textures is not supported")
-            value = _ColorTexture(tex.scale * scale.scale, tex.image_index)
-            if value.image_index == NO_TEXTURE:
-                value.image_index = scale.image_index
-        elif implementation == "imagemap":
-            var filename = params.string("string filename", "")
-            if filename.byte_length() == 0:
-                raise Error("PBRT imagemap texture requires a filename")
-            var image_path = std.os.path.join(
-                std.os.path.dirname(source_path), filename
-            )
-            var image_index = UInt32(len(builder.image_paths))
-            builder.image_paths.append(image_path)
-            value = _ColorTexture(Color(1.0), image_index)
-        else:
-            raise Error("unsupported PBRT spectrum texture: " + implementation)
+        __match implementation:
+            case "constant":
+                value = _ColorTexture(
+                    params.color("value", Color(1.0)), NO_TEXTURE
+                )
+            case "scale":
+                var tex = _color_texture_parameter(
+                    builder, params, "tex", Color(1.0)
+                )
+                var scale = _color_texture_parameter(
+                    builder, params, "scale", Color(1.0)
+                )
+                if (
+                    tex.image_index != NO_TEXTURE
+                    and scale.image_index != NO_TEXTURE
+                ):
+                    raise Error(
+                        "PBRT scale of two image textures is not supported"
+                    )
+                value = _ColorTexture(tex.scale * scale.scale, tex.image_index)
+                if value.image_index == NO_TEXTURE:
+                    value.image_index = scale.image_index
+            case "imagemap":
+                var filename = params.string("string filename", "")
+                if filename.byte_length() == 0:
+                    raise Error("PBRT imagemap texture requires a filename")
+                var image_path = std.os.path.join(
+                    std.os.path.dirname(source_path), filename
+                )
+                var image_index = UInt32(len(builder.image_paths))
+                builder.image_paths.append(image_path)
+                value = _ColorTexture(Color(1.0), image_index)
+            case _:
+                raise Error(
+                    "unsupported PBRT spectrum texture: " + implementation
+                )
         builder.color_textures[name] = value.copy()
         return
 
     if value_type == "float":
         var value: _FloatTexture
-        if implementation == "constant":
-            value = _FloatTexture(
-                params.f32("float value", 1.0), NO_TEXTURE, 1.0, 1.0
-            )
-        elif implementation == "scale":
-            var tex = _scalar_parameter(builder, params, "tex", 1.0)
-            var scale = _scalar_parameter(builder, params, "scale", 1.0)
-            if (
-                tex.image_index != NO_TEXTURE
-                and scale.image_index != NO_TEXTURE
-            ):
-                raise Error("PBRT scale of two image textures is not supported")
-            value = _FloatTexture(
-                tex.scale * scale.scale,
-                tex.image_index,
-                tex.u_scale,
-                tex.v_scale,
-            )
-            if value.image_index == NO_TEXTURE:
-                value.image_index = scale.image_index
-                value.u_scale = scale.u_scale
-                value.v_scale = scale.v_scale
-        elif implementation == "imagemap":
-            var filename = params.string("string filename", "")
-            if filename.byte_length() == 0:
-                raise Error("PBRT imagemap texture requires a filename")
-            var image_path = std.os.path.join(
-                std.os.path.dirname(source_path), filename
-            )
-            var image_index = UInt32(len(builder.image_paths))
-            builder.image_paths.append(image_path)
-            value = _FloatTexture(
-                params.f32("float scale", 1.0),
-                image_index,
-                params.f32("float uscale", 1.0),
-                params.f32("float vscale", 1.0),
-            )
-        else:
-            raise Error("unsupported PBRT float texture: " + implementation)
+        __match implementation:
+            case "constant":
+                value = _FloatTexture(
+                    params.f32("float value", 1.0), NO_TEXTURE, 1.0, 1.0
+                )
+            case "scale":
+                var tex = _scalar_parameter(builder, params, "tex", 1.0)
+                var scale = _scalar_parameter(builder, params, "scale", 1.0)
+                if (
+                    tex.image_index != NO_TEXTURE
+                    and scale.image_index != NO_TEXTURE
+                ):
+                    raise Error(
+                        "PBRT scale of two image textures is not supported"
+                    )
+                value = _FloatTexture(
+                    tex.scale * scale.scale,
+                    tex.image_index,
+                    tex.u_scale,
+                    tex.v_scale,
+                )
+                if value.image_index == NO_TEXTURE:
+                    value.image_index = scale.image_index
+                    value.u_scale = scale.u_scale
+                    value.v_scale = scale.v_scale
+            case "imagemap":
+                var filename = params.string("string filename", "")
+                if filename.byte_length() == 0:
+                    raise Error("PBRT imagemap texture requires a filename")
+                var image_path = std.os.path.join(
+                    std.os.path.dirname(source_path), filename
+                )
+                var image_index = UInt32(len(builder.image_paths))
+                builder.image_paths.append(image_path)
+                value = _FloatTexture(
+                    params.f32("float scale", 1.0),
+                    image_index,
+                    params.f32("float uscale", 1.0),
+                    params.f32("float vscale", 1.0),
+                )
+            case _:
+                raise Error("unsupported PBRT float texture: " + implementation)
         builder.scalar_textures[name] = value.copy()
         return
 
@@ -699,56 +709,58 @@ def _texture(
 def _surface(
     mut builder: _Builder, model: String, params: _Parameters
 ) raises -> SurfaceId[1]:
-    if model == "coateddiffuse":
-        var reflectance = _color_texture_parameter(
-            builder, params, "reflectance", Color(0.5)
-        )
-        var displacement = _scalar_parameter(
-            builder, params, "displacement", 0.0
-        )
-        var roughness = params.f32("float roughness", 0.0)
-        var u_roughness = params.f32("float uroughness", roughness)
-        var v_roughness = params.f32("float vroughness", roughness)
-        roughness = sqrt(max(u_roughness, 0.0) * max(v_roughness, 0.0)).clamp(
-            0.0, 1.0
-        )
-        if params.string("bool remaproughness", "true") != "false":
-            roughness = _roughness_to_alpha(roughness)
-        return builder.scene.surfaces.add_coated_diffuse(
-            reflectance.scale,
-            roughness,
-            params.f32("float eta", 1.5),
-            reflectance.image_index,
-            displacement.image_index,
-            displacement.scale,
-            displacement.u_scale,
-            displacement.v_scale,
-            params.f32("float thickness", 0.01),
-            params.color("albedo", Color(0.0)),
-            params.f32("float g", 0.0),
-            params.integer("integer maxdepth", 10),
-            params.integer("integer nsamples", 1),
-        )
-    if model == "diffuse" or model == "matte":
-        var reflectance = _color_texture_parameter(
-            builder, params, "reflectance", Color(0.5)
-        )
-        return builder.scene.surfaces.add_lambertian(
-            reflectance.scale, reflectance.image_index
-        )
-    if model == "conductor" or model == "metal":
-        var roughness = params.f32("float roughness", 0.05).clamp(0.0, 1.0)
-        var reflectance = _color_texture_parameter(
-            builder, params, "reflectance", Color(0.9)
-        )
-        return builder.scene.surfaces.add_metal(
-            reflectance.scale, roughness, reflectance.image_index
-        )
-    if model == "dielectric" or model == "glass":
-        return builder.scene.surfaces.add_dielectric(
-            params.f32("float eta", 1.5)
-        )
-    raise Error("unsupported PBRT material: " + model)
+    __match model:
+        case "coateddiffuse":
+            var reflectance = _color_texture_parameter(
+                builder, params, "reflectance", Color(0.5)
+            )
+            var displacement = _scalar_parameter(
+                builder, params, "displacement", 0.0
+            )
+            var roughness = params.f32("float roughness", 0.0)
+            var u_roughness = params.f32("float uroughness", roughness)
+            var v_roughness = params.f32("float vroughness", roughness)
+            roughness = sqrt(
+                max(u_roughness, 0.0) * max(v_roughness, 0.0)
+            ).clamp(0.0, 1.0)
+            if params.string("bool remaproughness", "true") != "false":
+                roughness = _roughness_to_alpha(roughness)
+            return builder.scene.surfaces.add_coated_diffuse(
+                reflectance.scale,
+                roughness,
+                params.f32("float eta", 1.5),
+                reflectance.image_index,
+                displacement.image_index,
+                displacement.scale,
+                displacement.u_scale,
+                displacement.v_scale,
+                params.f32("float thickness", 0.01),
+                params.color("albedo", Color(0.0)),
+                params.f32("float g", 0.0),
+                params.integer("integer maxdepth", 10),
+                params.integer("integer nsamples", 1),
+            )
+        case "diffuse" | "matte":
+            var reflectance = _color_texture_parameter(
+                builder, params, "reflectance", Color(0.5)
+            )
+            return builder.scene.surfaces.add_lambertian(
+                reflectance.scale, reflectance.image_index
+            )
+        case "conductor" | "metal":
+            var roughness = params.f32("float roughness", 0.05).clamp(0.0, 1.0)
+            var reflectance = _color_texture_parameter(
+                builder, params, "reflectance", Color(0.9)
+            )
+            return builder.scene.surfaces.add_metal(
+                reflectance.scale, roughness, reflectance.image_index
+            )
+        case "dielectric" | "glass":
+            return builder.scene.surfaces.add_dielectric(
+                params.f32("float eta", 1.5)
+            )
+        case _:
+            raise Error("unsupported PBRT material: " + model)
 
 
 def _shape[

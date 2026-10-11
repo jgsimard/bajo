@@ -1034,12 +1034,15 @@ def project_triangle[
     comptime for edge in range(3):
         var start = av
         var end = bv
-        comptime if edge == 1:
-            start = bv
-            end = cv
-        elif edge == 2:
-            start = cv
-            end = av
+        comptime __match edge:
+            case 1:
+                start = bv
+                end = cv
+            case 2:
+                start = cv
+                end = av
+            case _:
+                pass
         var direction = end - start
         var length2 = dot(direction, direction)
         var t = Float64(0.0)
@@ -1050,12 +1053,15 @@ def project_triangle[
         if distance2 < best.distance2:
             var u = Float64(1.0) - t
             var v = t
-            comptime if edge == 1:
-                u = 0.0
-                v = 1.0 - t
-            elif edge == 2:
-                u = t
-                v = 0.0
+            comptime __match edge:
+                case 1:
+                    u = 0.0
+                    v = 1.0 - t
+                case 2:
+                    u = t
+                    v = 0.0
+                case _:
+                    pass
             best = TriangleProjection(q, u, v, distance2)
     return best
 

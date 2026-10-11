@@ -215,12 +215,15 @@ def _stbn(
     spatial -= floor(spatial)
 
     var temporal_step = Float32(0.6180339887498949)
-    if dim == 1:
-        temporal_step = Float32(0.7548776662466927)
-    elif dim == 2:
-        temporal_step = Float32(0.5698402909980532)
-    elif dim == 3:
-        temporal_step = Float32(0.4142135623730950)
+    __match dim:
+        case 1:
+            temporal_step = Float32(0.7548776662466927)
+        case 2:
+            temporal_step = Float32(0.5698402909980532)
+        case 3:
+            temporal_step = Float32(0.4142135623730950)
+        case _:
+            pass
     var stage_shift = _u32_to_unit_float(
         _mix32(stage ^ seed ^ UInt32(0x9E3779B9))
     )
@@ -246,20 +249,23 @@ def _radical_inverse(index: UInt64, base: UInt64) -> Float32:
 def _halton(index: UInt64, dimension: Int) -> Float32:
     var base = UInt64(2)
     var dim = dimension % 8
-    if dim == 1:
-        base = 3
-    elif dim == 2:
-        base = 5
-    elif dim == 3:
-        base = 7
-    elif dim == 4:
-        base = 11
-    elif dim == 5:
-        base = 13
-    elif dim == 6:
-        base = 17
-    elif dim == 7:
-        base = 19
+    __match dim:
+        case 1:
+            base = 3
+        case 2:
+            base = 5
+        case 3:
+            base = 7
+        case 4:
+            base = 11
+        case 5:
+            base = 13
+        case 6:
+            base = 17
+        case 7:
+            base = 19
+        case _:
+            pass
     return _radical_inverse(index + UInt64(1), base)
 
 
@@ -268,12 +274,15 @@ def _r2(index: UInt64, dimension: Int) -> Float32:
     # Irrational additive recurrences for the renderer's short staged vectors.
     var alpha = Float32(0.7548776662466927)
     var dim = dimension % 4
-    if dim == 1:
-        alpha = Float32(0.5698402909980532)
-    elif dim == 2:
-        alpha = Float32(0.4301597090019468)
-    elif dim == 3:
-        alpha = Float32(0.2451223337533073)
+    __match dim:
+        case 1:
+            alpha = Float32(0.5698402909980532)
+        case 2:
+            alpha = Float32(0.4301597090019468)
+        case 3:
+            alpha = Float32(0.2451223337533073)
+        case _:
+            pass
     var value = Float32(index + UInt64(1)) * alpha
     return value - floor(value)
 

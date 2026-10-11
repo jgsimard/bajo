@@ -95,58 +95,59 @@ struct BinaryBoundsBvh[
         self.nodes.append(BoundsBvhNode[Self.frame]())
 
         self.nodes_used = 1
-        comptime if Self.method == .LBVH:
-            _build_lbvh[
-                Self.frame,
-                Self.leaf_size,
-                Self.method,
-                Self.hploc_microleaf_size,
-            ](self, centroid_bounds)
-        elif Self.method == .HPLOC:
-            comptime assert (
-                Self.hploc_microleaf_size > 0
-                and Self.hploc_microleaf_size <= Self.leaf_size
-            ), "H-PLOC microleaf size must fit the final leaf"
-            _build_hploc[
-                Self.frame,
-                Self.leaf_size,
-                Self.method,
-                Self.hploc_microleaf_size,
-                hploc_balance_tasks,
-            ](self, centroid_bounds)
+        # Match cases do not yet provide evidence for callees' where constraints.
+        comptime __match Self.method:
+            case .LBVH:
+                _build_lbvh[
+                    Self.frame,
+                    Self.leaf_size,
+                    Self.method,
+                    Self.hploc_microleaf_size,
+                ](self, centroid_bounds)
+            case .HPLOC:
+                comptime assert (
+                    Self.hploc_microleaf_size > 0
+                    and Self.hploc_microleaf_size <= Self.leaf_size
+                ), "H-PLOC microleaf size must fit the final leaf"
+                _build_hploc[
+                    Self.frame,
+                    Self.leaf_size,
+                    Self.method,
+                    Self.hploc_microleaf_size,
+                    hploc_balance_tasks,
+                ](self, centroid_bounds)
 
-        elif Self.method == .SAH:
-            self.nodes[0].set_leaf(0, self.item_count)
-            var have_precomputed_bounds = (
-                root_bounds._min.x[0] <= root_bounds._max.x[0]
-                and centroid_bounds._min.x[0] <= centroid_bounds._max.x[0]
-            )
-            var build_centroid_bounds: AABB[Self.frame]
-            if have_precomputed_bounds:
-                self.nodes[0].aabb = root_bounds
-                build_centroid_bounds = centroid_bounds
-            else:
-                build_centroid_bounds = (
-                    self.update_node_bounds_and_centroid_bounds(0)
+            case .SAH:
+                comptime assert Self.method == .SAH
+                self.nodes[0].set_leaf(0, self.item_count)
+                var have_precomputed_bounds = (
+                    root_bounds._min.x[0] <= root_bounds._max.x[0]
+                    and centroid_bounds._min.x[0] <= centroid_bounds._max.x[0]
                 )
-            if self.item_count >= PARALLEL_SAH_MIN_ITEMS:
-                self._build_parallel_top_down(build_centroid_bounds)
-            else:
-                self._subdivide(0, build_centroid_bounds)
+                var build_centroid_bounds: AABB[Self.frame]
+                if have_precomputed_bounds:
+                    self.nodes[0].aabb = root_bounds
+                    build_centroid_bounds = centroid_bounds
+                else:
+                    build_centroid_bounds = (
+                        self.update_node_bounds_and_centroid_bounds(0)
+                    )
+                if self.item_count >= PARALLEL_SAH_MIN_ITEMS:
+                    self._build_parallel_top_down(build_centroid_bounds)
+                else:
+                    self._subdivide(0, build_centroid_bounds)
 
-        elif Self.method == .MEDIAN:
-            self.nodes[0].set_leaf(0, self.item_count)
-            if root_bounds._min.x[0] <= root_bounds._max.x[0]:
-                self.nodes[0].aabb = root_bounds
-            else:
-                self.update_node_bounds(0)
-            if self.item_count >= PARALLEL_MEDIAN_MIN_ITEMS:
-                self._build_parallel_top_down(AABB[Self.frame].invalid())
-            else:
-                self._subdivide(0, AABB[Self.frame].invalid())
-
-        else:
-            comptime assert False, "unknown CPU BVH build method"
+            case .MEDIAN:
+                comptime assert Self.method == .MEDIAN
+                self.nodes[0].set_leaf(0, self.item_count)
+                if root_bounds._min.x[0] <= root_bounds._max.x[0]:
+                    self.nodes[0].aabb = root_bounds
+                else:
+                    self.update_node_bounds(0)
+                if self.item_count >= PARALLEL_MEDIAN_MIN_ITEMS:
+                    self._build_parallel_top_down(AABB[Self.frame].invalid())
+                else:
+                    self._subdivide(0, AABB[Self.frame].invalid())
 
     def allocate_children(mut self) -> UInt32:
         var left_child_idx = self.nodes_used
@@ -588,24 +589,27 @@ struct BinaryBoundsBvh[
         centroid_bounds: AABB[Self.frame],
         parallel_root: Bool = False,
     ) -> BoundsPartitionResult[Self.frame]:
-        comptime if Self.method == .MEDIAN:
-            return self._partition_node_by_median(node)
+        comptime __match Self.method:
+            case .MEDIAN:
+                return self._partition_node_by_median(node)
 
-        elif Self.method == .SAH:
-            var count = Int(node.item_count)
-            if count < 128:
-                return self._partition_node_sah[8](
+            case .SAH:
+                # Provide evidence for _partition_node_sah's where constraint.
+                comptime assert Self.method == .SAH
+                var count = Int(node.item_count)
+                if count < 128:
+                    return self._partition_node_sah[8](
+                        node, centroid_bounds, parallel_root
+                    )
+                if count < 512:
+                    return self._partition_node_sah[16](
+                        node, centroid_bounds, parallel_root
+                    )
+                return self._partition_node_sah[32](
                     node, centroid_bounds, parallel_root
                 )
-            if count < 512:
-                return self._partition_node_sah[16](
-                    node, centroid_bounds, parallel_root
-                )
-            return self._partition_node_sah[32](
-                node, centroid_bounds, parallel_root
-            )
-        else:
-            comptime assert False
+            case _:
+                comptime assert False
 
     def _partition_node_sah[
         BVH_BINS: Int

@@ -52,21 +52,21 @@ struct _ScalarType(EnumLike, Equatable, TrivialRegisterPassable):
 
     def byte_width(self) -> Int:
         __match self:
-        case .I8 | .U8:
-            return 1
-        case .I16 | .U16:
-            return 2
-        case .I32 | .U32 | .F32:
-            return 4
-        case .F64:
-            return 8
+            case .I8 | .U8:
+                return 1
+            case .I16 | .U16:
+                return 2
+            case .I32 | .U32 | .F32:
+                return 4
+            case .F64:
+                return 8
 
     def is_integer(self) -> Bool:
         __match self:
-        case .I8 | .U8 | .I16 | .U16 | .I32 | .U32:
-            return True
-        case .F32 | .F64:
-            return False
+            case .I8 | .U8 | .I16 | .U16 | .I32 | .U32:
+                return True
+            case .F32 | .F64:
+                return False
 
 
 @fieldwise_init
@@ -212,29 +212,29 @@ struct _BinaryCursor[origin: ImmOrigin]:
 
     def read_integer(mut self, kind: _ScalarType) raises -> Int:
         __match kind:
-        case .I8:
-            return Int(bitcast[.int8](self.read_u8()))
-        case .U8:
-            return Int(self.read_u8())
-        case .I16:
-            return Int(bitcast[.int16](self.read_u16()))
-        case .U16:
-            return Int(self.read_u16())
-        case .I32:
-            return Int(bitcast[.int32](self.read_u32()))
-        case .U32:
-            return Int(self.read_u32())
-        case .F32 | .F64:
-            raise Error("PLY list sizes and indices must use integer types")
+            case .I8:
+                return Int(bitcast[.int8](self.read_u8()))
+            case .U8:
+                return Int(self.read_u8())
+            case .I16:
+                return Int(bitcast[.int16](self.read_u16()))
+            case .U16:
+                return Int(self.read_u16())
+            case .I32:
+                return Int(bitcast[.int32](self.read_u32()))
+            case .U32:
+                return Int(self.read_u32())
+            case .F32 | .F64:
+                raise Error("PLY list sizes and indices must use integer types")
 
     def read_number(mut self, kind: _ScalarType) raises -> Float32:
         __match kind:
-        case .F32:
-            return bitcast[.float32](self.read_u32())
-        case .F64:
-            return Float32(bitcast[.float64](self.read_u64()))
-        case .I8 | .U8 | .I16 | .U16 | .I32 | .U32:
-            return Float32(self.read_integer(kind))
+            case .F32:
+                return bitcast[.float32](self.read_u32())
+            case .F64:
+                return Float32(bitcast[.float64](self.read_u64()))
+            case .I8 | .U8 | .I16 | .U16 | .I32 | .U32:
+                return Float32(self.read_integer(kind))
 
 
 def _parse_nonnegative_int(text: ImmStringSpan) raises -> Int:
@@ -251,58 +251,58 @@ def _parse_nonnegative_int(text: ImmStringSpan) raises -> Int:
 
 def _parse_scalar_type(name: ImmStringSpan) raises -> _ScalarType:
     __match name:
-    case "char" | "int8":
-        return .I8
+        case "char" | "int8":
+            return .I8
 
-    case "uchar" | "uint8":
-        return .U8
+        case "uchar" | "uint8":
+            return .U8
 
-    case "short" | "int16":
-        return .I16
+        case "short" | "int16":
+            return .I16
 
-    case "ushort" | "uint16":
-        return .U16
+        case "ushort" | "uint16":
+            return .U16
 
-    case "int" | "int32":
-        return .I32
+        case "int" | "int32":
+            return .I32
 
-    case "uint" | "uint32":
-        return .U32
+        case "uint" | "uint32":
+            return .U32
 
-    case "float" | "float32":
-        return .F32
+        case "float" | "float32":
+            return .F32
 
-    case "double" | "float64":
-        return .F64
+        case "double" | "float64":
+            return .F64
 
     raise Error("unsupported PLY scalar type: " + String(name))
 
 
 def _vertex_semantic(name: ImmStringSpan) -> UInt8:
     __match name:
-    case "x":
-        return _X
+        case "x":
+            return _X
 
-    case "y":
-        return _Y
+        case "y":
+            return _Y
 
-    case "z":
-        return _Z
+        case "z":
+            return _Z
 
-    case "nx":
-        return _NX
+        case "nx":
+            return _NX
 
-    case "ny":
-        return _NY
+        case "ny":
+            return _NY
 
-    case "nz":
-        return _NZ
+        case "nz":
+            return _NZ
 
-    case "u" | "s" | "texture_u":
-        return _U
+        case "u" | "s" | "texture_u":
+            return _U
 
-    case "v" | "t" | "texture_v":
-        return _V
+        case "v" | "t" | "texture_v":
+            return _V
 
     return _IGNORE
 
@@ -400,40 +400,43 @@ def _parse_header(bytes: ImmSpan[UInt8, _]) raises -> _Header:
     var saw_face = False
     while True:
         var command = cursor.next()
-        if command == "comment" or command == "obj_info":
-            cursor.skip_line()
-        elif command == "element":
-            var name = cursor.next()
-            var count = _parse_nonnegative_int(cursor.next())
-            if name == "vertex":
-                if header.vertex_count >= 0 or saw_face:
-                    raise Error(
-                        "PLY vertex element must appear once before faces"
-                    )
-                header.vertex_count = count
-                element = UInt8(1)
-            elif name == "face":
-                if header.face_count >= 0:
-                    raise Error("PLY face element appears more than once")
-                header.face_count = count
-                element = UInt8(2)
-                saw_face = True
-            else:
-                raise Error("unsupported PLY element: " + String(name))
-        elif command == "property":
-            if element == UInt8(0):
-                raise Error("PLY property appears before an element")
-            var prop = _parse_property(cursor, element)
-            if element == UInt8(1):
-                header.vertex_properties.append(prop)
-            else:
-                header.face_properties.append(prop)
-        elif command == "end_header":
-            header.data_offset = cursor.finish_header_line()
-            _validate_header(header, len(bytes) - header.data_offset)
-            return header^
-        else:
-            raise Error("unsupported PLY header directive: " + String(command))
+        __match command:
+            case "comment" | "obj_info":
+                cursor.skip_line()
+            case "element":
+                var name = cursor.next()
+                var count = _parse_nonnegative_int(cursor.next())
+                if name == "vertex":
+                    if header.vertex_count >= 0 or saw_face:
+                        raise Error(
+                            "PLY vertex element must appear once before faces"
+                        )
+                    header.vertex_count = count
+                    element = UInt8(1)
+                elif name == "face":
+                    if header.face_count >= 0:
+                        raise Error("PLY face element appears more than once")
+                    header.face_count = count
+                    element = UInt8(2)
+                    saw_face = True
+                else:
+                    raise Error("unsupported PLY element: " + String(name))
+            case "property":
+                if element == UInt8(0):
+                    raise Error("PLY property appears before an element")
+                var prop = _parse_property(cursor, element)
+                if element == UInt8(1):
+                    header.vertex_properties.append(prop)
+                else:
+                    header.face_properties.append(prop)
+            case "end_header":
+                header.data_offset = cursor.finish_header_line()
+                _validate_header(header, len(bytes) - header.data_offset)
+                return header^
+            case _:
+                raise Error(
+                    "unsupported PLY header directive: " + String(command)
+                )
 
 
 def _store_vertex_value(

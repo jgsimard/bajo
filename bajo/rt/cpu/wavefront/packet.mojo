@@ -130,24 +130,27 @@ struct _MaterialParameters[length: SIMDLength]:
             self.albedo.x[lane] = sampled.x
             self.albedo.y[lane] = sampled.y
             self.albedo.z[lane] = sampled.z
-        comptime if kind == .METAL:
-            ref material = surfaces.metals[Int(surface_index)]
-            self.parameter[lane] = material.fuzz
-        elif kind == .COATED_DIFFUSE:
-            ref material = surfaces.coated_diffuses[Int(surface_index)]
-            self.parameter[lane] = material.roughness
-            self.eta[lane] = material.eta
-            self.thickness[lane] = material.thickness
-            self.layer_albedo.x[lane] = material.layer_albedo.x
-            self.layer_albedo.y[lane] = material.layer_albedo.y
-            self.layer_albedo.z[lane] = material.layer_albedo.z
-            self.g[lane] = material.g
-            self.layer_max_depth[lane] = Float32(material.max_depth)
-            self.layer_samples[lane] = Float32(material.n_samples)
-        elif kind == .DIELECTRIC:
-            self.parameter[lane] = surfaces.dielectrics[
-                Int(surface_index)
-            ].refraction_index
+        comptime __match kind:
+            case .METAL:
+                ref material = surfaces.metals[Int(surface_index)]
+                self.parameter[lane] = material.fuzz
+            case .COATED_DIFFUSE:
+                ref material = surfaces.coated_diffuses[Int(surface_index)]
+                self.parameter[lane] = material.roughness
+                self.eta[lane] = material.eta
+                self.thickness[lane] = material.thickness
+                self.layer_albedo.x[lane] = material.layer_albedo.x
+                self.layer_albedo.y[lane] = material.layer_albedo.y
+                self.layer_albedo.z[lane] = material.layer_albedo.z
+                self.g[lane] = material.g
+                self.layer_max_depth[lane] = Float32(material.max_depth)
+                self.layer_samples[lane] = Float32(material.n_samples)
+            case .DIELECTRIC:
+                self.parameter[lane] = surfaces.dielectrics[
+                    Int(surface_index)
+                ].refraction_index
+            case _:
+                pass
 
 
 @always_inline
@@ -582,14 +585,17 @@ def _trace_path_packets[
                                 lane
                             ] = direct.shadow_t_max
 
-                    if hit.surface.kind() == .LAMBERTIAN:
-                        lambertian_queue.append(packet, lane, hit)
-                    elif hit.surface.kind() == .METAL:
-                        metal_queue.append(packet, lane, hit)
-                    elif hit.surface.kind() == .DIELECTRIC:
-                        dielectric_queue.append(packet, lane, hit)
-                    elif hit.surface.kind() == .COATED_DIFFUSE:
-                        coated_diffuse_queue.append(packet, lane, hit)
+                    __match hit.surface.kind():
+                        case .LAMBERTIAN:
+                            lambertian_queue.append(packet, lane, hit)
+                        case .METAL:
+                            metal_queue.append(packet, lane, hit)
+                        case .DIELECTRIC:
+                            dielectric_queue.append(packet, lane, hit)
+                        case .COATED_DIFFUSE:
+                            coated_diffuse_queue.append(packet, lane, hit)
+                        case _:
+                            pass
                 else:
                     misses[lane] = True
 

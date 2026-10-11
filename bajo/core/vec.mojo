@@ -320,12 +320,13 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         )
 
     def __getitem__(self, i: Int) -> SIMD[Self.dtype, Self.width]:
-        if i == 0:
-            return self.x
-        elif i == 1:
-            return self.y
-        else:
-            return self.z
+        __match i:
+            case 0:
+                return self.x
+            case 1:
+                return self.y
+            case _:
+                return self.z
 
     def __getitem_param__[
         i: Int
@@ -347,12 +348,13 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         i: Int,
         value: SIMD[Self.dtype, Self.width],
     ):
-        if i == 0:
-            self.x = value
-        elif i == 1:
-            self.y = value
-        else:
-            self.z = value
+        __match i:
+            case 0:
+                self.x = value
+            case 1:
+                self.y = value
+            case _:
+                self.z = value
 
     def __setitem__[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
         self[i] = value

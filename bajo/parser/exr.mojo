@@ -2,6 +2,9 @@
 
 from std.ffi import OwnedDLHandle
 from std.memory import bitcast
+from max.algorithm import parallelize
+from std.math import ceildiv
+from std.sys import num_logical_cores
 from std.utils.numerics import isfinite
 
 from bajo.parser.mmap import MMap
@@ -55,19 +58,17 @@ struct _Cursor[origin: ImmOrigin]:
         self.pos += 8
         return value
 
-    def read_string(mut self) raises -> String:
+    def read_string(mut self) raises -> StringSpan[Self.origin]:
         var start = self.pos
         while self.pos < len(self.bytes) and self.bytes[self.pos] != UInt8(0):
             self.pos += 1
         if self.pos >= len(self.bytes):
             raise Error("unterminated OpenEXR header string")
-        var value = String(
-            StringSpan[Self.origin](
-                unsafe_from_utf8=self.bytes[start : self.pos]
-            )
+        var value = StringSpan[Self.origin](
+            unsafe_from_utf8=self.bytes[start : self.pos]
         )
         self.pos += 1
-        return value^
+        return value
 
     def skip(mut self, count: Int) raises:
         self.require(count)
@@ -75,8 +76,35 @@ struct _Cursor[origin: ImmOrigin]:
 
 
 @fieldwise_init
+struct _OutputChannel(EnumLike, Equatable, TrivialRegisterPassable):
+    var value: UInt8
+
+    comptime RED = Self(0)
+    comptime GREEN = Self(1)
+    comptime BLUE = Self(2)
+    comptime IGNORE = Self(3)
+    comptime _enum_case_names = ParameterList.of[
+        "RED".value, "GREEN".value, "BLUE".value, "IGNORE".value
+    ].values
+    comptime _enum_case_types = TypeList.of[
+        Trait=AnyType, NoneType, NoneType, NoneType, NoneType
+    ].values
+
+    def _get_enum_discriminant(self) -> Int:
+        return Int(self.value)
+
+    def _unsafe_get_enum_payload[
+        id: Int
+    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
+        id
+    ]:
+        while True:
+            pass
+
+
+@fieldwise_init
 struct _Channel(Copyable):
-    var name: String
+    var output_channel: _OutputChannel
     var pixel_type: Int32
     var byte_width: Int
 
@@ -133,7 +161,18 @@ def _parse_channels(mut header: _Header, payload: ImmSpan[UInt8, _]) raises:
         if x_sampling != 1 or y_sampling != 1:
             raise Error("subsampled OpenEXR channels are not supported")
         var byte_width = 2 if pixel_type == _HALF_PIXEL else 4
-        header.channels.append(_Channel(name^, pixel_type, byte_width))
+        var output_channel: _OutputChannel
+        __match name:
+            case "R":
+                output_channel = .RED
+            case "G":
+                output_channel = .GREEN
+            case "B":
+                output_channel = .BLUE
+            case _:
+                # EXR permits arbitrary auxiliary channel names.
+                output_channel = .IGNORE
+        header.channels.append(_Channel(output_channel, pixel_type, byte_width))
     raise Error("OpenEXR channel list is missing its terminator")
 
 
@@ -161,15 +200,15 @@ def _parse_header(bytes: ImmSpan[UInt8, _]) raises -> _Header:
         var payload = bytes[cursor.pos : cursor.pos + size]
         __match name:
             case "channels":
-                if attribute_type != "chlist":
+                if attribute_type != ImmStringSpan("chlist"):
                     raise Error("invalid OpenEXR channels attribute")
                 _parse_channels(header, payload)
             case "compression":
-                if attribute_type != "compression" or size != 1:
+                if attribute_type != ImmStringSpan("compression") or size != 1:
                     raise Error("invalid OpenEXR compression attribute")
                 header.compression = payload[0]
             case "dataWindow":
-                if attribute_type != "box2i" or size != 16:
+                if attribute_type != ImmStringSpan("box2i") or size != 16:
                     raise Error("invalid OpenEXR dataWindow attribute")
                 var window = _Cursor(payload)
                 header.min_x = Int(window.read_i32())
@@ -298,29 +337,22 @@ def _decode_chunk(
     for line in range(line_count):
         var pixel_y = chunk_y + line - header.min_y
         for channel in header.channels:
-            var output_channel = -1
-            __match channel.name:
-                case "R":
-                    output_channel = 0
-                case "G":
-                    output_channel = 1
-                case "B":
-                    output_channel = 2
-                case _:
-                    pass
+            var output_channel = channel.output_channel
             for x in range(width):
                 var value = _read_channel_value(
                     chunk, channel_offset, channel.pixel_type
                 )
-                if output_channel >= 0:
+                if output_channel != _OutputChannel.IGNORE:
                     if not isfinite(value):
                         raise Error(
                             "OpenEXR environment contains a non-finite value"
                         )
-                    pixels[3 * (pixel_y * width + x) + output_channel] = value
+                    pixels[
+                        3 * (pixel_y * width + x) + Int(output_channel.value)
+                    ] = value
 
 
-def parse_exr[
+def _parse_exr_serial[
     origin: ImmOrigin
 ](bytes: ImmSpan[UInt8, origin]) raises -> ImageTexture:
     var header = _parse_header(bytes)
@@ -328,9 +360,9 @@ def parse_exr[
     var green = False
     var blue = False
     for channel in header.channels:
-        red |= channel.name == "R"
-        green |= channel.name == "G"
-        blue |= channel.name == "B"
+        red |= channel.output_channel == _OutputChannel.RED
+        green |= channel.output_channel == _OutputChannel.GREEN
+        blue |= channel.output_channel == _OutputChannel.BLUE
     if not red or not green or not blue:
         raise Error("OpenEXR environment requires R, G, and B channels")
 
@@ -339,9 +371,16 @@ def parse_exr[
     )
     var table = _Cursor(bytes)
     table.pos = header.data_offset
-    var offsets = List[UInt64](capacity=chunk_count)
-    for _ in range(chunk_count):
-        offsets.append(table.read_u64())
+    table.require(8 * chunk_count)
+    var offsets = List[UInt64](
+        length=chunk_count,
+        fill_with=lambda (index: Int) -> UInt64: (
+            bytes.unsafe_ptr()
+            .unsafe_offset(header.data_offset + 8 * index)
+            .unsafe_bitcast[UInt64]()
+            .unsafe_load[alignment=1]()
+        ),
+    )
 
     var pixels = List[Float32](
         length=header.width() * header.height() * 3, fill=0.0
@@ -373,6 +412,252 @@ def parse_exr[
         _decode_chunk(pixels, header, chunk_y, decoded)
 
     return ImageTexture(header.width(), header.height(), pixels^)
+
+
+@fieldwise_init
+struct _Chunk(TrivialRegisterPassable):
+    var begin: Int
+    var end: Int
+    var row: Int
+    var lines: Int
+    var decoded_size: Int
+
+
+def _plan_chunks(
+    bytes: ImmSpan[UInt8, _], header: _Header
+) raises -> List[_Chunk]:
+    var count = ceildiv(header.height(), header.scanlines_per_chunk())
+    var table = _Cursor(bytes)
+    table.pos = header.data_offset
+    table.require(8 * count)
+    var chunks = List[_Chunk](capacity=count)
+    var rows = List[UInt8](length=header.height(), fill=0)
+    var bytes_per_line = 0
+    for channel in header.channels:
+        bytes_per_line += header.width() * channel.byte_width
+    for _ in range(count):
+        var offset = table.read_u64()
+        if len(bytes) < 8 or offset > UInt64(len(bytes) - 8):
+            raise Error("OpenEXR chunk offset is out of range")
+        var cursor = _Cursor(bytes)
+        cursor.pos = Int(offset)
+        var y = Int(cursor.read_i32())
+        var size = Int(cursor.read_u32())
+        cursor.require(size)
+        var row = y - header.min_y
+        if row < 0 or row >= header.height():
+            raise Error("OpenEXR scanline chunk is outside the data window")
+        var lines = min(header.scanlines_per_chunk(), header.height() - row)
+        for line in range(row, row + lines):
+            if rows[line]:
+                raise Error(
+                    "overlapping OpenEXR chunks require serial decoding"
+                )
+            rows[line] = 1
+        chunks.append(
+            _Chunk(
+                cursor.pos,
+                cursor.pos + size,
+                row,
+                lines,
+                bytes_per_line * lines,
+            )
+        )
+    for row in rows:
+        if not row:
+            raise Error("incomplete OpenEXR chunks require serial decoding")
+    return chunks^
+
+
+def _decode_channel[
+    pixel_type: Int
+](
+    bytes: ImmSpan[UInt8, _],
+    output: MutSpan[Float32, _],
+    lane: Int,
+    width: Int,
+) raises:
+    for x in range(width):
+        var value: Float32
+        comptime if pixel_type == 1:
+            var bits = (
+                bytes.unsafe_ptr()
+                .unsafe_offset(2 * x)
+                .unsafe_bitcast[UInt16]()
+                .unsafe_load[alignment=1]()
+            )
+            value = _half_to_float(bits)
+        else:
+            var bits = (
+                bytes.unsafe_ptr()
+                .unsafe_offset(4 * x)
+                .unsafe_bitcast[UInt32]()
+                .unsafe_load[alignment=1]()
+            )
+            comptime if pixel_type == 0:
+                value = Float32(bits)
+            else:
+                value = bitcast[.float32](bits)
+        if not isfinite(value):
+            raise Error("OpenEXR environment contains a non-finite value")
+        output[3 * x + lane] = value
+
+
+def _decode_scanlines(
+    output: MutSpan[Float32, _],
+    header: _Header,
+    chunk: ImmSpan[UInt8, _],
+    lines: Int,
+) raises:
+    var width = header.width()
+    var offset = 0
+    for line in range(lines):
+        var pixels = output[3 * width * line : 3 * width * (line + 1)]
+        for channel in header.channels:
+            var size = width * channel.byte_width
+            if channel.output_channel != _OutputChannel.IGNORE:
+                var lane = Int(channel.output_channel.value)
+                var values = chunk[offset : offset + size]
+                __match channel.pixel_type:
+                    case 0:
+                        _decode_channel[0](values, pixels, lane, width)
+                    case 1:
+                        _decode_channel[1](values, pixels, lane, width)
+                    case 2:
+                        _decode_channel[2](values, pixels, lane, width)
+                    case _:
+                        raise Error("unsupported OpenEXR channel pixel type")
+            offset += size
+
+
+def _inflate_chunk(
+    payload: ImmSpan[UInt8, _],
+    predicted: MutSpan[UInt8, _],
+    decoded: MutSpan[UInt8, _],
+    lib: OwnedDLHandle,
+) raises:
+    var result_size = List[UInt](length=1, fill=UInt(len(predicted)))
+    var status = lib.call["uncompress", Int32](
+        predicted.unsafe_ptr(),
+        result_size.unsafe_ptr(),
+        payload.unsafe_ptr(),
+        UInt(len(payload)),
+    )
+    if status != 0 or Int(result_size[0]) != len(predicted):
+        raise Error("zlib failed to decompress OpenEXR scanlines")
+    for i in range(1, len(predicted)):
+        predicted[i] = UInt8(
+            (Int(predicted[i - 1]) + Int(predicted[i]) - 128) & 255
+        )
+    var half = (len(predicted) + 1) // 2
+    for i in range(len(predicted) // 2):
+        decoded[2 * i] = predicted[i]
+        decoded[2 * i + 1] = predicted[half + i]
+    if len(predicted) % 2:
+        decoded[len(predicted) - 1] = predicted[half - 1]
+
+
+def _parse_exr_bulk(
+    bytes: ImmSpan[UInt8, _], workers: Int
+) raises -> ImageTexture:
+    var header = _parse_header(bytes)
+    var rgb = UInt8(0)
+    for channel in header.channels:
+        __match channel.output_channel:
+            case .RED:
+                rgb |= 1
+            case .GREEN:
+                rgb |= 2
+            case .BLUE:
+                rgb |= 4
+            case .IGNORE:
+                pass
+    if rgb != 7:
+        raise Error("OpenEXR environment requires R, G, and B channels")
+    var chunks = _plan_chunks(bytes, header)
+    var pixels = List[Float32]()
+    # Every row and RGB channel is covered before uninitialized output is used.
+    pixels.resize(unsafe_uninit_length=3 * header.width() * header.height())
+    var tasks = min(max(1, workers) * 2, len(chunks))
+    var failed = List[UInt8](length=tasks, fill=0)
+
+    def decode(task: Int) {imm, mut pixels, mut failed}:
+        var begin = len(chunks) * task // tasks
+        var end = len(chunks) * (task + 1) // tasks
+        try:
+            if header.compression == _NO_COMPRESSION:
+                for i in range(begin, end):
+                    ref chunk = chunks[i]
+                    if chunk.end - chunk.begin != chunk.decoded_size:
+                        raise Error("unexpected OpenEXR scanline chunk size")
+                    _decode_scanlines(
+                        Span(pixels)[
+                            3
+                            * header.width()
+                            * chunk.row : 3
+                            * header.width()
+                            * (chunk.row + chunk.lines)
+                        ],
+                        header,
+                        bytes[chunk.begin : chunk.end],
+                        chunk.lines,
+                    )
+            else:
+                # One library handle and scratch allocation per worker task,
+                # reused across all its compressed scanline chunks.
+                var lib = OwnedDLHandle("libz.so.1")
+                var scratch_size = 0
+                for i in range(begin, end):
+                    scratch_size = max(scratch_size, chunks[i].decoded_size)
+                var predicted = List[UInt8]()
+                var decoded = List[UInt8]()
+                predicted.resize(unsafe_uninit_length=scratch_size)
+                decoded.resize(unsafe_uninit_length=scratch_size)
+                for i in range(begin, end):
+                    ref chunk = chunks[i]
+                    var data = Span(decoded)[: chunk.decoded_size]
+                    _inflate_chunk(
+                        bytes[chunk.begin : chunk.end],
+                        Span(predicted)[: chunk.decoded_size],
+                        data,
+                        lib,
+                    )
+                    _decode_scanlines(
+                        Span(pixels)[
+                            3
+                            * header.width()
+                            * chunk.row : 3
+                            * header.width()
+                            * (chunk.row + chunk.lines)
+                        ],
+                        header,
+                        data,
+                        chunk.lines,
+                    )
+        except:
+            failed[task] = 1
+
+    if tasks > 1 and workers > 1:
+        parallelize(decode, tasks, min(workers, tasks))
+    else:
+        for task in range(tasks):
+            decode(task)
+    for failure in failed:
+        if failure:
+            raise Error("failed to decode OpenEXR chunks")
+    return ImageTexture(header.width(), header.height(), pixels^)
+
+
+def parse_exr[
+    origin: ImmOrigin
+](bytes: ImmSpan[UInt8, origin]) raises -> ImageTexture:
+    if len(bytes) < 256 * 1024:
+        return _parse_exr_serial(bytes)
+    try:
+        return _parse_exr_bulk(bytes, min(8, num_logical_cores()))
+    except:
+        # Also retains serial behavior for overlapping or incomplete chunks.
+        return _parse_exr_serial(bytes)
 
 
 def read_exr(path: String) raises -> ImageTexture:

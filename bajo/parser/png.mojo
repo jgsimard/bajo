@@ -22,10 +22,12 @@ def _srgb_to_linear(value: Float32) -> Float32:
 
 def _srgb_u8_table() -> List[Float32]:
     """Evaluate the existing scalar transfer function for every u8 value."""
-    var table = List[Float32](length=256, fill=0.0)
-    for value in range(256):
-        table[value] = _srgb_to_linear(Float32(value) / 255.0)
-    return table^
+    return List[Float32](
+        length=256,
+        fill_with=lambda (value: Int) -> Float32: _srgb_to_linear(
+            Float32(value) / 255.0
+        ),
+    )
 
 
 def _linearize_srgb_u8[
@@ -33,7 +35,8 @@ def _linearize_srgb_u8[
 ](encoded: List[UInt8]) -> List[Float32]:
     """Convert exact u8 sRGB values with threaded native-width SIMD gathers."""
     var table = _srgb_u8_table()
-    var pixels = List[Float32](length=len(encoded), fill=0.0)
+    var pixels = List[Float32]()
+    pixels.resize(unsafe_uninit_length=len(encoded))
     var vector_end = len(encoded) - len(encoded) % _SRGB_SIMD_WIDTH
     var vector_count = vector_end // _SRGB_SIMD_WIDTH
     comptime assert channels_per_task >= _SRGB_SIMD_WIDTH
@@ -95,7 +98,8 @@ def parse_png[
         raise Error("PNG dimensions must be positive")
 
     words[unsafe_offset=5] = UInt32(2)  # PNG_FORMAT_RGB
-    var encoded = List[UInt8](length=width * height * 3, fill=0)
+    var encoded = List[UInt8]()
+    encoded.resize(unsafe_uninit_length=width * height * 3)
     ok = lib.call["png_image_finish_read", Int32](
         image.unsafe_ptr(),
         Int(0),

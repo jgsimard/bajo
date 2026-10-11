@@ -8,6 +8,9 @@ from std.testing import (
 )
 
 from bajo.parser.ply import parse_ply
+from bajo.parser.ply.parser import _parse_ply_bulk, _parse_ply_serial
+from bajo.parser.ply.types import PlyMesh
+from bajo.parser.ply.pack import _pack_ply_mesh
 
 
 def _append_text(mut bytes: List[UInt8], text: String):
@@ -107,6 +110,171 @@ def test_rejects_truncated_payload() raises:
     _ = bytes.pop()
     with assert_raises():
         _ = parse_ply(bytes)
+
+
+def _append_u16(mut bytes: List[UInt8], value: UInt16):
+    bytes.append(UInt8(value))
+    bytes.append(UInt8(value >> UInt16(8)))
+
+
+def _mixed_fixture(vertices: Int, faces: Int) -> List[UInt8]:
+    var bytes = List[UInt8]()
+    _append_text(
+        bytes,
+        "ply\nformat binary_little_endian 1.0\nelement vertex "
+        + String(vertices)
+        + "\nproperty float z\nproperty uchar ignored\nproperty double"
+        " x\nproperty float y\nproperty char nx\nproperty char ny\nproperty"
+        " char nz\nproperty ushort u\nproperty short v\nelement face "
+        + String(faces)
+        + "\nproperty float ignored\nproperty list uchar ushort other\nproperty"
+        " list uchar int vertex_indices\nproperty uchar tail\nend_header\n",
+    )
+    for vertex in range(vertices):
+        _append_f32(bytes, -0.0 if vertex % 2 == 0 else Float32(vertex))
+        bytes.append(UInt8(255))
+        var bits = bitcast[.uint64](Float64(vertex) + 0.25)
+        for shift in range(8):
+            bytes.append(UInt8(bits >> UInt64(shift * 8)))
+        _append_f32(bytes, Float32(vertex) / 3.0)
+        bytes.extend([UInt8(255), UInt8(0), UInt8(1)])
+        _append_u16(bytes, UInt16(vertex % 65536))
+        _append_u16(bytes, UInt16(65535))
+    for face in range(faces):
+        _append_f32(bytes, bitcast[.float32](UInt32(0x7FC00000)))
+        bytes.append(UInt8(2))
+        _append_u16(bytes, UInt16(5))
+        _append_u16(bytes, UInt16(7))
+        var corners = 3 + face % 3
+        bytes.append(UInt8(corners))
+        for corner in range(corners):
+            _append_u32(bytes, UInt32((face + corner) % vertices))
+        bytes.append(UInt8(17))
+    return bytes^
+
+
+def _same_mesh(actual: PlyMesh, expected: PlyMesh) raises:
+    assert_equal(actual.face_count(), expected.face_count())
+    assert_equal(actual.indices, expected.indices)
+    assert_equal(len(actual.positions), len(expected.positions))
+    assert_equal(len(actual.normals), len(expected.normals))
+    assert_equal(len(actual.texcoords), len(expected.texcoords))
+    for i in range(len(actual.positions)):
+        assert_equal(
+            bitcast[.uint32](actual.positions[i]),
+            bitcast[.uint32](expected.positions[i]),
+        )
+    for i in range(len(actual.normals)):
+        assert_equal(
+            bitcast[.uint32](actual.normals[i]),
+            bitcast[.uint32](expected.normals[i]),
+        )
+    for i in range(len(actual.texcoords)):
+        assert_equal(
+            bitcast[.uint32](actual.texcoords[i]),
+            bitcast[.uint32](expected.texcoords[i]),
+        )
+
+
+def test_bulk_matches_serial_for_mixed_types_polygons_and_chunk_boundaries() raises:
+    # Unaligned float64, reordered properties, signed integers, ignored scalars
+    # and lists, mixed triangle/quad/ngon records, and multiple worker chunks.
+    var bytes = _mixed_fixture(32771, 8201)
+    var expected = _parse_ply_serial(bytes)
+    for workers in [1, 2, 8]:
+        _same_mesh(_parse_ply_bulk(bytes, workers), expected)
+    _same_mesh(parse_ply(bytes), expected)
+    assert_equal(expected.normals[0], Float32(-1))
+    assert_equal(expected.texcoords[1], Float32(-1))
+
+
+def test_bulk_handles_empty_face_stream() raises:
+    var bytes = _mixed_fixture(3, 0)
+    _same_mesh(_parse_ply_bulk(bytes, 8), _parse_ply_serial(bytes))
+
+
+def test_bulk_rejects_invalid_late_chunk_and_truncation() raises:
+    var bytes = _mixed_fixture(32771, 8201)
+    var good = bytes.copy()
+    # Final index lies just before the ignored one-byte tail.
+    for i in range(4):
+        bytes[len(bytes) - 5 + i] = UInt8(255)
+    with assert_raises():
+        _ = _parse_ply_bulk(bytes, 8)
+    with assert_raises():
+        _ = parse_ply(bytes)
+    _ = good.pop()
+    with assert_raises():
+        _ = parse_ply(good)
+
+
+def test_parallel_packing_preserves_attributes_orientation_and_bounds() raises:
+    var bytes = _mixed_fixture(17, 32771)
+    var mesh = _parse_ply_bulk(bytes, 8)
+    for reverse in [False, True]:
+        var serial = _pack_ply_mesh(mesh, reverse, 1)
+        var parallel = _pack_ply_mesh(mesh, reverse, 8)
+        assert_equal(len(parallel.vertices), len(mesh.indices))
+        assert_equal(parallel.normals, serial.normals)
+        assert_equal(parallel.texcoords, serial.texcoords)
+        for i in range(len(mesh.indices)):
+            var lane = i % 3
+            var source = Int(
+                mesh.indices[
+                    i - lane + (3 - lane if reverse and lane else lane)
+                ]
+            )
+            assert_equal(
+                bitcast[.uint32](parallel.vertices[i].x),
+                bitcast[.uint32](mesh.positions[3 * source]),
+            )
+            assert_equal(
+                bitcast[.uint32](parallel.vertices[i].y),
+                bitcast[.uint32](mesh.positions[3 * source + 1]),
+            )
+            assert_equal(
+                bitcast[.uint32](parallel.vertices[i].z),
+                bitcast[.uint32](mesh.positions[3 * source + 2]),
+            )
+            assert_equal(parallel.normals[3 * i], mesh.normals[3 * source])
+            assert_equal(parallel.texcoords[2 * i], mesh.texcoords[2 * source])
+        assert_equal(
+            bitcast[.uint32](parallel.bounds._min.x),
+            bitcast[.uint32](serial.bounds._min.x),
+        )
+        assert_equal(
+            bitcast[.uint32](parallel.bounds._min.y),
+            bitcast[.uint32](serial.bounds._min.y),
+        )
+        assert_equal(
+            bitcast[.uint32](parallel.bounds._min.z),
+            bitcast[.uint32](serial.bounds._min.z),
+        )
+        assert_equal(
+            bitcast[.uint32](parallel.bounds._max.x),
+            bitcast[.uint32](serial.bounds._max.x),
+        )
+        assert_equal(
+            bitcast[.uint32](parallel.bounds._max.y),
+            bitcast[.uint32](serial.bounds._max.y),
+        )
+        assert_equal(
+            bitcast[.uint32](parallel.bounds._max.z),
+            bitcast[.uint32](serial.bounds._max.z),
+        )
+
+
+def test_packing_handles_absent_optional_attributes_and_bad_indices() raises:
+    var bytes = _fixture(with_uv=False)
+    var mesh = parse_ply(bytes)
+    mesh.normals.clear()
+    var packed = _pack_ply_mesh(mesh, True, 8)
+    assert_equal(len(packed.normals), 0)
+    assert_equal(len(packed.texcoords), 0)
+    assert_equal(packed.vertices[1].y, mesh.positions[7])
+    mesh.indices[2] = UInt32(mesh.vertex_count())
+    with assert_raises():
+        _ = _pack_ply_mesh(mesh, False, 8)
 
 
 def main() raises:

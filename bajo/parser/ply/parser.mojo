@@ -1,6 +1,9 @@
 """Parser for binary little-endian PLY polygon meshes."""
 
+from max.algorithm import parallelize
+from std.math import ceildiv
 from std.memory import bitcast
+from std.sys import num_logical_cores
 
 from bajo.parser.ply.types import PlyMesh
 
@@ -453,7 +456,7 @@ def _store_vertex_value(
         mesh.texcoords[2 * vertex + Int(semantic - _U)] = value
 
 
-def _parse_ply(bytes: ImmSpan[UInt8, _]) raises -> PlyMesh:
+def _parse_ply_serial(bytes: ImmSpan[UInt8, _]) raises -> PlyMesh:
     var header = _parse_header(bytes)
     var cursor = _BinaryCursor(bytes, header.data_offset)
     var mesh = PlyMesh()
@@ -494,3 +497,264 @@ def _parse_ply(bytes: ImmSpan[UInt8, _]) raises -> PlyMesh:
 
     mesh._source_face_count = header.face_count
     return mesh^
+
+
+def _decode_vertex_property(
+    bytes: ImmSpan[UInt8, _],
+    output: MutSpan[Float32, _],
+    kind: _ScalarType,
+    input_offset: Int,
+    input_stride: Int,
+    output_stride: Int,
+    lane: Int,
+    begin: Int,
+    end: Int,
+) raises:
+    # The complete fixed-stride vertex payload was checked by the header.
+    # Dispatch once per property, outside the vertex loop. Loads may be
+    # unaligned because a preceding property can be a single byte.
+    if kind == .F32:
+        for vertex in range(begin, end):
+            var ptr = bytes.unsafe_ptr().unsafe_offset(
+                input_offset + vertex * input_stride
+            )
+            output[vertex * output_stride + lane] = bitcast[.float32](
+                ptr.unsafe_bitcast[UInt32]().unsafe_load[alignment=1]()
+            )
+    elif kind == .F64:
+        for vertex in range(begin, end):
+            var ptr = bytes.unsafe_ptr().unsafe_offset(
+                input_offset + vertex * input_stride
+            )
+            output[vertex * output_stride + lane] = Float32(
+                bitcast[.float64](
+                    ptr.unsafe_bitcast[UInt64]().unsafe_load[alignment=1]()
+                )
+            )
+    else:
+        var cursor = _BinaryCursor(bytes, input_offset)
+        for vertex in range(begin, end):
+            cursor.pos = input_offset + vertex * input_stride
+            output[vertex * output_stride + lane] = cursor.read_number(kind)
+
+
+def _decode_vertices(
+    bytes: ImmSpan[UInt8, _], header: _Header, mut mesh: PlyMesh, workers: Int
+) raises:
+    var stride = 0
+    for prop in header.vertex_properties:
+        stride += prop.scalar_type.byte_width()
+    var tasks = min(
+        max(1, workers) * 4, max(1, ceildiv(header.vertex_count, 16 * 1024))
+    )
+    var failed = List[UInt8](length=tasks, fill=0)
+
+    def decode(task: Int) {imm, mut mesh, mut failed}:
+        var begin = header.vertex_count * task // tasks
+        var end = header.vertex_count * (task + 1) // tasks
+        var offset = header.data_offset
+        try:
+            for prop in header.vertex_properties:
+                if prop.semantic >= _X and prop.semantic <= _Z:
+                    _decode_vertex_property(
+                        bytes,
+                        Span(mesh.positions),
+                        prop.scalar_type,
+                        offset,
+                        stride,
+                        3,
+                        Int(prop.semantic - _X),
+                        begin,
+                        end,
+                    )
+                elif prop.semantic >= _NX and prop.semantic <= _NZ:
+                    _decode_vertex_property(
+                        bytes,
+                        Span(mesh.normals),
+                        prop.scalar_type,
+                        offset,
+                        stride,
+                        3,
+                        Int(prop.semantic - _NX),
+                        begin,
+                        end,
+                    )
+                elif prop.semantic == _U or prop.semantic == _V:
+                    _decode_vertex_property(
+                        bytes,
+                        Span(mesh.texcoords),
+                        prop.scalar_type,
+                        offset,
+                        stride,
+                        2,
+                        Int(prop.semantic - _U),
+                        begin,
+                        end,
+                    )
+                offset += prop.scalar_type.byte_width()
+        except:
+            failed[task] = 1
+
+    if workers > 1 and tasks > 1:
+        parallelize(decode, tasks, min(workers, tasks))
+    else:
+        for task in range(tasks):
+            decode(task)
+    for failure in failed:
+        if failure:
+            raise Error("failed to decode PLY vertices")
+
+
+@fieldwise_init
+struct _FaceChunk(TrivialRegisterPassable):
+    var begin: Int
+    var end: Int
+    var face_count: Int
+    var output_offset: Int
+    var output_count: Int
+
+
+def _face_chunks(
+    bytes: ImmSpan[UInt8, _], header: _Header
+) raises -> List[_FaceChunk]:
+    var stride = 0
+    for prop in header.vertex_properties:
+        stride += prop.scalar_type.byte_width()
+    var cursor = _BinaryCursor(
+        bytes, header.data_offset + header.vertex_count * stride
+    )
+    var min_face_bytes = 0
+    for prop in header.face_properties:
+        min_face_bytes += prop.scalar_type.byte_width()
+        if prop.semantic == _VERTEX_INDICES:
+            min_face_bytes += 3 * prop.list_item_type.byte_width()
+    if header.face_count > 0 and (
+        min_face_bytes == 0
+        or header.face_count > (len(bytes) - cursor.pos) // min_face_bytes
+    ):
+        raise Error("PLY face payload is smaller than its header declares")
+    var chunks = List[_FaceChunk](capacity=ceildiv(header.face_count, 4096))
+    var total = 0
+    for begin in range(0, header.face_count, 4096):
+        var start = cursor.pos
+        var output_count = 0
+        var end = min(begin + 4096, header.face_count)
+        for _ in range(begin, end):
+            var polygon_count = 0
+            for prop in header.face_properties:
+                if prop.is_list:
+                    var count = cursor.read_integer(prop.scalar_type)
+                    if count < 0 or count > header.vertex_count:
+                        raise Error("invalid PLY face list size")
+                    if count > 0 and not prop.list_item_type.is_integer():
+                        raise Error(
+                            "PLY list sizes and indices must use integer types"
+                        )
+                    var size = count * prop.list_item_type.byte_width()
+                    cursor._require(size)
+                    cursor.pos += size
+                    if prop.semantic == _VERTEX_INDICES:
+                        polygon_count = count
+                else:
+                    var size = prop.scalar_type.byte_width()
+                    cursor._require(size)
+                    cursor.pos += size
+            if polygon_count < 3:
+                raise Error("PLY faces require at least three vertices")
+            output_count += 3 * (polygon_count - 2)
+        chunks.append(
+            _FaceChunk(start, cursor.pos, end - begin, total, output_count)
+        )
+        total += output_count
+    return chunks^
+
+
+def _emit_faces(
+    bytes: ImmSpan[UInt8, _],
+    header: _Header,
+    chunk: _FaceChunk,
+    output: MutSpan[UInt32, _],
+) raises:
+    # Limit each cursor and output span to its chunk, including malformed input.
+    var cursor = _BinaryCursor(bytes[chunk.begin : chunk.end], 0)
+    var write = 0
+    for _ in range(chunk.face_count):
+        for prop in header.face_properties:
+            if not prop.is_list:
+                cursor.pos += prop.scalar_type.byte_width()
+                continue
+            var count = cursor.read_integer(prop.scalar_type)
+            if prop.semantic != _VERTEX_INDICES:
+                cursor.pos += count * prop.list_item_type.byte_width()
+                continue
+            var first = UInt32(0)
+            var previous = UInt32(0)
+            for corner in range(count):
+                var value = cursor.read_integer(prop.list_item_type)
+                if value < 0 or value >= header.vertex_count:
+                    raise Error("PLY face index is out of range")
+                var index = UInt32(value)
+                if corner == 0:
+                    first = index
+                elif corner == 1:
+                    previous = index
+                else:
+                    output[write] = first
+                    output[write + 1] = previous
+                    output[write + 2] = index
+                    previous = index
+                    write += 3
+
+
+def _parse_ply_bulk(bytes: ImmSpan[UInt8, _], workers: Int) raises -> PlyMesh:
+    var header = _parse_header(bytes)
+    var chunks = _face_chunks(bytes, header)
+    var mesh = PlyMesh()
+    mesh.positions.resize(unsafe_uninit_length=header.vertex_count * 3)
+    if header.has_normals:
+        mesh.normals.resize(unsafe_uninit_length=header.vertex_count * 3)
+    if header.has_texcoords:
+        mesh.texcoords.resize(unsafe_uninit_length=header.vertex_count * 2)
+    _decode_vertices(bytes, header, mesh, workers)
+    if len(chunks):
+        ref last = chunks[len(chunks) - 1]
+        mesh.indices.resize(
+            unsafe_uninit_length=last.output_offset + last.output_count
+        )
+    var failed = List[UInt8](length=len(chunks), fill=0)
+
+    def emit(task: Int) {imm, mut mesh, mut failed}:
+        ref chunk = chunks[task]
+        try:
+            _emit_faces(
+                bytes,
+                header,
+                chunk,
+                Span(mesh.indices)[
+                    chunk.output_offset : chunk.output_offset
+                    + chunk.output_count
+                ],
+            )
+        except:
+            failed[task] = 1
+
+    if workers > 1 and len(chunks) > 1:
+        parallelize(emit, len(chunks), min(workers, len(chunks)))
+    else:
+        for task in range(len(chunks)):
+            emit(task)
+    for failure in failed:
+        if failure:
+            raise Error("failed to decode PLY faces")
+    mesh._source_face_count = header.face_count
+    return mesh^
+
+
+def _parse_ply(bytes: ImmSpan[UInt8, _]) raises -> PlyMesh:
+    if len(bytes) < 256 * 1024:
+        return _parse_ply_serial(bytes)
+    try:
+        return _parse_ply_bulk(bytes, min(8, num_logical_cores()))
+    except:
+        # Preserve the original diagnostics and validation order on invalid input.
+        return _parse_ply_serial(bytes)

@@ -4,10 +4,10 @@ from std.math import abs, cos, pi, sin, sqrt
 from std.sys import num_logical_cores
 
 from bajo.bvh import Camera
-from bajo.bvh.host_utils import compute_bounds
 from bajo.core import Affine3f32, Point3f32, Vec3f32
-from bajo.parser.number import parse_f32_at
+from bajo.parser.number import parse_f32_fast_at, parse_int_f32
 from bajo.parser.ply import PlyMesh
+from bajo.parser.ply.pack import _pack_ply_mesh
 from bajo.rt.render_types import (
     Color,
     RenderSettings,
@@ -154,31 +154,43 @@ struct _Parameters[origin: ImmOrigin]:
     def __init__(out self):
         self.entries = List[_Parameter[Self.origin]]()
 
-    def has(self, declaration: String) -> Bool:
+    def has(self, declaration: ImmStringSpan) -> Bool:
         for entry in self.entries:
             if entry.declaration == declaration:
                 return True
         return False
 
-    def string(self, declaration: String, default: String) -> String:
+    def string(
+        self, declaration: ImmStringSpan
+    ) -> Optional[StringSpan[Self.origin]]:
         for entry in self.entries:
             if entry.declaration == declaration and len(entry.values) > 0:
-                return String(entry.values[0])
-        return default
+                return entry.values[0]
+        return Optional[StringSpan[Self.origin]]()
 
-    def f32(self, declaration: String, default: Float32) raises -> Float32:
+    def string_or_empty(
+        self, declaration: ImmStringSpan
+    ) -> StringSpan[Self.origin]:
+        var value = self.string(declaration)
+        if value:
+            return value.value()
+        return StringSpan[Self.origin]()
+
+    def f32(
+        self, declaration: ImmStringSpan, default: Float32
+    ) raises -> Float32:
         for entry in self.entries:
             if entry.declaration == declaration and len(entry.values) > 0:
                 return _parse_f32(entry.values[0])
         return default
 
-    def integer(self, declaration: String, default: Int) raises -> Int:
+    def integer(self, declaration: ImmStringSpan, default: Int) raises -> Int:
         for entry in self.entries:
             if entry.declaration == declaration and len(entry.values) > 0:
-                return _parse_int(entry.values[0])
+                return parse_int_f32(entry.values[0], "PBRT")
         return default
 
-    def color(self, name: String, default: Color) raises -> Color:
+    def color(self, name: ImmStringSpan, default: Color) raises -> Color:
         var rgb_name = "rgb " + name
         var color_name = "color " + name
         for entry in self.entries:
@@ -193,7 +205,7 @@ struct _Parameters[origin: ImmOrigin]:
         return default
 
     def values(
-        self, declaration: String
+        self, declaration: ImmStringSpan
     ) -> ImmSpan[StringSpan[Self.origin], origin_of(self)]:
         for entry in self.entries:
             if entry.declaration == declaration:
@@ -311,51 +323,13 @@ struct _Builder(
         mesh: PlyMesh,
         surface: SurfaceId[1],
     ) raises:
-        if len(mesh.indices) == 0:
-            raise Error("PBRT plymesh must contain at least one triangle")
-
-        # Bajo's current triangle BLAS consumes triangle soup. Expand the PLY
-        # index stream in local space and keep the PBRT transform on an instance.
-        var vertices = List[_PointL](capacity=len(mesh.indices))
+        var packed = _pack_ply_mesh(
+            mesh, self.state.reverse_orientation, min(8, num_logical_cores())
+        )
+        var vertices = List[_PointL]()
         var normals = List[Float32]()
         var texcoords = List[Float32]()
-        if mesh.has_normals():
-            normals = List[Float32](capacity=3 * len(mesh.indices))
-        if mesh.has_texcoords():
-            texcoords = List[Float32](capacity=2 * len(mesh.indices))
-        for base in range(0, len(mesh.indices), 3):
-            var i0 = Int(mesh.indices[base])
-            var i1 = Int(mesh.indices[base + 1])
-            var i2 = Int(mesh.indices[base + 2])
-            if self.state.reverse_orientation:
-                var tmp = i1
-                i1 = i2
-                i2 = tmp
-            for lane in range(3):
-                var index = i0
-                if lane == 1:
-                    index = i1
-                elif lane == 2:
-                    index = i2
-                var position_base = 3 * index
-                vertices.append(
-                    _PointL(
-                        mesh.positions[position_base],
-                        mesh.positions[position_base + 1],
-                        mesh.positions[position_base + 2],
-                    )
-                )
-                if mesh.has_normals():
-                    var normal_base = 3 * index
-                    normals.append(mesh.normals[normal_base])
-                    normals.append(mesh.normals[normal_base + 1])
-                    normals.append(mesh.normals[normal_base + 2])
-                if mesh.has_texcoords():
-                    var texcoord_base = 2 * index
-                    texcoords.append(mesh.texcoords[texcoord_base])
-                    texcoords.append(mesh.texcoords[texcoord_base + 1])
-
-        var bounds = compute_bounds(vertices)
+        var bounds = packed^.transfer_to(vertices, normals, texcoords)
         _ = self.scene.add_owned_triangle_mesh_instance(
             vertices^,
             normals^,
@@ -453,18 +427,10 @@ struct _Builder(
 
 
 def _parse_f32(text: StringSpan) raises -> Float32:
-    var parsed = parse_f32_at(text.as_bytes(), 0)
+    var parsed = parse_f32_fast_at(text.as_bytes(), 0)
     if parsed.pos != text.byte_length():
         raise Error("invalid PBRT number: " + String(text))
     return parsed.value
-
-
-def _parse_int(text: StringSpan) raises -> Int:
-    var value = _parse_f32(text)
-    var integer = Int(value)
-    if Float32(integer) != value:
-        raise Error("invalid PBRT integer: " + String(text))
-    return integer
 
 
 def _parse_params(mut lexer: _Lexer) raises -> _Parameters[lexer.origin]:
@@ -575,11 +541,12 @@ def _matrix[
 def _color_texture_parameter(
     builder: _Builder,
     params: _Parameters,
-    name: String,
+    name: ImmStringSpan,
     default: Color,
 ) raises -> _ColorTexture:
-    var texture_name = params.string("texture " + name, "")
-    if texture_name.byte_length() != 0:
+    var token = params.string_or_empty("texture " + name)
+    if token.byte_length() != 0:
+        var texture_name = String(token)
         if texture_name not in builder.color_textures:
             raise Error("unknown PBRT spectrum texture: " + texture_name)
         return builder.color_textures[texture_name].copy()
@@ -589,11 +556,12 @@ def _color_texture_parameter(
 def _scalar_parameter(
     builder: _Builder,
     params: _Parameters,
-    name: String,
+    name: ImmStringSpan,
     default: Float32,
 ) raises -> _FloatTexture:
-    var texture_name = params.string("texture " + name, "")
-    if texture_name.byte_length() != 0:
+    var token = params.string_or_empty("texture " + name)
+    if token.byte_length() != 0:
+        var texture_name = String(token)
         if texture_name not in builder.scalar_textures:
             raise Error("unknown PBRT float texture: " + texture_name)
         return builder.scalar_textures[texture_name].copy()
@@ -610,8 +578,8 @@ def _roughness_to_alpha(roughness: Float32) -> Float32:
 def _texture(
     mut builder: _Builder,
     name: String,
-    value_type: String,
-    implementation: String,
+    value_type: ImmStringSpan,
+    implementation: ImmStringSpan,
     params: _Parameters,
     source_path: String,
 ) raises:
@@ -640,11 +608,11 @@ def _texture(
                 if value.image_index == NO_TEXTURE:
                     value.image_index = scale.image_index
             case "imagemap":
-                var filename = params.string("string filename", "")
+                var filename = params.string_or_empty("string filename")
                 if filename.byte_length() == 0:
                     raise Error("PBRT imagemap texture requires a filename")
                 var image_path = std.os.path.join(
-                    std.os.path.dirname(source_path), filename
+                    std.os.path.dirname(source_path), String(filename)
                 )
                 var image_index = UInt32(len(builder.image_paths))
                 builder.image_paths.append(image_path)
@@ -684,11 +652,11 @@ def _texture(
                     value.u_scale = scale.u_scale
                     value.v_scale = scale.v_scale
             case "imagemap":
-                var filename = params.string("string filename", "")
+                var filename = params.string_or_empty("string filename")
                 if filename.byte_length() == 0:
                     raise Error("PBRT imagemap texture requires a filename")
                 var image_path = std.os.path.join(
-                    std.os.path.dirname(source_path), filename
+                    std.os.path.dirname(source_path), String(filename)
                 )
                 var image_index = UInt32(len(builder.image_paths))
                 builder.image_paths.append(image_path)
@@ -707,7 +675,7 @@ def _texture(
 
 
 def _surface(
-    mut builder: _Builder, model: String, params: _Parameters
+    mut builder: _Builder, model: ImmStringSpan, params: _Parameters
 ) raises -> SurfaceId[1]:
     __match model:
         case "coateddiffuse":
@@ -723,7 +691,8 @@ def _surface(
             roughness = sqrt(
                 max(u_roughness, 0.0) * max(v_roughness, 0.0)
             ).clamp(0.0, 1.0)
-            if params.string("bool remaproughness", "true") != "false":
+            var remap = params.string("bool remaproughness")
+            if not remap or remap.value() != ImmStringSpan("false"):
                 roughness = _roughness_to_alpha(roughness)
             return builder.scene.surfaces.add_coated_diffuse(
                 reflectance.scale,
@@ -767,7 +736,7 @@ def _shape[
     Loader: AssetLoader
 ](
     mut builder: _Builder,
-    kind: String,
+    kind: ImmStringSpan,
     params: _Parameters,
     source_path: String,
     loader: Loader,
@@ -803,11 +772,11 @@ def _shape[
             return
 
         case "plymesh":
-            var filename = params.string("string filename", "")
+            var filename = params.string_or_empty("string filename")
             if filename.byte_length() == 0:
                 raise Error("PBRT plymesh requires a string filename")
             var mesh_path = std.os.path.join(
-                std.os.path.dirname(source_path), filename
+                std.os.path.dirname(source_path), String(filename)
             )
             var mesh = loader.read_ply_mesh(mesh_path)
             builder.add_ply_mesh(mesh, surface)
@@ -859,9 +828,21 @@ def _shape[
 
             var element_count = len(indices) if indexed else point_count
             for base in range(0, element_count, 3):
-                var i0 = _parse_int(indices[base]) if indexed else base
-                var i1 = _parse_int(indices[base + 1]) if indexed else base + 1
-                var i2 = _parse_int(indices[base + 2]) if indexed else base + 2
+                var i0 = parse_int_f32(
+                    indices[base], "PBRT"
+                ) if indexed else base
+                var i1 = (
+                    parse_int_f32(
+                        indices[base + 1], "PBRT"
+                    ) if indexed else base
+                    + 1
+                )
+                var i2 = (
+                    parse_int_f32(
+                        indices[base + 2], "PBRT"
+                    ) if indexed else base
+                    + 2
+                )
                 if (
                     i0 < 0
                     or i0 >= point_count
@@ -1032,14 +1013,14 @@ def _parse_text[
                 _texture(
                     builder,
                     String(lexer.next().value),
-                    String(lexer.next().value),
-                    String(lexer.next().value),
+                    lexer.next().value,
+                    lexer.next().value,
                     _parse_params(lexer),
                     path,
                 )
 
             case "Material":
-                var model = String(lexer.next().value)
+                var model = lexer.next().value
                 builder.state.surface = _surface(
                     builder, model, _parse_params(lexer)
                 )
@@ -1047,8 +1028,15 @@ def _parse_text[
             case "MakeNamedMaterial":
                 var name = String(lexer.next().value)
                 var params = _parse_params(lexer)
-                var model = params.string("string type", "diffuse")
-                builder.named_materials[name] = _surface(builder, model, params)
+                var model = params.string("string type")
+                if model:
+                    builder.named_materials[name] = _surface(
+                        builder, model.value(), params
+                    )
+                else:
+                    builder.named_materials[name] = _surface(
+                        builder, ImmStringSpan("diffuse"), params
+                    )
 
             case "NamedMaterial":
                 var name = String(lexer.next().value)
@@ -1070,12 +1058,12 @@ def _parse_text[
                 var multiplier = params.color("L", Color(1.0)) * params.f32(
                     "float scale", 1.0
                 )
-                var filename = params.string("string filename", "")
+                var filename = params.string_or_empty("string filename")
                 if filename.byte_length() == 0:
                     builder.environment = Environment.uniform(multiplier)
                 else:
                     var image_path = std.os.path.join(
-                        std.os.path.dirname(path), filename
+                        std.os.path.dirname(path), String(filename)
                     )
                     var image_index = UInt32(len(builder.image_paths))
                     builder.image_paths.append(image_path)
@@ -1103,7 +1091,7 @@ def _parse_text[
             case "Shape":
                 _shape(
                     builder,
-                    String(lexer.next().value),
+                    lexer.next().value,
                     _parse_params(lexer),
                     path,
                     loader,

@@ -40,5 +40,14 @@ def test_threaded_simd_conversion_is_bit_exact() raises:
         _assert_exact(encoded, actual, index)
 
 
+def test_conversion_handles_empty_and_subvector_inputs() raises:
+    for count in range(0, 33):
+        var encoded = List[UInt8](length=count, fill=UInt8(127))
+        var actual = _linearize_srgb_u8(encoded)
+        assert_equal(len(actual), count)
+        for index in range(count):
+            _assert_exact(encoded, actual, index)
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

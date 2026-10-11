@@ -2,7 +2,7 @@
 
 from std.benchmark import run, keep, Unit
 from bajo.parser.number import F32ParseResult, parse_f32_at
-from bajo.parser.obj.number import parse_obj_f32_at
+from bajo.parser.number import parse_f32_fast_at
 
 
 def decode[optimized: Bool](text: String) raises:
@@ -12,7 +12,7 @@ def decode[optimized: Bool](text: String) raises:
     while pos < len(bytes):
         var parsed: F32ParseResult
         comptime if optimized:
-            parsed = parse_obj_f32_at(bytes, pos)
+            parsed = parse_f32_fast_at(bytes, pos)
         else:
             parsed = parse_f32_at(bytes, pos)
         sum += Float64(parsed.value)

@@ -1,5 +1,5 @@
 from .types import ObjIndex
-from .number import parse_obj_f32_at
+from bajo.parser.number import parse_f32_fast_at
 from .primitives import (
     _fix_index,
     _is_digit,
@@ -56,7 +56,7 @@ struct ObjLineCursor[origin: ImmOrigin]:
 
     @always_inline
     def _next_f32_at_pos(mut self) raises -> Float32:
-        var parsed = parse_obj_f32_at(self.bytes, self.pos)
+        var parsed = parse_f32_fast_at(self.bytes, self.pos)
         self.pos = parsed.pos
         return parsed.value
 

@@ -14,6 +14,8 @@ from bajo.parser.pbrt import (
     read_pbrt,
     read_pbrt_camera,
 )
+from bajo.parser.number import parse_f32_at, parse_int_f32
+from std.testing import assert_equal
 from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.rt import CpuScene, EnvironmentKind, render_wavefront
 
@@ -622,6 +624,32 @@ def test_numeric_token_errors() raises:
     ]:
         with assert_raises():
             _ = parse_pbrt(source)
+
+
+def test_integer_fast_path_preserves_float32_fallback_semantics() raises:
+    for spelling in [
+        "0",
+        "-0",
+        "+00012",
+        "16777215",
+        "16777216",
+        "16777217",
+        "-16777217",
+        "0000000000000000000000000000001",
+        "1e0",
+        "2.0",
+        "3.00000001",
+        "",
+        "+",
+        "-",
+    ]:
+        var text = StringSpan(spelling)
+        var expected = Int(parse_f32_at(text.as_bytes(), 0).value)
+        assert_equal(parse_int_f32(text), expected)
+        assert_equal(parse_int_f32(text, "PBRT"), expected)
+    for spelling in ["1.5", "1x", "1e", "1e309", "++1", "-+1"]:
+        with assert_raises():
+            _ = parse_int_f32(StringSpan(spelling), "PBRT")
 
 
 def main() raises:

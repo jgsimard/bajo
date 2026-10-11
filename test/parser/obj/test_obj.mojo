@@ -23,7 +23,7 @@ from bajo.parser.obj.types import ObjIndex
 from std.sys import size_of
 from std.memory import bitcast
 from bajo.parser.number import F32ParseResult, parse_f32_at
-from bajo.parser.obj.number import parse_obj_f32_at
+from bajo.parser.number import parse_f32_fast_at
 from bajo.parser.obj.parallel import _parse_obj_bulk
 from bajo.parser.obj.serial import _parse_obj_serial
 from bajo.parser.obj.triangulate import _triangulated_indices_parallel
@@ -197,7 +197,7 @@ def test_decimal_exponent_work_is_bounded() raises:
 def _assert_fast_decimal_matches_reference(text: String) raises:
     var bytes = StringSpan(text).as_bytes()
     var expected = parse_f32_at(bytes, 0)
-    var actual = parse_obj_f32_at(bytes, 0)
+    var actual = parse_f32_fast_at(bytes, 0)
     assert_true(actual.pos == expected.pos)
     assert_true(
         bitcast[.uint32](actual.value) == bitcast[.uint32](expected.value)
@@ -630,9 +630,9 @@ def test_decimal_blocks_reject_every_nondigit_byte() raises:
                 reference_raised = True
             if reference_raised:
                 with assert_raises():
-                    _ = parse_obj_f32_at(Span(bytes), 0)
+                    _ = parse_f32_fast_at(Span(bytes), 0)
             else:
-                var actual = parse_obj_f32_at(Span(bytes), 0)
+                var actual = parse_f32_fast_at(Span(bytes), 0)
                 assert_true(actual.pos == expected.pos)
                 assert_true(
                     bitcast[.uint32](actual.value)

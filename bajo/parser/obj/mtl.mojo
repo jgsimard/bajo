@@ -6,8 +6,8 @@ from bajo.parser.obj.cursor import ObjLineCursor
 from bajo.parser.obj.constants import MINUS
 
 
-def _map_name_from_tail(mut cur: ObjLineCursor) -> String:
-    var candidate = ""
+def _map_name_from_tail(mut cur: ObjLineCursor) -> StringSpan[cur.origin]:
+    var candidate = StringSpan[cur.origin]()
     while cur.has_next():
         var word = cur.next_word()
         if word.byte_length() == 0:
@@ -18,7 +18,7 @@ def _map_name_from_tail(mut cur: ObjLineCursor) -> String:
         )
         if word_bytes[0] == MINUS:
             continue
-        candidate = String(word)
+        candidate = word
     return candidate
 
 
@@ -38,13 +38,16 @@ def _upsert_material(
     return index
 
 
-def _add_texture(mut mesh: ObjMesh, name: String, base: String) raises -> Int:
-    var path = std.os.path.join(base, name)
+def _add_texture(
+    mut mesh: ObjMesh, name: ImmStringSpan, base: String
+) raises -> Int:
+    var filename = String(name)
+    var path = std.os.path.join(base, filename)
     if path in mesh.texture_names:
         return mesh.texture_names[path]
 
     var index = len(mesh.textures)
-    mesh.textures.append(ObjTexture(name, path))
+    mesh.textures.append(ObjTexture(filename^, path))
     mesh.texture_names[path] = index
     return index
 

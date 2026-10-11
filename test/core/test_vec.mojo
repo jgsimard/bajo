@@ -10,6 +10,7 @@ from std.testing import (
 from bajo.core import (
     Vec3,
     Vec3W,
+    Point3f32,
     dot,
     cross,
     length,
@@ -80,8 +81,14 @@ def test_load_store_span_with_nonzero_base() raises:
 
     value.store(data, 3)
     var loaded = Vec3W.load(data, 3)
+    var pointer_loaded = Vec3W(data.unsafe_ptr().unsafe_offset(3))
+    var point = Point3f32[.LOCAL](data.unsafe_ptr().unsafe_offset(3))
 
     assert_vec_equal(loaded, value)
+    assert_vec_equal(pointer_loaded, value)
+    assert_almost_equal(point.x, 2.0)
+    assert_almost_equal(point.y, 3.0)
+    assert_almost_equal(point.z, 4.0)
     assert_almost_equal(data[2], -1.0)
     assert_almost_equal(data[6], -1.0)
 

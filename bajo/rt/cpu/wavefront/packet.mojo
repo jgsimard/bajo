@@ -58,7 +58,6 @@ from bajo.rt.wavefront_contract import (
 
 from ..lighting import (
     _DirectLightSample,
-    _empty_direct_light_sample,
     _environment_miss_weight,
     _sample_direct_light_candidate,
     _emissive_hit_weight,
@@ -85,7 +84,7 @@ struct _DirectLightBatch[length: SIMDLength]:
     var surface_indices: SIMD[.uint32, Self.length]
 
     def __init__(out self):
-        self.sample = _empty_direct_light_sample[Self.length]()
+        self.sample = _DirectLightSample[Self.length].make_empty()
         self.point = ShadingPoint[Self.length](
             Point3[.float32, .WORLD, Self.length](0.0),
             Vec3[.float32, .WORLD, Self.length](0.0),

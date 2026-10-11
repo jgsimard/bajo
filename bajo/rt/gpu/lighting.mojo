@@ -140,16 +140,12 @@ struct GpuDirectLightSample(TrivialRegisterPassable):
     var direction: Vec3f32[.WORLD]
     var contribution: Color
     var shadow_t_max: Float32
+    var light_id: UInt32
 
-
-@always_inline
-def _empty_direct_light_sample() -> GpuDirectLightSample:
-    return GpuDirectLightSample(
-        False,
-        Vec3f32[.WORLD](0.0),
-        Color(0.0),
-        0.0,
-    )
+    @staticmethod
+    @always_inline
+    def make_empty() -> Self:
+        return Self(False, Vec3f32[.WORLD](0.0), Color(0.0), 0.0, UInt32(0))
 
 
 @always_inline
@@ -194,17 +190,17 @@ def _sample_direct_light_candidate[
         PrimitiveKind.TRIANGLE,
     )
     if total_light_weight <= 0.0:
-        return _empty_direct_light_sample()
+        return GpuDirectLightSample.make_empty()
 
     var surface_kind = SurfaceId.kind_from_raw(surface_value)
     comptime if coated_pass:
         if surface_kind != .COATED_DIFFUSE:
-            return _empty_direct_light_sample()
+            return GpuDirectLightSample.make_empty()
     else:
         if surface_kind == .COATED_DIFFUSE:
-            return _empty_direct_light_sample()
+            return GpuDirectLightSample.make_empty()
     if surface_kind == .EMISSIVE or surface_kind == .DIELECTRIC:
-        return _empty_direct_light_sample()
+        return GpuDirectLightSample.make_empty()
 
     comptime if not coated_pass:
         if surface_kind == .METAL:
@@ -216,13 +212,14 @@ def _sample_direct_light_candidate[
                 metals[unsafe_offset=material_base + GpuMetalLayout.FUZZ]
                 <= 1.0e-4
             ):
-                return _empty_direct_light_sample()
+                return GpuDirectLightSample.make_empty()
 
     var rng = path_stage_rng(
         sampling, path.path_id, wavefront_rng_light_stage(bounce)
     )
     var selection_u = rng.f32()
     var environment_probability = environment_weight / total_light_weight
+    var light_id = UInt32(light_count)
     var emission = Color(0.0)
     var geometry = _DirectLightGeometrySample(
         False, Vec3f32[.WORLD](0.0), 0.0, 0.0, 0.0
@@ -303,7 +300,7 @@ def _sample_direct_light_candidate[
         )
     else:
         if light_count <= 0:
-            return _empty_direct_light_sample()
+            return GpuDirectLightSample.make_empty()
         var finite_probability = 1.0 - environment_probability
         var finite_u = (
             selection_u - environment_probability
@@ -316,11 +313,10 @@ def _sample_direct_light_candidate[
         var selected_idx = _resolve_alias_draw(
             draw, alias_probability, packed_column >> UInt32(4)
         )
+        light_id = UInt32(selected_idx)
         var base = light_count + selected_idx * GPU_RT_LIGHT_STRIDE
         var p0 = Point3f32[.WORLD](
-            light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_X],
-            light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Y],
-            light_fields[unsafe_offset=base + GPU_RT_LIGHT_P0_Z],
+            light_fields.unsafe_offset(base + GPU_RT_LIGHT_P0_X)
         )
         var surface_sample: _LightSurfaceSample
         comptime __match light_kind:
@@ -333,14 +329,10 @@ def _sample_direct_light_candidate[
                 )
             case .TRIANGLE:
                 var p1 = Point3f32[.WORLD](
-                    light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_X],
-                    light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Y],
-                    light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Z],
+                    light_fields.unsafe_offset(base + GPU_RT_LIGHT_P1_X)
                 )
                 var p2 = Point3f32[.WORLD](
-                    light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_X],
-                    light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Y],
-                    light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Z],
+                    light_fields.unsafe_offset(base + GPU_RT_LIGHT_P2_X)
                 )
                 surface_sample = _sample_triangle_light_surface(
                     p0, p1, p2, rng.f32(), rng.f32()
@@ -358,23 +350,15 @@ def _sample_direct_light_candidate[
                     )
                 else:
                     var p1 = Point3f32[.WORLD](
-                        light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_X],
-                        light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Y],
-                        light_fields[unsafe_offset=base + GPU_RT_LIGHT_P1_Z],
+                        light_fields.unsafe_offset(base + GPU_RT_LIGHT_P1_X)
                     )
                     var p2 = Point3f32[.WORLD](
-                        light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_X],
-                        light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Y],
-                        light_fields[unsafe_offset=base + GPU_RT_LIGHT_P2_Z],
+                        light_fields.unsafe_offset(base + GPU_RT_LIGHT_P2_X)
                     )
                     surface_sample = _sample_triangle_light_surface(
                         p0, p1, p2, rng.f32(), rng.f32()
                     )
-        emission = Color(
-            light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_X],
-            light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_Y],
-            light_fields[unsafe_offset=base + GPU_RT_LIGHT_E_Z],
-        )
+        emission = Color(light_fields.unsafe_offset(base + GPU_RT_LIGHT_E_X))
         geometry = _finish_direct_light_geometry(
             incoming_ray.at(hit_t),
             normal,
@@ -383,7 +367,7 @@ def _sample_direct_light_candidate[
             total_light_weight,
         )
     if not geometry.valid:
-        return _empty_direct_light_sample()
+        return GpuDirectLightSample.make_empty()
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
     var value = Color(0.0)
     var bsdf_pdf = Float32(0.0)
@@ -408,7 +392,7 @@ def _sample_direct_light_candidate[
                 value = evaluation.value
                 bsdf_pdf = evaluation.pdf
             else:
-                return _empty_direct_light_sample()
+                return GpuDirectLightSample.make_empty()
         case .METAL:
             comptime if not coated_pass:
                 var material_base = GpuMetalLayout.STRIDE * material_idx
@@ -424,7 +408,7 @@ def _sample_direct_light_candidate[
                 value = evaluation.value
                 bsdf_pdf = evaluation.pdf
             else:
-                return _empty_direct_light_sample()
+                return GpuDirectLightSample.make_empty()
         case .COATED_DIFFUSE:
             comptime if coated_pass:
                 var coated = _sample_gpu_coated_parameters(
@@ -463,9 +447,9 @@ def _sample_direct_light_candidate[
                 value = evaluation.value
                 bsdf_pdf = evaluation.pdf
             else:
-                return _empty_direct_light_sample()
+                return GpuDirectLightSample.make_empty()
         case _:
-            return _empty_direct_light_sample()
+            return GpuDirectLightSample.make_empty()
     var scale = _direct_light_scale[integrator, 1](
         geometry.surface_cosine, geometry.light_pdf, bsdf_pdf, True
     )
@@ -474,4 +458,5 @@ def _sample_direct_light_candidate[
         geometry.direction,
         Color(path.tx, path.ty, path.tz) * value * emission * scale,
         geometry.shadow_t_max,
+        light_id,
     )

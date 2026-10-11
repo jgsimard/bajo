@@ -60,6 +60,7 @@ from bajo.rt.gpu.common_kernels import (
     GPU_RT_MAX_BLOCKS,
     clear_gpu_rt_sample,
     make_gpu_rt_primary_path,
+    gpu_rt_bounce_block_limit,
 )
 from bajo.rt.gpu.lighting import _sample_direct_light_candidate
 from bajo.rt.gpu.textures import (
@@ -72,7 +73,15 @@ from bajo.rt.gpu.path_shading import (
     _append_shadow,
     _route_surface_hit,
 )
+from bajo.rt.gpu.queue_order import (
+    GpuRtQueueOrderScratch,
+)
 from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
+from bajo.rt.gpu.spatial_order import gpu_rt_spatial_order_enabled
+from bajo.rt.gpu.light_order import (
+    gpu_rt_light_order_enabled,
+    enqueue_gpu_rt_light_order,
+)
 
 
 comptime GPU_RT_SHADOW_BLOCK_SIZE = 128
@@ -532,7 +541,7 @@ def _gpu_rt_scene_trace_path[
     comptime if integrator == .AO:
         var ao_rng = path_stage_rng(sampling, path.path_id, UInt32(1))
         var ao_ray = make_ao_ray(ray.at(closest_t), normal, ao_rng)
-        _append_shadow[False](
+        _ = _append_shadow[False](
             DeviceWaveShadow(
                 path.path_id,
                 ao_ray.o.x,
@@ -605,7 +614,7 @@ def _gpu_rt_scene_trace_path[
                 direct.direction,
                 direct.shadow_t_max,
             )
-            _append_shadow(
+            var shadow_slot = _append_shadow(
                 DeviceWaveShadow(
                     path.path_id,
                     shadow_ray.o.x,
@@ -625,6 +634,10 @@ def _gpu_rt_scene_trace_path[
                 counters,
                 capacity,
             )
+            if shadow_slot >= 0 and scene.light_count > 0:
+                GpuRtQueueOrderScratch.from_queues(queues).light_ids[
+                    unsafe_offset=shadow_slot
+                ] = direct.light_id
 
     _route_surface_hit[integrator](
         idx,
@@ -772,6 +785,14 @@ def gpu_rt_scene_trace_kernel[
     var idx = global_idx.x
     var stride = Int(grid_dim.x * block_dim.x)
     while idx < active_count:
+        var path_idx = idx
+        comptime if Integrator.uses_direct_lighting[integrator]:
+            if gpu_rt_spatial_order_enabled(Int(queues.capacity), bounce):
+                path_idx = Int(
+                    GpuRtQueueOrderScratch.from_queues(queues).indices[
+                        unsafe_offset=idx
+                    ]
+                )
         _gpu_rt_scene_trace_one[
             integrator,
             scene_kind,
@@ -780,7 +801,7 @@ def gpu_rt_scene_trace_kernel[
             tlas_format,
             blas_format,
             light_kind,
-        ](idx, scene, queues, sampling, bounce)
+        ](path_idx, scene, queues, sampling, bounce)
         idx += stride
 
 
@@ -938,12 +959,20 @@ def gpu_rt_shadow_kernel[
     triangle_format: GpuRtBvhFormat,
     tlas_format: GpuRtBvhFormat,
     blas_format: GpuRtBvhFormat,
+    ordered: Bool = False,
 ](scene: GpuRtSceneView, queues: GpuRtTraceQueueView):
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
     var count = Int(counters[unsafe_offset=WAVE_COUNTER.SHADOW])
-    var idx = global_idx.x
+    var slot = global_idx.x
     var stride = Int(grid_dim.x * block_dim.x)
-    while idx < count:
+    while slot < count:
+        var idx = slot
+        comptime if ordered:
+            idx = Int(
+                GpuRtQueueOrderScratch.from_queues(queues).indices[
+                    unsafe_offset=slot
+                ]
+            )
         _gpu_rt_shadow_one[
             integrator,
             scene_kind,
@@ -952,7 +981,7 @@ def gpu_rt_shadow_kernel[
             tlas_format,
             blas_format,
         ](idx, scene, queues)
-        idx += stride
+        slot += stride
 
 
 def enqueue_gpu_shadows[
@@ -968,11 +997,15 @@ def enqueue_gpu_shadows[
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
     capacity: Int,
+    bounce: UInt32 = 0,
 ) raises:
     """Submit the compact visibility stage when the integrator needs it."""
     comptime if Integrator.uses_visibility[integrator]:
         var blocks = min(
             ceildiv(capacity, GPU_RT_SHADOW_BLOCK_SIZE), MAX_BLOCKS
+        )
+        blocks = min(
+            blocks, gpu_rt_bounce_block_limit(bounce, GPU_RT_SHADOW_BLOCK_SIZE)
         )
         comptime if Integrator.uses_direct_lighting[integrator]:
             if capacity >= GPU_RT_LARGE_QUEUE_MIN_CAPACITY:
@@ -986,18 +1019,35 @@ def enqueue_gpu_shadows[
                     ):
                         limit = GPU_RT_DIRECT_WIDE_SHADOW_MAX_BLOCKS
                 blocks = min(blocks, limit)
-        ctx.enqueue_function[
-            gpu_rt_shadow_kernel[
-                integrator,
-                scene_kind,
-                sphere_format,
-                triangle_format,
-                tlas_format,
-                blas_format,
-            ]
-        ](
-            scene,
-            queues,
-            grid_dim=blocks,
-            block_dim=GPU_RT_SHADOW_BLOCK_SIZE,
-        )
+
+        @always_inline
+        def enqueue_shadow[ordered: Bool]() raises {imm}:
+            ctx.enqueue_function[
+                gpu_rt_shadow_kernel[
+                    integrator,
+                    scene_kind,
+                    sphere_format,
+                    triangle_format,
+                    tlas_format,
+                    blas_format,
+                    ordered,
+                ]
+            ](
+                scene,
+                queues,
+                grid_dim=blocks,
+                block_dim=GPU_RT_SHADOW_BLOCK_SIZE,
+            )
+
+        comptime if Integrator.uses_direct_lighting[integrator]:
+            if (
+                gpu_rt_light_order_enabled(capacity, bounce)
+                and scene.light_count > 0
+                and scene.light_count < 64
+            ):
+                enqueue_gpu_rt_light_order(ctx, queues, bounce)
+                enqueue_shadow[True]()
+            else:
+                enqueue_shadow[False]()
+        else:
+            enqueue_shadow[False]()

@@ -137,6 +137,16 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         self.y = SIMD[Self.dtype, Self.width](x)
         self.z = SIMD[Self.dtype, Self.width](x)
 
+    @always_inline
+    def __init__(
+        out self, data: Pointer[Scalar[Self.dtype], _]
+    ) where Self.width == 1:
+        """Load three consecutive scalars; the caller supplies a valid pointer.
+        """
+        self.x = data[unsafe_offset=0]
+        self.y = data[unsafe_offset=1]
+        self.z = data[unsafe_offset=2]
+
     def __init__(
         out self,
         x: SIMD[Self.dtype, Self.width],

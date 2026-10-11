@@ -7,9 +7,14 @@ from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.render_types import SamplingConfig
 from bajo.rt.material_types import Integrator
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
-from bajo.rt.gpu.common_kernels import GPU_RT_BLOCK_SIZE, GPU_RT_MAX_BLOCKS
+from bajo.rt.gpu.common_kernels import (
+    GPU_RT_BLOCK_SIZE,
+    GPU_RT_MAX_BLOCKS,
+    gpu_rt_bounce_block_limit,
+)
 from bajo.rt.gpu.materials import GpuRtMaterials
 from bajo.rt.gpu.path_shading import _enqueue_material_shading
+from bajo.rt.gpu.spatial_order import enqueue_gpu_rt_spatial_order
 from bajo.rt.gpu.coated_shading import enqueue_coated_shading
 from bajo.rt.gpu.scene_trace import (
     GPU_RT_LARGE_QUEUE_MIN_CAPACITY,
@@ -288,6 +293,7 @@ def enqueue_gpu_rt_bounce[
         if arena.capacity >= GPU_RT_LARGE_QUEUE_MIN_CAPACITY:
             trace_block_size = GPU_RT_DIRECT_LARGE_TRACE_BLOCK_SIZE
     var blocks = min(ceildiv(arena.capacity, trace_block_size), MAX_BLOCKS)
+    blocks = min(blocks, gpu_rt_bounce_block_limit(bounce, trace_block_size))
     comptime if Integrator.uses_direct_lighting[integrator]:
         # Preserve the tuned thread budget across the two block sizes.
         # Grid-stride tracing covers every path even with an explicit cap.
@@ -350,6 +356,10 @@ def enqueue_gpu_rt_bounce[
             block_dim=trace_block_size,
         )
 
+    comptime if Integrator.uses_direct_lighting[integrator]:
+        enqueue_gpu_rt_spatial_order[
+            scene_kind, sphere_format, triangle_format, tlas_format
+        ](ctx, scene, queues, bounce)
     enqueue_trace()
     comptime if Integrator.is_path_tracing[integrator]:
         _enqueue_material_shading[integrator, MAX_BLOCKS](
@@ -379,4 +389,4 @@ def enqueue_gpu_rt_bounce[
         tlas_format,
         blas_format,
         SHADOW_MAX_BLOCKS,
-    ](ctx, scene, queues, arena.capacity)
+    ](ctx, scene, queues, arena.capacity, bounce)

@@ -54,19 +54,17 @@ struct _DirectLightSample[length: SIMDLength = 1](Copyable):
     var light_pdf: SIMD[.float32, Self.length]
     var shadow_t_max: SIMD[.float32, Self.length]
 
-
-@always_inline
-def _empty_direct_light_sample[
-    length: SIMDLength = 1
-]() -> _DirectLightSample[length]:
-    return _DirectLightSample[length](
-        SIMD[.bool, length](fill=False),
-        Vec3[.float32, .WORLD, length](0.0),
-        Vec3[.float32, .WORLD, length](0.0),
-        0.0,
-        0.0,
-        0.0,
-    )
+    @staticmethod
+    @always_inline
+    def make_empty() -> Self:
+        return Self(
+            SIMD[.bool, Self.length](fill=False),
+            Vec3[.float32, .WORLD, Self.length](0.0),
+            Vec3[.float32, .WORLD, Self.length](0.0),
+            0.0,
+            0.0,
+            0.0,
+        )
 
 
 @always_inline
@@ -193,7 +191,7 @@ def _sample_environment_candidate[
     )
     var surface_cosine = max(dot(point.normal, direction), 0.0)
     if surface_cosine <= 0.0:
-        return _empty_direct_light_sample[1]()
+        return _DirectLightSample[1].make_empty()
     var emission = environment_radiance(
         data.environment(), data.surfaces(), direction
     )
@@ -204,7 +202,7 @@ def _sample_environment_candidate[
         emission,
     )[0]
     if light_pdf <= 0.0:
-        return _empty_direct_light_sample[1]()
+        return _DirectLightSample[1].make_empty()
     return _DirectLightSample[1](
         True,
         direction,
@@ -231,7 +229,7 @@ def _sample_direct_light_candidate[
     """
     var total_weight = world.scene_data().total_light_weight()
     if total_weight <= 0.0:
-        return _empty_direct_light_sample[1]()
+        return _DirectLightSample[1].make_empty()
 
     ref lights = world.scene_data().lights()
     var selection_u = rng.f32()
@@ -241,7 +239,7 @@ def _sample_direct_light_candidate[
     if selection_u < environment_probability:
         return _sample_environment_candidate(world, point, rng)
     if len(lights.records) == 0:
-        return _empty_direct_light_sample[1]()
+        return _DirectLightSample[1].make_empty()
     var finite_probability = 1.0 - environment_probability
     var finite_u = (
         selection_u - environment_probability
@@ -276,7 +274,7 @@ def _sample_direct_light_candidate[
         point.p, point.normal, surface_sample, emission, total_weight
     )
     if not geometry.valid:
-        return _empty_direct_light_sample[1]()
+        return _DirectLightSample[1].make_empty()
     return _DirectLightSample[1](
         True,
         geometry.direction,
@@ -303,7 +301,7 @@ def _sample_direct_light[
         point.p, light.direction, light.shadow_t_max
     )
     if world.occluded(shadow_ray):
-        return _empty_direct_light_sample[1]()
+        return _DirectLightSample[1].make_empty()
     return light^
 
 

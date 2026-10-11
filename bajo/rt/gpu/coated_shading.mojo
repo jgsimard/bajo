@@ -14,8 +14,16 @@ from bajo.rt.wavefront_contract import (
     load_device_wave_shade,
     wavefront_plane_index,
 )
-from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
+from bajo.rt.gpu.common_kernels import (
+    GPU_RT_MAX_BLOCKS,
+    gpu_rt_bounce_block_limit,
+)
 from bajo.rt.gpu.materials import GpuRtMaterials
+from bajo.rt.gpu.material_order import (
+    enqueue_gpu_rt_material_order,
+    gpu_rt_material_order_enabled,
+)
+from bajo.rt.gpu.material_layout import GpuCoatedDiffuseLayout
 from bajo.rt.gpu.lighting import _sample_direct_light_candidate
 from bajo.rt.gpu.path_shading import (
     _append_shadow,
@@ -23,6 +31,10 @@ from bajo.rt.gpu.path_shading import (
     GPU_RT_SHADE_BLOCK_SIZE,
 )
 from bajo.rt.media import medium_transmittance
+from bajo.rt.gpu.queue_order import (
+    GpuRtQueueOrderScratch,
+    gpu_rt_queue_order_enabled,
+)
 from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
 from bajo.rt.gpu.wavefront_contract import (
     GPU_SHADE_U,
@@ -35,7 +47,10 @@ from bajo.rt.gpu.wavefront_contract import (
 
 
 def gpu_rt_coated_shade_kernel[
-    integrator: Integrator
+    integrator: Integrator,
+    ordered: Bool = False,
+    lighting: Bool = True,
+    continuation: Bool = True,
 ](
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
@@ -48,9 +63,16 @@ def gpu_rt_coated_shade_kernel[
         False
     ]().unsafe_origin_cast[ImmutAnyOrigin]()
     var work_count = Int(counters[unsafe_offset=WAVE_COUNTER.SHADE])
-    var idx = global_idx.x
+    var slot = global_idx.x
     var stride = Int(grid_dim.x * block_dim.x)
-    while idx < work_count:
+    while slot < work_count:
+        var idx = slot
+        comptime if ordered:
+            idx = Int(
+                GpuRtQueueOrderScratch.from_queues(queues).indices[
+                    unsafe_offset=slot
+                ]
+            )
         var surface_value = queues.shade_surfaces[unsafe_offset=idx]
         if SurfaceId.kind_from_raw(surface_value) == .COATED_DIFFUSE:
             var work = load_device_wave_shade(
@@ -92,7 +114,9 @@ def gpu_rt_coated_shade_kernel[
             var uv_v = fields[
                 unsafe_offset=wavefront_plane_index(GPU_SHADE_V, capacity, idx)
             ]
-            comptime if Integrator.uses_direct_lighting[integrator]:
+            comptime if lighting and Integrator.uses_direct_lighting[
+                integrator
+            ]:
                 var direct = _sample_direct_light_candidate[
                     integrator, PrimitiveKind.UNKNOWN, True
                 ](
@@ -147,7 +171,7 @@ def gpu_rt_coated_shade_kernel[
                     var shadow = spawn_surface_ray(
                         ray.at(work.t), direct.direction, direct.shadow_t_max
                     )
-                    _append_shadow(
+                    var shadow_slot = _append_shadow(
                         DeviceWaveShadow(
                             path.path_id,
                             shadow.o.x,
@@ -169,28 +193,33 @@ def gpu_rt_coated_shade_kernel[
                         counters,
                         capacity,
                     )
-            _shade_coated_diffuse_inline[integrator](
-                path,
-                ray.d,
-                normal,
-                uv_u,
-                uv_v,
-                work.t,
-                surface_value,
-                scene.coated_diffuses.unsafe_origin_cast[ImmutAnyOrigin](),
-                scene.coated_diffuse_texture_indices.unsafe_origin_cast[
-                    ImmutAnyOrigin
-                ](),
-                scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin](),
-                scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin](),
-                queues.dst_path_ids.unsafe_origin_cast[MutAnyOrigin](),
-                queues.dst_path_fields.unsafe_origin_cast[MutAnyOrigin](),
-                counters,
-                capacity,
-                sampling,
-                bounce,
-            )
-        idx += stride
+                    if shadow_slot >= 0 and scene.light_count > 0:
+                        GpuRtQueueOrderScratch.from_queues(queues).light_ids[
+                            unsafe_offset=shadow_slot
+                        ] = direct.light_id
+            comptime if continuation:
+                _shade_coated_diffuse_inline[integrator](
+                    path,
+                    ray.d,
+                    normal,
+                    uv_u,
+                    uv_v,
+                    work.t,
+                    surface_value,
+                    scene.coated_diffuses.unsafe_origin_cast[ImmutAnyOrigin](),
+                    scene.coated_diffuse_texture_indices.unsafe_origin_cast[
+                        ImmutAnyOrigin
+                    ](),
+                    scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin](),
+                    scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin](),
+                    queues.dst_path_ids.unsafe_origin_cast[MutAnyOrigin](),
+                    queues.dst_path_fields.unsafe_origin_cast[MutAnyOrigin](),
+                    counters,
+                    capacity,
+                    sampling,
+                    bounce,
+                )
+        slot += stride
 
 
 @always_inline
@@ -210,11 +239,51 @@ def enqueue_coated_shading[
         ceildiv(Int(queues.capacity), GPU_RT_SHADE_BLOCK_SIZE),
         GPU_RT_MAX_BLOCKS,
     )
-    ctx.enqueue_function[gpu_rt_coated_shade_kernel[integrator]](
-        scene,
-        queues,
-        sampling,
-        bounce,
-        grid_dim=blocks,
-        block_dim=GPU_RT_SHADE_BLOCK_SIZE,
+    blocks = min(
+        blocks, gpu_rt_bounce_block_limit(bounce, GPU_RT_SHADE_BLOCK_SIZE)
     )
+
+    @always_inline
+    def enqueue_shade[ordered: Bool]() raises {imm}:
+        comptime if Integrator.uses_direct_lighting[integrator]:
+            if gpu_rt_queue_order_enabled(Int(queues.capacity), bounce):
+                ctx.enqueue_function[
+                    gpu_rt_coated_shade_kernel[integrator, ordered, True, False]
+                ](
+                    scene,
+                    queues,
+                    sampling,
+                    bounce,
+                    grid_dim=blocks,
+                    block_dim=GPU_RT_SHADE_BLOCK_SIZE,
+                )
+                ctx.enqueue_function[
+                    gpu_rt_coated_shade_kernel[integrator, ordered, False, True]
+                ](
+                    scene,
+                    queues,
+                    sampling,
+                    bounce,
+                    grid_dim=blocks,
+                    block_dim=GPU_RT_SHADE_BLOCK_SIZE,
+                )
+                return
+        ctx.enqueue_function[gpu_rt_coated_shade_kernel[integrator, ordered]](
+            scene,
+            queues,
+            sampling,
+            bounce,
+            grid_dim=blocks,
+            block_dim=GPU_RT_SHADE_BLOCK_SIZE,
+        )
+
+    var coated_count = (
+        len(materials.coated_diffuses) // GpuCoatedDiffuseLayout.STRIDE
+    )
+    if gpu_rt_material_order_enabled(
+        Int(queues.capacity), bounce, coated_count
+    ):
+        enqueue_gpu_rt_material_order(ctx, queues, coated_count)
+        enqueue_shade[True]()
+    else:
+        enqueue_shade[False]()

@@ -26,7 +26,10 @@ from bajo.rt.wavefront_contract import (
     wavefront_plane_index,
     wavefront_rng_stage,
 )
-from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
+from bajo.rt.gpu.common_kernels import (
+    GPU_RT_MAX_BLOCKS,
+    gpu_rt_bounce_block_limit,
+)
 from bajo.rt.gpu.wavefront_contract import (
     GpuWavefrontArena,
     GPU_SHADE_U,
@@ -113,14 +116,15 @@ def _append_shadow[
     fields: Pointer[Float32, MutAnyOrigin],
     counters: Pointer[UInt32, MutAnyOrigin],
     capacity: Int,
-):
+) -> Int:
     var slot = _reserve_slot(counters, WAVE_COUNTER.SHADOW)
     if slot >= capacity:
         _mark_status(counters, WAVE_STATUS.SHADOW_OVERFLOW)
-        return
+        return -1
     store_gpu_rt_shadow[STORE_CONTRIBUTION](
         work, path_ids, fields, capacity, slot
     )
+    return slot
 
 
 @always_inline
@@ -688,6 +692,9 @@ def _enqueue_material_shading[
     var blocks = min(
         ceildiv(arena.capacity, GPU_RT_SHADE_BLOCK_SIZE),
         MAX_BLOCKS,
+    )
+    blocks = min(
+        blocks, gpu_rt_bounce_block_limit(bounce, GPU_RT_SHADE_BLOCK_SIZE)
     )
     ctx.enqueue_function[gpu_rt_shade_dispatch_kernel[integrator]](
         src_path_ids,

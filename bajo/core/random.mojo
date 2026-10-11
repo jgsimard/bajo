@@ -237,6 +237,8 @@ def _stbn(
 def _radical_inverse(index: UInt64, base: UInt64) -> Float32:
     var value = Float32(0.0)
     var inverse = Float32(1.0) / Float32(base)
+    if index < base:
+        return Float32(index) * inverse
     var factor = inverse
     var digits = index
     while digits > 0:

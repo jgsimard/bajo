@@ -12,7 +12,6 @@ from bajo.rt.gpu.material_layout import (
     _load_gpu_coated_parameters,
     GpuCoatedDiffuseLayout,
     GpuTextureDescLayout,
-    _load_gpu_material_color,
 )
 
 
@@ -41,11 +40,7 @@ def _sample_gpu_image_texture(
     var x = min(Int(wrapped_u * Float32(width)), width - 1)
     var y = min(Int((Float32(1.0) - wrapped_v) * Float32(height)), height - 1)
     var base = pixel_offset + 3 * (y * width + x)
-    return Color(
-        texture_pixels[unsafe_offset=base],
-        texture_pixels[unsafe_offset=base + 1],
-        texture_pixels[unsafe_offset=base + 2],
-    )
+    return Color(texture_pixels.unsafe_offset(base))
 
 
 @always_inline
@@ -60,7 +55,7 @@ def _sample_gpu_lambertian(
 ) -> Color:
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
     var material_base = GpuRgbMaterialLayout.STRIDE * material_idx
-    var albedo = _load_gpu_material_color(lambertians, material_base)
+    var albedo = Color(lambertians.unsafe_offset(material_base))
     var texture_idx = texture_indices[unsafe_offset=material_idx]
     if texture_idx == NO_TEXTURE:
         return albedo
@@ -86,8 +81,10 @@ def _sample_gpu_coated_albedo(
 ) -> Color:
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
     var material_base = GpuCoatedDiffuseLayout.STRIDE * material_idx
-    var albedo = _load_gpu_material_color(
-        coated_diffuses, material_base + GpuCoatedDiffuseLayout.ALBEDO
+    var albedo = Color(
+        coated_diffuses.unsafe_offset(
+            material_base + GpuCoatedDiffuseLayout.ALBEDO
+        )
     )
     var texture_idx = texture_indices[
         unsafe_offset=GpuCoatedDiffuseLayout.TEXTURE_STRIDE * material_idx

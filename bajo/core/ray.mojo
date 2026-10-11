@@ -42,15 +42,11 @@ struct Ray[dtype: DType, frame: Frame, length: SIMDLength = 1](
         )
         var base = ray_idx * Ray.STRIDE
         self.o = Point3[Self.dtype, Self.frame, Self.length](
-            rays.unsafe_get(base + Ray.ORIGIN + 0),
-            rays.unsafe_get(base + Ray.ORIGIN + 1),
-            rays.unsafe_get(base + Ray.ORIGIN + 2),
+            rays.unsafe_ptr().unsafe_offset(base + Ray.ORIGIN)
         )
         self.t_min = rays.unsafe_get(base + Ray.T_MIN)
         self.d = Vec3[Self.dtype, Self.frame, Self.length](
-            rays.unsafe_get(base + Ray.DIRECTION + 0),
-            rays.unsafe_get(base + Ray.DIRECTION + 1),
-            rays.unsafe_get(base + Ray.DIRECTION + 2),
+            rays.unsafe_ptr().unsafe_offset(base + Ray.DIRECTION)
         )
         self.t_max = rays.unsafe_get(base + Ray.T_MAX)
 

@@ -109,7 +109,7 @@ def load_mesh_point[
     frame: Frame
 ](points: ImmSpan[Float32, _], index: UInt32) -> Point3f32[frame]:
     var base = Int(index) * 3
-    return Point3f32[frame](points[base], points[base + 1], points[base + 2])
+    return Point3f32[frame].load(points, base)
 
 
 def _load_mesh_triangle[
@@ -125,21 +125,9 @@ def _load_mesh_triangle[
     var b = Int(faces.unsafe_load(1)) * 3
     var c = Int(faces.unsafe_load(2)) * 3
     return (
-        Point3f32[frame](
-            vertices.unsafe_load(a),
-            vertices.unsafe_load(a + 1),
-            vertices.unsafe_load(a + 2),
-        ),
-        Point3f32[frame](
-            vertices.unsafe_load(b),
-            vertices.unsafe_load(b + 1),
-            vertices.unsafe_load(b + 2),
-        ),
-        Point3f32[frame](
-            vertices.unsafe_load(c),
-            vertices.unsafe_load(c + 1),
-            vertices.unsafe_load(c + 2),
-        ),
+        Point3f32[frame](vertices.unsafe_offset(a)),
+        Point3f32[frame](vertices.unsafe_offset(b)),
+        Point3f32[frame](vertices.unsafe_offset(c)),
     )
 
 
@@ -380,18 +368,7 @@ struct MeshQueryView[
             Int(nodes[0]) * 6
         )
         comptime if is_gpu() and width == 1:
-            var box = AABB[Self.frame](
-                Point3f32[Self.frame](
-                    bounds.unsafe_load(0),
-                    bounds.unsafe_load(1),
-                    bounds.unsafe_load(2),
-                ),
-                Point3f32[Self.frame](
-                    bounds.unsafe_load(3),
-                    bounds.unsafe_load(4),
-                    bounds.unsafe_load(5),
-                ),
-            )
+            var box = AABB[Self.frame].load6(bounds)
             var filtered, entry = _gpu_ray_bounds_interval(
                 ray, box, ray.t_max, 0.0, inverse
             )

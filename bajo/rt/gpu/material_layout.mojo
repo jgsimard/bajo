@@ -62,17 +62,6 @@ struct GpuTextureDescLayout:
     comptime HEIGHT = 2
 
 
-@always_inline
-def _load_gpu_material_color(
-    data: Pointer[Float32, ImmutAnyOrigin], base: Int
-) -> Color:
-    return Color(
-        data[unsafe_offset=base + GpuRgbMaterialLayout.R],
-        data[unsafe_offset=base + GpuRgbMaterialLayout.G],
-        data[unsafe_offset=base + GpuRgbMaterialLayout.B],
-    )
-
-
 @fieldwise_init
 struct _GpuCoatedDiffuseParameters(TrivialRegisterPassable):
     """BSDF fields only; albedo and displacement use separate texture paths."""
@@ -98,17 +87,11 @@ def _load_gpu_coated_parameters(
         data[unsafe_offset=base + GpuCoatedDiffuseLayout.ROUGHNESS],
         data[unsafe_offset=base + GpuCoatedDiffuseLayout.ETA],
         data[unsafe_offset=base + GpuCoatedDiffuseLayout.THICKNESS],
-        _load_gpu_material_color(
-            data, base + GpuCoatedDiffuseLayout.LAYER_ALBEDO
-        ),
+        Color(data.unsafe_offset(base + GpuCoatedDiffuseLayout.LAYER_ALBEDO)),
         data[unsafe_offset=base + GpuCoatedDiffuseLayout.G],
         data[unsafe_offset=base + GpuCoatedDiffuseLayout.MAX_DEPTH],
         data[unsafe_offset=base + GpuCoatedDiffuseLayout.N_SAMPLES],
-        _load_gpu_material_color(
-            data, base + GpuCoatedDiffuseLayout.CONDUCTOR_ETA
-        ),
-        _load_gpu_material_color(
-            data, base + GpuCoatedDiffuseLayout.CONDUCTOR_K
-        ),
+        Color(data.unsafe_offset(base + GpuCoatedDiffuseLayout.CONDUCTOR_ETA)),
+        Color(data.unsafe_offset(base + GpuCoatedDiffuseLayout.CONDUCTOR_K)),
         data[unsafe_offset=base + GpuCoatedDiffuseLayout.CONDUCTOR_ROUGHNESS],
     )

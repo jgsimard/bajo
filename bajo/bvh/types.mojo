@@ -104,9 +104,7 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
             hits_u32[unsafe_offset=base + Hit.PrimitiveKind],
             hits_u32[unsafe_offset=base + Hit.INST],
             Normal3[.float32, Self.frame, Self.length](
-                ptr[unsafe_offset=base + Hit.NORMAL + 0],
-                ptr[unsafe_offset=base + Hit.NORMAL + 1],
-                ptr[unsafe_offset=base + Hit.NORMAL + 2],
+                ptr.unsafe_offset(base + Hit.NORMAL)
             ),
             ptr[unsafe_offset=base + Hit.T],
         )

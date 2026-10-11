@@ -161,11 +161,7 @@ def gpu_rt_coated_shade_kernel[
                     if path.medium_id != 0:
                         var base = 3 * Int(path.medium_id)
                         direct.contribution *= medium_transmittance(
-                            Color(
-                                scene.medium_absorption[unsafe_offset=base],
-                                scene.medium_absorption[unsafe_offset=base + 1],
-                                scene.medium_absorption[unsafe_offset=base + 2],
-                            ),
+                            Color(scene.medium_absorption.unsafe_offset(base)),
                             direct.shadow_t_max,
                         )
                     var shadow = spawn_surface_ray(

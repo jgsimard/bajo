@@ -603,18 +603,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
     def _node_bounds(self, index: Int) -> AABB[Self.frame]:
         var base = index * 6
         var bounds = self.bounds.unsafe_ptr()
-        return AABB(
-            Point3f32[Self.frame](
-                bounds.unsafe_load(base),
-                bounds.unsafe_load(base + 1),
-                bounds.unsafe_load(base + 2),
-            ),
-            Point3f32[Self.frame](
-                bounds.unsafe_load(base + 3),
-                bounds.unsafe_load(base + 4),
-                bounds.unsafe_load(base + 5),
-            ),
-        )
+        return AABB[Self.frame].load6(bounds, base)
 
     @always_inline
     def _store_bounds(mut self, index: Int, box: AABB[Self.frame]):

@@ -31,7 +31,6 @@ from bajo.rt.gpu.upload import _upload_nonempty
 from bajo.rt.gpu.material_layout import (
     GpuMetalLayout,
     GpuTextureDescLayout,
-    _load_gpu_material_color,
 )
 from bajo.rt.gpu.textures import (
     _sample_gpu_lambertian,
@@ -399,8 +398,10 @@ def _sample_direct_light_candidate[
                 var evaluation = _evaluate_material[.METAL, 1](
                     incoming_ray.d,
                     normal,
-                    _load_gpu_material_color(
-                        metals, material_base + GpuMetalLayout.ALBEDO
+                    Color(
+                        metals.unsafe_offset(
+                            material_base + GpuMetalLayout.ALBEDO
+                        )
                     ),
                     metals[unsafe_offset=material_base + GpuMetalLayout.FUZZ],
                     geometry.direction,

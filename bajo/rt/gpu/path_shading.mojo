@@ -52,7 +52,6 @@ from bajo.rt.gpu.material_layout import (
     GpuRgbMaterialLayout,
     GpuDielectricLayout,
     GpuMetalLayout,
-    _load_gpu_material_color,
 )
 from bajo.rt.gpu.textures import (
     _sample_gpu_lambertian,
@@ -382,7 +381,7 @@ def _route_surface_hit[
             if front_face:
                 var material_idx = Int(SurfaceId.index_from_raw(surface_value))
                 var base = GpuRgbMaterialLayout.STRIDE * material_idx
-                var radiance = _load_gpu_material_color(emissives, base)
+                var radiance = Color(emissives.unsafe_offset(base))
                 var light_pdf = Float32(0.0)
                 comptime if integrator == .MIS:
                     if bounce > 0 and not path.delta:
@@ -546,13 +545,13 @@ def _gpu_rt_shade_one[
     comptime __match MATERIAL_KIND:
         case .LAMBERTIAN:
             var base = GpuRgbMaterialLayout.STRIDE * material_idx
-            albedo = _load_gpu_material_color(material_data, base)
+            albedo = Color(material_data.unsafe_offset(base))
             random_u = rng.f32()
             random_v = rng.f32()
         case .METAL:
             var base = GpuMetalLayout.STRIDE * material_idx
-            albedo = _load_gpu_material_color(
-                material_data, base + GpuMetalLayout.ALBEDO
+            albedo = Color(
+                material_data.unsafe_offset(base + GpuMetalLayout.ALBEDO)
             )
             parameter = material_data[unsafe_offset=base + GpuMetalLayout.FUZZ]
             if parameter > 1.0e-4:

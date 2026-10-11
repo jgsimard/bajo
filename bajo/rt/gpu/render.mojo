@@ -304,13 +304,7 @@ def gpu_rt_apply_film_kernel(
     var index = global_idx.x
     if index < Int(count):
         var base = 3 * index
-        var result = film.apply(
-            Color(
-                pixels[unsafe_offset=base],
-                pixels[unsafe_offset=base + 1],
-                pixels[unsafe_offset=base + 2],
-            )
-        )
+        var result = film.apply(Color(pixels.unsafe_offset(base)))
         pixels[unsafe_offset=base] = result.x
         pixels[unsafe_offset=base + 1] = result.y
         pixels[unsafe_offset=base + 2] = result.z

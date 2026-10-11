@@ -140,21 +140,9 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
             var av = Int(indices.unsafe_load(face * 3)) * 3
             var bv = Int(indices.unsafe_load(face * 3 + 1)) * 3
             var cv = Int(indices.unsafe_load(face * 3 + 2)) * 3
-            var a = Point3f32[Self.frame](
-                points.unsafe_load(av),
-                points.unsafe_load(av + 1),
-                points.unsafe_load(av + 2),
-            )
-            var b = Point3f32[Self.frame](
-                points.unsafe_load(bv),
-                points.unsafe_load(bv + 1),
-                points.unsafe_load(bv + 2),
-            )
-            var c = Point3f32[Self.frame](
-                points.unsafe_load(cv),
-                points.unsafe_load(cv + 1),
-                points.unsafe_load(cv + 2),
-            )
+            var a = Point3f32[Self.frame](points.unsafe_offset(av))
+            var b = Point3f32[Self.frame](points.unsafe_offset(bv))
+            var c = Point3f32[Self.frame](points.unsafe_offset(cv))
             if has_cache:
                 var slot = Int(slots.unsafe_load(face))
                 var block = slot // Self.storage_width

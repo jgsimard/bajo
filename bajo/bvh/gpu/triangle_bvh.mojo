@@ -862,21 +862,9 @@ def compute_triangle_bounds_kernel[
         and tri_idx < len(payloads),
         "triangle bounds record is outside a device span",
     )
-    var v0 = Point3f32[frame](
-        vertices.unsafe_get(vbase + 0),
-        vertices.unsafe_get(vbase + 1),
-        vertices.unsafe_get(vbase + 2),
-    )
-    var v1 = Point3f32[frame](
-        vertices.unsafe_get(vbase + 3),
-        vertices.unsafe_get(vbase + 4),
-        vertices.unsafe_get(vbase + 5),
-    )
-    var v2 = Point3f32[frame](
-        vertices.unsafe_get(vbase + 6),
-        vertices.unsafe_get(vbase + 7),
-        vertices.unsafe_get(vbase + 8),
-    )
+    var v0 = Point3f32[frame](vertices.unsafe_ptr().unsafe_offset(vbase))
+    var v1 = Point3f32[frame](vertices.unsafe_ptr().unsafe_offset(vbase + 3))
+    var v2 = Point3f32[frame](vertices.unsafe_ptr().unsafe_offset(vbase + 6))
 
     var bmin = vmin(vmin(v0, v1), v2)
     var bmax = vmax(vmax(v0, v1), v2)

@@ -61,7 +61,7 @@ def test_apply_trs_rotated() raises:
     assert_vec_equal(new_box._max, Point3f32[.CAMERA](sqrt_2, sqrt_2, 1.0))
 
 
-def test_aabb_store6_with_nonzero_base() raises:
+def test_aabb_load_store6_with_nonzero_base() raises:
     var data = List[Float32](length=18, fill=-1.0)
     var b = AABB[.WORLD](Point3W(1.0, 2.0, 3.0), Point3W(4.0, 5.0, 6.0))
 
@@ -73,6 +73,17 @@ def test_aabb_store6_with_nonzero_base() raises:
     assert_almost_equal(data[9], 4.0)
     assert_almost_equal(data[10], 5.0)
     assert_almost_equal(data[11], 6.0)
+
+    var checked = AABB[.WORLD].load6(data, 6)
+    var pointer = AABB[.WORLD].load6(data.unsafe_ptr(), 6)
+    var readonly = data.unsafe_ptr().unsafe_mut_cast[False]()
+    var offset = AABB[.WORLD].load6(readonly.unsafe_offset(6))
+    assert_vec_equal(checked._min, b._min)
+    assert_vec_equal(checked._max, b._max)
+    assert_vec_equal(pointer._min, b._min)
+    assert_vec_equal(pointer._max, b._max)
+    assert_vec_equal(offset._min, b._min)
+    assert_vec_equal(offset._max, b._max)
 
 
 def test_distance2_scalar_and_packets_at_extreme_scales() raises:

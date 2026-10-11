@@ -355,11 +355,7 @@ def _intersect_cwbvh_indexed_triangle[
 ) -> Bool:
     var prim = primitive_ids[unsafe_offset=Int(triangle_idx)]
     var base = Int(prim) * TRI_LEAF_VERTEX_STRIDE
-    var v0 = Point3f32[frame](
-        vertices[unsafe_offset=base + 0],
-        vertices[unsafe_offset=base + 1],
-        vertices[unsafe_offset=base + 2],
-    )
+    var v0 = Point3f32[frame](vertices.unsafe_offset(base))
     var e1 = Vec3f32[frame](
         vertices[unsafe_offset=base + 3] - v0.x,
         vertices[unsafe_offset=base + 4] - v0.y,

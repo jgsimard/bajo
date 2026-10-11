@@ -538,21 +538,9 @@ def intersect_ray_tri[
         base >= 0 and base <= len(vertices) - 9,
         "triangle load is outside the input span",
     )
-    var v0 = Point3[frame=frame](
-        vertices.unsafe_get(base + 0),
-        vertices.unsafe_get(base + 1),
-        vertices.unsafe_get(base + 2),
-    )
-    var v1 = Point3[frame=frame](
-        vertices.unsafe_get(base + 3),
-        vertices.unsafe_get(base + 4),
-        vertices.unsafe_get(base + 5),
-    )
-    var v2 = Point3[frame=frame](
-        vertices.unsafe_get(base + 6),
-        vertices.unsafe_get(base + 7),
-        vertices.unsafe_get(base + 8),
-    )
+    var v0 = Point3[frame=frame](vertices.unsafe_ptr().unsafe_offset(base))
+    var v1 = Point3[frame=frame](vertices.unsafe_ptr().unsafe_offset(base + 3))
+    var v2 = Point3[frame=frame](vertices.unsafe_ptr().unsafe_offset(base + 6))
 
     return intersect_ray_tri(
         o,

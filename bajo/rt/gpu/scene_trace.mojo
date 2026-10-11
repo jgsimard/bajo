@@ -438,11 +438,7 @@ def _gpu_rt_scene_trace_path[
 
     if path.medium_id != 0:
         var base = 3 * Int(path.medium_id)
-        var sigma_a = Color(
-            scene.medium_absorption[unsafe_offset=base],
-            scene.medium_absorption[unsafe_offset=base + 1],
-            scene.medium_absorption[unsafe_offset=base + 2],
-        )
+        var sigma_a = Color(scene.medium_absorption.unsafe_offset(base))
         var attenuation = medium_transmittance(
             sigma_a,
             (closest_t if found else ray.t_max) * sqrt(dot(ray.d, ray.d)),
@@ -602,11 +598,7 @@ def _gpu_rt_scene_trace_path[
             if path.medium_id != 0:
                 var base = 3 * Int(path.medium_id)
                 direct.contribution *= medium_transmittance(
-                    Color(
-                        scene.medium_absorption[unsafe_offset=base],
-                        scene.medium_absorption[unsafe_offset=base + 1],
-                        scene.medium_absorption[unsafe_offset=base + 2],
-                    ),
+                    Color(scene.medium_absorption.unsafe_offset(base)),
                     direct.shadow_t_max,
                 )
             var shadow_ray = spawn_surface_ray(

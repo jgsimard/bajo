@@ -104,18 +104,7 @@ def _collapse_encoded_bounds[
                 item_idx = leaf_ids.unsafe_get(Int(sorted_leaf_idx))
             return AABB[.WORLD].load6(leaf_bounds, Int(item_idx) * AABB.STRIDE)
         var base = Int(decode_ref_index(encoded)) * AABB.STRIDE
-        return AABB[.WORLD](
-            Point3f32[.WORLD](
-                compact_bounds[unsafe_offset=base],
-                compact_bounds[unsafe_offset=base + 1],
-                compact_bounds[unsafe_offset=base + 2],
-            ),
-            Point3f32[.WORLD](
-                compact_bounds[unsafe_offset=base + 3],
-                compact_bounds[unsafe_offset=base + 4],
-                compact_bounds[unsafe_offset=base + 5],
-            ),
-        )
+        return AABB[.WORLD].load6(compact_bounds, base)
     return _encoded_bounds(encoded, leaf_bounds, leaf_ids, node_bounds)
 
 

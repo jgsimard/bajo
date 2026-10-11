@@ -262,18 +262,7 @@ def build_hploc_multi_wave_kernel[
 
     def load_cached_bounds(slot: Int) {imm} -> AABB[.WORLD]:
         var base = slot * AABB.STRIDE
-        return AABB[.WORLD](
-            Point3f32[.WORLD](
-                boxes_cache[unsafe_offset=base + 0],
-                boxes_cache[unsafe_offset=base + 1],
-                boxes_cache[unsafe_offset=base + 2],
-            ),
-            Point3f32[.WORLD](
-                boxes_cache[unsafe_offset=base + 3],
-                boxes_cache[unsafe_offset=base + 4],
-                boxes_cache[unsafe_offset=base + 5],
-            ),
-        )
+        return AABB[.WORLD].load6(boxes_cache, base)
 
     def store_cached_bounds(slot: Int, bounds: AABB[.WORLD]) {imm}:
         var base = slot * AABB.STRIDE

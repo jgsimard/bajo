@@ -41,11 +41,7 @@ def _compressed_order_bounds(
     root: UInt32,
 ) -> Tuple[Point3f32[.WORLD], Point3f32[.WORLD]]:
     var base = Int(root) * 20
-    var low = Point3f32[.WORLD](
-        nodes[unsafe_offset=base],
-        nodes[unsafe_offset=base + 1],
-        nodes[unsafe_offset=base + 2],
-    )
+    var low = Point3f32[.WORLD](nodes.unsafe_offset(base))
     var exp = bitcast[.uint32](nodes[unsafe_offset=base + 3])
     var high = Point3f32[.WORLD](
         low.x + 255.0 * _scale_from_exponent(exp & 255),

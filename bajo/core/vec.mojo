@@ -1,5 +1,6 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import abs, fma, sqrt
+from std.memory import AddressSpace
 from std.utils.numerics import max_finite
 
 from bajo.core.utils import fmin, fmax
@@ -138,9 +139,12 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         self.z = SIMD[Self.dtype, Self.width](x)
 
     @always_inline
-    def __init__(
-        out self, data: Pointer[Scalar[Self.dtype], _]
-    ) where Self.width == 1:
+    def __init__[
+        address_space: AddressSpace
+    ](
+        out self,
+        data: Pointer[Scalar[Self.dtype], _, address_space=address_space],
+    ) where (Self.width == 1):
         """Load three consecutive scalars; the caller supplies a valid pointer.
         """
         self.x = data[unsafe_offset=0]
@@ -432,11 +436,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
             base >= 0 and base <= len(data) - 3,
             "Geo3 load is outside the input span",
         )
-        return Self(
-            data.unsafe_get(base + 0),
-            data.unsafe_get(base + 1),
-            data.unsafe_get(base + 2),
-        )
+        return Self(data.unsafe_ptr().unsafe_offset(base))
 
     def store(self, data: MutSpan[Scalar[Self.dtype], _], base: Int):
         comptime assert Self.width == 1

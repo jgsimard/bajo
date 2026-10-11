@@ -84,11 +84,7 @@ def _camera_ray_single_view(
             + camera_params[unsafe_offset=Camera.UP + 2] * sy,
         )
     )
-    var origin = Point3f32[.WORLD](
-        camera_params[unsafe_offset=Camera.ORIGIN + 0],
-        camera_params[unsafe_offset=Camera.ORIGIN + 1],
-        camera_params[unsafe_offset=Camera.ORIGIN + 2],
-    )
+    var origin = Point3f32[.WORLD](camera_params.unsafe_offset(Camera.ORIGIN))
     return Rayf32[.WORLD](origin, direction, 0.0, f32_max)
 
 

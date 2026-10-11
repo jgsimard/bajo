@@ -1,5 +1,6 @@
 from std.utils.numerics import max_finite, min_finite
 from std.math import abs, max
+from std.memory import AddressSpace
 
 from bajo.core.transform import Affine3
 from bajo.core.vec import Vec3, vmin, vmax, Point3, GeoKind
@@ -183,16 +184,23 @@ struct AxisAlignedBoundingBox[
             base >= 0 and base <= len(data) - Self.STRIDE,
             "AABB load is outside the input span",
         )
+        return Self.load6(data.unsafe_ptr(), base)
+
+    @staticmethod
+    @always_inline
+    def load6[
+        address_space: AddressSpace
+    ](
+        data: Pointer[Scalar[Self.dtype], _, address_space=address_space],
+        base: Int = 0,
+    ) -> Self where (Self.width == 1):
+        """Load six consecutive scalars from a caller-validated pointer."""
         return Self(
             Point3[Self.dtype, Self.frame, Self.width](
-                data.unsafe_get(base + 0),
-                data.unsafe_get(base + 1),
-                data.unsafe_get(base + 2),
+                data.unsafe_offset(base)
             ),
             Point3[Self.dtype, Self.frame, Self.width](
-                data.unsafe_get(base + 3),
-                data.unsafe_get(base + 4),
-                data.unsafe_get(base + 5),
+                data.unsafe_offset(base + 3)
             ),
         )
 

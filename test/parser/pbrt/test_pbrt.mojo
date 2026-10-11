@@ -15,9 +15,11 @@ from bajo.parser.pbrt import (
     read_pbrt_camera,
 )
 from bajo.parser.number import parse_f32_at, parse_int_f32
+from bajo.parser.asset_loader import AssetLoader
+from bajo.parser.ply import PlyMesh
 from std.testing import assert_equal
 from bajo.core import Point3f32, Rayf32, Vec3f32
-from bajo.rt import CpuScene, EnvironmentKind, render_wavefront
+from bajo.rt import CpuScene, EnvironmentKind, ImageTexture, render_wavefront
 
 
 def _append_ply_text(mut bytes: List[UInt8], text: String):
@@ -71,6 +73,193 @@ def _triangle_ply() -> List[UInt8]:
     _append_ply_u32(bytes, UInt32(1))
     _append_ply_u32(bytes, UInt32(2))
     return bytes^
+
+
+struct _CountingAssetLoader[origin: MutOrigin](AssetLoader):
+    var source: MemoryAssetLoader
+    var calls: MutSpan[Int, Self.origin]
+
+    def __init__(
+        out self,
+        var source: MemoryAssetLoader,
+        calls: MutSpan[Int, Self.origin],
+    ):
+        self.source = source^
+        self.calls = calls
+
+    def read_text(self, path: String) raises -> String:
+        return self.source.read_text(path)
+
+    def read_ply_mesh(self, path: String) raises -> PlyMesh:
+        self.calls[0 if path == "scene/assets/shared.ply" else 1] += 1
+        var mesh = self.source.read_ply_mesh(path)
+        # Distinct attributes expose mistakes when reversing cached geometry.
+        mesh.normals[3] = 0.25
+        mesh.normals[6] = 0.5
+        return mesh^
+
+    def read_image_texture(self, path: String) raises -> ImageTexture:
+        if path == "scene/assets/shared.png":
+            self.calls[2] += 1
+            return ImageTexture(
+                1, 1, [Float32(0.2), Float32(0.4), Float32(0.6)]
+            )
+        if path == "scene/other/shared.png":
+            self.calls[3] += 1
+            return ImageTexture(
+                1, 1, [Float32(0.8), Float32(0.6), Float32(0.4)]
+            )
+        raise Error("unexpected test image: " + path)
+
+
+def test_images_shared_across_include_color_scalar_and_environment() raises:
+    var memory = MemoryAssetLoader()
+    memory.add_file(
+        "scene/main.pbrt",
+        """WorldBegin
+Include "assets/textures.pbrt"
+Texture "same" "spectrum" "imagemap" "string filename" "assets/shared.png"
+Texture "other" "spectrum" "imagemap" "string filename" "other/shared.png"
+LightSource "infinite" "string filename" "assets/shared.png" "rgb L" [2 3 4]
+AttributeBegin
+Material "coateddiffuse" "texture reflectance" "same" "texture displacement" "height"
+Shape "sphere"
+AttributeEnd
+AttributeBegin
+Translate 3 0 0
+Material "diffuse" "texture reflectance" "other"
+Shape "sphere"
+AttributeEnd
+""",
+    )
+    memory.add_file(
+        "scene/assets/textures.pbrt",
+        """Texture "included" "spectrum" "imagemap" "string filename" "shared.png"
+Texture "height" "float" "imagemap" "string filename" "shared.png"
+    "float scale" [0.25] "float uscale" [2] "float vscale" [3]
+""",
+    )
+    var calls = List[Int](length=4, fill=0)
+    var loader = _CountingAssetLoader(memory^, Span(calls))
+    # Caches are local to a parse: a new scene must load fresh assets.
+    for run in range(2):
+        var scene = read_pbrt("scene/main.pbrt", loader)
+        assert_equal(calls[2], run + 1)
+        assert_equal(calls[3], run + 1)
+        assert_equal(len(scene.data.surfaces().image_textures), 2)
+        ref material = scene.data.surfaces().coated_diffuses[
+            Int(scene.data.sphere_surfaces()[0].index())
+        ]
+        assert_equal(material.texture_index, UInt32(0))
+        assert_equal(material.displacement_texture_index, UInt32(0))
+        assert_almost_equal(material.displacement_scale, 0.25)
+        assert_almost_equal(material.displacement_u_scale, 2.0)
+        assert_almost_equal(material.displacement_v_scale, 3.0)
+        assert_equal(scene.data.environment().texture_index, UInt32(0))
+        assert_almost_equal(scene.data.environment().scale.x[0], 2.0)
+        var color = scene.data.surfaces().sample_albedo(
+            scene.data.sphere_surfaces()[0], 0.0, 0.0
+        )
+        assert_almost_equal(color.x[0], 0.2)
+        color = scene.data.surfaces().sample_albedo(
+            scene.data.sphere_surfaces()[1], 0.0, 0.0
+        )
+        assert_almost_equal(color.x[0], 0.8)
+
+
+def test_ply_assets_share_geometry_and_preserve_both_orientations() raises:
+    for first_reversed in [False, True]:
+        var memory = MemoryAssetLoader()
+        var source = String("WorldBegin\n")
+        if first_reversed:
+            source += "ReverseOrientation\n"
+        source += """Include "assets/first.pbrt"
+Translate 2 0 0
+Material "diffuse" "rgb reflectance" [0.2 0.4 0.6]
+Shape "plymesh" "string filename" "assets/shared.ply"
+ReverseOrientation
+Translate 2 0 0
+AreaLightSource "diffuse" "rgb L" [3 4 5]
+Shape "plymesh" "string filename" "assets/shared.ply"
+Translate 2 0 0
+Shape "plymesh" "string filename" "assets/shared.ply"
+"""
+        memory.add_file("scene/main.pbrt", source)
+        memory.add_file(
+            "scene/assets/first.pbrt",
+            'Shape "plymesh" "string filename" "shared.ply"',
+        )
+        memory.add_ply_file("scene/assets/shared.ply", _triangle_ply())
+        var calls = List[Int](length=4, fill=0)
+        var loader = _CountingAssetLoader(memory^, Span(calls))
+        var scene = read_pbrt("scene/main.pbrt", loader)
+        assert_equal(calls[0], 1)
+        assert_equal(len(scene.data.triangle_meshes()), 2)
+        assert_equal(len(scene.data.triangle_instances()), 4)
+        assert_equal(len(scene.data.lights().records), 2)
+        for instance in range(4):
+            assert_equal(
+                scene.data.triangle_instances()[instance].blas_idx,
+                UInt32(instance // 2),
+            )
+            assert_almost_equal(
+                scene.data.triangle_instances()[instance].transform.tx,
+                Float32(2 * instance),
+            )
+            assert_almost_equal(
+                scene.data.triangle_instances()[instance].bounds._min.x[0],
+                Float32(2 * instance),
+            )
+        for mesh_index in range(2):
+            var reversed = first_reversed != (mesh_index == 1)
+            ref vertices = scene.data.triangle_meshes()[mesh_index]
+            ref normals = scene.data.triangle_mesh_normals()[mesh_index]
+            ref uv = scene.data.triangle_mesh_texcoords()[mesh_index]
+            assert_almost_equal(
+                vertices[1].x, Float32(0.0 if reversed else 1.0)
+            )
+            assert_almost_equal(
+                vertices[1].y, Float32(1.0 if reversed else 0.0)
+            )
+            assert_almost_equal(normals[3], Float32(0.5 if reversed else 0.25))
+            assert_almost_equal(normals[6], Float32(0.25 if reversed else 0.5))
+            assert_almost_equal(uv[2], Float32(0.0 if reversed else 1.0))
+            assert_almost_equal(uv[3], Float32(1.0 if reversed else 0.0))
+        assert_true(
+            scene.data.triangle_instance_surfaces()[0].kind() == .LAMBERTIAN
+        )
+        assert_true(
+            scene.data.triangle_instance_surfaces()[2].kind() == .EMISSIVE
+        )
+        var albedo = (
+            scene.data.surfaces()
+            .lambertians[
+                Int(scene.data.triangle_instance_surfaces()[1].index())
+            ]
+            .albedo
+        )
+        assert_almost_equal(albedo.x[0], 0.2)
+
+
+def test_distinct_ply_paths_with_same_filename_are_not_shared() raises:
+    var memory = MemoryAssetLoader()
+    memory.add_file(
+        "scene/main.pbrt",
+        """WorldBegin
+Shape "plymesh" "string filename" "assets/shared.ply"
+Shape "plymesh" "string filename" "other/shared.ply"
+""",
+    )
+    memory.add_ply_file("scene/assets/shared.ply", _triangle_ply())
+    memory.add_ply_file("scene/other/shared.ply", _triangle_ply())
+    var calls = List[Int](length=4, fill=0)
+    var loader = _CountingAssetLoader(memory^, Span(calls))
+    var scene = read_pbrt("scene/main.pbrt", loader)
+    assert_equal(calls[0], 1)
+    assert_equal(calls[1], 1)
+    assert_equal(len(scene.data.triangle_meshes()), 2)
+    assert_equal(scene.data.triangle_instances()[0].blas_idx, UInt32(0))
+    assert_equal(scene.data.triangle_instances()[1].blas_idx, UInt32(1))
 
 
 def test_parse_checked_in_scene_with_include() raises:

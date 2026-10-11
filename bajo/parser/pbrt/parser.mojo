@@ -4,9 +4,8 @@ from std.math import abs, cos, pi, sin, sqrt
 from std.sys import num_logical_cores
 
 from bajo.bvh import Camera
-from bajo.core import Affine3f32, Point3f32, Vec3f32
+from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32
 from bajo.parser.number import parse_f32_fast_at, parse_int_f32
-from bajo.parser.ply import PlyMesh
 from bajo.parser.ply.pack import _pack_ply_mesh
 from bajo.rt.render_types import (
     Color,
@@ -273,6 +272,14 @@ struct _FloatTexture(Copyable):
     var v_scale: Float32
 
 
+@fieldwise_init
+struct _PlyAsset(Copyable):
+    var mesh_index: UInt32
+    var bounds: AABB[.LOCAL]
+    var reverse_orientation: Bool
+    var opposite_index: Optional[UInt32]
+
+
 struct _Builder(
     Deinitable where (False, "call finish() or abort() to consume the parser")
 ):
@@ -281,6 +288,8 @@ struct _Builder(
     var color_textures: Dict[String, _ColorTexture]
     var scalar_textures: Dict[String, _FloatTexture]
     var image_paths: List[String]
+    var image_indices: Dict[String, UInt32]
+    var ply_assets: Dict[String, _PlyAsset]
     var state: _GraphicsState
     var attribute_stack: List[_GraphicsState]
     var transform_stack: List[_Transform]
@@ -299,6 +308,8 @@ struct _Builder(
         self.color_textures = Dict[String, _ColorTexture]()
         self.scalar_textures = Dict[String, _FloatTexture]()
         self.image_paths = List[String]()
+        self.image_indices = Dict[String, UInt32]()
+        self.ply_assets = Dict[String, _PlyAsset]()
         var default_surface = self.scene.surfaces.add_lambertian(Color(0.5))
         self.state = _GraphicsState(
             _Transform.identity(),
@@ -318,11 +329,62 @@ struct _Builder(
         self.environment = Environment.black()
         self.has_environment = False
 
-    def add_ply_mesh(
-        mut self,
-        mesh: PlyMesh,
-        surface: SurfaceId[1],
-    ) raises:
+    def image_index(mut self, path: String) raises -> UInt32:
+        if path in self.image_indices:
+            return self.image_indices[path]
+        var index = UInt32(len(self.image_paths))
+        self.image_paths.append(path)
+        self.image_indices[path] = index
+        return index
+
+    def _opposite_ply_mesh(mut self, mesh_index: UInt32) -> UInt32:
+        # Reorder the owned geometry rather than retain or decode the source
+        # mesh again. Each orientation has one shared copy of its attributes.
+        var vertices = self.scene.triangle_meshes[Int(mesh_index)].copy()
+        var normals = self.scene.triangle_mesh_normals[Int(mesh_index)].copy()
+        var texcoords = self.scene.triangle_mesh_texcoords[
+            Int(mesh_index)
+        ].copy()
+        for base in range(0, len(vertices), 3):
+            var vertex = vertices[base + 1]
+            vertices[base + 1] = vertices[base + 2]
+            vertices[base + 2] = vertex
+            if len(normals):
+                for lane in range(3):
+                    var normal = normals[3 * (base + 1) + lane]
+                    normals[3 * (base + 1) + lane] = normals[
+                        3 * (base + 2) + lane
+                    ]
+                    normals[3 * (base + 2) + lane] = normal
+            if len(texcoords):
+                for lane in range(2):
+                    var uv = texcoords[2 * (base + 1) + lane]
+                    texcoords[2 * (base + 1) + lane] = texcoords[
+                        2 * (base + 2) + lane
+                    ]
+                    texcoords[2 * (base + 2) + lane] = uv
+        return self.scene.add_owned_triangle_mesh(
+            vertices^, normals^, texcoords^
+        )
+
+    def add_ply_mesh[
+        Loader: AssetLoader
+    ](mut self, path: String, loader: Loader, surface: SurfaceId[1],) raises:
+        if path in self.ply_assets:
+            var asset = self.ply_assets[path].copy()
+            var mesh_index = asset.mesh_index
+            if self.state.reverse_orientation != asset.reverse_orientation:
+                if not asset.opposite_index:
+                    asset.opposite_index = self._opposite_ply_mesh(
+                        asset.mesh_index
+                    )
+                    self.ply_assets[path] = asset.copy()
+                mesh_index = asset.opposite_index.value()
+            self.scene.add_triangle_instance(
+                mesh_index, self.state.transform, asset.bounds, surface
+            )
+            return
+        var mesh = loader.read_ply_mesh(path)
         var packed = _pack_ply_mesh(
             mesh, self.state.reverse_orientation, min(8, num_logical_cores())
         )
@@ -330,13 +392,19 @@ struct _Builder(
         var normals = List[Float32]()
         var texcoords = List[Float32]()
         var bounds = packed^.transfer_to(vertices, normals, texcoords)
-        _ = self.scene.add_owned_triangle_mesh_instance(
+        var mesh_index = self.scene.add_owned_triangle_mesh_instance(
             vertices^,
             normals^,
             texcoords^,
             self.state.transform,
             bounds,
             surface,
+        )
+        self.ply_assets[path] = _PlyAsset(
+            mesh_index,
+            bounds,
+            self.state.reverse_orientation,
+            Optional[UInt32](),
         )
 
     def _prepare_finish[
@@ -614,8 +682,7 @@ def _texture(
                 var image_path = std.os.path.join(
                     std.os.path.dirname(source_path), String(filename)
                 )
-                var image_index = UInt32(len(builder.image_paths))
-                builder.image_paths.append(image_path)
+                var image_index = builder.image_index(image_path)
                 value = _ColorTexture(Color(1.0), image_index)
             case _:
                 raise Error(
@@ -658,8 +725,7 @@ def _texture(
                 var image_path = std.os.path.join(
                     std.os.path.dirname(source_path), String(filename)
                 )
-                var image_index = UInt32(len(builder.image_paths))
-                builder.image_paths.append(image_path)
+                var image_index = builder.image_index(image_path)
                 value = _FloatTexture(
                     params.f32("float scale", 1.0),
                     image_index,
@@ -778,8 +844,7 @@ def _shape[
             var mesh_path = std.os.path.join(
                 std.os.path.dirname(source_path), String(filename)
             )
-            var mesh = loader.read_ply_mesh(mesh_path)
-            builder.add_ply_mesh(mesh, surface)
+            builder.add_ply_mesh(mesh_path, loader, surface)
             return
 
         case "trianglemesh" | "loopsubdiv":
@@ -1065,8 +1130,7 @@ def _parse_text[
                     var image_path = std.os.path.join(
                         std.os.path.dirname(path), String(filename)
                     )
-                    var image_index = UInt32(len(builder.image_paths))
-                    builder.image_paths.append(image_path)
+                    var image_index = builder.image_index(image_path)
                     var inverse = builder.state.transform.inverse()
                     if not inverse.mask[0]:
                         raise Error("PBRT infinite light transform is singular")

@@ -370,42 +370,8 @@ def test_hploc_multi_wave_duplicate_codes_repeat_deterministically() raises:
         assert_equal(first_hash, second_hash)
 
 
-def test_hploc_multi_wave_crosses_blocks_with_gpu_lbvh_inputs() raises:
-    comptime leaf_count = 257
-    var bounds = _make_triangles(leaf_count)
-    var flat = _flatten_bounds(bounds)
-    var payloads = _identity_ids(leaf_count)
-
-    with DeviceContext() as ctx:
-        var device_bounds = upload_list(ctx, flat)
-        var device_payloads = upload_list(ctx, payloads)
-        var diagnostic = build_bounds_bvh_for_diagnostics[2, 2, 2](
-            ctx, device_bounds, device_payloads
-        )
-        ref binary = diagnostic.build.binary
-        ctx.synchronize()
-
-        var codes = List[UInt32](capacity=leaf_count)
-        var sorted_ids = List[UInt32](capacity=leaf_count)
-        with diagnostic.build.workspace.topology.value().morton_keys.map_to_host() as host_codes:
-            for i in range(leaf_count):
-                codes.append(host_codes[i])
-        with binary.leaf_ids.map_to_host() as host_ids:
-            for i in range(leaf_count):
-                sorted_ids.append(host_ids[i])
-
-        var reference = build_hploc_topology(bounds, codes, sorted_ids)
-        var gpu = GpuHplocMultiWaveBvh[](
-            ctx,
-            binary.leaf_bounds.copy(),
-            diagnostic.build.workspace.topology.value().morton_keys.copy(),
-            binary.leaf_ids.copy(),
-        )
-        ctx.synchronize()
-        _ = _assert_gpu_matches_reference(gpu, reference)
-
-
 def test_hploc_multi_wave_stress_4097_triangles() raises:
+    # Cross-block LBVH inputs with a one-leaf tail and a CPU topology oracle.
     comptime leaf_count = 4097
     var bounds = _make_triangles(leaf_count)
     var flat = _flatten_bounds(bounds)

@@ -17,7 +17,7 @@ from bajo.rt import (
 )
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
-from bajo.rt.gpu.config import GpuRtBvhFormat, GPU_RT_BVH_WIDE4
+from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind, GPU_RT_BVH_WIDE4
 from bajo.rt.gpu.scene import GpuRtScene
 from bajo.rt.gpu.render import enqueue_render_gpu
 from .timing import summarize_timings
@@ -114,19 +114,21 @@ def finalize_gpu_rt_timings(
     )
 
 
-def bench_gpu_triangle_integrator[
+def bench_gpu_integrator[
     integrator: Integrator,
     node_width: SIMDLength = NODE_WIDTH,
     leaf_width: SIMDLength = LEAF_WIDTH,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
     layout: GpuBvhLayout = GpuBvhLayout(node_width == 8 and leaf_width == 4),
+    kind: GpuRtSceneKind = .TRIANGLES,
+    sphere_format: GpuRtBvhFormat = GPU_RT_BVH_WIDE4,
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
     world: GpuRtScene[
-        .TRIANGLES,
-        GPU_RT_BVH_WIDE4,
+        kind,
+        sphere_format,
         GpuRtBvhFormat(node_width, leaf_width, layout),
     ],
     settings: RenderSettings,

@@ -379,9 +379,9 @@ def _assert_gpu_triangle_matches_cpu_camera[
                     )
 
 
-def _assert_segmented_gpu_triangle_matches_cpu_camera[
-    build_method: GpuBvhBuildMethod,
-](verts: List[Point3f32[.WORLD]]) raises:
+def _assert_segmented_gpu_triangle_matches_cpu_camera(
+    verts: List[Point3f32[.WORLD]],
+) raises:
     var cpu_blases = build_cpu_triangle_blas_set[2, 2, .LBVH, .WORLD](
         [verts.copy()]
     )
@@ -397,28 +397,37 @@ def _assert_segmented_gpu_triangle_matches_cpu_camera[
 
     with DeviceContext() as ctx:
         var d_verts = upload_vertices(ctx, verts)
-        var gpu_bvh = build_gpu_triangle_bvh[.WORLD, 2, 2, build_method](
-            ctx, d_verts
-        )
-        var d_camera = upload_list(ctx, camera_params)
-        var d_hits = ctx.enqueue_create_buffer[.float32](len(rays) * Hit.STRIDE)
-        gpu_bvh.launch_camera(
-            ctx,
-            d_camera,
-            d_hits,
-            len(rays),
-            GPU_BOUNDS_TEST_WIDTH,
-            GPU_BOUNDS_TEST_HEIGHT,
-        )
-        ctx.synchronize()
+        # Both builders reuse the same device input; verify full traversal,
+        # rather than repeating a separate node-count-only smoke test.
+        comptime for method_index in range(2):
+            comptime build_method = (
+                GpuBvhBuildMethod.LBVH if method_index
+                == 0 else GpuBvhBuildMethod.HPLOC
+            )
+            var gpu_bvh = build_gpu_triangle_bvh[.WORLD, 2, 2, build_method](
+                ctx, d_verts
+            )
+            var d_camera = upload_list(ctx, camera_params)
+            var d_hits = ctx.enqueue_create_buffer[.float32](
+                len(rays) * Hit.STRIDE
+            )
+            gpu_bvh.launch_camera(
+                ctx,
+                d_camera,
+                d_hits,
+                len(rays),
+                GPU_BOUNDS_TEST_WIDTH,
+                GPU_BOUNDS_TEST_HEIGHT,
+            )
+            ctx.synchronize()
 
-        var gpu_result = _download_hit_checksum(d_hits, len(rays))
-        assert_true(gpu_bvh.tree.node_count > 0)
-        assert_true(gpu_bvh.tree.leaf_block_count > 0)
-        assert_true(
-            abs(gpu_result[0] - cpu_checksum) <= GPU_BOUNDS_TEST_EPS,
-            "one-segment GpuTriangleBvh checksum",
-        )
+            var gpu_result = _download_hit_checksum(d_hits, len(rays))
+            assert_true(gpu_bvh.tree.node_count > 0)
+            assert_true(gpu_bvh.tree.leaf_block_count > 0)
+            assert_true(
+                abs(gpu_result[0] - cpu_checksum) <= GPU_BOUNDS_TEST_EPS,
+                "one-segment GpuTriangleBvh checksum",
+            )
 
 
 def _assert_sphere_matches_bruteforce_camera[
@@ -587,19 +596,7 @@ def test_gpu_bvh_independent_node_and_leaf_widths() raises:
 
 def test_gpu_triangle_bvh_segmented_build_methods() raises:
     var scene = _make_small_scene[.WORLD]()
-    _assert_segmented_gpu_triangle_matches_cpu_camera[.LBVH](scene)
-    _assert_segmented_gpu_triangle_matches_cpu_camera[.HPLOC](scene)
-
-
-def test_gpu_triangle_bvh_repeated_segmented_builds() raises:
-    var scene = _make_small_scene[.WORLD]()
-    with DeviceContext() as ctx:
-        var vertices = upload_vertices(ctx, scene)
-        var lbvh = build_gpu_triangle_bvh[.WORLD, 2, 2, .LBVH](ctx, vertices)
-        assert_true(lbvh.tree.node_count > 0)
-
-        var hploc = build_gpu_triangle_bvh[.WORLD, 2, 2, .HPLOC](ctx, vertices)
-        assert_true(hploc.tree.node_count > 0)
+    _assert_segmented_gpu_triangle_matches_cpu_camera(scene)
 
 
 def main() raises:

@@ -1,7 +1,6 @@
 from std.benchmark import run, Unit, keep
-from std.pathlib import Path
 from std.sys.arg import argv
-from std.sys import size_of
+from std.sys import size_of, num_logical_cores, simd_width_of
 
 from bajo.parser.obj import (
     ObjMesh,
@@ -12,6 +11,8 @@ from bajo.parser.obj import (
     triangulated_indices,
 )
 from bajo.parser.obj.pack import pack_obj_triangles
+from bajo.parser.mmap import MMap
+from bajo.parser.obj.parallel import _count_chunk, _parse_obj_bulk
 
 
 def bench_read_obj(path: String) raises:
@@ -22,7 +23,7 @@ def bench_read_obj(path: String) raises:
     keep(mesh.position_count())
 
 
-def bench_parse_obj(path: String, text: String) raises:
+def bench_parse_obj(path: String, text: StringSpan) raises:
     var mesh = parse_obj(text, path, PathAssetLoader())
 
     keep(mesh.index_count())
@@ -54,25 +55,30 @@ def bench_pack_obj(path: String) raises:
 
 def main() raises:
     comptime OBJ_PATH = "./assets/bunny/bunny.obj"
-    # comptime OBJ_PATH = "./assets/rungholt/rungholt.obj"
-    # comptime OBJ_PATH = "./assets/powerplant/powerplant.obj"
     comptime PARSE_ITERS = 5
     comptime TRI_ITERS = 20
     var args = argv()
-    if len(args) > 2:
-        raise Error("usage: pixi run bench_obj [-- <mesh.obj>]")
-    var path = String(args[1]) if len(args) == 2 else String(OBJ_PATH)
+    if len(args) > 3:
+        raise Error("usage: pixi run bench_obj [mesh.obj [workers]]")
+    var path = String(args[1]) if len(args) >= 2 else String(OBJ_PATH)
+    var workers = Int(String(args[2])) if len(args) == 3 else min(
+        8, num_logical_cores()
+    )
+    if workers < 1:
+        raise Error("workers must be positive")
 
     print("Benchmarking OBJ loader")
     print("Path:", path)
 
-    # Preload text for parse-only benchmark.
-    var text = Path(path).read_text()
+    # Map once for parse-only and structural-stage benchmarks.
+    var mapped = MMap(path)
+    var text = mapped.as_string_span()
 
     # Parse once for summary and triangulation benchmark input.
     var mesh = parse_obj(text, path, PathAssetLoader())
     mesh.print_summary()
     print("OBJ index bytes:", size_of[ObjIndex]())
+    print("Bulk workers:", workers, "byte SIMD width:", simd_width_of[UInt8]())
 
     def run_read_obj() raises {path}:
         bench_read_obj(path)
@@ -88,6 +94,27 @@ def main() raises:
 
     def run_pack_obj() raises {path}:
         bench_pack_obj(path)
+
+    def run_scan() {text}:
+        var counts = _count_chunk(text, 0, text.byte_length())
+        keep(counts.positions)
+        keep(counts.faces)
+        keep(counts.indices)
+        keep(counts.events.unsafe_ptr())
+
+    def run_bulk_parse() raises {path, text, workers}:
+        var output = _parse_obj_bulk(path, text, PathAssetLoader(), workers)
+        keep(output.positions.unsafe_ptr())
+        keep(output.texcoords.unsafe_ptr())
+        keep(output.normals.unsafe_ptr())
+        keep(output.colors.unsafe_ptr())
+        keep(output.indices.unsafe_ptr())
+        keep(output.face_vertices.unsafe_ptr())
+        keep(output.face_materials.unsafe_ptr())
+        keep(output.index_count())
+
+    var scan_us = run(run_scan, max_iters=PARSE_ITERS).mean(Unit.us)
+    var bulk_us = run(run_bulk_parse, max_iters=PARSE_ITERS).mean(Unit.us)
 
     var report_read = run(run_read_obj, max_iters=PARSE_ITERS)
     var read_us = report_read.mean(Unit.us)
@@ -130,3 +157,6 @@ def main() raises:
     print(t"OBJ_METRIC,triangulated_indices,{tris_us}")
     print(t"OBJ_METRIC,pack_mesh,{pack_us}")
     print(t"OBJ_METRIC,pack_obj,{packed_read_us}")
+    print(t"OBJ_SIMD_METRIC,scan,{scan_us}")
+    print(t"OBJ_SIMD_METRIC,parse,{bulk_us}")
+    print(t"OBJ_SIMD_METRIC,public_parse,{parse_us}")

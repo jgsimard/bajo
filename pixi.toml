@@ -88,7 +88,7 @@ bench_rt_cpu_wavefront = "mojo -I . bench/rt/bench_cpu_wavefront.mojo"
 
 # ray tracing gpu
 bench_rt_gpu = "mojo -I . bench/rt/bench_gpu_rt.mojo"
-bench_rt_gpu_mixed = "mojo -I . bench/rt/bench_gpu_rt_mixed.mojo"
+bench_rt_gpu_mixed = "mojo -I . bench/rt/bench_gpu_rt.mojo mixed"
 bench_rt_cpu_gpu = "mojo -I . bench/rt/bench_cpu_gpu_rt.mojo"
 
 bench_rt_cpu = { depends-on = [

@@ -5,6 +5,10 @@ comptime f32_min = min_finite[.float32]()
 
 comptime LBVH_SENTINEL = UInt32(0xFFFFFFFF)
 
+# Shared CPU/GPU Morton refinement policy.
+comptime MORTON_REFINEMENT_TILE_SIZE = 256
+comptime MORTON_REFINEMENT_MIN_RUN = 8
+
 
 @fieldwise_init
 struct TraceMode(EnumLike, Equatable):

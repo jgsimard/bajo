@@ -18,6 +18,7 @@ from bajo.bvh.constants import EMPTY_LANE, f32_max
 from .query import BoundsQueryView, BoundsQuery, _gpu_ray_bounds_interval
 from .policy import BATCH_WIDTH, RAY_COUNT_WIDTH
 from .winding import WindingView, DeviceWindingView
+from .ordered_traversal import traverse_ordered
 from .gpu_geometry import (
     ray_triangle_filter,
     ray_triangle_interval,
@@ -566,113 +567,103 @@ struct MeshQueryView[
         var best = Float64(ray.t_max)
         var best_error = Float64(0.0)
         var best_upper = ray.t_max + abs(ray.t_max) * 0.000004 + Float32(1e-30)
-        var pending = stack_allocation[64, UInt32]()
-        var entries = stack_allocation[64, Float32]()
-        var count = 0
-        var node = root
-        var entry = self._ray_node_lower_f32(ray, inverse, node)
-        while True:
-            if entry != miss and entry <= best_upper:
-                var face = self.bvh.nodes.unsafe_ptr().unsafe_load(
-                    Int(node) * 2 + 1
-                )
-                if face == EMPTY_LANE:
-                    var left = node + 1
-                    var right = self.bvh.nodes.unsafe_ptr().unsafe_load(
-                        Int(left) * 2
-                    )
-                    var distances = self._ray_children_lower_f32(
-                        ray, inverse, left, right
-                    )
-                    var ld = distances[0]
-                    var rd = distances[1]
-                    if rd < ld:
-                        var temp = left
-                        left = right
-                        right = temp
-                        var te = ld
-                        ld = rd
-                        rd = te
-                    if rd != miss and rd <= best_upper:
-                        pending[unsafe_offset=count] = right
-                        entries[unsafe_offset=count] = rd
-                        count += 1
-                    node = left
-                    entry = ld
-                    continue
-                var triangle = _load_mesh_triangle[Self.frame](
-                    self.points, self.indices, face
-                )
-                var filtered, candidate_t, candidate_error = (
-                    ray_triangle_interval(
+
+        @always_inline
+        def accepts(value: Float32, cutoff: Float32) {imm} -> Bool:
+            return value != miss and value <= cutoff
+
+        @always_inline
+        def child_bounds(
+            left: UInt32, right: UInt32
+        ) {imm} -> Tuple[Float32, Float32]:
+            var distances = self._ray_children_lower_f32(
+                ray, inverse, left, right
+            )
+            var ld = distances[0]
+            var rd = distances[1]
+            return (ld, rd)
+
+        @always_inline
+        def visit_face(
+            face: UInt32,
+        ) {
+            imm, mut result, mut best, mut best_error, mut best_upper
+        } -> Float32:
+            var triangle = _load_mesh_triangle[Self.frame](
+                self.points, self.indices, face
+            )
+            var filtered, candidate_t, candidate_error = ray_triangle_interval(
+                ray, triangle[0], triangle[1], triangle[2]
+            )
+            if filtered != 0:
+                var hit_t = Float64(candidate_t)
+                var error = Float64(candidate_error)
+                var eligible = True
+                var hit_u = Float64(0.0)
+                var hit_v = Float64(0.0)
+                if filtered < 0:
+                    var hit = intersect_triangle(
                         ray, triangle[0], triangle[1], triangle[2]
                     )
-                )
-                if filtered != 0:
-                    var hit_t = Float64(candidate_t)
-                    var error = Float64(candidate_error)
-                    var eligible = True
-                    var hit_u = Float64(0.0)
-                    var hit_v = Float64(0.0)
-                    if filtered < 0:
-                        var hit = intersect_triangle(
+                    eligible = hit.result
+                    hit_t = hit.t
+                    error = 0.0
+                    hit_u = hit.u
+                    hit_v = hit.v
+                eligible &= hit_t - error <= best + best_error
+                if eligible and hit_t + error >= best - best_error:
+                    # Overlapping intervals require the existing exact
+                    # distances before choosing a face or breaking a tie.
+                    if result.result and best_error > 0.0:
+                        var previous = _load_mesh_triangle[Self.frame](
+                            self.points, self.indices, result.face
+                        )
+                        var exact = intersect_triangle(
+                            ray, previous[0], previous[1], previous[2]
+                        )
+                        best = exact.t
+                        best_error = 0.0
+                        result.u = Float32(exact.u)
+                        result.v = Float32(exact.v)
+                    if error > 0.0:
+                        var exact = intersect_triangle(
                             ray, triangle[0], triangle[1], triangle[2]
                         )
-                        eligible = hit.result
-                        hit_t = hit.t
+                        eligible = exact.result
+                        hit_t = exact.t
+                        hit_u = exact.u
+                        hit_v = exact.v
                         error = 0.0
-                        hit_u = hit.u
-                        hit_v = hit.v
-                    eligible &= hit_t - error <= best + best_error
-                    if eligible and hit_t + error >= best - best_error:
-                        # Overlapping intervals require the existing exact
-                        # distances before choosing a face or breaking a tie.
-                        if result.result and best_error > 0.0:
-                            var previous = _load_mesh_triangle[Self.frame](
-                                self.points, self.indices, result.face
-                            )
-                            var exact = intersect_triangle(
-                                ray, previous[0], previous[1], previous[2]
-                            )
-                            best = exact.t
-                            best_error = 0.0
-                            result.u = Float32(exact.u)
-                            result.v = Float32(exact.v)
-                        if error > 0.0:
-                            var exact = intersect_triangle(
-                                ray, triangle[0], triangle[1], triangle[2]
-                            )
-                            eligible = exact.result
-                            hit_t = exact.t
-                            hit_u = exact.u
-                            hit_v = exact.v
-                            error = 0.0
-                    if (
-                        eligible
-                        and hit_t <= best + best_error
-                        and (
-                            not result.result
-                            or hit_t < best
-                            or (hit_t == best and face < result.face)
-                        )
-                    ):
-                        best = hit_t
-                        best_error = error
-                        result.result = True
-                        result.face = face
-                        result.u = Float32(hit_u)
-                        result.v = Float32(hit_v)
-                    # A provisional winner's upper endpoint must be retained
-                    # until its final exact projection is computed.
-                    var rounded = Float32(best + best_error)
-                    best_upper = (
-                        rounded + abs(rounded) * 0.000004 + Float32(1e-30)
+                if (
+                    eligible
+                    and hit_t <= best + best_error
+                    and (
+                        not result.result
+                        or hit_t < best
+                        or (hit_t == best and face < result.face)
                     )
-            if count == 0:
-                break
-            count -= 1
-            node = pending[unsafe_offset=count]
-            entry = entries[unsafe_offset=count]
+                ):
+                    best = hit_t
+                    best_error = error
+                    result.result = True
+                    result.face = face
+                    result.u = Float32(hit_u)
+                    result.v = Float32(hit_v)
+                # A provisional winner's upper endpoint must be retained
+                # until its final exact projection is computed.
+                var rounded = Float32(best + best_error)
+                best_upper = rounded + abs(rounded) * 0.000004 + Float32(1e-30)
+            return best_upper
+
+        traverse_ordered[.float32, False](
+            self.bvh.nodes,
+            root,
+            self._ray_node_lower_f32(ray, inverse, root),
+            best_upper,
+            accepts,
+            child_bounds,
+            visit_face,
+        )
         if result.result:
             var triangle = _load_mesh_triangle[Self.frame](
                 self.points, self.indices, result.face
@@ -758,77 +749,67 @@ struct MeshQueryView[
             var direction = Float64(ray.d[axis])
             inverse[axis] = 1.0 / direction if direction != 0.0 else 0.0
         var best = Float64(ray.t_max)
-        var pending = stack_allocation[64, UInt32]()
-        var entries = stack_allocation[64, Float64]()
-        var count = 0
-        var node = root
-        var entry = self._ray_node_entries[1, True](
-            ray, inverse, SIMD[.uint32, 1](node)
+
+        @always_inline
+        def accepts(value: Float64, cutoff: Float64) {imm} -> Bool:
+            return value <= cutoff
+
+        @always_inline
+        def child_bounds(
+            left: UInt32, right: UInt32
+        ) {imm} -> Tuple[Float64, Float64]:
+            var ld: Float64
+            var rd: Float64
+            comptime if width == 1:
+                ld = self._ray_node_entries[1, True](
+                    ray, inverse, SIMD[.uint32, 1](left)
+                )
+                rd = self._ray_node_entries[1, True](
+                    ray, inverse, SIMD[.uint32, 1](right)
+                )
+            else:
+                var children = SIMD[.uint32, width](EMPTY_LANE)
+                children[0] = left
+                children[1] = right
+                var child_entries = self._ray_node_entries[width, width == 2](
+                    ray, inverse, children
+                )
+                ld = child_entries[0]
+                rd = child_entries[1]
+            return (ld, rd)
+
+        @always_inline
+        def visit_face(face: UInt32) {imm, mut result, mut best} -> Float64:
+            var triangle = _load_mesh_triangle[Self.frame](
+                self.points, self.indices, face
+            )
+            var hit = intersect_triangle(
+                ray, triangle[0], triangle[1], triangle[2]
+            )
+            if hit.result and (
+                not result.result
+                or hit.t < best
+                or (hit.t == best and face < result.face)
+            ):
+                best = hit.t
+                result.result = True
+                result.face = face
+                result.u = Float32(hit.u)
+                result.v = Float32(hit.v)
+                result.t = hit.t
+            return best + abs(best) * 1e-14
+
+        traverse_ordered[.float64, False](
+            self.bvh.nodes,
+            root,
+            self._ray_node_entries[1, True](
+                ray, inverse, SIMD[.uint32, 1](root)
+            ),
+            best + abs(best) * 1e-14,
+            accepts,
+            child_bounds,
+            visit_face,
         )
-        while True:
-            if entry <= best + abs(best) * 1e-14:
-                var face = self.bvh.nodes.unsafe_ptr().unsafe_load(
-                    Int(node) * 2 + 1
-                )
-                if face == EMPTY_LANE:
-                    var left = node + 1
-                    var right = self.bvh.nodes.unsafe_ptr().unsafe_load(
-                        Int(left) * 2
-                    )
-                    var ld: Float64
-                    var rd: Float64
-                    comptime if width == 1:
-                        ld = self._ray_node_entries[1, True](
-                            ray, inverse, SIMD[.uint32, 1](left)
-                        )
-                        rd = self._ray_node_entries[1, True](
-                            ray, inverse, SIMD[.uint32, 1](right)
-                        )
-                    else:
-                        var children = SIMD[.uint32, width](EMPTY_LANE)
-                        children[0] = left
-                        children[1] = right
-                        var child_entries = self._ray_node_entries[
-                            width, width == 2
-                        ](ray, inverse, children)
-                        ld = child_entries[0]
-                        rd = child_entries[1]
-                    if rd < ld:
-                        var temp = left
-                        left = right
-                        right = temp
-                        var te = ld
-                        ld = rd
-                        rd = te
-                    if rd <= best + abs(best) * 1e-14:
-                        pending[unsafe_offset=count] = right
-                        entries[unsafe_offset=count] = rd
-                        count += 1
-                    node = left
-                    entry = ld
-                    continue
-                var triangle = _load_mesh_triangle[Self.frame](
-                    self.points, self.indices, face
-                )
-                var hit = intersect_triangle(
-                    ray, triangle[0], triangle[1], triangle[2]
-                )
-                if hit.result and (
-                    not result.result
-                    or hit.t < best
-                    or (hit.t == best and face < result.face)
-                ):
-                    best = hit.t
-                    result.result = True
-                    result.face = face
-                    result.u = Float32(hit.u)
-                    result.v = Float32(hit.v)
-                    result.t = hit.t
-            if count == 0:
-                break
-            count -= 1
-            node = pending[unsafe_offset=count]
-            entry = entries[unsafe_offset=count]
         if result.result:
             var triangle = _load_mesh_triangle[Self.frame](
                 self.points, self.indices, result.face
@@ -1132,88 +1113,80 @@ struct MeshQueryView[
         var best_corner = 0
         var best2 = Float64(cutoff) * Float64(cutoff)
         var lower = Float32(best2) * Float32(0.999998)
-        var pending = stack_allocation[64, UInt32]()
-        var distances = stack_allocation[64, Float32]()
-        var count = 0
-        var node = root
-        var upper = root_upper
-        while True:
-            if upper >= lower:
-                var face = self.bvh.nodes.unsafe_ptr().unsafe_load(
-                    Int(node) * 2 + 1
-                )
-                if face == EMPTY_LANE:
-                    var left = node + 1
-                    var right = self.bvh.nodes.unsafe_ptr().unsafe_load(
-                        Int(left) * 2
-                    )
-                    var ld = self._furthest_node_upper_f32(point, left)
-                    var rd = self._furthest_node_upper_f32(point, right)
-                    if rd > ld:
-                        var temp = left
-                        left = right
-                        right = temp
-                        var td = ld
-                        ld = rd
-                        rd = td
-                    if rd >= lower:
-                        pending[unsafe_offset=count] = right
-                        distances[unsafe_offset=count] = rd
-                        count += 1
-                    node = left
-                    upper = ld
-                    continue
-                var triangle = _load_mesh_triangle[Self.frame](
-                    self.points, self.indices, face
-                )
-                # Conservative vertex intervals avoid exact work for losers.
-                # The finite root bound guards the ordinary-range fast path.
-                var v0 = triangle[0] - point
-                var v1 = triangle[1] - point
-                var v2 = triangle[2] - point
-                var f0 = dot(v0, v0)
-                var f1 = dot(v1, v1)
-                var f2 = dot(v2, v2)
-                var e0 = f0 * Float32(0.000002) + Float32(1e-30)
-                var e1 = f1 * Float32(0.000002) + Float32(1e-30)
-                var e2 = f2 * Float32(0.000002) + Float32(1e-30)
-                if max(max(f0 + e0, f1 + e1), f2 + e2) >= lower:
-                    var selected_corner = -1
-                    if f0 - e0 > max(f1 + e1, f2 + e2):
-                        selected_corner = 0
-                    elif f1 - e1 > max(f0 + e0, f2 + e2):
-                        selected_corner = 1
-                    elif f2 - e2 > max(f0 + e0, f1 + e1):
-                        selected_corner = 2
-                    var selected_distance: Float64
-                    if selected_corner >= 0:
-                        var vertex = triangle[0]
-                        if selected_corner == 1:
-                            vertex = triangle[1]
-                        elif selected_corner == 2:
-                            vertex = triangle[2]
-                        var delta = vector64(vertex) - vector64(point)
-                        selected_distance = dot(delta, delta)
-                    else:
-                        selected_distance, selected_corner = (
-                            _furthest_corner_exact[Self.frame](
-                                point, triangle[0], triangle[1], triangle[2]
-                            )
-                        )
-                    if selected_distance >= best2 and (
-                        best_face == EMPTY_LANE
-                        or selected_distance > best2
-                        or face < best_face
-                    ):
-                        best2 = selected_distance
-                        lower = Float32(best2) * Float32(0.999998)
-                        best_face = face
-                        best_corner = selected_corner
-            if count == 0:
-                break
-            count -= 1
-            node = pending[unsafe_offset=count]
-            upper = distances[unsafe_offset=count]
+
+        @always_inline
+        def accepts(value: Float32, cutoff: Float32) {imm} -> Bool:
+            return value >= cutoff
+
+        @always_inline
+        def child_bounds(
+            left: UInt32, right: UInt32
+        ) {imm} -> Tuple[Float32, Float32]:
+            var ld = self._furthest_node_upper_f32(point, left)
+            var rd = self._furthest_node_upper_f32(point, right)
+            return (ld, rd)
+
+        @always_inline
+        def visit_face(
+            face: UInt32,
+        ) {
+            imm, mut best_face, mut best_corner, mut best2, mut lower
+        } -> Float32:
+            var triangle = _load_mesh_triangle[Self.frame](
+                self.points, self.indices, face
+            )
+            # Conservative vertex intervals avoid exact work for losers.
+            # The finite root bound guards the ordinary-range fast path.
+            var v0 = triangle[0] - point
+            var v1 = triangle[1] - point
+            var v2 = triangle[2] - point
+            var f0 = dot(v0, v0)
+            var f1 = dot(v1, v1)
+            var f2 = dot(v2, v2)
+            var e0 = f0 * Float32(0.000002) + Float32(1e-30)
+            var e1 = f1 * Float32(0.000002) + Float32(1e-30)
+            var e2 = f2 * Float32(0.000002) + Float32(1e-30)
+            if max(max(f0 + e0, f1 + e1), f2 + e2) >= lower:
+                var selected_corner = -1
+                if f0 - e0 > max(f1 + e1, f2 + e2):
+                    selected_corner = 0
+                elif f1 - e1 > max(f0 + e0, f2 + e2):
+                    selected_corner = 1
+                elif f2 - e2 > max(f0 + e0, f1 + e1):
+                    selected_corner = 2
+                var selected_distance: Float64
+                if selected_corner >= 0:
+                    var vertex = triangle[0]
+                    if selected_corner == 1:
+                        vertex = triangle[1]
+                    elif selected_corner == 2:
+                        vertex = triangle[2]
+                    var delta = vector64(vertex) - vector64(point)
+                    selected_distance = dot(delta, delta)
+                else:
+                    selected_distance, selected_corner = _furthest_corner_exact[
+                        Self.frame
+                    ](point, triangle[0], triangle[1], triangle[2])
+                if selected_distance >= best2 and (
+                    best_face == EMPTY_LANE
+                    or selected_distance > best2
+                    or face < best_face
+                ):
+                    best2 = selected_distance
+                    lower = Float32(best2) * Float32(0.999998)
+                    best_face = face
+                    best_corner = selected_corner
+            return lower
+
+        traverse_ordered[.float32, True](
+            self.bvh.nodes,
+            root,
+            root_upper,
+            lower,
+            accepts,
+            child_bounds,
+            visit_face,
+        )
         if best_face == EMPTY_LANE:
             return MeshPointResult[Self.frame].miss()
         var triangle = _load_mesh_triangle[Self.frame](
@@ -1264,83 +1237,75 @@ struct MeshQueryView[
         var best2 = Float64(cutoff) * Float64(cutoff)
         var best_error = Float64(0.0)
         var upper = Float32(best2) * Float32(1.000002) + Float32(1e-30)
-        var pending = stack_allocation[64, UInt32]()
-        var distances = stack_allocation[64, Float32]()
-        var count = 0
-        var node = root
-        var lower = self._nearest_node_lower_f32(point, node)
-        while True:
-            if lower <= upper:
-                var face = self.bvh.nodes.unsafe_ptr().unsafe_load(
-                    Int(node) * 2 + 1
-                )
-                if face == EMPTY_LANE:
-                    var left = node + 1
-                    var right = self.bvh.nodes.unsafe_ptr().unsafe_load(
-                        Int(left) * 2
+
+        @always_inline
+        def accepts(value: Float32, cutoff: Float32) {imm} -> Bool:
+            return value <= cutoff
+
+        @always_inline
+        def child_bounds(
+            left: UInt32, right: UInt32
+        ) {imm} -> Tuple[Float32, Float32]:
+            var ld = self._nearest_node_lower_f32(point, left)
+            var rd = self._nearest_node_lower_f32(point, right)
+            return (ld, rd)
+
+        @always_inline
+        def visit_face(
+            face: UInt32,
+        ) {imm, mut best_face, mut best2, mut best_error, mut upper} -> Float32:
+            var triangle = _load_mesh_triangle[Self.frame](
+                self.points, self.indices, face
+            )
+            var hit, error, _ = project_triangle_filtered_with_exactness(
+                point, triangle[0], triangle[1], triangle[2]
+            )
+            var eligible = hit.distance2 - error <= best2 + best_error
+            if (
+                eligible
+                and (error > 0.0 or best_error > 0.0)
+                and hit.distance2 + error >= best2 - best_error
+            ):
+                if best_face != EMPTY_LANE and best_error > 0.0:
+                    var previous = _load_mesh_triangle[Self.frame](
+                        self.points, self.indices, best_face
                     )
-                    var ld = self._nearest_node_lower_f32(point, left)
-                    var rd = self._nearest_node_lower_f32(point, right)
-                    if rd < ld:
-                        var temp = left
-                        left = right
-                        right = temp
-                        var td = ld
-                        ld = rd
-                        rd = td
-                    if rd <= upper:
-                        pending[unsafe_offset=count] = right
-                        distances[unsafe_offset=count] = rd
-                        count += 1
-                    node = left
-                    lower = ld
-                    continue
-                var triangle = _load_mesh_triangle[Self.frame](
-                    self.points, self.indices, face
-                )
-                var hit, error, _ = project_triangle_filtered_with_exactness(
+                    best2 = project_triangle(
+                        point, previous[0], previous[1], previous[2]
+                    ).distance2
+                    best_error = 0.0
+                hit = project_triangle(
                     point, triangle[0], triangle[1], triangle[2]
                 )
-                var eligible = hit.distance2 - error <= best2 + best_error
-                if (
-                    eligible
-                    and (error > 0.0 or best_error > 0.0)
-                    and hit.distance2 + error >= best2 - best_error
-                ):
-                    if best_face != EMPTY_LANE and best_error > 0.0:
-                        var previous = _load_mesh_triangle[Self.frame](
-                            self.points, self.indices, best_face
-                        )
-                        best2 = project_triangle(
-                            point, previous[0], previous[1], previous[2]
-                        ).distance2
-                        best_error = 0.0
-                    hit = project_triangle(
-                        point, triangle[0], triangle[1], triangle[2]
-                    )
-                    error = 0.0
-                if (
-                    eligible
-                    and hit.distance2 <= best2
-                    and (
-                        best_face == EMPTY_LANE
-                        or hit.distance2 < best2
-                        or face < best_face
-                    )
-                ):
-                    best2 = hit.distance2
-                    best_error = error
-                    best_face = face
-                # Recompute even if only the previous provisional winner was
-                # refined, so pruning retains its current uncertainty interval.
-                upper = Float32(best2 + best_error) * Float32(
-                    1.000002
-                ) + Float32(1e-30)
-            if count == 0:
-                break
-            count -= 1
-            node = pending[unsafe_offset=count]
-            lower = distances[unsafe_offset=count]
+                error = 0.0
+            if (
+                eligible
+                and hit.distance2 <= best2
+                and (
+                    best_face == EMPTY_LANE
+                    or hit.distance2 < best2
+                    or face < best_face
+                )
+            ):
+                best2 = hit.distance2
+                best_error = error
+                best_face = face
+            # Recompute even if only the previous provisional winner was
+            # refined, so pruning retains its current uncertainty interval.
+            upper = Float32(best2 + best_error) * Float32(1.000002) + Float32(
+                1e-30
+            )
+            return upper
+
+        traverse_ordered[.float32, False](
+            self.bvh.nodes,
+            root,
+            self._nearest_node_lower_f32(point, root),
+            upper,
+            accepts,
+            child_bounds,
+            visit_face,
+        )
         if best_face == EMPTY_LANE:
             return MeshPointResult[Self.frame].miss()
         var triangle = _load_mesh_triangle[Self.frame](
@@ -1397,153 +1362,141 @@ struct MeshQueryView[
                 return self._query_nearest_f32_bounds(point, cutoff, root)
         var best2 = Float64(cutoff) * Float64(cutoff)
         var best_error = Float64(0.0)
+
         # Balanced trees have depth <= 32 for UInt32 node indices. Device rebuild
         # retains that skeleton. One pending far child per level fits here.
-        var pending = stack_allocation[64, UInt32]()
-        var distances = stack_allocation[64, Float64]()
-        var count = 0
-        var node = root
-        var distance2 = self._point_node_distances2[1, furthest](
-            point, SIMD[.uint32, 1](node)
-        )
-        while True:
-            if (
-                distance2
-                >= (best2 - best_error)
-                * 0.99999999999999 if furthest else distance2
-                <= (best2 + best_error) * 1.00000000000001
-            ):
-                var face = self.bvh.nodes.unsafe_ptr().unsafe_load(
-                    Int(node) * 2 + 1
-                )
-                if face == EMPTY_LANE:
-                    var left = node + 1
-                    var right = self.bvh.nodes.unsafe_ptr().unsafe_load(
-                        Int(left) * 2
-                    )
-                    var ld: Float64
-                    var rd: Float64
-                    comptime if width == 1:
-                        ld = self._point_node_distances2[1, furthest](
-                            point, SIMD[.uint32, 1](left)
-                        )
-                        rd = self._point_node_distances2[1, furthest](
-                            point, SIMD[.uint32, 1](right)
-                        )
-                    else:
-                        var children = SIMD[.uint32, width](EMPTY_LANE)
-                        children[0] = left
-                        children[1] = right
-                        var bounds_distance2 = self._point_node_distances2[
-                            width, furthest
-                        ](point, children)
-                        ld = bounds_distance2[0]
-                        rd = bounds_distance2[1]
-                    if rd > ld if furthest else rd < ld:
-                        var temp = left
-                        left = right
-                        right = temp
-                        var td = ld
-                        ld = rd
-                        rd = td
-                    if (
-                        rd
-                        >= (best2 - best_error)
-                        * 0.99999999999999 if furthest else rd
-                        <= (best2 + best_error) * 1.00000000000001
-                    ):
-                        pending[unsafe_offset=count] = right
-                        distances[unsafe_offset=count] = rd
-                        count += 1
-                    node = left
-                    distance2 = ld
-                    continue
-                comptime if furthest:
-                    var triangle = _load_mesh_triangle[Self.frame](
-                        self.points, self.indices, face
-                    )
-                    comptime for corner in range(3):
-                        var vertex = triangle[corner]
-                        var delta = vector64(vertex) - vector64(point)
-                        var vertex_distance2 = dot(delta, delta)
-                        if vertex_distance2 >= best2 and (
-                            not result.result
-                            or vertex_distance2 > best2
-                            or face < result.face
-                        ):
-                            best2 = vertex_distance2
-                            result = MeshPointResult(
-                                True,
-                                face,
-                                Float32(1.0 if corner == 0 else 0.0),
-                                Float32(1.0 if corner == 1 else 0.0),
-                                0.0,
-                                vertex,
-                                0.0,
-                            )
+        @always_inline
+        def accepts(value: Float64, cutoff: Float64) {imm} -> Bool:
+            return value >= cutoff if furthest else value <= cutoff
 
-                else:
-                    var triangle = _load_mesh_triangle[Self.frame](
-                        self.points, self.indices, face
-                    )
-                    var hit: TriangleProjection[Self.frame]
-                    var error = Float64(0.0)
-                    var eligible = True
-                    comptime if is_gpu():
-                        hit, error = project_triangle_filtered(
-                            point, triangle[0], triangle[1], triangle[2]
-                        )
-                        eligible = hit.distance2 - error <= best2 + best_error
-                        if (
-                            eligible
-                            and (error > 0.0 or best_error > 0.0)
-                            and hit.distance2 + error >= best2 - best_error
-                        ):
-                            if result.result and best_error > 0.0:
-                                var previous = _load_mesh_triangle[Self.frame](
-                                    self.points, self.indices, result.face
-                                )
-                                best2 = project_triangle(
-                                    point, previous[0], previous[1], previous[2]
-                                ).distance2
-                                best_error = 0.0
-                            hit = project_triangle(
-                                point, triangle[0], triangle[1], triangle[2]
-                            )
-                            error = 0.0
-                    else:
-                        hit = project_triangle(
-                            point, triangle[0], triangle[1], triangle[2]
-                        )
-                    if (
-                        eligible
-                        and hit.distance2 <= best2
-                        and (
-                            not result.result
-                            or hit.distance2 < best2
-                            or face < result.face
-                        )
+        @always_inline
+        def child_bounds(
+            left: UInt32, right: UInt32
+        ) {imm} -> Tuple[Float64, Float64]:
+            var ld: Float64
+            var rd: Float64
+            comptime if width == 1:
+                ld = self._point_node_distances2[1, furthest](
+                    point, SIMD[.uint32, 1](left)
+                )
+                rd = self._point_node_distances2[1, furthest](
+                    point, SIMD[.uint32, 1](right)
+                )
+            else:
+                var children = SIMD[.uint32, width](EMPTY_LANE)
+                children[0] = left
+                children[1] = right
+                var bounds_distance2 = self._point_node_distances2[
+                    width, furthest
+                ](point, children)
+                ld = bounds_distance2[0]
+                rd = bounds_distance2[1]
+            return (ld, rd)
+
+        @always_inline
+        def visit_face(
+            face: UInt32,
+        ) {imm, mut result, mut best2, mut best_error} -> Float64:
+            comptime if furthest:
+                var triangle = _load_mesh_triangle[Self.frame](
+                    self.points, self.indices, face
+                )
+                comptime for corner in range(3):
+                    var vertex = triangle[corner]
+                    var delta = vector64(vertex) - vector64(point)
+                    var vertex_distance2 = dot(delta, delta)
+                    if vertex_distance2 >= best2 and (
+                        not result.result
+                        or vertex_distance2 > best2
+                        or face < result.face
                     ):
-                        best2 = hit.distance2
-                        best_error = error
+                        best2 = vertex_distance2
                         result = MeshPointResult(
                             True,
                             face,
-                            Float32(hit.u),
-                            Float32(hit.v),
+                            Float32(1.0 if corner == 0 else 0.0),
+                            Float32(1.0 if corner == 1 else 0.0),
                             0.0,
-                            Point3f32[Self.frame](
-                                Float32(hit.point.x),
-                                Float32(hit.point.y),
-                                Float32(hit.point.z),
-                            ),
+                            vertex,
                             0.0,
                         )
-            if count == 0:
-                break
-            count -= 1
-            node = pending[unsafe_offset=count]
-            distance2 = distances[unsafe_offset=count]
+
+            else:
+                var triangle = _load_mesh_triangle[Self.frame](
+                    self.points, self.indices, face
+                )
+                var hit: TriangleProjection[Self.frame]
+                var error = Float64(0.0)
+                var eligible = True
+                comptime if is_gpu():
+                    hit, error = project_triangle_filtered(
+                        point, triangle[0], triangle[1], triangle[2]
+                    )
+                    eligible = hit.distance2 - error <= best2 + best_error
+                    if (
+                        eligible
+                        and (error > 0.0 or best_error > 0.0)
+                        and hit.distance2 + error >= best2 - best_error
+                    ):
+                        if result.result and best_error > 0.0:
+                            var previous = _load_mesh_triangle[Self.frame](
+                                self.points, self.indices, result.face
+                            )
+                            best2 = project_triangle(
+                                point, previous[0], previous[1], previous[2]
+                            ).distance2
+                            best_error = 0.0
+                        hit = project_triangle(
+                            point, triangle[0], triangle[1], triangle[2]
+                        )
+                        error = 0.0
+                else:
+                    hit = project_triangle(
+                        point, triangle[0], triangle[1], triangle[2]
+                    )
+                if (
+                    eligible
+                    and hit.distance2 <= best2
+                    and (
+                        not result.result
+                        or hit.distance2 < best2
+                        or face < result.face
+                    )
+                ):
+                    best2 = hit.distance2
+                    best_error = error
+                    result = MeshPointResult(
+                        True,
+                        face,
+                        Float32(hit.u),
+                        Float32(hit.v),
+                        0.0,
+                        Point3f32[Self.frame](
+                            Float32(hit.point.x),
+                            Float32(hit.point.y),
+                            Float32(hit.point.z),
+                        ),
+                        0.0,
+                    )
+            return (
+                (best2 - best_error)
+                * 0.99999999999999 if furthest else (best2 + best_error)
+                * 1.00000000000001
+            )
+
+        traverse_ordered[.float64, furthest](
+            self.bvh.nodes,
+            root,
+            self._point_node_distances2[1, furthest](
+                point, SIMD[.uint32, 1](root)
+            ),
+            (best2 - best_error)
+            * 0.99999999999999 if furthest else (best2 + best_error)
+            * 1.00000000000001,
+            accepts,
+            child_bounds,
+            visit_face,
+        )
         if result.result:
             comptime if is_gpu() and not furthest:
                 var triangle = _load_mesh_triangle[Self.frame](

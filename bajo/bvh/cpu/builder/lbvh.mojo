@@ -1,12 +1,18 @@
 from max.algorithm import parallelize
 from std.atomic import Atomic, Ordering
-from std.sys import num_logical_cores
+from std.sys import num_logical_cores, simd_width_of, size_of
+from std.math import min, ceildiv
 
 from bajo.core import AABB, Frame
 from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
+from bajo.bvh.constants import (
+    MORTON_REFINEMENT_TILE_SIZE,
+    MORTON_REFINEMENT_MIN_RUN,
+)
 from bajo.core.morton import morton3, morton_common_prefix
 from ..parallel import _worker_count
 from .builder import BinaryBoundsBvh
+from .types import BoundsItem
 
 
 comptime PARALLEL_LBVH_MIN_ITEMS = UInt32(4096)
@@ -232,6 +238,89 @@ def _lbvh_find_split(
     return split
 
 
+@always_inline
+def _has_refinable_morton_run(pairs: ImmSpan[MortonItem, _]) -> Bool:
+    """Sorted endpoints identify eight equal codes without per-tile scheduling.
+    """
+    comptime assert size_of[MortonItem]() == 2 * size_of[UInt32]()
+    comptime width = max(2, simd_width_of[DType.uint32]())
+    comptime items_per_vector = width // 2
+    var even = SIMD[.bool, width](fill=False)
+    comptime for lane in range(0, width, 2):
+        even[lane] = True
+    var words = pairs.unsafe_ptr().unsafe_bitcast[UInt32]()
+    comptime run_gap = MORTON_REFINEMENT_MIN_RUN - 1
+    var i = run_gap
+    while i + items_per_vector <= len(pairs):
+        var current = words.unsafe_load[width=width](i * 2)
+        var previous = words.unsafe_load[width=width]((i - run_gap) * 2)
+        if (current.eq(previous) & even).reduce_or():
+            return True
+        i += items_per_vector
+    while i < len(pairs):
+        if pairs.unsafe_get(i).code == pairs.unsafe_get(i - run_gap).code:
+            return True
+        i += 1
+    return False
+
+
+def refine_morton_pairs[
+    tile_size: Int, frame: Frame
+](mut pairs: List[MortonItem], items: ImmSpan[BoundsItem[frame], _]):
+    """Reorder equal-code runs by local centroid Morton order in bounded tiles.
+
+    Coarse codes and stable equal-centroid ties are preserved. Tiles are disjoint
+    and workers need only fixed stack scratch; no per-run heap allocation.
+    """
+    comptime assert tile_size == 128 or tile_size == 256
+    if not _has_refinable_morton_run(pairs):
+        return
+
+    def refine_tile(task: Int) {imm, mut pairs}:
+        var first = task * tile_size
+        var end = min(first + tile_size, len(pairs))
+        var head = first
+        var keys = Array[UInt64, tile_size](uninitialized=True)
+        var saved = Array[MortonItem, tile_size](uninitialized=True)
+        while head < end:
+            var last = head + 1
+            var code = pairs.unsafe_get(head).code
+            while last < end and pairs.unsafe_get(last).code == code:
+                last += 1
+            if last - head >= MORTON_REFINEMENT_MIN_RUN:
+                var bounds = AABB[frame].invalid()
+                for i in range(head, last):
+                    bounds.grow(
+                        items.unsafe_get(
+                            Int(pairs.unsafe_get(i).item_idx)
+                        ).centroid
+                    )
+                var inverse = bounds.extent().safe_inv()
+                for i in range(head, last):
+                    var pair = pairs.unsafe_get(i)
+                    var c = (
+                        items.unsafe_get(Int(pair.item_idx)).centroid
+                        - bounds._min
+                    ) * inverse
+                    keys[i - head] = (
+                        UInt64(morton3(c.x, c.y, c.z)) << 8
+                    ) | UInt64(i - head)
+                    saved[i - head] = pair
+                sort(Span(unsafe_ptr=keys.unsafe_ptr(), length=last - head))
+                for i in range(last - head):
+                    pairs.unsafe_get(head + i) = saved[
+                        Int(keys[i] & UInt64(255))
+                    ]
+            head = last
+
+    var tiles = ceildiv(len(pairs), tile_size)
+    if len(pairs) >= Int(PARALLEL_LBVH_MIN_ITEMS):
+        parallelize(refine_tile, tiles, _worker_count(len(pairs)))
+    else:
+        for tile in range(tiles):
+            refine_tile(tile)
+
+
 def _sorted_morton_pairs[
     frame: Frame,
     leaf_size: Int,
@@ -293,6 +382,7 @@ def _sorted_morton_pairs[
             _radix_sort_morton_pairs(pairs)
     else:
         sort(pairs)
+    refine_morton_pairs[MORTON_REFINEMENT_TILE_SIZE](pairs, builder.items)
     return pairs^
 
 

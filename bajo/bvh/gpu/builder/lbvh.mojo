@@ -2,7 +2,7 @@
 source: https://diglib.eg.org/items/3aca7692-f2be-4b5d-a7f0-b7a865be6e5b.
 """
 
-from std.math import max
+from std.math import max, ceildiv
 from std.time import perf_counter_ns
 from std.atomic import Atomic, Ordering, fence
 from max.gpu.host import DeviceContext
@@ -14,6 +14,7 @@ from bajo.core.morton import morton3, morton_key_delta
 from bajo.sort.gpu.onesweep import onesweep_radix_sort_pairs
 from bajo.bvh.constants import (
     LBVH_SENTINEL,
+    MORTON_REFINEMENT_TILE_SIZE,
     BinaryBvhNode,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
@@ -32,6 +33,8 @@ from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
     GpuBinaryBuildWorkspace,
 )
+
+from .morton_refine import refine_morton_tiles_kernel
 
 
 def compute_bounds_morton_codes_kernel[
@@ -121,7 +124,8 @@ def enqueue_segmented_morton_sort(
     mut binary: GpuBinaryBoundsBvh,
     mut workspace: GpuBinaryBuildWorkspace,
 ) raises:
-    """Sort Morton codes directly for one segment, composite keys otherwise."""
+    """Sort coarse keys and refine colliding runs before topology construction.
+    """
     ref topology = workspace.topology.value()
     if workspace.sort32:
         onesweep_radix_sort_pairs[
@@ -148,6 +152,35 @@ def enqueue_segmented_morton_sort(
             _device_span[mut=True](topology.morton_keys),
             grid_dim=binary.blocks_leaves(),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+        )
+
+    _enqueue_morton_refinement(ctx, binary, workspace)
+
+
+def _enqueue_morton_refinement(
+    ctx: DeviceContext,
+    mut binary: GpuBinaryBoundsBvh,
+    mut workspace: GpuBinaryBuildWorkspace,
+) raises:
+    comptime tile_size = MORTON_REFINEMENT_TILE_SIZE
+    ref topology = workspace.topology.value()
+    if workspace.sort32:
+        ctx.enqueue_function[refine_morton_tiles_kernel[tile_size, False]](
+            _device_span[mut=False](binary.leaf_bounds),
+            _device_span[mut=False](topology.morton_keys),
+            _device_span[mut=False](binary.segment_offsets),
+            _device_span[mut=True](binary.leaf_ids),
+            grid_dim=ceildiv(binary.leaf_count, tile_size),
+            block_dim=tile_size,
+        )
+    else:
+        ctx.enqueue_function[refine_morton_tiles_kernel[tile_size, True]](
+            _device_span[mut=False](binary.leaf_bounds),
+            _device_span[mut=False](topology.morton_keys),
+            _device_span[mut=False](binary.segment_offsets),
+            _device_span[mut=True](binary.leaf_ids),
+            grid_dim=ceildiv(binary.leaf_count, tile_size),
+            block_dim=tile_size,
         )
 
 

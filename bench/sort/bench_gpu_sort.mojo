@@ -18,6 +18,11 @@ from bajo.sort.gpu.onesweep import (
     onesweep_radix_sort_keys,
     OneSweepWorkspace,
 )
+from bajo.sort.gpu.decoupled_fallback import (
+    decoupled_fallback_radix_sort_pairs,
+    decoupled_fallback_radix_sort_keys,
+    DecoupledFallbackWorkspace,
+)
 
 
 def check_validity[dtype: DType](keys: DeviceBuffer[dtype], size: Int) raises:
@@ -78,6 +83,7 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
     var opt_results = List[SortResult]()
     var radix_results = List[SortResult]()
     var onesweep_results = List[SortResult]()
+    var fallback_results = List[SortResult]()
     var merge_results = List[SortResult]()
 
     print("Starting benchmarks for key-value sorting...")
@@ -222,6 +228,39 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
                 )
             )
 
+            # Decoupled Fallback, using the same tile configuration as OneSweep
+            var fallback_ws = DecoupledFallbackWorkspace[
+                keys_dtype,
+                vals_dtype,
+                BLOCK_SIZE=TPB,
+                KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP,
+            ](ctx, SIZE)
+            reset_data()
+            decoupled_fallback_radix_sort_pairs[
+                BINNING_TPB=TPB, KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
+            ](ctx, fallback_ws, keys, values, SIZE)
+            ctx.synchronize()
+            check_validity(keys, SIZE)
+
+            t0 = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+                decoupled_fallback_radix_sort_pairs[
+                    BINNING_TPB=TPB, KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
+                ](ctx, fallback_ws, keys, values, SIZE)
+            ctx.synchronize()
+            var fallback_ns = (
+                Float64(perf_counter_ns() - t0) - copy_overhead_total
+            ) / N_ITERS
+            fallback_results.append(
+                SortResult(
+                    SIZE,
+                    fallback_ns / 1e6,
+                    Float64(SIZE) / fallback_ns,
+                    "Decoupled_Fallback_Pairs",
+                )
+            )
+
             # SMEM bitonic sort + OneSweep
             reset_data()
             gpu_sort_pairs(ctx, keys, values, SIZE)
@@ -248,9 +287,18 @@ def benchmark_sorts_pairs(sizes: List[Int]) raises -> List[List[SortResult]]:
     print_results_table("Shared Mem Bitonic Sort (Pairs)", opt_results)
     print_results_table("Radix Sort (Pairs)", radix_results)
     print_results_table("OneSweep Radix Sort (Pairs)", onesweep_results)
+    print_results_table(
+        "Decoupled Fallback Radix Sort (Pairs)", fallback_results
+    )
     print_results_table("SMEM Bitonic + Onesweep Sort (Pairs)", merge_results)
 
-    return [basic_results^, opt_results^, radix_results^, onesweep_results^]
+    return [
+        basic_results^,
+        opt_results^,
+        radix_results^,
+        onesweep_results^,
+        fallback_results^,
+    ]
 
 
 def benchmark_sort_key(sizes: List[Int]) raises -> List[List[SortResult]]:
@@ -263,6 +311,7 @@ def benchmark_sort_key(sizes: List[Int]) raises -> List[List[SortResult]]:
     print("\nStarting benchmarks for keys only sorting...")
     var radix_results = List[SortResult]()
     var onesweep_results = List[SortResult]()
+    var fallback_results = List[SortResult]()
     with DeviceContext() as ctx:
         for SIZE in sizes:
             var keys = ctx.enqueue_create_buffer[dtype](SIZE)
@@ -344,10 +393,49 @@ def benchmark_sort_key(sizes: List[Int]) raises -> List[List[SortResult]]:
 
             onesweep_results.append(SortResult(SIZE, ms, gks, "Onesweep_Keys"))
 
+            # Decoupled Fallback
+            var fallback_ws = DecoupledFallbackWorkspace[
+                dtype,
+                dtype,
+                BLOCK_SIZE=TPB,
+                KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP,
+            ](ctx, SIZE)
+            reset_data()
+            decoupled_fallback_radix_sort_keys[
+                BINNING_TPB=TPB, KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
+            ](ctx, fallback_ws, keys, SIZE)
+            ctx.synchronize()
+            check_validity(keys, SIZE)
+
+            t_copy_start = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+            ctx.synchronize()
+            copy_overhead_total = Float64(perf_counter_ns() - t_copy_start)
+
+            t0 = perf_counter_ns()
+            for _ in range(N_ITERS):
+                reset_data()
+                decoupled_fallback_radix_sort_keys[
+                    BINNING_TPB=TPB, KEYS_PER_THREAD=KEYS_PER_THREAD_ONESWEEP
+                ](ctx, fallback_ws, keys, SIZE)
+            ctx.synchronize()
+            total_ns = Float64(perf_counter_ns() - t0)
+
+            pure_sort_ns_avg = (total_ns - copy_overhead_total) / N_ITERS
+            ms = pure_sort_ns_avg / 1_000_000.0
+            gks = Float64(SIZE) / pure_sort_ns_avg
+            fallback_results.append(
+                SortResult(SIZE, ms, gks, "Decoupled_Fallback_Keys")
+            )
+
     print_results_table("Radix Sort (Keys)", radix_results)
     print_results_table("OneSweep Radix Sort (Keys)", onesweep_results)
+    print_results_table(
+        "Decoupled Fallback Radix Sort (Keys)", fallback_results
+    )
 
-    return [radix_results^, onesweep_results^]
+    return [radix_results^, onesweep_results^, fallback_results^]
 
 
 def save_results_csv(filename: String, data: List[List[SortResult]]) raises:

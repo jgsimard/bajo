@@ -19,6 +19,8 @@ PLOT_ALGORITHMS = [
     "Radix_Keys",
     "Onesweep_Pairs",
     "Onesweep_Keys",
+    "Decoupled_Fallback_Pairs",
+    "Decoupled_Fallback_Keys",
     "CUB_Radix_Pairs",
     "CUB_Radix_Keys",
 
@@ -63,6 +65,24 @@ STYLES = {
         "alpha": 0.95,
         "lw": 2.5,
         "label": "Mojo OneSweep keys",
+    },
+
+    # Bajo / Mojo Decoupled Fallback
+    "Decoupled_Fallback_Pairs": {
+        "color": "#17becf",
+        "marker": "P",
+        "ls": "-",
+        "alpha": 0.95,
+        "lw": 2.5,
+        "label": "Mojo Decoupled Fallback pairs",
+    },
+    "Decoupled_Fallback_Keys": {
+        "color": "#17becf",
+        "marker": "P",
+        "ls": "--",
+        "alpha": 0.95,
+        "lw": 2.5,
+        "label": "Mojo Decoupled Fallback keys",
     },
 
     # CUB

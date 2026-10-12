@@ -46,11 +46,11 @@ def build_binary_bvh[
     """Select the binary topology builder at compile time; LBVH is default."""
 
     comptime __match method:
-    case .LBVH:
-        return build_binary_bvh_with_lbvh(
-            ctx, binary, workspace, measure_stages
-        )
-    case .HPLOC:
-        return build_binary_bvh_with_hploc(
-            ctx, binary, workspace, measure_stages
-        )
+        case .LBVH:
+            return build_binary_bvh_with_lbvh(
+                ctx, binary, workspace, measure_stages
+            )
+        case .HPLOC:
+            return build_binary_bvh_with_hploc(
+                ctx, binary, workspace, measure_stages
+            )

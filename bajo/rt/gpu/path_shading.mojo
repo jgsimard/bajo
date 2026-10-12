@@ -5,12 +5,12 @@ from max.gpu import block_dim, global_idx, grid_dim
 from std.math import ceildiv, sqrt
 from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.core import Point3f32, Vec3f32, dot, normalize
-from bajo.rt.common import path_stage_rng, path_stage_seed, russian_roulette
+from bajo.rt.common import path_stage_rng, path_stage_seed
+from bajo.rt.continuation import finish_continuation, continuation_medium
 from bajo.rt.lighting import (
     _emissive_hit_light_pdf,
     _emissive_hit_weight_from_pdf,
 )
-from bajo.rt.rays import spawn_surface_ray
 from bajo.rt.shading import _sample_coated_diffuse, _sample_material
 from bajo.rt.render_types import Color, SamplingConfig
 from bajo.rt.material_types import MaterialKind, Integrator, SurfaceId
@@ -43,7 +43,7 @@ from bajo.rt.gpu.wavefront_contract import (
     _mark_status,
     _reserve_slot,
     load_gpu_rt_path,
-    store_gpu_rt_path,
+    store_gpu_rt_path_values,
     store_gpu_rt_shadow,
 )
 from bajo.rt.gpu.queue_layout import gpu_rt_shade_tile, gpu_rt_radiance_tile
@@ -59,7 +59,6 @@ from bajo.rt.gpu.textures import (
     _sample_gpu_coated_albedo,
 )
 from bajo.rt.shading_types import BsdfSample
-from bajo.rt.media import transmitted_medium
 
 
 comptime GPU_RT_SHADE_MAX_BLOCKS = GPU_RT_MAX_BLOCKS
@@ -142,46 +141,26 @@ def _continue_gpu_path[
     """
     if not sampled.ok:
         return
-    var throughput = Color(path.tx, path.ty, path.tz) * sampled.weight
-    var roulette = russian_roulette(
-        sampling, path.path_id, bounce + UInt32(1), throughput
+    var finished = finish_continuation[1](
+        path.path_id,
+        Point3f32[.WORLD](path.ox, path.oy, path.oz),
+        Vec3f32[.WORLD](path.dx, path.dy, path.dz),
+        hit_t,
+        Color(path.tx, path.ty, path.tz),
+        path.medium_id,
+        sampled,
+        True,
+        sampling,
+        bounce + UInt32(1),
     )
-    if not roulette.survived:
+    if not finished.active:
         return
     var slot = _reserve_slot(counters, WAVE_COUNTER.NEXT)
     if slot >= capacity:
         _mark_status(counters, WAVE_STATUS.PATH_OVERFLOW)
         return
-    var next_ray = spawn_surface_ray(
-        Point3f32[.WORLD](
-            path.ox + hit_t * path.dx,
-            path.oy + hit_t * path.dy,
-            path.oz + hit_t * path.dz,
-        ),
-        sampled.direction,
-    )
-    store_gpu_rt_path[integrator](
-        DeviceWavePath(
-            path.path_id,
-            next_ray.o.x,
-            next_ray.o.y,
-            next_ray.o.z,
-            next_ray.t_min,
-            next_ray.d.x,
-            next_ray.d.y,
-            next_ray.d.z,
-            next_ray.t_max,
-            roulette.throughput.x,
-            roulette.throughput.y,
-            roulette.throughput.z,
-            sampled.pdf,
-            sampled.delta,
-            path.medium_id,
-        ),
-        dst_path_ids,
-        dst_path_fields,
-        capacity,
-        slot,
+    store_gpu_rt_path_values[integrator](
+        finished.values, dst_path_ids, dst_path_fields, capacity, slot
     )
 
 
@@ -292,18 +271,9 @@ def _shade_coated_diffuse_inline[
         ray_direction,
         normal,
         albedo,
-        coated.roughness,
-        coated.eta,
-        coated.thickness,
-        coated.layer_albedo,
-        coated.g,
-        coated.max_depth,
-        coated.n_samples,
+        coated,
         rng.f32(),
         rng.f32(),
-        conductor_eta=coated.conductor_eta,
-        conductor_k=coated.conductor_k,
-        conductor_alpha=coated.conductor_roughness,
         estimator_seed=path_stage_seed(
             sampling, path.path_id, wavefront_rng_stage(bounce)
         ),
@@ -544,8 +514,9 @@ def _gpu_rt_shade_one[
         shade_tile[(GPU_SHADE_GNY, idx)],
         shade_tile[(GPU_SHADE_GNZ, idx)],
     )
-    if boundary != 0 and dot(sampled.direction, geometric) < 0.0:
-        path.medium_id = transmitted_medium(boundary, work.front_face)
+    path.medium_id = continuation_medium[1](
+        path.medium_id, boundary, work.front_face, sampled.direction, geometric
+    )[0]
     _continue_gpu_path[integrator](
         path,
         work.t,

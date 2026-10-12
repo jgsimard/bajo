@@ -12,14 +12,15 @@ from std.math import abs, cos, exp, log, pi, sin, sqrt
 from std.memory import bitcast
 
 from bajo.core import cross, dot, length2, normalize, Vec3
+from bajo.rt.material_parameters import CoatedParameters
 from bajo.rt.shading_types import (
     BsdfEvaluation,
     BsdfSample,
 )
 
 
-comptime _INV_PI = Float32(0.3183098861837907)
-comptime _INV_4_PI = Float32(0.07957747154594767)
+comptime _INV_PI = 1.0 / pi
+comptime _INV_4_PI = 1.0 / (4.0 * pi)
 
 
 @fieldwise_init
@@ -1096,22 +1097,9 @@ def _evaluate_coated_diffuse[
     ray_direction: Vec3[.float32, .WORLD, length],
     normal: Vec3[.float32, .WORLD, length],
     albedo: Vec3[.float32, .WORLD, length],
-    roughness: SIMD[.float32, length],
-    eta: SIMD[.float32, length],
-    thickness: SIMD[.float32, length],
-    layer_albedo: Vec3[.float32, .WORLD, length],
-    g: SIMD[.float32, length],
-    max_depth: SIMD[.float32, length],
-    n_samples: SIMD[.float32, length],
+    coated: CoatedParameters[length],
     out_direction: Vec3[.float32, .WORLD, length],
     active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
-    conductor_eta: Vec3[.float32, .WORLD, length] = Vec3[
-        .float32, .WORLD, length
-    ](0.0),
-    conductor_k: Vec3[.float32, .WORLD, length] = Vec3[
-        .float32, .WORLD, length
-    ](0.0),
-    conductor_alpha: SIMD[.float32, length] = 0.0,
     estimator_seed: SIMD[.uint32, length] = 0,
 ) -> BsdfEvaluation[length]:
     var result = BsdfEvaluation[length](
@@ -1134,31 +1122,33 @@ def _evaluate_coated_diffuse[
             Vec3[.float32, .WORLD](
                 albedo.x[lane], albedo.y[lane], albedo.z[lane]
             ),
-            roughness[lane],
-            eta[lane],
-            thickness[lane],
+            coated.roughness[lane],
+            coated.eta[lane],
+            coated.thickness[lane],
             Vec3[.float32, .WORLD](
-                layer_albedo.x[lane],
-                layer_albedo.y[lane],
-                layer_albedo.z[lane],
+                coated.layer_albedo.x[lane],
+                coated.layer_albedo.y[lane],
+                coated.layer_albedo.z[lane],
             ),
-            g[lane],
-            Int(max_depth[lane]),
-            Int(n_samples[lane]),
+            coated.g[lane],
+            Int(coated.max_depth[lane]),
+            Int(coated.n_samples[lane]),
             Vec3[.float32, .WORLD](
                 out_direction.x[lane],
                 out_direction.y[lane],
                 out_direction.z[lane],
             ),
             Vec3[.float32, .WORLD](
-                conductor_eta.x[lane],
-                conductor_eta.y[lane],
-                conductor_eta.z[lane],
+                coated.conductor_eta.x[lane],
+                coated.conductor_eta.y[lane],
+                coated.conductor_eta.z[lane],
             ),
             Vec3[.float32, .WORLD](
-                conductor_k.x[lane], conductor_k.y[lane], conductor_k.z[lane]
+                coated.conductor_k.x[lane],
+                coated.conductor_k.y[lane],
+                coated.conductor_k.z[lane],
             ),
-            conductor_alpha[lane],
+            coated.conductor_roughness[lane],
             estimator_seed[lane],
         )
         result.value.x[lane] = evaluated.value.x[0]
@@ -1176,23 +1166,10 @@ def _sample_coated_diffuse[
     ray_direction: Vec3[.float32, .WORLD, length],
     normal: Vec3[.float32, .WORLD, length],
     albedo: Vec3[.float32, .WORLD, length],
-    roughness: SIMD[.float32, length],
-    eta: SIMD[.float32, length],
-    thickness: SIMD[.float32, length],
-    layer_albedo: Vec3[.float32, .WORLD, length],
-    g: SIMD[.float32, length],
-    max_depth: SIMD[.float32, length],
-    n_samples: SIMD[.float32, length],
+    coated: CoatedParameters[length],
     random_u: SIMD[.float32, length],
     random_v: SIMD[.float32, length],
     active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
-    conductor_eta: Vec3[.float32, .WORLD, length] = Vec3[
-        .float32, .WORLD, length
-    ](0.0),
-    conductor_k: Vec3[.float32, .WORLD, length] = Vec3[
-        .float32, .WORLD, length
-    ](0.0),
-    conductor_alpha: SIMD[.float32, length] = 0.0,
     estimator_seed: SIMD[.uint32, length] = 0,
 ) -> BsdfSample[length]:
     var result = BsdfSample[length](
@@ -1217,28 +1194,30 @@ def _sample_coated_diffuse[
             Vec3[.float32, .WORLD](
                 albedo.x[lane], albedo.y[lane], albedo.z[lane]
             ),
-            roughness[lane],
-            eta[lane],
-            thickness[lane],
+            coated.roughness[lane],
+            coated.eta[lane],
+            coated.thickness[lane],
             Vec3[.float32, .WORLD](
-                layer_albedo.x[lane],
-                layer_albedo.y[lane],
-                layer_albedo.z[lane],
+                coated.layer_albedo.x[lane],
+                coated.layer_albedo.y[lane],
+                coated.layer_albedo.z[lane],
             ),
-            g[lane],
-            Int(max_depth[lane]),
-            Int(n_samples[lane]),
+            coated.g[lane],
+            Int(coated.max_depth[lane]),
+            Int(coated.n_samples[lane]),
             random_u[lane],
             random_v[lane],
             Vec3[.float32, .WORLD](
-                conductor_eta.x[lane],
-                conductor_eta.y[lane],
-                conductor_eta.z[lane],
+                coated.conductor_eta.x[lane],
+                coated.conductor_eta.y[lane],
+                coated.conductor_eta.z[lane],
             ),
             Vec3[.float32, .WORLD](
-                conductor_k.x[lane], conductor_k.y[lane], conductor_k.z[lane]
+                coated.conductor_k.x[lane],
+                coated.conductor_k.y[lane],
+                coated.conductor_k.z[lane],
             ),
-            conductor_alpha[lane],
+            coated.conductor_roughness[lane],
             estimator_seed[lane],
         )
         result.direction.x[lane] = sampled.direction.x[0]

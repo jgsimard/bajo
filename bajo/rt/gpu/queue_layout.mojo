@@ -3,8 +3,14 @@
 Views borrow existing storage. Their layouts preserve the field-major queue
 ABI and record-major material ABI; constructing a view never copies records.
 """
-from layout import TileTensor, Coord, Idx
-from layout.tile_layout import row_major
+from bajo.rt.tensor_layout import (
+    RtFieldLayout,
+    RtFieldTile,
+    rt_field_tile,
+    RtRecordLayout,
+    RtRecordTile,
+    rt_record_tile,
+)
 from bajo.rt.wavefront_contract import (
     WavePathFloatAbi,
     WaveShadeFloatAbi,
@@ -26,11 +32,9 @@ comptime GPU_SHADE_TZ = GPU_SHADE_TY + 1
 comptime GPU_SHADE_PLANES = GPU_SHADE_TZ + 1
 
 
-comptime GpuRtFieldLayout[planes: Int] = type_of(
-    row_major(Coord(Idx[planes], Int(0)))
-)
-comptime GpuRtFieldTile[planes: Int, origin: Origin] = TileTensor[
-    .float32, GpuRtFieldLayout[planes], origin
+comptime GpuRtFieldLayout[planes: Int] = RtFieldLayout[planes, Int]
+comptime GpuRtFieldTile[planes: Int, origin: Origin] = RtFieldTile[
+    .float32, planes, Int, origin
 ]
 comptime GpuRtPathTile[origin: Origin] = GpuRtFieldTile[
     WavePathFloatAbi.PLANES, origin
@@ -53,10 +57,7 @@ def gpu_rt_field_tile[
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtFieldTile[
     planes, origin
 ]:
-    return TileTensor(
-        Span(unsafe_ptr=fields, length=planes * capacity),
-        row_major(Coord(Idx[planes], capacity)),
-    )
+    return rt_field_tile[.float32, planes](fields, capacity)
 
 
 @always_inline
@@ -87,11 +88,9 @@ def gpu_rt_radiance_tile[
     return gpu_rt_field_tile[WaveSampleFloatAbi.PLANES](fields, capacity)
 
 
-comptime GpuRtRecordLayout[stride: Int] = type_of(
-    row_major(Coord(Int(0), Idx[stride]))
-)
-comptime GpuRtRecordTile[stride: Int, origin: Origin] = TileTensor[
-    .float32, GpuRtRecordLayout[stride], origin
+comptime GpuRtRecordLayout[stride: Int] = RtRecordLayout[stride]
+comptime GpuRtRecordTile[stride: Int, origin: Origin] = RtRecordTile[
+    .float32, stride, origin
 ]
 
 
@@ -101,7 +100,4 @@ def gpu_rt_record_tile[
 ](records: Pointer[Float32, origin], count: Int) -> GpuRtRecordTile[
     stride, origin
 ]:
-    return TileTensor(
-        Span(unsafe_ptr=records, length=stride * count),
-        row_major(Coord(count, Idx[stride])),
-    )
+    return rt_record_tile[.float32, stride](records, count)

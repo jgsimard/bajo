@@ -438,17 +438,8 @@ def _sample_direct_light_candidate[
                         texture_descs,
                         texture_pixels,
                     ),
-                    coated.roughness,
-                    coated.eta,
-                    coated.thickness,
-                    coated.layer_albedo,
-                    coated.g,
-                    coated.max_depth,
-                    coated.n_samples,
+                    coated,
                     geometry.direction,
-                    conductor_eta=coated.conductor_eta,
-                    conductor_k=coated.conductor_k,
-                    conductor_alpha=coated.conductor_roughness,
                     estimator_seed=path_stage_seed(
                         sampling, path.path_id, wavefront_rng_stage(bounce)
                     ),

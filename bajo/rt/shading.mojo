@@ -14,7 +14,7 @@ from bajo.rt.shading_types import (
 )
 
 
-comptime BSDF_INV_PI = Float32(0.3183098861837907)
+comptime BSDF_INV_PI = 1.0 / pi
 
 
 @always_inline

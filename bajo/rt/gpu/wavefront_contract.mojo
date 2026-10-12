@@ -1,6 +1,8 @@
 """GPU arena and executable probe for the shared wavefront ABI."""
 
 from std.memory import bitcast
+from bajo.rt.path_values import PathValues
+from bajo.rt.path_store import store_path_values
 from std.atomic import Atomic, Ordering
 from max.gpu import global_idx
 from std.math import ceildiv
@@ -110,28 +112,28 @@ def store_gpu_rt_path[
     idx: Int,
 ):
     """Store only the path planes consumed by one compile-time integrator."""
-    var path_tile = gpu_rt_path_tile(fields, capacity)
-    comptime assert integrator.is_valid()
-    var packed_path_id = path.path_id & WAVE_PATH_ID_MASK
+    store_gpu_rt_path_values[integrator](path, path_ids, fields, capacity, idx)
+
+
+@always_inline
+def store_gpu_rt_path_values[
+    Values: PathValues, //, integrator: Integrator
+](
+    path: Values,
+    path_ids: Pointer[UInt32, MutAnyOrigin],
+    fields: Pointer[Float32, MutAnyOrigin],
+    capacity: Int,
+    idx: Int,
+):
+    comptime assert Values.WIDTH == 1
+    var tile = gpu_rt_path_tile(fields, capacity)
+    var packed_id = path.ids()[0] & WAVE_PATH_ID_MASK
     comptime if Integrator.uses_direct_lighting[integrator]:
-        if path.delta:
-            packed_path_id |= WAVE_PATH_DELTA_BIT
-    path_ids[unsafe_offset=idx] = packed_path_id
-    path_tile[(WavePathFloatAbi.MEDIUM, idx)] = bitcast[.float32](
-        path.medium_id
-    )
-    path_tile[(WavePathFloatAbi.OX, idx)] = path.ox
-    path_tile[(WavePathFloatAbi.OY, idx)] = path.oy
-    path_tile[(WavePathFloatAbi.OZ, idx)] = path.oz
-    path_tile[(WavePathFloatAbi.DX, idx)] = path.dx
-    path_tile[(WavePathFloatAbi.DY, idx)] = path.dy
-    path_tile[(WavePathFloatAbi.DZ, idx)] = path.dz
-    comptime if Integrator.is_path_tracing[integrator]:
-        path_tile[(WavePathFloatAbi.TX, idx)] = path.tx
-        path_tile[(WavePathFloatAbi.TY, idx)] = path.ty
-        path_tile[(WavePathFloatAbi.TZ, idx)] = path.tz
-    comptime if integrator == .MIS:
-        path_tile[(WavePathFloatAbi.BSDF_PDF, idx)] = path.bsdf_pdf
+        if path.delta_events()[0]:
+            packed_id |= WAVE_PATH_DELTA_BIT
+    path_ids[unsafe_offset=idx] = packed_id
+    tile[(WavePathFloatAbi.MEDIUM, idx)] = bitcast[.float32](path.media()[0])
+    store_path_values[False, integrator == .MIS](tile, path, idx)
 
 
 @always_inline

@@ -1,5 +1,8 @@
 """Conductor optics, layered sampling, and mixed-material rendering."""
 
+from bajo.rt.material_parameters import CoatedParameters
+
+
 from std.math import pi
 from std.testing import (
     TestSuite,
@@ -111,18 +114,20 @@ def test_coated_conductor_contains_both_interface_and_substrate_events() raises:
             Vec3f32[.WORLD](0.0, 0.0, -1.0),
             Vec3f32[.WORLD](0.0, 0.0, 1.0),
             Color(1.0),
-            SIMD[.float32, 1](0.0),
-            SIMD[.float32, 1](1.5),
-            SIMD[.float32, 1](0.01),
-            Color(0.0),
-            SIMD[.float32, 1](0.0),
-            SIMD[.float32, 1](10.0),
-            SIMD[.float32, 1](2.0),
+            CoatedParameters[1](
+                SIMD[.float32, 1](0.0),
+                SIMD[.float32, 1](1.5),
+                SIMD[.float32, 1](0.01),
+                Color(0.0),
+                SIMD[.float32, 1](0.0),
+                SIMD[.float32, 1](10.0),
+                SIMD[.float32, 1](2.0),
+                Color(1.2, 0.95, 0.65) / 1.5,
+                Color(7.3, 6.7, 5.6) / 1.5,
+                SIMD[.float32, 1](0.2236068),
+            ),
             SIMD[.float32, 1](Float32(i) / 256.0),
             SIMD[.float32, 1](Float32((i * 73) % 256) / 256.0),
-            conductor_eta=Color(1.2, 0.95, 0.65) / 1.5,
-            conductor_k=Color(7.3, 6.7, 5.6) / 1.5,
-            conductor_alpha=SIMD[.float32, 1](0.2236068),
         )
         if not sampled.ok[0]:
             continue

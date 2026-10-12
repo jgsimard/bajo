@@ -40,6 +40,7 @@ from bajo.rt.shading_types import (
 )
 from bajo.rt.scene_data import SceneData
 from bajo.rt.media import SceneMedia
+from bajo.rt.material_storage import pack_coated_materials
 
 
 @always_inline
@@ -143,11 +144,15 @@ struct CpuScene[
         CpuBlasSet[.TRIANGLE, Self.instance_bvh_width]
     ]
     var _scene: SceneData
+    var _coated_materials: List[Float32]
 
     def __init__[
         build_method: CpuBvhBuildMethod = .SAH
     ](out self, var scene: SceneData):
         self._scene = scene^
+        self._coated_materials = pack_coated_materials[True](
+            self._scene.surfaces()
+        )
         self.sphere_bvh = Optional[CpuBlasSet[.SPHERE, Self.world_bvh_width]]()
         self.triangle_bvh = Optional[
             CpuBlasSet[.TRIANGLE, Self.world_bvh_width]
@@ -161,6 +166,10 @@ struct CpuScene[
     def scene_data(self) -> ref[self._scene] SceneData:
         """Return the immutable authoring snapshot used for preparation."""
         return self._scene
+
+    def coated_materials(self) -> ref[self._coated_materials] List[Float32]:
+        """Immutable column-major constants prepared once for SIMD shading."""
+        return self._coated_materials
 
     def take_data(deinit self) -> SceneData:
         """Consume the CPU owner and recover its authoring snapshot."""

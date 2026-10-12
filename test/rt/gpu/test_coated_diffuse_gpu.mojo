@@ -1,3 +1,4 @@
+from bajo.rt.material_parameters import CoatedParameters
 from max.gpu.host import DeviceContext
 from std.testing import TestSuite, assert_almost_equal, assert_true
 
@@ -11,13 +12,18 @@ def _coated_sample() -> BsdfSample[1]:
         Vec3f32[.WORLD](0.0, 0.0, -1.0),
         Vec3f32[.WORLD](0.0, 0.0, 1.0),
         Vec3f32[.WORLD](0.7, 0.5, 0.25),
-        SIMD[.float32, 1](0.2),
-        SIMD[.float32, 1](1.5),
-        SIMD[.float32, 1](0.01),
-        Vec3f32[.WORLD](0.1, 0.05, 0.02),
-        SIMD[.float32, 1](0.2),
-        SIMD[.float32, 1](10.0),
-        SIMD[.float32, 1](2.0),
+        CoatedParameters[1](
+            SIMD[.float32, 1](0.2),
+            SIMD[.float32, 1](1.5),
+            SIMD[.float32, 1](0.01),
+            Vec3f32[.WORLD](0.1, 0.05, 0.02),
+            SIMD[.float32, 1](0.2),
+            SIMD[.float32, 1](10.0),
+            SIMD[.float32, 1](2.0),
+            Vec3f32[.WORLD](0.0),
+            Vec3f32[.WORLD](0.0),
+            0.0,
+        ),
         SIMD[.float32, 1](0.7),
         SIMD[.float32, 1](0.3),
     )

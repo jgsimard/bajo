@@ -5,8 +5,7 @@ Zero width/height retain the scene resolution. Setup and readback are excluded
 from render timings; setup is reported separately. Run GPU benchmarks serially.
 """
 
-from std.io.file_descriptor import FileDescriptor
-from std.memory import bitcast
+from bajo.benchmark.image_dump import write_linear as _write_linear
 from std.sys.arg import argv
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
@@ -22,21 +21,6 @@ from bajo.rt.scene_data import SceneData
 from bajo.bvh import Camera
 from bajo.core.random import Sampler
 from bajo.rt.gpu.config import GpuRtSceneKind
-
-
-def _write_linear(path: String, pixels: ImmSpan[Color, _]) raises:
-    var bytes = List[UInt8](length=len(pixels) * 12, fill=0)
-    var index = 0
-    for pixel in pixels:
-        var channels = SIMD[.float32, 4](pixel.x, pixel.y, pixel.z, 0.0)
-        comptime for channel in range(3):
-            var word = bitcast[.uint32](channels[channel])
-            comptime for byte in range(4):
-                bytes[index + byte] = UInt8(word >> UInt32(byte * 8))
-            index += 4
-    with open(path, "w") as f:
-        var fd = FileDescriptor(f)
-        fd.write_bytes(bytes)
 
 
 def main() raises:

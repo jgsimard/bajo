@@ -1,8 +1,24 @@
 """Packet queues and host/device wavefront boundary records."""
 
+from std.collections import Array
+from std.bit import count_trailing_zeros
+from std.memory import pack_bits
+from std.sys.intrinsics import llvm_intrinsic
+from layout import Coord
+from bajo.rt.path_values import PathContinuation, PathFloatField
+from bajo.rt.path_store import store_path_values
+
+from bajo.rt.packet_layout import (
+    PacketFloatTile,
+    packet_float_tile,
+    compact_packet_floats,
+    TilePacket,
+    append_masked_tile,
+)
 from bajo.core import Rayf32
 from bajo.rt.render_types import Color
 from bajo.rt.shading_types import SurfaceHit
+from bajo.rt.material_types import SURFACE_INDEX_MASK
 
 
 comptime FRONT_FACE_BIT = UInt32(0x80000000)
@@ -34,39 +50,105 @@ struct WaveShade(Copyable, Writable):
     var hit: SurfaceHit[1]
 
 
-struct PathPacket[length: SIMDLength](Copyable):
+struct PathPacket[length: SIMDLength](TilePacket):
+    """A field/lane float tile with separately typed path metadata."""
+
+    comptime WIDTH = Self.length
+    comptime FLOAT_NAMES = (
+        StaticString("ox"),
+        StaticString("oy"),
+        StaticString("oz"),
+        StaticString("t_min"),
+        StaticString("dx"),
+        StaticString("dy"),
+        StaticString("dz"),
+        StaticString("t_max"),
+        StaticString("tx"),
+        StaticString("ty"),
+        StaticString("tz"),
+        StaticString("bsdf_pdfs"),
+    )
+    comptime FLOAT_FIELDS = len(Self.FLOAT_NAMES)
+    var floats: Array[SIMD[.float32, Self.length], Self.FLOAT_FIELDS]
     var path_ids: SIMD[.uint32, Self.length]
-    var ox: SIMD[.float32, Self.length]
-    var oy: SIMD[.float32, Self.length]
-    var oz: SIMD[.float32, Self.length]
-    var t_min: SIMD[.float32, Self.length]
-    var dx: SIMD[.float32, Self.length]
-    var dy: SIMD[.float32, Self.length]
-    var dz: SIMD[.float32, Self.length]
-    var t_max: SIMD[.float32, Self.length]
-    var tx: SIMD[.float32, Self.length]
-    var ty: SIMD[.float32, Self.length]
-    var tz: SIMD[.float32, Self.length]
-    var bsdf_pdfs: SIMD[.float32, Self.length]
     var deltas: SIMD[.bool, Self.length]
     var medium_ids: SIMD[.uint32, Self.length]
 
     def __init__(out self):
+        self.floats = Array[SIMD[.float32, Self.length], Self.FLOAT_FIELDS](
+            fill=0.0
+        )
         self.path_ids = 0
-        self.ox = 0.0
-        self.oy = 0.0
-        self.oz = 0.0
-        self.t_min = 0.0
-        self.dx = 0.0
-        self.dy = 0.0
-        self.dz = 0.0
-        self.t_max = 0.0
-        self.tx = 0.0
-        self.ty = 0.0
-        self.tz = 0.0
-        self.bsdf_pdfs = 0.0
         self.deltas = SIMD[.bool, Self.length](fill=True)
         self.medium_ids = 0
+
+    @always_inline
+    def __init__(out self, values: PathContinuation[Self.length]):
+        self.floats = Array[SIMD[.float32, Self.length], Self.FLOAT_FIELDS](
+            uninitialized=True
+        )
+        self.path_ids = values.path_ids
+        self.deltas = values.delta
+        self.medium_ids = values.medium_ids
+        store_path_values(self.tile(), values, 0)
+
+    @always_inline
+    def tile(
+        ref self,
+    ) -> PacketFloatTile[
+        Self.FLOAT_FIELDS, Self.length, origin_of(self.floats)
+    ]:
+        return packet_float_tile[Self.FLOAT_FIELDS, Self.length](
+            self.floats.unsafe_ptr()
+        )
+
+    @staticmethod
+    def field_index[name: StaticString]() -> Int:
+        comptime for field in range(Self.FLOAT_FIELDS):
+            comptime if name == Self.FLOAT_NAMES[field]:
+                return field
+        return -1
+
+    @always_inline
+    def __getattr__[
+        name: __mlir_type.`!kgen.string`
+    ](ref self, attr: StringLiteral[name]) -> ref[self.floats] SIMD[
+        .float32, Self.length
+    ]:
+        # A literal selects one SIMD row at compile time; ordinary named field
+        # access remains valid without a runtime string lookup.
+        comptime field = Self.field_index[StaticString(StringLiteral[name]())]()
+        comptime assert field >= 0, "unknown float packet field"
+        return self.floats[field]
+
+    @always_inline
+    def copy_metadata_lane(
+        mut self, source: Self, source_lane: Int, destination_lane: Int
+    ):
+        self.path_ids[destination_lane] = source.path_ids[source_lane]
+        self.medium_ids[destination_lane] = source.medium_ids[source_lane]
+        self.deltas[destination_lane] = source.deltas[source_lane]
+
+    @always_inline
+    def copy_lane(
+        mut self, source: Self, source_lane: Int, destination_lane: Int
+    ):
+        self.copy_metadata_lane(source, source_lane, destination_lane)
+        var src = source.tile()
+        var dst = self.tile()
+        comptime for field in range(Self.FLOAT_FIELDS):
+            dst[field, destination_lane] = src[field, source_lane]
+
+    @always_inline
+    def copy_float_lanes(
+        mut self,
+        source: Self,
+        selected: SIMD[.bool, Self.WIDTH],
+        destination_lane: Int,
+    ):
+        compact_packet_floats[Self.FLOAT_FIELDS, Self.length](
+            source.tile(), self.tile(), selected, destination_lane
+        )
 
 
 struct PacketPathQueue[length: SIMDLength](Sized):
@@ -99,23 +181,7 @@ struct PacketPathQueue[length: SIMDLength](Sized):
         if destination_lane == 0:
             self.packets.append(PathPacket[Self.length]())
         ref destination = self.packets[self.count / Self.length]
-        destination.path_ids[destination_lane] = packet.path_ids[source_lane]
-        destination.ox[destination_lane] = packet.ox[source_lane]
-        destination.oy[destination_lane] = packet.oy[source_lane]
-        destination.oz[destination_lane] = packet.oz[source_lane]
-        destination.t_min[destination_lane] = packet.t_min[source_lane]
-        destination.dx[destination_lane] = packet.dx[source_lane]
-        destination.dy[destination_lane] = packet.dy[source_lane]
-        destination.dz[destination_lane] = packet.dz[source_lane]
-        destination.t_max[destination_lane] = packet.t_max[source_lane]
-        destination.tx[destination_lane] = packet.tx[source_lane]
-        destination.ty[destination_lane] = packet.ty[source_lane]
-        destination.tz[destination_lane] = packet.tz[source_lane]
-        destination.bsdf_pdfs[destination_lane] = packet.bsdf_pdfs[source_lane]
-        destination.deltas[destination_lane] = packet.deltas[source_lane]
-        destination.medium_ids[destination_lane] = packet.medium_ids[
-            source_lane
-        ]
+        destination.copy_lane(packet, source_lane, destination_lane)
         self.count += 1
 
     @always_inline
@@ -141,64 +207,248 @@ struct PacketPathQueue[length: SIMDLength](Sized):
         mask: SIMD[.bool, Self.length],
         lane_count: Int,
     ):
+        append_masked_tile(self.packets, self.count, packet, mask, lane_count)
+
+    @always_inline
+    def append_continuation(
+        mut self,
+        values: PathContinuation[Self.length],
+        mask: SIMD[.bool, Self.length],
+        lane_count: Int,
+    ):
         debug_assert["safe", _use_compiler_assume=True](
             lane_count >= 0 and lane_count <= Self.length,
-            "invalid masked path packet lane count",
+            "invalid continuation lane count",
         )
-        for lane in range(lane_count):
-            if mask[lane]:
-                self._append_packet_lane(packet, lane)
+        comptime if Self.length == 1 or Self.length > 64:
+            for source_lane in range(lane_count):
+                if not mask[source_lane]:
+                    continue
+                var destination_lane = self.count % Self.length
+                if destination_lane == 0:
+                    self.packets.append(PathPacket[Self.length]())
+                ref destination = self.packets[self.count / Self.length]
+                destination.path_ids[destination_lane] = values.path_ids[
+                    source_lane
+                ]
+                destination.medium_ids[destination_lane] = values.medium_ids[
+                    source_lane
+                ]
+                destination.deltas[destination_lane] = values.delta[source_lane]
+                var tile = destination.tile()
+                comptime for field in range(PathFloatField.VALUE_PLANES):
+                    tile[field, destination_lane] = values.float_field[field]()[
+                        source_lane
+                    ]
+                self.count += 1
+        else:
+            var remaining = UInt64(pack_bits(mask))
+            if lane_count < 64:
+                remaining &= (UInt64(1) << UInt64(lane_count)) - 1
+            if remaining == 0:
+                return
+            if (
+                lane_count == Self.length
+                and self.count % Self.length == 0
+                and mask.reduce_and()
+            ):
+                self.packets.append(PathPacket[Self.length](values))
+                self.count += Self.length
+                return
+            while remaining != 0:
+                var destination_lane = self.count % Self.length
+                if destination_lane == 0:
+                    self.packets.append(PathPacket[Self.length]())
+                ref destination = self.packets[self.count / Self.length]
+                var tile = destination.tile()
+                var selected = SIMD[.bool, Self.length](fill=False)
+                var appended = 0
+                while (
+                    remaining != 0 and destination_lane + appended < Self.length
+                ):
+                    var source_lane = Int(count_trailing_zeros(remaining))
+                    remaining &= remaining - 1
+                    selected[source_lane] = True
+                    var lane = destination_lane + appended
+                    destination.path_ids[lane] = values.path_ids[source_lane]
+                    destination.medium_ids[lane] = values.medium_ids[
+                        source_lane
+                    ]
+                    destination.deltas[lane] = values.delta[source_lane]
+                    appended += 1
+                comptime for field in range(PathFloatField.VALUE_PLANES):
+                    llvm_intrinsic["llvm.masked.compressstore", NoneType](
+                        values.float_field[field](),
+                        tile.ptr.unsafe_offset(
+                            Int(tile.layout(Coord(field, destination_lane)))
+                        ),
+                        selected,
+                    )
+                self.count += appended
 
 
-struct ShadePacket[length: SIMDLength](Copyable):
+struct ShadePacket[length: SIMDLength](TilePacket):
+    """A field/lane float tile with separately typed path metadata."""
+
+    comptime WIDTH = Self.length
+    comptime FLOAT_NAMES = (
+        StaticString("ox"),
+        StaticString("oy"),
+        StaticString("oz"),
+        StaticString("dx"),
+        StaticString("dy"),
+        StaticString("dz"),
+        StaticString("tx"),
+        StaticString("ty"),
+        StaticString("tz"),
+        StaticString("nx"),
+        StaticString("ny"),
+        StaticString("nz"),
+        StaticString("uv_u"),
+        StaticString("uv_v"),
+        StaticString("hit_t"),
+        StaticString("gnx"),
+        StaticString("gny"),
+        StaticString("gnz"),
+    )
+    comptime FLOAT_FIELDS = len(Self.FLOAT_NAMES)
+    var floats: Array[SIMD[.float32, Self.length], Self.FLOAT_FIELDS]
     var path_ids: SIMD[.uint32, Self.length]
-    var ox: SIMD[.float32, Self.length]
-    var oy: SIMD[.float32, Self.length]
-    var oz: SIMD[.float32, Self.length]
-    var dx: SIMD[.float32, Self.length]
-    var dy: SIMD[.float32, Self.length]
-    var dz: SIMD[.float32, Self.length]
-    var tx: SIMD[.float32, Self.length]
-    var ty: SIMD[.float32, Self.length]
-    var tz: SIMD[.float32, Self.length]
-    var nx: SIMD[.float32, Self.length]
-    var ny: SIMD[.float32, Self.length]
-    var nz: SIMD[.float32, Self.length]
-    var uv_u: SIMD[.float32, Self.length]
-    var uv_v: SIMD[.float32, Self.length]
-    var hit_t: SIMD[.float32, Self.length]
     var surface_indices: SIMD[.uint32, Self.length]
     var front_faces: SIMD[.bool, Self.length]
     var medium_ids: SIMD[.uint32, Self.length]
     var medium_boundaries: SIMD[.uint32, Self.length]
-    var gnx: SIMD[.float32, Self.length]
-    var gny: SIMD[.float32, Self.length]
-    var gnz: SIMD[.float32, Self.length]
 
     def __init__(out self):
+        self.floats = Array[SIMD[.float32, Self.length], Self.FLOAT_FIELDS](
+            fill=0.0
+        )
         self.path_ids = 0
-        self.ox = 0.0
-        self.oy = 0.0
-        self.oz = 0.0
-        self.dx = 0.0
-        self.dy = 0.0
-        self.dz = 0.0
-        self.tx = 0.0
-        self.ty = 0.0
-        self.tz = 0.0
-        self.nx = 0.0
-        self.ny = 0.0
-        self.nz = 0.0
-        self.uv_u = 0.0
-        self.uv_v = 0.0
-        self.hit_t = 0.0
         self.surface_indices = 0
         self.front_faces = SIMD[.bool, Self.length](fill=False)
         self.medium_ids = 0
         self.medium_boundaries = 0
-        self.gnx = 0.0
-        self.gny = 0.0
-        self.gnz = 0.0
+
+    @always_inline
+    def tile(
+        ref self,
+    ) -> PacketFloatTile[
+        Self.FLOAT_FIELDS, Self.length, origin_of(self.floats)
+    ]:
+        return packet_float_tile[Self.FLOAT_FIELDS, Self.length](
+            self.floats.unsafe_ptr()
+        )
+
+    @staticmethod
+    def field_index[name: StaticString]() -> Int:
+        comptime for field in range(Self.FLOAT_FIELDS):
+            comptime if name == Self.FLOAT_NAMES[field]:
+                return field
+        return -1
+
+    @always_inline
+    def __getattr__[
+        name: __mlir_type.`!kgen.string`
+    ](ref self, attr: StringLiteral[name]) -> ref[self.floats] SIMD[
+        .float32, Self.length
+    ]:
+        # A literal selects one SIMD row at compile time; ordinary named field
+        # access remains valid without a runtime string lookup.
+        comptime field = Self.field_index[StaticString(StringLiteral[name]())]()
+        comptime assert field >= 0, "unknown float packet field"
+        return self.floats[field]
+
+    @always_inline
+    def set_paths(mut self, paths: PathPacket[Self.length]):
+        """Copy shared ray/throughput rows with SIMD loads and stores."""
+        self.path_ids = paths.path_ids
+        self.medium_ids = paths.medium_ids
+        var source = paths.tile()
+        var destination = self.tile()
+        comptime for name in [
+            "ox",
+            "oy",
+            "oz",
+            "dx",
+            "dy",
+            "dz",
+            "tx",
+            "ty",
+            "tz",
+        ]:
+            comptime source_field = PathPacket[Self.length].field_index[
+                StaticString(name)
+            ]()
+            comptime destination_field = Self.field_index[StaticString(name)]()
+            destination.store[width=Self.length](
+                (destination_field, 0),
+                source.load[width=Self.length]((source_field, 0)),
+            )
+
+    @always_inline
+    def set_hit(mut self, lane: Int, hit: SurfaceHit[1]):
+        self.medium_boundaries[lane] = hit.medium_boundary
+        self.gnx[lane] = hit.geometric_normal.x
+        self.gny[lane] = hit.geometric_normal.y
+        self.gnz[lane] = hit.geometric_normal.z
+        self.nx[lane] = hit.normal.x
+        self.ny[lane] = hit.normal.y
+        self.nz[lane] = hit.normal.z
+        self.uv_u[lane] = hit.uv_u
+        self.uv_v[lane] = hit.uv_v
+        self.hit_t[lane] = hit.t
+        self.surface_indices[lane] = hit.surface.index()
+        self.front_faces[lane] = hit.front_face
+
+    @always_inline
+    def set_hits(mut self, hits: SurfaceHit[Self.length]):
+        self.medium_boundaries = hits.medium_boundary
+        self.gnx = hits.geometric_normal.x
+        self.gny = hits.geometric_normal.y
+        self.gnz = hits.geometric_normal.z
+        self.nx = hits.normal.x
+        self.ny = hits.normal.y
+        self.nz = hits.normal.z
+        self.uv_u = hits.uv_u
+        self.uv_v = hits.uv_v
+        self.hit_t = hits.t
+        self.surface_indices = hits.surface.value & SURFACE_INDEX_MASK
+        self.front_faces = hits.front_face
+
+    @always_inline
+    def copy_metadata_lane(
+        mut self, source: Self, source_lane: Int, destination_lane: Int
+    ):
+        self.path_ids[destination_lane] = source.path_ids[source_lane]
+        self.medium_ids[destination_lane] = source.medium_ids[source_lane]
+        self.medium_boundaries[destination_lane] = source.medium_boundaries[
+            source_lane
+        ]
+        self.surface_indices[destination_lane] = source.surface_indices[
+            source_lane
+        ]
+        self.front_faces[destination_lane] = source.front_faces[source_lane]
+
+    @always_inline
+    def copy_lane(
+        mut self, source: Self, source_lane: Int, destination_lane: Int
+    ):
+        self.copy_metadata_lane(source, source_lane, destination_lane)
+        var src = source.tile()
+        var dst = self.tile()
+        comptime for field in range(Self.FLOAT_FIELDS):
+            dst[field, destination_lane] = src[field, source_lane]
+
+    @always_inline
+    def copy_float_lanes(
+        mut self,
+        source: Self,
+        selected: SIMD[.bool, Self.WIDTH],
+        destination_lane: Int,
+    ):
+        compact_packet_floats[Self.FLOAT_FIELDS, Self.length](
+            source.tile(), self.tile(), selected, destination_lane
+        )
 
 
 struct PacketShadeQueue[length: SIMDLength](Sized):
@@ -233,25 +483,36 @@ struct PacketShadeQueue[length: SIMDLength](Sized):
         ref shade = self.packets[self.count / Self.length]
         shade.path_ids[shade_lane] = path_packet.path_ids[path_lane]
         shade.medium_ids[shade_lane] = path_packet.medium_ids[path_lane]
-        shade.medium_boundaries[shade_lane] = hit.medium_boundary
-        shade.gnx[shade_lane] = hit.geometric_normal.x
-        shade.gny[shade_lane] = hit.geometric_normal.y
-        shade.gnz[shade_lane] = hit.geometric_normal.z
-        shade.ox[shade_lane] = path_packet.ox[path_lane]
-        shade.oy[shade_lane] = path_packet.oy[path_lane]
-        shade.oz[shade_lane] = path_packet.oz[path_lane]
-        shade.dx[shade_lane] = path_packet.dx[path_lane]
-        shade.dy[shade_lane] = path_packet.dy[path_lane]
-        shade.dz[shade_lane] = path_packet.dz[path_lane]
-        shade.tx[shade_lane] = path_packet.tx[path_lane]
-        shade.ty[shade_lane] = path_packet.ty[path_lane]
-        shade.tz[shade_lane] = path_packet.tz[path_lane]
-        shade.nx[shade_lane] = hit.normal.x
-        shade.ny[shade_lane] = hit.normal.y
-        shade.nz[shade_lane] = hit.normal.z
-        shade.uv_u[shade_lane] = hit.uv_u
-        shade.uv_v[shade_lane] = hit.uv_v
-        shade.hit_t[shade_lane] = hit.t
-        shade.surface_indices[shade_lane] = hit.surface.index()
-        shade.front_faces[shade_lane] = hit.front_face
+        var source = path_packet.tile()
+        var destination = shade.tile()
+        comptime for name in [
+            "ox",
+            "oy",
+            "oz",
+            "dx",
+            "dy",
+            "dz",
+            "tx",
+            "ty",
+            "tz",
+        ]:
+            comptime source_field = PathPacket[Self.length].field_index[
+                StaticString(name)
+            ]()
+            comptime destination_field = ShadePacket[Self.length].field_index[
+                StaticString(name)
+            ]()
+            destination[destination_field, shade_lane] = source[
+                source_field, path_lane
+            ]
+        shade.set_hit(shade_lane, hit)
         self.count += 1
+
+    @always_inline
+    def append_packet_masked(
+        mut self,
+        packet: ShadePacket[Self.length],
+        mask: SIMD[.bool, Self.length],
+        lane_count: Int,
+    ):
+        append_masked_tile(self.packets, self.count, packet, mask, lane_count)

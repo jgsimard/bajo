@@ -5,6 +5,7 @@ from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 
 from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.rt.render_types import Color
+from bajo.rt.path_values import PathFloatField as WavePathFloatAbi, PathValues
 from bajo.rt.material_types import SurfaceId
 from bajo.rt.shading_types import SurfaceHit
 from bajo.rt.wavefront_queue import (
@@ -57,25 +58,6 @@ struct WAVE_RNG_DOMAIN(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     ]:
         while True:
             pass
-
-
-struct WavePathFloatAbi:
-    """Field-major float planes for a GPU path queue."""
-
-    comptime OX = 0
-    comptime OY = 1
-    comptime OZ = 2
-    comptime T_MIN = 3
-    comptime DX = 4
-    comptime DY = 5
-    comptime DZ = 6
-    comptime T_MAX = 7
-    comptime TX = 8
-    comptime TY = 9
-    comptime TZ = 10
-    comptime BSDF_PDF = 11
-    comptime MEDIUM = 12
-    comptime PLANES = 13
 
 
 # The path queue owns the full UInt32 ID word, unlike material path references.
@@ -163,8 +145,12 @@ def wavefront_rng_material_stage(bounce: UInt32) -> UInt32:
     )
 
 
-struct DeviceWavePath(DevicePassable, TrivialRegisterPassable, Writable):
+struct DeviceWavePath(
+    DevicePassable, PathValues, TrivialRegisterPassable, Writable
+):
     """Register representation reconstructed from coalesced device planes."""
+
+    comptime WIDTH = SIMDLength(1)
 
     var path_id: UInt32
     var ox: Float32
@@ -215,6 +201,48 @@ struct DeviceWavePath(DevicePassable, TrivialRegisterPassable, Writable):
         self.bsdf_pdf = bsdf_pdf
         self.delta = delta
         self.medium_id = medium_id
+
+    @always_inline
+    def ids(self) -> SIMD[.uint32, Self.WIDTH]:
+        return self.path_id
+
+    @always_inline
+    def media(self) -> SIMD[.uint32, Self.WIDTH]:
+        return self.medium_id
+
+    @always_inline
+    def delta_events(self) -> SIMD[.bool, Self.WIDTH]:
+        return self.delta
+
+    @always_inline
+    def float_field[field: Int](self) -> SIMD[.float32, Self.WIDTH]:
+        comptime __match field:
+            case WavePathFloatAbi.OX:
+                return self.ox
+            case WavePathFloatAbi.OY:
+                return self.oy
+            case WavePathFloatAbi.OZ:
+                return self.oz
+            case WavePathFloatAbi.T_MIN:
+                return self.t_min
+            case WavePathFloatAbi.DX:
+                return self.dx
+            case WavePathFloatAbi.DY:
+                return self.dy
+            case WavePathFloatAbi.DZ:
+                return self.dz
+            case WavePathFloatAbi.T_MAX:
+                return self.t_max
+            case WavePathFloatAbi.TX:
+                return self.tx
+            case WavePathFloatAbi.TY:
+                return self.ty
+            case WavePathFloatAbi.TZ:
+                return self.tz
+            case WavePathFloatAbi.BSDF_PDF:
+                return self.bsdf_pdf
+            case _:
+                comptime assert False, "not a floating-point path value"
 
     comptime device_type: AnyType = Self
 

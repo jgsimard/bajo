@@ -85,11 +85,12 @@ from bajo.rt.render_types import SamplingConfig
 from bajo.rt.material_types import MaterialKind
 from bajo.rt.wavefront_contract import wavefront_rng_roulette_stage
 from bajo.rt.wavefront_queue import PathPacket, ShadePacket
+from bajo.rt.material_storage import pack_coated_materials
 from bajo.rt.cpu.wavefront.packet import (
     _DirectLightBatch,
     _accumulate_direct_light_packet,
     _accumulate_environment_packet,
-    _sample_bsdf_batch,
+    _sample_bsdf_values,
 )
 
 
@@ -1552,7 +1553,15 @@ def test_direct_light_packet_matches_scalar_for_mixed_materials() raises:
         RenderSettings(4, 1, 1, UInt64(2026))
     )
     _accumulate_direct_light_packet[.MIS, 4](
-        pixels, paths, direct, 4, surfaces, 1, sampling, UInt32(1)
+        pixels,
+        paths,
+        direct,
+        4,
+        surfaces,
+        pack_coated_materials[True](surfaces),
+        1,
+        sampling,
+        UInt32(1),
     )
     var ray = Rayf32[.WORLD](
         Point3f32[.WORLD](0.0), Vec3f32[.WORLD](0.0, 0.0, -1.0), 0.001, 10.0
@@ -1696,8 +1705,13 @@ def test_textured_coated_packet_scattering_matches_scalar() raises:
     batch.tx = 1.0
     batch.ty = 1.0
     batch.tz = 1.0
-    var packet = _sample_bsdf_batch[.COATED_DIFFUSE, 4](
-        batch, 2, surfaces, sampling, UInt32(1)
+    var packet = _sample_bsdf_values[.COATED_DIFFUSE, 4](
+        batch,
+        2,
+        surfaces,
+        pack_coated_materials[True](surfaces),
+        sampling,
+        UInt32(1),
     )
     for lane in range(2):
         var rng = path_stage_rng(sampling, batch.path_ids[lane], UInt32(1))
@@ -1720,14 +1734,14 @@ def test_textured_coated_packet_scattering_matches_scalar() raises:
             ),
         )
         assert_equal(packet.ok[lane], scalar.ok[0])
-        assert_almost_equal(packet.paths.dx[lane], scalar.direction.x[0])
-        assert_almost_equal(packet.paths.dy[lane], scalar.direction.y[0])
-        assert_almost_equal(packet.paths.dz[lane], scalar.direction.z[0])
-        assert_almost_equal(packet.paths.tx[lane], scalar.weight.x[0])
-        assert_almost_equal(packet.paths.ty[lane], scalar.weight.y[0])
-        assert_almost_equal(packet.paths.tz[lane], scalar.weight.z[0])
-        assert_almost_equal(packet.paths.bsdf_pdfs[lane], scalar.pdf[0])
-        assert_equal(packet.paths.deltas[lane], scalar.delta[0])
+        assert_almost_equal(packet.direction.x[lane], scalar.direction.x[0])
+        assert_almost_equal(packet.direction.y[lane], scalar.direction.y[0])
+        assert_almost_equal(packet.direction.z[lane], scalar.direction.z[0])
+        assert_almost_equal(packet.weight.x[lane], scalar.weight.x[0])
+        assert_almost_equal(packet.weight.y[lane], scalar.weight.y[0])
+        assert_almost_equal(packet.weight.z[lane], scalar.weight.z[0])
+        assert_almost_equal(packet.pdf[lane], scalar.pdf[0])
+        assert_equal(packet.delta[lane], scalar.delta[0])
     assert_false(packet.ok[2])
     assert_false(packet.ok[3])
 

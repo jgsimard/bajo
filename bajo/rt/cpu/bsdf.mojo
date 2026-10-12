@@ -1,5 +1,8 @@
 """CPU BSDF adapters over the shared host/device shading implementation."""
 
+from bajo.rt.material_parameters import CoatedParameters
+
+
 from std.math import sqrt
 
 from bajo.core import Vec3f32, dot, normalize, Rayf32
@@ -52,23 +55,16 @@ def evaluate_bsdf(
 
         case .COATED_DIFFUSE:
             ref material = surfaces.coated_diffuses[Int(surface.index())]
+            var coated = CoatedParameters[1].from_material(material)
+            coated.conductor_roughness = surfaces.sample_conductor_roughness(
+                surface, hit.uv_u[0], hit.uv_v[0]
+            )
             return _evaluate_coated_diffuse(
                 ray.d,
                 hit.normal,
                 surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
-                SIMD[.float32, 1](material.roughness),
-                SIMD[.float32, 1](material.eta),
-                SIMD[.float32, 1](material.thickness),
-                material.layer_albedo,
-                SIMD[.float32, 1](material.g),
-                SIMD[.float32, 1](Float32(material.max_depth)),
-                SIMD[.float32, 1](Float32(material.n_samples)),
+                coated,
                 out_direction,
-                conductor_eta=material.conductor_eta,
-                conductor_k=material.conductor_k,
-                conductor_alpha=surfaces.sample_conductor_roughness(
-                    surface, hit.uv_u[0], hit.uv_v[0]
-                ),
                 estimator_seed=estimator_seed,
             )
 
@@ -159,24 +155,17 @@ def sample_bsdf(
 
         case .COATED_DIFFUSE:
             ref material = surfaces.coated_diffuses[Int(surface.index())]
+            var coated = CoatedParameters[1].from_material(material)
+            coated.conductor_roughness = surfaces.sample_conductor_roughness(
+                surface, hit.uv_u[0], hit.uv_v[0]
+            )
             return _sample_coated_diffuse(
                 ray.d,
                 hit.normal,
                 surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
-                SIMD[.float32, 1](material.roughness),
-                SIMD[.float32, 1](material.eta),
-                SIMD[.float32, 1](material.thickness),
-                material.layer_albedo,
-                SIMD[.float32, 1](material.g),
-                SIMD[.float32, 1](Float32(material.max_depth)),
-                SIMD[.float32, 1](Float32(material.n_samples)),
+                coated,
                 SIMD[.float32, 1](rng.f32()),
                 SIMD[.float32, 1](rng.f32()),
-                conductor_eta=material.conductor_eta,
-                conductor_k=material.conductor_k,
-                conductor_alpha=surfaces.sample_conductor_roughness(
-                    surface, hit.uv_u[0], hit.uv_v[0]
-                ),
                 estimator_seed=estimator_seed,
             )
 

@@ -2,6 +2,7 @@
 
 from std.memory import bitcast
 from max.gpu.host import DeviceBuffer, DeviceContext
+from bajo.rt.material_storage import pack_coated_materials
 from bajo.rt.material_types import NO_TEXTURE
 from bajo.rt.scene_data import SceneData
 from bajo.rt.gpu.upload import _upload_nonempty
@@ -104,83 +105,7 @@ def _flatten_emissives(world: SceneData) -> List[Float32]:
 
 
 def _flatten_coated_diffuses(world: SceneData) -> List[Float32]:
-    var out = List[Float32](
-        length=len(world.surfaces().coated_diffuses)
-        * GpuCoatedDiffuseLayout.STRIDE,
-        fill=0.0,
-    )
-    for material_idx in range(len(world.surfaces().coated_diffuses)):
-        ref material = world.surfaces().coated_diffuses[material_idx]
-        var base = material_idx * GpuCoatedDiffuseLayout.STRIDE
-        out[
-            base + GpuCoatedDiffuseLayout.ALBEDO + GpuRgbMaterialLayout.R
-        ] = material.albedo.x
-        out[
-            base + GpuCoatedDiffuseLayout.ALBEDO + GpuRgbMaterialLayout.G
-        ] = material.albedo.y
-        out[
-            base + GpuCoatedDiffuseLayout.ALBEDO + GpuRgbMaterialLayout.B
-        ] = material.albedo.z
-        out[base + GpuCoatedDiffuseLayout.ROUGHNESS] = material.roughness
-        out[base + GpuCoatedDiffuseLayout.ETA] = material.eta
-        out[base + GpuCoatedDiffuseLayout.THICKNESS] = material.thickness
-        out[
-            base + GpuCoatedDiffuseLayout.LAYER_ALBEDO + GpuRgbMaterialLayout.R
-        ] = material.layer_albedo.x
-        out[
-            base + GpuCoatedDiffuseLayout.LAYER_ALBEDO + GpuRgbMaterialLayout.G
-        ] = material.layer_albedo.y
-        out[
-            base + GpuCoatedDiffuseLayout.LAYER_ALBEDO + GpuRgbMaterialLayout.B
-        ] = material.layer_albedo.z
-        out[base + GpuCoatedDiffuseLayout.G] = material.g
-        out[base + GpuCoatedDiffuseLayout.MAX_DEPTH] = Float32(
-            material.max_depth
-        )
-        out[base + GpuCoatedDiffuseLayout.N_SAMPLES] = Float32(
-            material.n_samples
-        )
-        out[
-            base + GpuCoatedDiffuseLayout.DISPLACEMENT_SCALE
-        ] = material.displacement_scale
-        out[
-            base + GpuCoatedDiffuseLayout.DISPLACEMENT_U_SCALE
-        ] = material.displacement_u_scale
-        out[
-            base + GpuCoatedDiffuseLayout.DISPLACEMENT_V_SCALE
-        ] = material.displacement_v_scale
-        out[
-            base + GpuCoatedDiffuseLayout.CONDUCTOR_ETA
-        ] = material.conductor_eta.x
-        out[
-            base + GpuCoatedDiffuseLayout.CONDUCTOR_ETA + 1
-        ] = material.conductor_eta.y
-        out[
-            base + GpuCoatedDiffuseLayout.CONDUCTOR_ETA + 2
-        ] = material.conductor_eta.z
-        out[base + GpuCoatedDiffuseLayout.CONDUCTOR_K] = material.conductor_k.x
-        out[
-            base + GpuCoatedDiffuseLayout.CONDUCTOR_K + 1
-        ] = material.conductor_k.y
-        out[
-            base + GpuCoatedDiffuseLayout.CONDUCTOR_K + 2
-        ] = material.conductor_k.z
-        out[
-            base + GpuCoatedDiffuseLayout.CONDUCTOR_ROUGHNESS
-        ] = material.conductor_roughness
-        out[
-            base + GpuCoatedDiffuseLayout.ROUGHNESS_SCALE
-        ] = material.roughness_scale
-        out[
-            base + GpuCoatedDiffuseLayout.ROUGHNESS_U_SCALE
-        ] = material.roughness_u_scale
-        out[
-            base + GpuCoatedDiffuseLayout.ROUGHNESS_V_SCALE
-        ] = material.roughness_v_scale
-        out[base + GpuCoatedDiffuseLayout.REMAP_ROUGHNESS] = Float32(
-            1.0 if material.remap_roughness else 0.0
-        )
-    return out^
+    return pack_coated_materials[False](world.surfaces())
 
 
 def _flatten_coated_diffuse_texture_indices(world: SceneData) -> List[UInt32]:

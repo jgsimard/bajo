@@ -11,7 +11,7 @@ from bajo.bvh.spatial.parallel_refit import (
 from bajo.bvh.gpu.utils import upload_list, _device_span
 
 
-def check_parent_publication[block_size: Int, grouped: Bool]() raises:
+def check_parent_publication[grouped: Bool]() raises:
     with DeviceContext() as ctx:
         var counts: List[Int] = [
             1,
@@ -45,30 +45,29 @@ def check_parent_publication[block_size: Int, grouped: Bool]() raises:
             var expected = forest_parents(tree.nodes)
             var nodes = upload_list(ctx, tree.nodes)
             var parents = ctx.enqueue_create_buffer[.uint32](len(expected))
-            with parents.map_to_host() as values:
-                for i in range(len(expected)):
-                    # A stale root or unwritten child cannot accidentally pass.
-                    values[i] = 0x12345678
-            ctx.enqueue_function[forest_parents_kernel](
-                _device_span[mut=False](nodes),
-                _device_span[mut=True](parents),
-                grid_dim=ceildiv(len(expected), block_size),
-                block_dim=block_size,
-            )
-            ctx.synchronize()
-            with parents.map_to_host() as values:
-                for i in range(len(expected)):
-                    assert_equal(values[i], expected[i])
+            for block_size in [32, 256]:
+                with parents.map_to_host() as values:
+                    for i in range(len(expected)):
+                        # A stale root or unwritten child cannot accidentally pass.
+                        values[i] = 0x12345678
+                ctx.enqueue_function[forest_parents_kernel](
+                    _device_span[mut=False](nodes),
+                    _device_span[mut=True](parents),
+                    grid_dim=ceildiv(len(expected), block_size),
+                    block_dim=block_size,
+                )
+                ctx.synchronize()
+                with parents.map_to_host() as values:
+                    for i in range(len(expected)):
+                        assert_equal(values[i], expected[i])
 
 
 def test_parent_links_global_forests_and_block_tails() raises:
-    check_parent_publication[32, False]()
-    check_parent_publication[256, False]()
+    check_parent_publication[False]()
 
 
 def test_parent_links_sparse_groups_singletons_and_many_roots() raises:
-    check_parent_publication[32, True]()
-    check_parent_publication[256, True]()
+    check_parent_publication[True]()
 
 
 def main() raises:

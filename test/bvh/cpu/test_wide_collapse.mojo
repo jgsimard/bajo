@@ -38,7 +38,7 @@ def _assert_same_subtree[
             )
 
 
-def _check_emission[width: SIMDLength, use_dp: Bool](count: Int) raises:
+def _make_binary_tree(count: Int) raises -> BinaryBoundsBvh[.WORLD, 4, .LBVH]:
     var items = List[BoundsItem[.WORLD]](capacity=count)
     for i in range(count):
         var x = Float32((i * 17) % 257)
@@ -53,8 +53,12 @@ def _check_emission[width: SIMDLength, use_dp: Bool](count: Int) raises:
                 UInt32(i),
             )
         )
-    var binary = BinaryBoundsBvh[.WORLD, 4, .LBVH](items^)
+    return BinaryBoundsBvh[.WORLD, 4, .LBVH](items^)
 
+
+def _check_emission[
+    width: SIMDLength, use_dp: Bool
+](binary: BinaryBoundsBvh[.WORLD, 4, .LBVH]) raises:
     def pack_leaf(first: UInt32, _count: UInt32) -> UInt32:
         return first
 
@@ -65,15 +69,16 @@ def _check_emission[width: SIMDLength, use_dp: Bool](count: Int) raises:
         parallel_emit=True, use_dp_collapse=use_dp
     ](binary, pack_leaf)
     assert_equal(len(sequential.nodes), len(parallel.nodes))
-    if count > 0:
+    if binary.item_count > 0:
         _assert_same_subtree(sequential, parallel, UInt32(0), UInt32(0))
 
 
 def test_wide_collapse_parallel_matches_sequential() raises:
-    comptime for width in [2, 4, 8, 16]:
-        comptime for use_dp in [False, True]:
-            for count in [1, 2, 3, 257, 4097]:
-                _check_emission[width, use_dp](count)
+    for count in [1, 2, 3, 257, 4097]:
+        var binary = _make_binary_tree(count)
+        comptime for width in [2, 4, 8, 16]:
+            comptime for use_dp in [False, True]:
+                _check_emission[width, use_dp](binary)
 
 
 def main() raises:

@@ -100,6 +100,15 @@ def test_tlas_triangle_single_instance_cases() raises:
         not translated.trace_blases[4, 4, .CLOSEST_HIT](_ray(), blases).is_hit()
     )
 
+    assert_true(
+        translated.trace_blases[4, 4, .ANY_HIT](_ray(5.0), blases).is_occluded()
+    )
+    assert_true(
+        not translated.trace_blases[4, 4, .ANY_HIT](
+            _ray(), blases
+        ).is_occluded()
+    )
+
 
 def test_tlas_triangle_two_instance_cases() raises:
     var first = _triangle_vertices()
@@ -193,31 +202,10 @@ def test_tlas_triangle_packet_matches_scalar() raises:
                     packet_hit.normal[axis][lane],
                 )
 
-
-def test_tlas_triangle_packet_any_hit_matches_scalar() raises:
-    var vertices = _triangle_vertices()
-    var bounds = _triangle_bounds(vertices)
-    var blases = build_cpu_triangle_blas_set[4]([vertices^])
-    var tlas = CpuTlas[4, 1](
-        [
-            _instance(.TRIANGLE, 0, bounds, -5.0),
-            _instance(.TRIANGLE, 0, bounds, 5.0),
-            _instance(.TRIANGLE, 0, bounds, 10.0),
-        ]
-    )
-    var rays = Ray[.float32, .WORLD, 4](
-        Point3[.float32, .WORLD, 4](
-            SIMD[.float32, 4](-5.0, 5.0, 0.0, 10.0),
-            0.0,
-            0.0,
-        ),
-        Vec3[.float32, .WORLD, 4](0.0, 0.0, 1.0),
-    )
     var valid = SIMD[.bool, 4](True, True, False, True)
     var packet_occluded = tlas.trace_blases_packet_any_hit[4, 4, 4](
         rays, blases, valid
     )
-    var scalar_x = SIMD[.float32, 4](-5.0, 5.0, 0.0, 10.0)
     for lane in range(4):
         var scalar_occluded = False
         if valid[lane]:
@@ -326,19 +314,6 @@ def test_tlas_leaf_instance_bounds_filter_missed_blas() raises:
     )
 
 
-def test_tlas_triangle_shadow_cases() raises:
-    var vertices = _triangle_vertices()
-    var bounds = _triangle_bounds(vertices)
-    var blases = build_cpu_triangle_blas_set[4]([vertices^])
-    var tlas = CpuTlas[4]([_instance(.TRIANGLE, 0, bounds, 5.0)])
-    assert_true(
-        tlas.trace_blases[4, 4, .ANY_HIT](_ray(5.0), blases).is_occluded()
-    )
-    assert_true(
-        not tlas.trace_blases[4, 4, .ANY_HIT](_ray(), blases).is_occluded()
-    )
-
-
 def test_tlas_sphere_single_instance_cases() raises:
     var spheres = _sphere_values()
     var bounds = spheres[0].bounds()
@@ -356,6 +331,15 @@ def test_tlas_sphere_single_instance_cases() raises:
     )
     assert_true(
         not translated.trace_blases[4, 4, .CLOSEST_HIT](_ray(), blases).is_hit()
+    )
+
+    assert_true(
+        translated.trace_blases[4, 4, .ANY_HIT](_ray(5.0), blases).is_occluded()
+    )
+    assert_true(
+        not translated.trace_blases[4, 4, .ANY_HIT](
+            _ray(), blases
+        ).is_occluded()
     )
 
 
@@ -399,19 +383,6 @@ def test_tlas_sphere_nonuniform_scale_normal() raises:
     _assert_hit(hit, 0, 1.1339746)
     assert_almost_equal(hit.normal.x, 0.2773501, atol=1.0e-5)
     assert_almost_equal(hit.normal.z, -0.9607689, atol=1.0e-5)
-
-
-def test_tlas_sphere_shadow_cases() raises:
-    var spheres = _sphere_values()
-    var bounds = spheres[0].bounds()
-    var blases = build_cpu_sphere_blas_set[4]([spheres^])
-    var tlas = CpuTlas[4]([_instance(.SPHERE, 0, bounds, 5.0)])
-    assert_true(
-        tlas.trace_blases[4, 4, .ANY_HIT](_ray(5.0), blases).is_occluded()
-    )
-    assert_true(
-        not tlas.trace_blases[4, 4, .ANY_HIT](_ray(), blases).is_occluded()
-    )
 
 
 def test_parallel_tlas_refit_matches_serial() raises:

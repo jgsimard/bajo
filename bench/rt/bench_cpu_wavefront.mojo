@@ -11,7 +11,10 @@ from bajo.rt import (
     CpuScene,
 )
 from bajo.rt.cpu import render_wavefront
-from bajo.benchmark.cpu_harness import pixel_checksum
+from bajo.benchmark.cpu_harness import (
+    CpuRenderTiming as WaveTiming,
+    benchmark_cpu_render,
+)
 from bajo.benchmark.rt_fixtures import (
     make_mixed_triangle_world,
     mixed_triangle_camera,
@@ -30,54 +33,14 @@ comptime RNG_SEED = UInt64(2026)
 comptime CHUNK_PATHS = 8192
 
 
-@fieldwise_init
-struct WaveTiming(Copyable):
-    var median_total_ns: Int
-    var median_init_ns: Int
-    var median_render_ns: Int
-    var min_render_ns: Int
-    var max_render_ns: Int
-    var checksum: Float64
-
-
 def time_wavefront[
     length: SIMDLength, integrator: Integrator = .PATH
 ](
     settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
 ) raises -> WaveTiming:
-    var warmup = render_wavefront[integrator, length, CHUNK_PATHS, False](
-        settings, camera, world
-    )
-    var checksum = pixel_checksum(warmup.pixels)
-    var total_times = List[Int](capacity=TIMING_REPEATS)
-    var init_times = List[Int](capacity=TIMING_REPEATS)
-    var render_times = List[Int](capacity=TIMING_REPEATS)
-
-    for _ in range(TIMING_REPEATS):
-        var result = render_wavefront[integrator, length, CHUNK_PATHS, False](
-            settings, camera, world
-        )
-        var current_checksum = pixel_checksum(result.pixels)
-        debug_assert["safe", _use_compiler_assume=True](
-            current_checksum == checksum,
-            "wavefront checksum changed between runs",
-        )
-        total_times.append(result.timings.total_ns)
-        init_times.append(result.timings.init_ns)
-        render_times.append(result.timings.render_ns)
-
-    sort(total_times)
-    sort(init_times)
-    sort(render_times)
-    var middle = (TIMING_REPEATS - 1) >> 1
-    return WaveTiming(
-        total_times[middle],
-        init_times[middle],
-        render_times[middle],
-        render_times[0],
-        render_times[TIMING_REPEATS - 1],
-        checksum,
-    )
+    return benchmark_cpu_render[
+        render_wavefront[integrator, length, CHUNK_PATHS, False]
+    ](settings, camera, world, TIMING_REPEATS)
 
 
 def print_timing(label: String, timing: WaveTiming):

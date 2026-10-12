@@ -1,6 +1,7 @@
 """Large static MIS queues preserve radiance through the traversal call boundary."""
 from std.math import max
-from std.testing import TestSuite, assert_equal, assert_true
+from test.rt.helpers import assert_pixels_equal
+from std.testing import TestSuite, assert_true
 from max.gpu.host import DeviceContext
 from bajo.bvh.host_utils import compute_bounds
 from bajo.rt import Camera, Color, RenderSettings, SceneBuilder
@@ -44,11 +45,7 @@ def _check(coated: Bool) raises:
         enqueue_render_gpu[.MIS](ctx, large, world, settings)
         ctx.synchronize()
         var b = download_gpu_pixels(ctx, large)
-        assert_equal(len(a), len(b))
-        for i in range(len(a)):
-            assert_equal(a[i].x, b[i].x)
-            assert_equal(a[i].y, b[i].y)
-            assert_equal(a[i].z, b[i].z)
+        assert_pixels_equal(a, b)
 
 
 def test_static_mis_call_boundary_lambertian() raises:

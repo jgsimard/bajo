@@ -1,5 +1,6 @@
 """Scene-sized target allocation preserves explicit bounds and pixel alignment."""
 
+from test.rt.helpers import assert_pixels_equal
 from std.testing import TestSuite, assert_equal
 from max.gpu.host import DeviceContext
 from bajo.core import Affine3f32, Point3f32, Vec3f32
@@ -155,14 +156,8 @@ def test_gpu_prepared_renderer_retains_scene_budget_on_resize() raises:
         resized, camera, data
     )
     var repeated = renderer.render[.NORMALS](resized, camera)
-    assert_equal(len(actual.pixels), len(expected.pixels))
-    for i in range(len(actual.pixels)):
-        assert_equal(actual.pixels[i].x, expected.pixels[i].x)
-        assert_equal(actual.pixels[i].y, expected.pixels[i].y)
-        assert_equal(actual.pixels[i].z, expected.pixels[i].z)
-        assert_equal(repeated.pixels[i].x, actual.pixels[i].x)
-        assert_equal(repeated.pixels[i].y, actual.pixels[i].y)
-        assert_equal(repeated.pixels[i].z, actual.pixels[i].z)
+    assert_pixels_equal(actual.pixels, expected.pixels)
+    assert_pixels_equal(repeated.pixels, actual.pixels)
 
 
 def main() raises:

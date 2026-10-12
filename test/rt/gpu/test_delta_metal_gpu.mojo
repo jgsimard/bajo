@@ -15,7 +15,7 @@ from bajo.rt.gpu import (
 from bajo.rt.gpu.config import GPU_RT_BVH_WIDE4
 
 
-def _assert_reflected_emission[integrator: Integrator]() raises:
+def test_gpu_delta_metal_direct_lighting_preserves_reflected_emission() raises:
     var settings = RenderSettings(8, 6, 3, UInt64(641), 2)
     var camera = Camera.from_vfov(
         Point3f32[.WORLD](0.0, 0.0, 1.0),
@@ -58,24 +58,26 @@ def _assert_reflected_emission[integrator: Integrator]() raises:
                 var scene = prepare_gpu_scene[
                     kind=.TRIANGLES, triangle_format=GPU_RT_BVH_WIDE4
                 ](ctx, world)
-                for capacity in [8 * 6 * 3, 7 * 3]:
-                    var target = GpuRtRenderTarget(
-                        ctx, settings, camera, capacity
-                    )
-                    enqueue_render_gpu[integrator](ctx, target, scene, settings)
-                    var pixels = download_gpu_pixels(ctx, target)
-                    for pixel in pixels:
-                        assert_almost_equal(pixel.x, expected.x, atol=2.0e-5)
-                        assert_almost_equal(pixel.y, expected.y, atol=2.0e-5)
-                        assert_almost_equal(pixel.z, expected.z, atol=2.0e-5)
-
-
-def test_gpu_delta_metal_nee_preserves_reflected_emission() raises:
-    _assert_reflected_emission[.NEE]()
-
-
-def test_gpu_delta_metal_mis_preserves_reflected_emission() raises:
-    _assert_reflected_emission[.MIS]()
+                comptime for integrator_index in range(2):
+                    comptime integrator = Integrator.NEE if integrator_index == 0 else Integrator.MIS
+                    for capacity in [8 * 6 * 3, 7 * 3]:
+                        var target = GpuRtRenderTarget(
+                            ctx, settings, camera, capacity
+                        )
+                        enqueue_render_gpu[integrator](
+                            ctx, target, scene, settings
+                        )
+                        var pixels = download_gpu_pixels(ctx, target)
+                        for pixel in pixels:
+                            assert_almost_equal(
+                                pixel.x, expected.x, atol=2.0e-5
+                            )
+                            assert_almost_equal(
+                                pixel.y, expected.y, atol=2.0e-5
+                            )
+                            assert_almost_equal(
+                                pixel.z, expected.z, atol=2.0e-5
+                            )
 
 
 def main() raises:

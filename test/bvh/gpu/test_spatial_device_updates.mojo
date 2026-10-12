@@ -397,7 +397,9 @@ def test_device_update_invalid_counts_order_and_empty_mesh() raises:
         assert_equal(len(empty_mesh.points), 0)
 
 
-def check_parallel_refit_levels[block_size: Int]() raises:
+def check_parallel_refit_levels[
+    block_size: Int, full_matrix: Bool = True
+]() raises:
     var counts: List[Int] = [
         0,
         1,
@@ -413,6 +415,9 @@ def check_parallel_refit_levels[block_size: Int]() raises:
         1025,
         4097,
     ]
+    comptime if not full_matrix:
+        # Retain the slicing threshold and a large tail at intermediate sizes.
+        counts = [block_size, block_size + 2, 4097]
     with DeviceContext() as ctx:
         for count in counts:
             var boxes = List[AABB[.WORLD]]()
@@ -426,6 +431,11 @@ def check_parallel_refit_levels[block_size: Int]() raises:
                 )
                 groups.append(UInt32(i % 3))
             var cpu = SpatialBoundsBvh(boxes, groups)
+            comptime if not full_matrix:
+                if count == block_size:
+                    assert_true(len(cpu.nodes) // 2 <= block_size * 4)
+                elif count == block_size + 2:
+                    assert_true(len(cpu.nodes) // 2 > block_size * 4)
             var gpu = GpuSpatialBoundsBvh(ctx, cpu.copy())
             var input = ctx.enqueue_create_buffer[.float32](count * 6)
             var bounds_address = Int(gpu.bounds.unsafe_ptr())
@@ -464,8 +474,8 @@ def check_parallel_refit_levels[block_size: Int]() raises:
 
 def test_parallel_refit_levels_sizes_groups_and_validation() raises:
     check_parallel_refit_levels[32]()
-    check_parallel_refit_levels[64]()
-    check_parallel_refit_levels[128]()
+    check_parallel_refit_levels[64, False]()
+    check_parallel_refit_levels[128, False]()
     check_parallel_refit_levels[256]()
 
 

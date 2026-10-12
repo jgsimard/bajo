@@ -1,5 +1,6 @@
 """Absorption, film response and textured Crown materials on the GPU."""
 
+from test.rt.helpers import assert_pixels_close
 from max.gpu.host import DeviceContext
 from std.testing import TestSuite, assert_true, assert_almost_equal
 from std.math import exp
@@ -148,17 +149,9 @@ Shape "plymesh" "string filename" "mesh.ply"
         var target = GpuRtRenderTarget(ctx, settings, camera, 3 * 32)
         enqueue_render_gpu[.MIS](ctx, target, scene, settings)
         var gpu = download_gpu_pixels(ctx, target)
-        for i in range(len(gpu)):
-            assert_true(gpu[i].is_finite()[0])
-            assert_almost_equal(
-                gpu[i].x[0], cpu.pixels[i].x[0], atol=1e-3, rtol=1e-3
-            )
-            assert_almost_equal(
-                gpu[i].y[0], cpu.pixels[i].y[0], atol=1e-3, rtol=1e-3
-            )
-            assert_almost_equal(
-                gpu[i].z[0], cpu.pixels[i].z[0], atol=1e-3, rtol=1e-3
-            )
+        for pixel in gpu:
+            assert_true(pixel.is_finite()[0])
+        assert_pixels_close(gpu, cpu.pixels, atol=1e-3, rtol=1e-3)
 
 
 def test_absorption_and_iso_cpu_gpu_parity() raises:
@@ -185,17 +178,9 @@ Shape "sphere"
         var target = GpuRtRenderTarget(ctx, settings, camera, 3 * 64)
         enqueue_render_gpu[.MIS](ctx, target, scene, settings)
         var gpu = download_gpu_pixels(ctx, target)
-        for i in range(len(gpu)):
-            assert_true(gpu[i].is_finite()[0])
-            assert_almost_equal(
-                gpu[i].x[0], cpu.pixels[i].x[0], atol=1e-3, rtol=1e-3
-            )
-            assert_almost_equal(
-                gpu[i].y[0], cpu.pixels[i].y[0], atol=1e-3, rtol=1e-3
-            )
-            assert_almost_equal(
-                gpu[i].z[0], cpu.pixels[i].z[0], atol=1e-3, rtol=1e-3
-            )
+        for pixel in gpu:
+            assert_true(pixel.is_finite()[0])
+        assert_pixels_close(gpu, cpu.pixels, atol=1e-3, rtol=1e-3)
 
 
 def test_instance_boundaries_match_analytic_absorption() raises:

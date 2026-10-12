@@ -1,6 +1,7 @@
 """Compare CPU renderer architectures on the full RTIAW example workload."""
 
 from std.math import round
+from std.sys.arg import argv
 
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
@@ -15,7 +16,11 @@ from bajo.rt.cpu.wavefront import (
     CPU_WAVEFRONT_SERIAL_CHUNK_PATHS,
 )
 from bajo.rt.cpu.scheduler_mode import CpuSchedulerMode
-from bajo.benchmark.cpu_harness import pixel_checksum
+from bajo.benchmark.cpu_harness import (
+    CpuRenderSamples,
+    CpuRenderTiming,
+    pixel_checksum,
+)
 from bajo.benchmark.rt_fixtures import weekend_camera
 from examples.rtiaw import make_weekend_world
 
@@ -41,22 +46,6 @@ comptime CASES = (
     (MODE_WAVEFRONT_PARALLEL, 2048, "parallel packet16 wavefront 2K"),
     (MODE_WAVEFRONT_PARALLEL, 4096, "parallel packet16 wavefront 4K"),
 )
-
-
-@fieldwise_init
-struct Samples(Copyable):
-    var total_times: List[Int]
-    var render_times: List[Int]
-    var checksum: Float64
-
-
-@fieldwise_init
-struct Timing(Copyable):
-    var median_total_ns: Int
-    var median_render_ns: Int
-    var min_render_ns: Int
-    var max_render_ns: Int
-    var checksum: Float64
 
 
 def _render_mode[
@@ -87,52 +76,7 @@ def _render_mode[
             comptime assert False
 
 
-def _warmup[
-    MODE: Int, CHUNK_PATHS: Int = 0
-](
-    settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
-) raises -> Float64:
-    return pixel_checksum(
-        _render_mode[MODE, CHUNK_PATHS](settings, camera, world).pixels
-    )
-
-
-def _record[
-    MODE: Int, CHUNK_PATHS: Int = 0
-](
-    mut total_times: List[Int],
-    mut render_times: List[Int],
-    checksum: Float64,
-    settings: RenderSettings,
-    camera: Camera,
-    world: CpuScene[16, 16],
-) raises:
-    var result = _render_mode[MODE, CHUNK_PATHS](settings, camera, world)
-    debug_assert["safe", _use_compiler_assume=True](
-        pixel_checksum(result.pixels) == checksum,
-        "RTIAW output changed between benchmark samples",
-    )
-    total_times.append(result.timings.total_ns)
-    render_times.append(result.timings.render_ns)
-
-
-def _summarize(
-    mut total_times: List[Int],
-    mut render_times: List[Int],
-    checksum: Float64,
-) -> Timing:
-    sort(total_times)
-    sort(render_times)
-    return Timing(
-        total_times[REPEATS // 2],
-        render_times[REPEATS // 2],
-        render_times[0],
-        render_times[REPEATS - 1],
-        checksum,
-    )
-
-
-def _print(label: String, timing: Timing):
+def _print(label: String, timing: CpuRenderTiming):
     print(
         t"  {label}: total={round(ns_to_ms(timing.median_total_ns), 3)} ms, "
         t"kernel={round(ns_to_ms(timing.median_render_ns), 3)} ms, "
@@ -142,7 +86,8 @@ def _print(label: String, timing: Timing):
     )
 
 
-def main() raises:
+def _run[full_sweep: Bool]() raises:
+    comptime case_count = len(CASES) if full_sweep else 3
     print("Ray Tracing in One Weekend CPU architecture benchmark")
     print(
         t"{WIDTH}x{HEIGHT} x {SPP} spp, depth {MAX_DEPTH}; interleaved median"
@@ -152,47 +97,45 @@ def main() raises:
     var world = make_weekend_world()
     var camera = weekend_camera()
 
-    var samples = List[Samples](capacity=len(CASES))
-    comptime for i in range(len(CASES)):
-        var checksum = _warmup[CASES[i][0], CASES[i][1]](
+    print(
+        "Full chunk-size sweep" if full_sweep else "Three default architectures"
+    )
+    var samples = List[CpuRenderSamples](capacity=case_count)
+    comptime for i in range(case_count):
+        comptime case_idx = i if full_sweep or i < 2 else 3
+        var warmup = _render_mode[CASES[case_idx][0], CASES[case_idx][1]](
             settings, camera, world
         )
-        comptime if CASES[i][0] == MODE_WAVEFRONT_PARALLEL:
+        var checksum = pixel_checksum(warmup.pixels)
+        comptime if CASES[case_idx][0] == MODE_WAVEFRONT_PARALLEL:
             debug_assert["safe", _use_compiler_assume=True](
                 checksum == samples[1].checksum,
                 "parallel wavefront changed serial wavefront pixels",
             )
-        samples.append(
-            Samples(
-                List[Int](capacity=REPEATS),
-                List[Int](capacity=REPEATS),
-                checksum,
-            )
-        )
+        samples.append(CpuRenderSamples(checksum, REPEATS))
 
     for iteration in range(REPEATS):
         # Alternate forward and reverse order to balance timing drift.
         comptime for reverse in range(2):
             if iteration % 2 == reverse:
-                comptime for position in range(len(CASES)):
-                    comptime i = len(
-                        CASES
-                    ) - 1 - position if reverse else position
-                    _record[CASES[i][0], CASES[i][1]](
-                        samples[i].total_times,
-                        samples[i].render_times,
-                        samples[i].checksum,
-                        settings,
-                        camera,
-                        world,
-                    )
+                comptime for position in range(case_count):
+                    comptime i = case_count - 1 - position if reverse else position
+                    comptime case_idx = i if full_sweep or i < 2 else 3
+                    var result = _render_mode[
+                        CASES[case_idx][0], CASES[case_idx][1]
+                    ](settings, camera, world)
+                    samples[i].record(result)
 
-    comptime for i in range(len(CASES)):
-        _print(
-            CASES[i][2],
-            _summarize(
-                samples[i].total_times,
-                samples[i].render_times,
-                samples[i].checksum,
-            ),
-        )
+    comptime for i in range(case_count):
+        comptime case_idx = i if full_sweep or i < 2 else 3
+        _print(CASES[case_idx][2], samples[i].summarize())
+
+
+def main() raises:
+    var args = argv()
+    if len(args) == 1:
+        _run[False]()
+    elif len(args) == 2 and args[1] == "--full":
+        _run[True]()
+    else:
+        raise Error("usage: bench_rtiaw [--full]")

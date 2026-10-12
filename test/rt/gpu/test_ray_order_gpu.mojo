@@ -1,5 +1,6 @@
 """Queue ordering preserves records, indices, partial warps and chunk invariance."""
 
+from test.rt.helpers import assert_pixels_equal
 from std.testing import TestSuite, assert_equal, assert_true
 from std.memory import bitcast
 from max.gpu.host import DeviceContext
@@ -243,10 +244,7 @@ def _assert_ordered_render[integrator: Integrator]() raises:
             var actual = download_gpu_pixels(ctx, ordered)
             enqueue_render_gpu[integrator](ctx, reference, scene, settings)
             var expected = download_gpu_pixels(ctx, reference)
-            for idx in range(len(expected)):
-                assert_equal(actual[idx].x, expected[idx].x)
-                assert_equal(actual[idx].y, expected[idx].y)
-                assert_equal(actual[idx].z, expected[idx].z)
+            assert_pixels_equal(actual, expected)
 
 
 def test_gpu_mis_ordered_textured_instances_match_unordered_chunks() raises:
@@ -314,10 +312,7 @@ def _assert_grouped_lighting_render[integrator: Integrator]() raises:
             var actual = download_gpu_pixels(ctx, ordered)
             enqueue_render_gpu[integrator](ctx, reference, scene, settings)
             var expected = download_gpu_pixels(ctx, reference)
-            for idx in range(len(expected)):
-                assert_equal(actual[idx].x, expected[idx].x)
-                assert_equal(actual[idx].y, expected[idx].y)
-                assert_equal(actual[idx].z, expected[idx].z)
+            assert_pixels_equal(actual, expected)
 
 
 def test_gpu_mis_grouped_coatings_and_mixed_lights_match_unordered_chunks() raises:

@@ -33,15 +33,14 @@ def _store_bits[
         Float32
     ]()
     var output_index = Int(count) - 1 - index
+    var hit = Hit[frame].load(source, index)
     comptime if vectorized:
-        var hit = Hit[frame].load(source, index)
         _store_packed_hit_vectorized(hit, destination, Int(count), output_index)
     else:
-        var hit = Hit[frame].load(source, index)
         _store_packed_hit(hit, destination, Int(count), output_index)
 
 
-def _check_stores[frame: Frame, vectorized: Bool]() raises:
+def test_packed_hit_store_bits_offsets_and_frames() raises:
     var patterns = [
         UInt32(0),
         UInt32(0x80000000),
@@ -70,42 +69,34 @@ def _check_stores[frame: Frame, vectorized: Bool]() raises:
                 var offset = 4 + alignment_offset
                 var length = offset + count * Hit.STRIDE + 4
                 var guard = UInt32(0xDEADBEEF)
-                var output = upload_list(
-                    ctx, List[UInt32](length=length, fill=guard)
-                )
-                ctx.enqueue_function[_store_bits[frame, vectorized]](
-                    source,
-                    output,
-                    Int32(count),
-                    Int32(offset),
-                    grid_dim=ceildiv(count, 128),
-                    block_dim=128,
-                )
-                ctx.synchronize()
-                with output.map_to_host() as values:
-                    for index in range(offset):
-                        assert_equal(values[index], guard)
-                    for index in range(count):
-                        var original = count - 1 - index
-                        for field in range(Hit.STRIDE):
-                            assert_equal(
-                                values[offset + index * Hit.STRIDE + field],
-                                words[original * Hit.STRIDE + field],
-                            )
-                    for index in range(offset + count * Hit.STRIDE, length):
-                        assert_equal(values[index], guard)
-
-
-def test_world_packed_hit_store_bits_and_offsets() raises:
-    _check_stores[.WORLD, True]()
-
-
-def test_local_packed_hit_store_bits_and_offsets() raises:
-    _check_stores[.LOCAL, True]()
-
-
-def test_scalar_hit_store_bits_and_offsets() raises:
-    _check_stores[.WORLD, False]()
+                var output = ctx.enqueue_create_buffer[.uint32](length)
+                comptime for variant in range(3):
+                    comptime frame = Frame.LOCAL if variant == 1 else Frame.WORLD
+                    comptime vectorized = variant != 2
+                    with output.map_to_host() as values:
+                        for i in range(length):
+                            values[i] = guard
+                    ctx.enqueue_function[_store_bits[frame, vectorized]](
+                        source,
+                        output,
+                        Int32(count),
+                        Int32(offset),
+                        grid_dim=ceildiv(count, 128),
+                        block_dim=128,
+                    )
+                    ctx.synchronize()
+                    with output.map_to_host() as values:
+                        for index in range(offset):
+                            assert_equal(values[index], guard)
+                        for index in range(count):
+                            var original = count - 1 - index
+                            for field in range(Hit.STRIDE):
+                                assert_equal(
+                                    values[offset + index * Hit.STRIDE + field],
+                                    words[original * Hit.STRIDE + field],
+                                )
+                        for index in range(offset + count * Hit.STRIDE, length):
+                            assert_equal(values[index], guard)
 
 
 def main() raises:

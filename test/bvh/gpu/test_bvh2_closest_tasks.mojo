@@ -1,4 +1,4 @@
-"""Closest-hit matches triangle reference through deep pending-leaf stacks."""
+"""Closest- and any-hit traverse deep pending-leaf stacks against a triangle oracle."""
 from std.testing import TestSuite, assert_equal, assert_almost_equal
 from std.memory import bitcast
 from max.gpu import global_idx
@@ -6,6 +6,7 @@ from max.gpu.host import DeviceContext
 from bajo.bvh.constants import EMPTY_LANE, TRI_LEAF_PACKED_STRIDE
 from bajo.bvh.wide_meta import _pack_wide_meta
 from bajo.bvh.gpu.trace import (
+    trace_bounds_bvh,
     trace_bounds_bvh_state,
     GpuPrimitiveLeafState,
     _dispatch_primitive_leaf,
@@ -17,8 +18,8 @@ from bajo.core import Point3f32, Vec3f32, Rayf32
 from bajo.core.intersect import intersect_ray_tri
 
 
-def _closest_kernel[
-    policy: Int
+def _trace_kernel[
+    policy: Int, any_hit: Bool
 ](
     nodes: Pointer[Float32, ImmutAnyOrigin],
     leaves: Pointer[Float32, ImmutAnyOrigin],
@@ -29,34 +30,51 @@ def _closest_kernel[
     var idx = global_idx.x
     if idx >= Int(count):
         return
-    var hit = trace_bounds_bvh_state[
-        .WORLD,
-        2,
-        .CLOSEST_HIT,
-        GpuPrimitiveLeafState,
-        _dispatch_primitive_leaf[
+    comptime if any_hit:
+        var hit = trace_bounds_bvh[
             .WORLD,
+            2,
+            .ANY_HIT,
+            _intersect_triangle_leaf[.WORLD, 1, .ANY_HIT],
+            compact_bvh2=True,
+        ](
+            nodes,
+            leaves,
+            UInt32(0),
+            _load_packed_ray[.WORLD](rays, Int(count), idx),
+        )
+        output[unsafe_offset=idx * 4] = bitcast[.float32](
+            UInt32(hit.is_occluded())
+        )
+    else:
+        var hit = trace_bounds_bvh_state[
+            .WORLD,
+            2,
             .CLOSEST_HIT,
-            _intersect_triangle_leaf[.WORLD, 1, .CLOSEST_HIT],
-        ],
-        True,
-        True,
-        policy,
-    ](
-        nodes,
-        GpuPrimitiveLeafState(leaves.unsafe_origin_cast[ImmUntrackedOrigin]()),
-        UInt32(0),
-        _load_packed_ray[.WORLD](rays, Int(count), idx),
-    )
-    output[unsafe_offset=idx * 4] = bitcast[.float32](hit.prim)
-    output[unsafe_offset=idx * 4 + 1] = hit.t
-    output[unsafe_offset=idx * 4 + 2] = hit.u
-    output[unsafe_offset=idx * 4 + 3] = hit.v
+            GpuPrimitiveLeafState,
+            _dispatch_primitive_leaf[
+                .WORLD,
+                .CLOSEST_HIT,
+                _intersect_triangle_leaf[.WORLD, 1, .CLOSEST_HIT],
+            ],
+            True,
+            True,
+            policy,
+        ](
+            nodes,
+            GpuPrimitiveLeafState(
+                leaves.unsafe_origin_cast[ImmUntrackedOrigin]()
+            ),
+            UInt32(0),
+            _load_packed_ray[.WORLD](rays, Int(count), idx),
+        )
+        output[unsafe_offset=idx * 4] = bitcast[.float32](hit.prim)
+        output[unsafe_offset=idx * 4 + 1] = hit.t
+        output[unsafe_offset=idx * 4 + 2] = hit.u
+        output[unsafe_offset=idx * 4 + 3] = hit.v
 
 
-def _assert_deep_tree[
-    policy: Int, near_hit: Bool, far_hit: Bool = False
-]() raises:
+def _assert_deep_tree[near_hit: Bool, far_hit: Bool = False]() raises:
     comptime depth = 32
     var nodes = List[Float32](length=(depth + 1) * 14, fill=0.0)
     var vertices = List[Point3f32[.WORLD]]()
@@ -137,46 +155,44 @@ def _assert_deep_tree[
         var d_leaves = upload_list(ctx, leaves)
         var d_rays = upload_rays(ctx, rays)
         var output = ctx.enqueue_create_buffer[.float32](len(rays) * 4)
-        ctx.enqueue_function[_closest_kernel[policy]](
-            d_nodes,
-            d_leaves,
-            d_rays,
-            output,
-            Int32(len(rays)),
-            grid_dim=1,
-            block_dim=64,
-        )
-        ctx.synchronize()
-        with output.map_to_host() as host:
-            for i, value in enumerate(expected_prims):
-                assert_equal(bitcast[.uint32](host[i * 4]), value)
-                assert_almost_equal(host[i * 4 + 1], expected_t[i])
-                assert_almost_equal(host[i * 4 + 2], expected_u[i])
-                assert_almost_equal(host[i * 4 + 3], expected_v[i])
+        # The shared upload covers both closest-hit stack policies and any-hit.
+        comptime for variant in range(3):
+            comptime policy = 2 if variant == 1 else 1
+            comptime any_hit = variant == 2
+            ctx.enqueue_function[_trace_kernel[policy, any_hit]](
+                d_nodes,
+                d_leaves,
+                d_rays,
+                output,
+                Int32(len(rays)),
+                grid_dim=1,
+                block_dim=64,
+            )
+            ctx.synchronize()
+            with output.map_to_host() as host:
+                for i, value in enumerate(expected_prims):
+                    comptime if any_hit:
+                        assert_equal(
+                            bitcast[.uint32](host[i * 4]),
+                            UInt32(value != EMPTY_LANE),
+                        )
+                    else:
+                        assert_equal(bitcast[.uint32](host[i * 4]), value)
+                        assert_almost_equal(host[i * 4 + 1], expected_t[i])
+                        assert_almost_equal(host[i * 4 + 2], expected_u[i])
+                        assert_almost_equal(host[i * 4 + 3], expected_v[i])
 
 
 def test_gpu_bvh2_closest_deep_chain_finds_near_triangle() raises:
-    _assert_deep_tree[1, True]()
+    _assert_deep_tree[True]()
 
 
 def test_gpu_bvh2_closest_deep_chain_unwinds_deferred_misses() raises:
-    _assert_deep_tree[1, False]()
+    _assert_deep_tree[False]()
 
 
 def test_gpu_bvh2_closest_deep_chain_finds_deferred_triangle() raises:
-    _assert_deep_tree[1, False, True]()
-
-
-def test_gpu_bvh2_closest_separate_deep_chain_finds_near_triangle() raises:
-    _assert_deep_tree[2, True]()
-
-
-def test_gpu_bvh2_closest_separate_deep_chain_unwinds_deferred_misses() raises:
-    _assert_deep_tree[2, False]()
-
-
-def test_gpu_bvh2_closest_separate_deep_chain_finds_deferred_triangle() raises:
-    _assert_deep_tree[2, False, True]()
+    _assert_deep_tree[False, True]()
 
 
 def main() raises:

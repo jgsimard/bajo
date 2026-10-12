@@ -297,6 +297,7 @@ def _assert_triangle_blas_matches_bruteforce[
     blases: CpuBlasSet[.TRIANGLE, bounds_width, leaf_width],
     verts: List[Point3f32[frame]],
     origin: Point3f32[frame],
+    check_shadow: Bool = False,
 ) raises:
     var ray = _z_ray(origin)
     var hit = trace_blas_set[bounds_width, leaf_width, .CLOSEST_HIT, frame](
@@ -309,6 +310,11 @@ def _assert_triangle_blas_matches_bruteforce[
         Vec3f32[frame](0.0, 0.0, 1.0),
     )
     var brute_hit = brute.is_hit()
+    if check_shadow:
+        var shadow = trace_blas_set[bounds_width, leaf_width, .ANY_HIT, frame](
+            blases, UInt32(0), ray
+        )
+        assert_true(shadow.is_occluded() == brute_hit)
 
     var bvh_hit = hit.is_hit()
 
@@ -337,6 +343,7 @@ def _assert_sphere_blas_matches_bruteforce[
     blases: CpuBlasSet[.SPHERE, width],
     spheres: List[Sphere[frame]],
     origin: Point3f32[frame],
+    check_shadow: Bool = False,
 ) raises:
     var ray = _z_ray(origin)
     var hit = trace_blas_set[width, width, .CLOSEST_HIT, frame](
@@ -349,6 +356,11 @@ def _assert_sphere_blas_matches_bruteforce[
         Vec3f32[frame](0.0, 0.0, 1.0),
     )
     var brute_hit = brute.is_hit()
+    if check_shadow:
+        var shadow = trace_blas_set[width, width, .ANY_HIT, frame](
+            blases, UInt32(0), ray
+        )
+        assert_true(shadow.is_occluded() == brute_hit)
 
     var bvh_hit = hit.is_hit()
 
@@ -718,6 +730,7 @@ def _test_triangle_bvh_matches_bruteforce[
             blases,
             verts,
             _triangle_center_xy(verts, i),
+            check_shadow=i == 0,
         )
 
     for i in range(8):
@@ -725,6 +738,7 @@ def _test_triangle_bvh_matches_bruteforce[
             blases,
             verts,
             Point3W(100.0 + Float32(i), 100.0, 0.0),
+            check_shadow=i == 0,
         )
 
 
@@ -1232,41 +1246,6 @@ def test_coherent_packet_frustum_is_conservative() raises:
     _test_coherent_packet_frustum_is_conservative[False, False, False]()
 
 
-def _test_triangle_bvh_shadow_hit_and_miss[
-    width: SIMDLength,
-    method: CpuBvhBuildMethod,
-]() raises:
-    var verts = _make_strip[.WORLD](2 * width)
-    var blases = build_cpu_triangle_blas_set[width, width, method, .WORLD](
-        [verts^]
-    )
-
-    assert_true(
-        trace_blas_set[width, width, .ANY_HIT, .WORLD](
-            blases, UInt32(0), _z_ray(Point3W(0.0, 0.0, 0.0))
-        ).is_occluded()
-    )
-
-    assert_true(
-        not trace_blas_set[width, width, .ANY_HIT, .WORLD](
-            blases,
-            UInt32(0),
-            _z_ray(Point3W(100.0, 100.0, 0.0)),
-        ).is_occluded()
-    )
-
-
-def test_triangle_bvh_shadow_hit_and_miss() raises:
-    comptime for w in [2, 4, 8]:
-        comptime for method in [
-            CpuBvhBuildMethod.MEDIAN,
-            CpuBvhBuildMethod.SAH,
-            CpuBvhBuildMethod.LBVH,
-            CpuBvhBuildMethod.HPLOC,
-        ]:
-            _test_triangle_bvh_shadow_hit_and_miss[w, method]()
-
-
 def test_sphere_bounds() raises:
     var s = Sphere(Point3f32[.WORLD](1.0, 2.0, 3.0), 2.0)
     var b = s.bounds()
@@ -1310,6 +1289,7 @@ def _test_sphere_bvh_matches_bruteforce[
         blases,
         spheres,
         Point3W(0.0, 0.0, 0.0),
+        check_shadow=True,
     )
     _assert_sphere_blas_matches_bruteforce[.WORLD, width](
         blases,
@@ -1325,6 +1305,7 @@ def _test_sphere_bvh_matches_bruteforce[
         blases,
         spheres,
         Point3W(100.0, 0.0, 0.0),
+        check_shadow=True,
     )
 
 
@@ -1337,37 +1318,6 @@ def test_sphere_bvh_matches_bruteforce() raises:
             CpuBvhBuildMethod.HPLOC,
         ]:
             _test_sphere_bvh_matches_bruteforce[w, method]()
-
-
-def _test_sphere_bvh_shadow_hit_and_miss[
-    width: SIMDLength,
-    method: CpuBvhBuildMethod,
-]() raises:
-    var spheres = _make_spheres[.WORLD]()
-    var blases = build_cpu_sphere_blas_set[width, method, .WORLD]([spheres^])
-
-    assert_true(
-        trace_blas_set[width, width, .ANY_HIT, .WORLD](
-            blases, UInt32(0), _z_ray(Point3W(0.0, 0.0, 0.0))
-        ).is_occluded()
-    )
-
-    assert_true(
-        not trace_blas_set[width, width, .ANY_HIT, .WORLD](
-            blases, UInt32(0), _z_ray(Point3W(100.0, 0.0, 0.0))
-        ).is_occluded()
-    )
-
-
-def test_sphere_bvh_shadow_hit_and_miss() raises:
-    comptime for w in [2, 4, 8]:
-        comptime for method in [
-            CpuBvhBuildMethod.MEDIAN,
-            CpuBvhBuildMethod.SAH,
-            CpuBvhBuildMethod.LBVH,
-            CpuBvhBuildMethod.HPLOC,
-        ]:
-            _test_sphere_bvh_shadow_hit_and_miss[w, method]()
 
 
 def test_segmented_triangle_blases_allow_empty_segments() raises:

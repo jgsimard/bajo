@@ -92,7 +92,7 @@ def enqueue_bvh_camera_trace[
             Int32(ray_count),
             Int32(width),
             Int32(height),
-            Float32(1.0) / Float32(height),
+            1.0 / Float32(height),
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )

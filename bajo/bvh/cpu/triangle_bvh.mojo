@@ -346,8 +346,8 @@ def _trace_triangle_packet_primitive[
     )
     var closer = active & candidate.mask
     if closer.reduce_or():
-        var safe_det = closer.select(candidate.abs_det, Float32(1.0))
-        var inv_det = Float32(1.0) / safe_det
+        var safe_det = closer.select(candidate.abs_det, 1.0)
+        var inv_det = 1.0 / safe_det
         var candidate_t = candidate.t_scaled * inv_det
         packet_hit.t = closer.select(candidate_t, packet_hit.t)
         packet_hit.u = closer.select(candidate.u_scaled * inv_det, packet_hit.u)

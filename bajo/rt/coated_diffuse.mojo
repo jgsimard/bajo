@@ -87,11 +87,11 @@ def _fresnel_dielectric(cos_theta_i: Float32, eta: Float32) -> Float32:
     if cosine < 0.0:
         relative_eta = 1.0 / relative_eta
         cosine = -cosine
-    var sin2_i = max(Float32(0.0), Float32(1.0) - cosine * cosine)
+    var sin2_i = max(Float32(0.0), 1.0 - cosine * cosine)
     var sin2_t = sin2_i / (relative_eta * relative_eta)
     if sin2_t >= 1.0:
         return 1.0
-    var cos_t = sqrt(max(Float32(0.0), Float32(1.0) - sin2_t))
+    var cos_t = sqrt(max(Float32(0.0), 1.0 - sin2_t))
     var parallel = (relative_eta * cosine - cos_t) / (
         relative_eta * cosine + cos_t
     )
@@ -166,10 +166,10 @@ def _sample_ggx_visible_normal(
     var phi = Float32(2.0 * pi) * u2
     var px = radius * cos(phi)
     var py = radius * sin(phi)
-    var h = sqrt(max(Float32(0.0), Float32(1.0) - px * px))
+    var h = sqrt(max(Float32(0.0), 1.0 - px * px))
     var interpolation = Float32(0.5) * (1.0 + wh.z[0])
     py = (1.0 - interpolation) * h + interpolation * py
-    var pz = sqrt(max(Float32(0.0), Float32(1.0) - px * px - py * py))
+    var pz = sqrt(max(Float32(0.0), 1.0 - px * px - py * py))
     var nh = t1 * px + t2 * py + wh * pz
     return normalize(
         Vec3[.float32, .WORLD](
@@ -198,11 +198,11 @@ def _refract_from(
         eta = 1.0 / eta
         cosine = -cosine
         wm = -wm
-    var sin2_i = max(Float32(0.0), Float32(1.0) - cosine * cosine)
+    var sin2_i = max(Float32(0.0), 1.0 - cosine * cosine)
     var sin2_t = sin2_i / (eta * eta)
     if sin2_t >= 1.0:
         return _empty_dielectric_sample()
-    var cos_t = sqrt(max(Float32(0.0), Float32(1.0) - sin2_t))
+    var cos_t = sqrt(max(Float32(0.0), 1.0 - sin2_t))
     var wi = normalize(-wo / eta + (cosine / eta - cos_t) * wm)
     return _DielectricSample(wi, eta, 0.0, False, False, True)
 
@@ -371,7 +371,7 @@ def _sample_diffuse(
 ) -> BsdfSample[1]:
     var radius = sqrt(u1)
     var phi = Float32(2.0 * pi) * u2
-    var z = sqrt(max(Float32(0.0), Float32(1.0) - u1))
+    var z = sqrt(max(Float32(0.0), 1.0 - u1))
     if wo.z[0] < 0.0:
         z = -z
     var wi = Vec3[.float32, .WORLD](radius * cos(phi), radius * sin(phi), z)
@@ -544,7 +544,7 @@ def _sample_phase_hg(
         var term = (1.0 - g * g) / (1.0 + g - 2.0 * g * u1)
         cosine = -(1.0 + g * g - term * term) / (2.0 * g)
         cosine = cosine.clamp(-1.0, 1.0)
-    var sine = sqrt(max(Float32(0.0), Float32(1.0) - cosine * cosine))
+    var sine = sqrt(max(Float32(0.0), 1.0 - cosine * cosine))
     var axis = -wo
     var helper = Vec3[.float32, .WORLD](0.0, 1.0, 0.0)
     if abs(axis.y[0]) > 0.99:
@@ -690,7 +690,7 @@ def _evaluate_layered(
         for depth in range(max_depth):
             var dimension = base + 6 + depth * 8
             if depth > 3 and _max_component(beta) < 0.25:
-                var q = max(Float32(0.0), Float32(1.0) - _max_component(beta))
+                var q = max(Float32(0.0), 1.0 - _max_component(beta))
                 if _random(seed, dimension) < q:
                     break
                 beta = beta / (1.0 - q)
@@ -698,7 +698,7 @@ def _evaluate_layered(
                 var distance = -log(
                     max(
                         Float32(1.0e-7),
-                        Float32(1.0) - _random(seed, dimension + 1),
+                        1.0 - _random(seed, dimension + 1),
                     )
                 ) * abs(w.z[0])
                 var zp = z + distance if w.z[0] > 0.0 else z - distance

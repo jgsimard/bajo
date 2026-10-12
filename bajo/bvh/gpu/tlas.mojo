@@ -633,7 +633,7 @@ struct GpuTlas[
                 Int32(ray_count),
                 Int32(cwidth),
                 Int32(cheight),
-                Float32(1.0) / Float32(cheight),
+                1.0 / Float32(cheight),
                 grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
                 block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
             )
@@ -663,7 +663,7 @@ struct GpuTlas[
             Int32(ray_count),
             Int32(cwidth),
             Int32(cheight),
-            Float32(1.0) / Float32(cheight),
+            1.0 / Float32(cheight),
             grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )

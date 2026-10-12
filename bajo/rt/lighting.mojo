@@ -157,9 +157,7 @@ def power_heuristic[
     var b2 = pdf_b * pdf_b
     var denominator = a2 + b2
     var nonzero = denominator.gt(0.0)
-    return nonzero.select(
-        a2 / nonzero.select(denominator, Float32(1.0)), Float32(0.0)
-    )
+    return nonzero.select(a2 / nonzero.select(denominator, 1.0), 0.0)
 
 
 @always_inline

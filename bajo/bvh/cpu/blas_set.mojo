@@ -706,7 +706,7 @@ def _trace_sphere_blas_set_packet_policy[
     )
     var hit = Hit[frame, length].miss(rays.t_max)
     var ray_a = dot(rays.d, rays.d)
-    var ray_inv_a = Float32(1.0) / ray_a
+    var ray_inv_a = 1.0 / ray_a
     var reciprocal_direction = rays.reciprocal_direction()
 
     def leaf_fn(

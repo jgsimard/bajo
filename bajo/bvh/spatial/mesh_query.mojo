@@ -722,7 +722,7 @@ struct MeshQueryView[
                 if direction < 1e-10 or direction > 1e10:
                     regular = False
                 else:
-                    inverse32[axis] = Float32(1.0) / ray.d[axis]
+                    inverse32[axis] = 1.0 / ray.d[axis]
         return (inverse32, regular)
 
     @always_inline

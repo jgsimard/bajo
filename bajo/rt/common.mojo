@@ -3,7 +3,7 @@
 from std.math import abs, cos, pi, sin, sqrt
 
 from bajo.core import Frame, Vec3, normalize
-from bajo.core.random import Rng, Sampler
+from bajo.core.random import Rng, Sampler, _mix32
 from bajo.rt.render_types import (
     Color,
     SamplingConfig,
@@ -254,6 +254,27 @@ def path_stage_rng(
         image_width=sampling.image_width,
         stage=stage,
     )
+
+
+@always_inline
+def path_stage_seed(
+    sampling: SamplingConfig, path_id: UInt32, stage: UInt32
+) -> UInt32:
+    """Hash an integer pixel/sample/stage identity for internal estimators.
+
+    Absolute sample indices preserve sample-batch and queue-chunk invariance.
+    Floating-point directions must not choose estimator random streams: small
+    CPU/GPU rounding differences would otherwise change every internal draw.
+    """
+    var pixel_id = path_id / sampling.samples_per_pixel
+    var sample_index = (
+        sampling.sample_offset + path_id % sampling.samples_per_pixel
+    )
+    var seed = _mix32(UInt32(sampling.seed))
+    seed = _mix32(seed ^ UInt32(sampling.seed >> UInt64(32)))
+    seed = _mix32(seed ^ pixel_id)
+    seed = _mix32(seed ^ sample_index)
+    return _mix32(seed ^ stage)
 
 
 @always_inline

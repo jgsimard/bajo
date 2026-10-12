@@ -65,6 +65,7 @@ from bajo.rt.common import (
     equal_area_square_to_sphere,
     equal_area_sphere_to_square,
     path_stage_rng,
+    path_stage_seed,
     russian_roulette,
 )
 from bajo.rt.lighting import (
@@ -581,6 +582,12 @@ def test_sample_sequences_are_deterministic_and_batch_invariant() raises:
                     SamplingConfig.from_settings(full), full_path, UInt32(7)
                 )
                 var actual = path_stage_rng(batch_config, batch_path, UInt32(7))
+                assert_equal(
+                    path_stage_seed(batch_config, batch_path, UInt32(7)),
+                    path_stage_seed(
+                        SamplingConfig.from_settings(full), full_path, UInt32(7)
+                    ),
+                )
                 for _ in range(4):
                     assert_equal(actual.f32(), expected.f32())
 
@@ -1541,8 +1548,11 @@ def test_direct_light_packet_matches_scalar_for_mixed_materials() raises:
         direct.surface_kinds[lane] = ids[lane].kind().value
         direct.surface_indices[lane] = ids[lane].index()
     var pixels = List[Color](length=4, fill=Color(0.0))
+    var sampling = SamplingConfig.from_settings(
+        RenderSettings(4, 1, 1, UInt64(2026))
+    )
     _accumulate_direct_light_packet[.MIS, 4](
-        pixels, paths, direct, 4, surfaces, 1
+        pixels, paths, direct, 4, surfaces, 1, sampling, UInt32(1)
     )
     var ray = Rayf32[.WORLD](
         Point3f32[.WORLD](0.0), Vec3f32[.WORLD](0.0, 0.0, -1.0), 0.001, 10.0
@@ -1552,7 +1562,14 @@ def test_direct_light_packet_matches_scalar_for_mixed_materials() raises:
     )
     for lane in range(3):
         var evaluated = evaluate_bsdf(
-            ids[lane], surfaces, ray, point, Vec3f32[.WORLD](0.0, 0.0, 1.0)
+            ids[lane],
+            surfaces,
+            ray,
+            point,
+            Vec3f32[.WORLD](0.0, 0.0, 1.0),
+            estimator_seed=path_stage_seed(
+                sampling, paths.path_ids[lane], UInt32(1)
+            ),
         )
         var light_pdf = Float32(0.4)
         var scale = light_pdf / (
@@ -1698,6 +1715,9 @@ def test_textured_coated_packet_scattering_matches_scalar() raises:
                 batch.uv_v[lane],
             ),
             rng,
+            estimator_seed=path_stage_seed(
+                sampling, batch.path_ids[lane], UInt32(1)
+            ),
         )
         assert_equal(packet.ok[lane], scalar.ok[0])
         assert_almost_equal(packet.paths.dx[lane], scalar.direction.x[0])

@@ -25,6 +25,7 @@ from .scheduler_mode import CpuSchedulerMode
 from bajo.rt.common import (
     environment_radiance,
     path_stage_rng,
+    path_stage_seed,
     russian_roulette,
 )
 from bajo.rt.rays import make_ao_ray, spawn_surface_ray
@@ -112,6 +113,11 @@ def _trace_path[
                 )
                 radiance += throughput * emission * emission_weight
                 return radiance
+            var estimator_seed = UInt32(0)
+            if hit.surface.kind() == .COATED_DIFFUSE:
+                estimator_seed = path_stage_seed(
+                    sampling, path_id, wavefront_rng_stage(UInt32(_bounce))
+                )
             comptime if Integrator.uses_direct_lighting[integrator]:
                 var light_rng = path_stage_rng(
                     sampling,
@@ -119,7 +125,13 @@ def _trace_path[
                     wavefront_rng_light_stage(UInt32(_bounce)),
                 )
                 var direct = sample_direct_lighting[integrator](
-                    hit.surface, world, cur_ray, point, light_rng, medium_id
+                    hit.surface,
+                    world,
+                    cur_ray,
+                    point,
+                    light_rng,
+                    medium_id,
+                    estimator_seed,
                 )
                 radiance += throughput * direct
             var bsdf_rng = path_stage_rng(
@@ -133,6 +145,7 @@ def _trace_path[
                 cur_ray,
                 point,
                 bsdf_rng,
+                estimator_seed,
             )
             if not scattered.ok:
                 return radiance

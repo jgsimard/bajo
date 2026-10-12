@@ -34,6 +34,7 @@ from ..scene import CpuScene
 from bajo.rt.common import (
     environment_radiance,
     path_stage_rng,
+    path_stage_seed,
     russian_roulette,
 )
 from bajo.rt.lighting import _direct_light_scale
@@ -52,6 +53,7 @@ from bajo.rt.wavefront_queue import (
 )
 from bajo.rt.wavefront_contract import (
     wavefront_rng_light_stage,
+    wavefront_rng_stage,
     wavefront_rng_material_stage,
 )
 
@@ -183,6 +185,8 @@ def _accumulate_direct_light_packet[
     lane_count: Int,
     surfaces: SurfaceStore,
     samples_per_pixel: Int,
+    sampling: SamplingConfig,
+    stage: UInt32,
 ):
     """Evaluate collected NEE candidates with packet-wide BSDF and MIS math."""
     comptime assert Integrator.uses_direct_lighting[integrator]
@@ -192,6 +196,7 @@ def _accumulate_direct_light_packet[
         paths.dx, paths.dy, paths.dz
     )
     var material = _MaterialParameters[length]()
+    var estimator_seeds = SIMD[.uint32, length](0)
     for lane in range(lane_count):
         if lights.sample.valid[lane]:
             var kind = MaterialKind(lights.surface_kinds[lane])
@@ -208,6 +213,10 @@ def _accumulate_direct_light_packet[
                         lights.point.uv_v[lane],
                         lane,
                     )
+            if kind == .COATED_DIFFUSE:
+                estimator_seeds[lane] = path_stage_seed(
+                    sampling, paths.path_ids[lane], stage
+                )
 
     var lambertian = _evaluate_material[.LAMBERTIAN, length](
         ray_direction,
@@ -240,6 +249,7 @@ def _accumulate_direct_light_packet[
         material.conductor_eta,
         material.conductor_k,
         material.conductor_alpha,
+        estimator_seed=estimator_seeds,
     )
     var is_lambertian = lights.surface_kinds.eq(MaterialKind.LAMBERTIAN.value)
     var is_metal = lights.surface_kinds.eq(MaterialKind.METAL.value)
@@ -286,11 +296,16 @@ def _sample_bsdf_batch[
     )
     var normal = Vec3[.float32, .WORLD, length](batch.nx, batch.ny, batch.nz)
     var material = _MaterialParameters[length]()
+    var estimator_seeds = SIMD[.uint32, length](0)
     var random_u = SIMD[.float32, length](0.0)
     var random_v = SIMD[.float32, length](0.0)
     var active = SIMD[.bool, length](fill=False)
     for lane in range(lane_count):
         active[lane] = True
+        comptime if MATERIAL_KIND == .COATED_DIFFUSE:
+            estimator_seeds[lane] = path_stage_seed(
+                sampling, batch.path_ids[lane], stage
+            )
         material.gather_lane[MATERIAL_KIND](
             surfaces,
             batch.surface_indices[lane],
@@ -340,6 +355,7 @@ def _sample_bsdf_batch[
             material.conductor_eta,
             material.conductor_k,
             material.conductor_alpha,
+            estimator_seed=estimator_seeds,
         )
     else:
         sampled = _sample_material[MATERIAL_KIND, length](
@@ -689,6 +705,8 @@ def _trace_path_packets[
                     lane_count,
                     world.scene_data().surfaces(),
                     settings.samples_per_pixel,
+                    sampling,
+                    wavefront_rng_stage(UInt32(bounce)),
                 )
             _accumulate_environment_packet[
                 length,

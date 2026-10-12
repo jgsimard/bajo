@@ -316,6 +316,7 @@ def sample_direct_lighting[
     point: ShadingPoint[1],
     mut rng: Rng,
     medium_id: UInt32 = 0,
+    estimator_seed: UInt32 = 0,
 ) -> Color:
     """Sample direct illumination and apply the scalar reference BSDF."""
     comptime assert Integrator.uses_direct_lighting[integrator]
@@ -333,6 +334,7 @@ def sample_direct_lighting[
         incoming_ray,
         point,
         light.direction,
+        estimator_seed,
     )
     var scale = _direct_light_scale[integrator, 1](
         light.surface_cosine,

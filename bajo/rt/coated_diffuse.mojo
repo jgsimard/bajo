@@ -4,6 +4,8 @@ The coating is sampled as a real dielectric interface.  Paths transmitted
 through it bounce between the substrate and the coat until they
 leave the layer or Russian roulette terminates them.  Evaluation and PDF use
 the corresponding Monte Carlo estimators from PBRT's LayeredBxDF.
+Renderers supply an integer estimator seed shared by value/PDF evaluation and
+continuation. Standalone calls use the deterministic zero-seed default.
 """
 
 from std.math import abs, cos, exp, log, pi, sin, sqrt
@@ -75,18 +77,6 @@ def _sample_seed(u: Float32, v: Float32) -> UInt32:
         ^ (bitcast[.uint32](v) * UInt32(0x85EBCA6B))
         ^ UInt32(0xC2B2AE35)
     )
-
-
-@always_inline
-def _direction_seed(
-    wo: Vec3[.float32, .WORLD], wi: Vec3[.float32, .WORLD]
-) -> UInt32:
-    var seed = bitcast[.uint32](wo.x[0])
-    seed = _mix_bits(seed ^ bitcast[.uint32](wo.y[0]))
-    seed = _mix_bits(seed ^ bitcast[.uint32](wo.z[0]))
-    seed = _mix_bits(seed ^ bitcast[.uint32](wi.x[0]))
-    seed = _mix_bits(seed ^ bitcast[.uint32](wi.y[0]))
-    return _mix_bits(seed ^ bitcast[.uint32](wi.z[0]))
 
 
 @always_inline
@@ -870,6 +860,7 @@ def _evaluate_coated_diffuse_scalar(
     conductor_eta: Vec3[.float32, .WORLD] = Vec3[.float32, .WORLD](0.0),
     conductor_k: Vec3[.float32, .WORLD] = Vec3[.float32, .WORLD](0.0),
     conductor_alpha: Float32 = 0.0,
+    estimator_seed: UInt32 = 0,
 ) -> BsdfEvaluation[1]:
     var tangent, bitangent = _basis(normal)
     var wo = _to_local(-normalize(ray_direction), tangent, bitangent, normal)
@@ -890,7 +881,9 @@ def _evaluate_coated_diffuse_scalar(
             _substrate_pdf(wo, wi, conductor_eta, conductor_alpha, conductor_k),
             conductor_alpha < 1.0e-3,
         )
-    var seed = _direction_seed(wo, wi)
+    # Evaluation and continuation use the same per-hit estimator stream.
+    # Direction rounding must affect only the integrand, never random draws.
+    var seed = estimator_seed
     var safe_thickness = max(thickness, Float32(1.0e-20))
     var value = _evaluate_layered(
         wo,
@@ -939,6 +932,7 @@ def _sample_coated_diffuse_scalar(
     conductor_eta: Vec3[.float32, .WORLD] = Vec3[.float32, .WORLD](0.0),
     conductor_k: Vec3[.float32, .WORLD] = Vec3[.float32, .WORLD](0.0),
     conductor_alpha: Float32 = 0.0,
+    estimator_seed: UInt32 = 0,
 ) -> BsdfSample[1]:
     var tangent, bitangent = _basis(normal)
     var wo = _to_local(-normalize(ray_direction), tangent, bitangent, normal)
@@ -996,7 +990,7 @@ def _sample_coated_diffuse_scalar(
                 roughness,
                 eta,
                 n_samples,
-                _direction_seed(wo, interface_sample.direction),
+                estimator_seed,
                 conductor_eta,
                 conductor_k,
                 conductor_alpha,
@@ -1068,7 +1062,7 @@ def _sample_coated_diffuse_scalar(
                         roughness,
                         eta,
                         n_samples,
-                        _direction_seed(wo, w),
+                        estimator_seed,
                         conductor_eta,
                         conductor_k,
                         conductor_alpha,
@@ -1118,6 +1112,7 @@ def _evaluate_coated_diffuse[
         .float32, .WORLD, length
     ](0.0),
     conductor_alpha: SIMD[.float32, length] = 0.0,
+    estimator_seed: SIMD[.uint32, length] = 0,
 ) -> BsdfEvaluation[length]:
     var result = BsdfEvaluation[length](
         Vec3[.float32, .WORLD, length](0.0),
@@ -1164,6 +1159,7 @@ def _evaluate_coated_diffuse[
                 conductor_k.x[lane], conductor_k.y[lane], conductor_k.z[lane]
             ),
             conductor_alpha[lane],
+            estimator_seed[lane],
         )
         result.value.x[lane] = evaluated.value.x[0]
         result.value.y[lane] = evaluated.value.y[0]
@@ -1197,6 +1193,7 @@ def _sample_coated_diffuse[
         .float32, .WORLD, length
     ](0.0),
     conductor_alpha: SIMD[.float32, length] = 0.0,
+    estimator_seed: SIMD[.uint32, length] = 0,
 ) -> BsdfSample[length]:
     var result = BsdfSample[length](
         normal,
@@ -1242,6 +1239,7 @@ def _sample_coated_diffuse[
                 conductor_k.x[lane], conductor_k.y[lane], conductor_k.z[lane]
             ),
             conductor_alpha[lane],
+            estimator_seed[lane],
         )
         result.direction.x[lane] = sampled.direction.x[0]
         result.direction.y[lane] = sampled.direction.y[0]

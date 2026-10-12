@@ -28,6 +28,7 @@ def evaluate_bsdf(
     ray: Rayf32[.WORLD],
     hit: ShadingPoint[1],
     out_direction: Vec3f32[.WORLD],
+    estimator_seed: UInt32 = 0,
 ) -> BsdfEvaluation[1]:
     """Evaluate the non-delta BSDF and its solid-angle sampling PDF."""
     __match surface.kind():
@@ -68,6 +69,7 @@ def evaluate_bsdf(
                 conductor_alpha=surfaces.sample_conductor_roughness(
                     surface, hit.uv_u[0], hit.uv_v[0]
                 ),
+                estimator_seed=estimator_seed,
             )
 
         case .DIELECTRIC:
@@ -95,6 +97,7 @@ def evaluate_bsdf(
                 ray,
                 hit,
                 out_direction,
+                estimator_seed,
             )
             var second = evaluate_bsdf(
                 SurfaceId.from_raw(surfaces.mix_surfaces[2 * index + 1]),
@@ -102,6 +105,7 @@ def evaluate_bsdf(
                 ray,
                 hit,
                 out_direction,
+                estimator_seed,
             )
             var amount = surfaces.sample_mix_amount(
                 index, hit.uv_u[0], hit.uv_v[0]
@@ -119,6 +123,7 @@ def sample_bsdf(
     ray: Rayf32[.WORLD],
     hit: ShadingPoint[1],
     mut rng: Rng,
+    estimator_seed: UInt32 = 0,
 ) -> BsdfSample[1]:
     __match surface.kind():
         case .LAMBERTIAN:
@@ -172,6 +177,7 @@ def sample_bsdf(
                 conductor_alpha=surfaces.sample_conductor_roughness(
                     surface, hit.uv_u[0], hit.uv_v[0]
                 ),
+                estimator_seed=estimator_seed,
             )
 
         case .DIELECTRIC:
@@ -216,13 +222,20 @@ def sample_bsdf(
             var selected = SurfaceId.from_raw(
                 surfaces.mix_surfaces[2 * index + (1 if choose_second else 0)]
             )
-            var sampled = sample_bsdf(selected, surfaces, ray, hit, rng)
+            var sampled = sample_bsdf(
+                selected, surfaces, ray, hit, rng, estimator_seed
+            )
             if sampled.ok[0]:
                 if sampled.delta[0]:
                     sampled.pdf *= amount if choose_second else (1.0 - amount)
                 else:
                     var evaluated = evaluate_bsdf(
-                        surface, surfaces, ray, hit, sampled.direction
+                        surface,
+                        surfaces,
+                        ray,
+                        hit,
+                        sampled.direction,
+                        estimator_seed,
                     )
                     sampled.pdf = evaluated.pdf
                     sampled.weight = evaluated.value * (

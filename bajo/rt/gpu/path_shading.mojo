@@ -5,7 +5,7 @@ from max.gpu import block_dim, global_idx, grid_dim
 from std.math import ceildiv, sqrt
 from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.core import Point3f32, Vec3f32, dot, normalize
-from bajo.rt.common import path_stage_rng, russian_roulette
+from bajo.rt.common import path_stage_rng, path_stage_seed, russian_roulette
 from bajo.rt.lighting import (
     _emissive_hit_light_pdf,
     _emissive_hit_weight_from_pdf,
@@ -23,7 +23,6 @@ from bajo.rt.wavefront_contract import (
     WaveSampleFloatAbi,
     load_device_wave_shade,
     store_device_wave_shade,
-    wavefront_plane_index,
     wavefront_rng_stage,
 )
 from bajo.rt.gpu.common_kernels import (
@@ -47,6 +46,7 @@ from bajo.rt.gpu.wavefront_contract import (
     store_gpu_rt_path,
     store_gpu_rt_shadow,
 )
+from bajo.rt.gpu.queue_layout import gpu_rt_shade_tile, gpu_rt_radiance_tile
 from bajo.rt.gpu.materials import GpuRtMaterials
 from bajo.rt.gpu.material_layout import (
     GpuRgbMaterialLayout,
@@ -75,15 +75,10 @@ def _accumulate_sample(
     value: Color,
 ):
     var idx = Int(path_id - sample_base)
-    sample_radiance[
-        unsafe_offset=wavefront_plane_index(WaveSampleFloatAbi.R, capacity, idx)
-    ] += value.x
-    sample_radiance[
-        unsafe_offset=wavefront_plane_index(WaveSampleFloatAbi.G, capacity, idx)
-    ] += value.y
-    sample_radiance[
-        unsafe_offset=wavefront_plane_index(WaveSampleFloatAbi.B, capacity, idx)
-    ] += value.z
+    var radiance = gpu_rt_radiance_tile(sample_radiance, capacity)
+    radiance[(WaveSampleFloatAbi.R, idx)] += value.x
+    radiance[(WaveSampleFloatAbi.G, idx)] += value.y
+    radiance[(WaveSampleFloatAbi.B, idx)] += value.z
 
 
 @always_inline
@@ -309,6 +304,9 @@ def _shade_coated_diffuse_inline[
         conductor_eta=coated.conductor_eta,
         conductor_k=coated.conductor_k,
         conductor_alpha=coated.conductor_roughness,
+        estimator_seed=path_stage_seed(
+            sampling, path.path_id, wavefront_rng_stage(bounce)
+        ),
     )
     _continue_gpu_path[integrator](
         path,
@@ -444,51 +442,18 @@ def _route_surface_hit[
                 capacity,
             )
             if slot >= 0:
-                shade_fields[
-                    unsafe_offset=wavefront_plane_index(
-                        GPU_SHADE_U, capacity, slot
-                    )
-                ] = uv_u
-                shade_fields[
-                    unsafe_offset=wavefront_plane_index(
-                        GPU_SHADE_V, capacity, slot
-                    )
-                ] = uv_v
-                shade_fields[
-                    unsafe_offset=wavefront_plane_index(
-                        GPU_SHADE_BOUNDARY, capacity, slot
-                    )
-                ] = bitcast[.float32](medium_boundary)
-                shade_fields[
-                    unsafe_offset=wavefront_plane_index(
-                        GPU_SHADE_GNX, capacity, slot
-                    )
-                ] = geometric_normal.x
-                shade_fields[
-                    unsafe_offset=wavefront_plane_index(
-                        GPU_SHADE_GNY, capacity, slot
-                    )
-                ] = geometric_normal.y
-                shade_fields[
-                    unsafe_offset=wavefront_plane_index(
-                        GPU_SHADE_GNZ, capacity, slot
-                    )
-                ] = geometric_normal.z
-                shade_fields[
-                    unsafe_offset=wavefront_plane_index(
-                        GPU_SHADE_TX, capacity, slot
-                    )
-                ] = path.tx
-                shade_fields[
-                    unsafe_offset=wavefront_plane_index(
-                        GPU_SHADE_TY, capacity, slot
-                    )
-                ] = path.ty
-                shade_fields[
-                    unsafe_offset=wavefront_plane_index(
-                        GPU_SHADE_TZ, capacity, slot
-                    )
-                ] = path.tz
+                var shade_tile = gpu_rt_shade_tile(shade_fields, capacity)
+                shade_tile[(GPU_SHADE_U, slot)] = uv_u
+                shade_tile[(GPU_SHADE_V, slot)] = uv_v
+                shade_tile[(GPU_SHADE_BOUNDARY, slot)] = bitcast[.float32](
+                    medium_boundary
+                )
+                shade_tile[(GPU_SHADE_GNX, slot)] = geometric_normal.x
+                shade_tile[(GPU_SHADE_GNY, slot)] = geometric_normal.y
+                shade_tile[(GPU_SHADE_GNZ, slot)] = geometric_normal.z
+                shade_tile[(GPU_SHADE_TX, slot)] = path.tx
+                shade_tile[(GPU_SHADE_TY, slot)] = path.ty
+                shade_tile[(GPU_SHADE_TZ, slot)] = path.tz
 
 
 @always_inline
@@ -512,6 +477,7 @@ def _gpu_rt_shade_one[
 ):
     comptime assert MaterialKind.has_bsdf[MATERIAL_KIND]
     var capacity = Int(capacity_i32)
+    var shade_tile = gpu_rt_shade_tile(shade_fields, capacity)
     var work = load_device_wave_shade(
         shade_path_refs,
         shade_surfaces,
@@ -522,15 +488,9 @@ def _gpu_rt_shade_one[
     var path = load_gpu_rt_path[integrator](
         src_path_ids, src_path_fields, capacity, Int(work.path_idx)
     )
-    path.tx = shade_fields[
-        unsafe_offset=wavefront_plane_index(GPU_SHADE_TX, capacity, idx)
-    ]
-    path.ty = shade_fields[
-        unsafe_offset=wavefront_plane_index(GPU_SHADE_TY, capacity, idx)
-    ]
-    path.tz = shade_fields[
-        unsafe_offset=wavefront_plane_index(GPU_SHADE_TZ, capacity, idx)
-    ]
+    path.tx = shade_tile[(GPU_SHADE_TX, idx)]
+    path.ty = shade_tile[(GPU_SHADE_TY, idx)]
+    path.tz = shade_tile[(GPU_SHADE_TZ, idx)]
     var ray_direction = Vec3f32[.WORLD](path.dx, path.dy, path.dz)
     var normal = Vec3f32[.WORLD](work.nx, work.ny, work.nz)
     var albedo = Color(0.0)
@@ -578,23 +538,11 @@ def _gpu_rt_shade_one[
         random_u,
         random_v,
     )
-    var boundary = bitcast[.uint32](
-        shade_fields[
-            unsafe_offset=wavefront_plane_index(
-                GPU_SHADE_BOUNDARY, capacity, idx
-            )
-        ]
-    )
+    var boundary = bitcast[.uint32](shade_tile[(GPU_SHADE_BOUNDARY, idx)])
     var geometric = Vec3f32[.WORLD](
-        shade_fields[
-            unsafe_offset=wavefront_plane_index(GPU_SHADE_GNX, capacity, idx)
-        ],
-        shade_fields[
-            unsafe_offset=wavefront_plane_index(GPU_SHADE_GNY, capacity, idx)
-        ],
-        shade_fields[
-            unsafe_offset=wavefront_plane_index(GPU_SHADE_GNZ, capacity, idx)
-        ],
+        shade_tile[(GPU_SHADE_GNX, idx)],
+        shade_tile[(GPU_SHADE_GNY, idx)],
+        shade_tile[(GPU_SHADE_GNZ, idx)],
     )
     if boundary != 0 and dot(sampled.direction, geometric) < 0.0:
         path.medium_id = transmitted_medium(boundary, work.front_face)

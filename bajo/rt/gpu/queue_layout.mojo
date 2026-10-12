@@ -9,6 +9,7 @@ from bajo.rt.wavefront_contract import (
     WavePathFloatAbi,
     WaveShadeFloatAbi,
     WaveShadowFloatAbi,
+    WaveSampleFloatAbi,
 )
 
 # Deferred coatings retain hit UVs after traversal. The shared CPU ABI remains
@@ -39,6 +40,10 @@ comptime GpuRtShadeTile[origin: Origin] = GpuRtFieldTile[
 ]
 comptime GpuRtShadowTile[origin: Origin] = GpuRtFieldTile[
     WaveShadowFloatAbi.PLANES, origin
+]
+
+comptime GpuRtRadianceTile[origin: Origin] = GpuRtFieldTile[
+    WaveSampleFloatAbi.PLANES, origin
 ]
 
 
@@ -73,6 +78,13 @@ def gpu_rt_shadow_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtShadowTile[origin]:
     return gpu_rt_field_tile[WaveShadowFloatAbi.PLANES](fields, capacity)
+
+
+@always_inline
+def gpu_rt_radiance_tile[
+    mut: Bool, origin: Origin[mut=mut], //
+](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtRadianceTile[origin]:
+    return gpu_rt_field_tile[WaveSampleFloatAbi.PLANES](fields, capacity)
 
 
 comptime GpuRtRecordLayout[stride: Int] = type_of(

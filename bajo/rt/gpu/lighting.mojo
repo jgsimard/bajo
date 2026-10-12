@@ -8,6 +8,7 @@ from bajo.core.random import random_unit_vector
 from bajo.rt.common import (
     equal_area_square_to_sphere,
     path_stage_rng,
+    path_stage_seed,
     sky_color,
 )
 from bajo.rt.lighting import (
@@ -26,7 +27,11 @@ from bajo.rt.render_types import Color, SamplingConfig
 from bajo.rt.material_types import EnvironmentKind, Integrator, SurfaceId
 from bajo.rt.lighting_types import _light_importance
 from bajo.rt.scene_data import SceneData
-from bajo.rt.wavefront_contract import DeviceWavePath, wavefront_rng_light_stage
+from bajo.rt.wavefront_contract import (
+    DeviceWavePath,
+    wavefront_rng_light_stage,
+    wavefront_rng_stage,
+)
 from bajo.rt.gpu.upload import _upload_nonempty
 from bajo.rt.gpu.material_layout import (
     GpuMetalLayout,
@@ -444,6 +449,9 @@ def _sample_direct_light_candidate[
                     conductor_eta=coated.conductor_eta,
                     conductor_k=coated.conductor_k,
                     conductor_alpha=coated.conductor_roughness,
+                    estimator_seed=path_stage_seed(
+                        sampling, path.path_id, wavefront_rng_stage(bounce)
+                    ),
                 )
                 value = evaluation.value
                 bsdf_pdf = evaluation.pdf

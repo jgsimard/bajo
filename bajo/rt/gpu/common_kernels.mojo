@@ -1,8 +1,6 @@
 """Geometry-independent GPU RT kernels."""
 
 from max.gpu import global_idx
-from layout import TileTensor, Coord, Idx
-from layout.tile_layout import row_major
 
 from bajo.bvh import Camera
 from bajo.core.random import random_in_unit_disk
@@ -13,8 +11,8 @@ from bajo.rt.material_types import Integrator
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
     WaveSampleFloatAbi,
-    wavefront_plane_index,
 )
+from bajo.rt.gpu.queue_layout import gpu_rt_radiance_tile
 from bajo.rt.gpu.wavefront_contract import store_gpu_rt_path
 
 
@@ -91,15 +89,10 @@ def clear_gpu_rt_sample(
     capacity: Int,
     idx: Int,
 ):
-    sample_radiance[
-        unsafe_offset=wavefront_plane_index(WaveSampleFloatAbi.R, capacity, idx)
-    ] = 0.0
-    sample_radiance[
-        unsafe_offset=wavefront_plane_index(WaveSampleFloatAbi.G, capacity, idx)
-    ] = 0.0
-    sample_radiance[
-        unsafe_offset=wavefront_plane_index(WaveSampleFloatAbi.B, capacity, idx)
-    ] = 0.0
+    var radiance = gpu_rt_radiance_tile(sample_radiance, capacity)
+    radiance[(WaveSampleFloatAbi.R, idx)] = 0.0
+    radiance[(WaveSampleFloatAbi.G, idx)] = 0.0
+    radiance[(WaveSampleFloatAbi.B, idx)] = 0.0
 
 
 def gpu_rt_primary_kernel[
@@ -160,16 +153,19 @@ def gpu_rt_resolve_kernel(
     var green = Float32(0.0)
     var blue = Float32(0.0)
     var sample_begin = pixel_idx * samples_per_pixel
+    var radiance = gpu_rt_radiance_tile(sample_radiance, sample_capacity)
     if samples_per_pixel % 4 == 0 and sample_capacity % 4 == 0:
-        var radiance = TileTensor(
-            Span(unsafe_ptr=sample_radiance, length=3 * sample_capacity),
-            row_major(Coord(Idx[3], sample_capacity)),
-        )
         var sample_idx = sample_begin
         while sample_idx < sample_begin + samples_per_pixel:
-            var r = radiance.load[width=4, alignment=16]((0, sample_idx))
-            var g = radiance.load[width=4, alignment=16]((1, sample_idx))
-            var b = radiance.load[width=4, alignment=16]((2, sample_idx))
+            var r = radiance.load[width=4, alignment=16](
+                (WaveSampleFloatAbi.R, sample_idx)
+            )
+            var g = radiance.load[width=4, alignment=16](
+                (WaveSampleFloatAbi.G, sample_idx)
+            )
+            var b = radiance.load[width=4, alignment=16](
+                (WaveSampleFloatAbi.B, sample_idx)
+            )
             # Retain the original summation order while grouping memory reads.
             comptime for lane in range(4):
                 red += r[lane]
@@ -178,21 +174,9 @@ def gpu_rt_resolve_kernel(
             sample_idx += 4
     else:
         for sample_idx in range(sample_begin, sample_begin + samples_per_pixel):
-            red += sample_radiance[
-                unsafe_offset=wavefront_plane_index(
-                    WaveSampleFloatAbi.R, sample_capacity, sample_idx
-                )
-            ]
-            green += sample_radiance[
-                unsafe_offset=wavefront_plane_index(
-                    WaveSampleFloatAbi.G, sample_capacity, sample_idx
-                )
-            ]
-            blue += sample_radiance[
-                unsafe_offset=wavefront_plane_index(
-                    WaveSampleFloatAbi.B, sample_capacity, sample_idx
-                )
-            ]
+            red += radiance[(WaveSampleFloatAbi.R, sample_idx)]
+            green += radiance[(WaveSampleFloatAbi.G, sample_idx)]
+            blue += radiance[(WaveSampleFloatAbi.B, sample_idx)]
     var scale = Float32(1.0) / Float32(samples_per_pixel)
     var output_idx = pixel_base + pixel_idx
     pixels[unsafe_offset=3 * output_idx + 0] = red * scale

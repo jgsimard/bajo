@@ -181,5 +181,57 @@ def test_coated_packet_sampling_skips_inactive_lanes() raises:
             assert_almost_equal(masked.weight.z[lane], 0.0)
 
 
+def test_coated_sampling_and_evaluation_share_estimator_seed() raises:
+    var incoming = Vec3f32[.WORLD](0.1, -0.2, -1.0)
+    var normal = Vec3f32[.WORLD](0.0, 0.0, 1.0)
+    var eta = Vec3f32[.WORLD](1.2, 0.95, 0.65)
+    var k = Vec3f32[.WORLD](7.3, 6.7, 5.6)
+    var successes = 0
+    for i in range(32):
+        var seed = UInt32(i * 73 + 19)
+        var sampled = _sample_coated_diffuse(
+            incoming,
+            normal,
+            Vec3f32[.WORLD](0.7),
+            0.2,
+            1.5,
+            0.01,
+            Vec3f32[.WORLD](0.0),
+            0.0,
+            16.0,
+            4.0,
+            Float32(i) / 32.0,
+            Float32((i * 13) % 32) / 32.0,
+            conductor_eta=eta,
+            conductor_k=k,
+            conductor_alpha=0.2,
+            estimator_seed=seed,
+        )
+        if not sampled.ok[0] or sampled.delta[0]:
+            continue
+        successes += 1
+        var evaluated = _evaluate_coated_diffuse(
+            incoming,
+            normal,
+            Vec3f32[.WORLD](0.7),
+            0.2,
+            1.5,
+            0.01,
+            Vec3f32[.WORLD](0.0),
+            0.0,
+            16.0,
+            4.0,
+            sampled.direction,
+            conductor_eta=eta,
+            conductor_k=k,
+            conductor_alpha=0.2,
+            estimator_seed=seed,
+        )
+        assert_almost_equal(
+            sampled.pdf[0], evaluated.pdf[0], atol=1.0e-5, rtol=1.0e-5
+        )
+    assert_true(successes > 16)
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

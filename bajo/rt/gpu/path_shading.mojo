@@ -2,16 +2,20 @@
 
 from std.memory import bitcast
 from max.gpu import block_dim, global_idx, grid_dim
-from std.math import ceildiv, sqrt
+from std.math import ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
-from bajo.core import Point3f32, Vec3f32, dot, normalize
+from bajo.core import Point3f32, Vec3f32
 from bajo.rt.common import path_stage_rng, path_stage_seed
 from bajo.rt.continuation import finish_continuation, continuation_medium
 from bajo.rt.lighting import (
     _emissive_hit_light_pdf,
     _emissive_hit_weight_from_pdf,
 )
-from bajo.rt.shading import _sample_coated_diffuse, _sample_material
+from bajo.rt.shading import (
+    _sample_coated_diffuse,
+    _sample_material,
+    dielectric_geometry,
+)
 from bajo.rt.render_types import Color, SamplingConfig
 from bajo.rt.material_types import MaterialKind, Integrator, SurfaceId
 from bajo.rt.wavefront_contract import (
@@ -493,10 +497,8 @@ def _gpu_rt_shade_one[
                 + GpuDielectricLayout.ETA
             ]
             var ri = Float32(1.0) / parameter if work.front_face else parameter
-            var unit_direction = normalize(ray_direction)
-            var cos_theta = min(dot(-unit_direction, normal), 1.0)
-            var sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0))
-            if ri * sin_theta <= 1.0:
+            var geometry = dielectric_geometry(ray_direction, normal, ri)
+            if geometry[2] <= 1.0:
                 random_u = rng.f32()
 
     var sampled = _sample_material[MATERIAL_KIND, 1](

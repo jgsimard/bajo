@@ -60,6 +60,46 @@ def _scale_from_exponent(exponent: UInt32) -> Float32:
 
 
 @always_inline
+def _cwbvh_axis_scale(lower: Float32, upper: Float32) -> Tuple[UInt32, Float32]:
+    """Choose a power-of-two grid whose decoded upper endpoint encloses bounds.
+    """
+    var exponent = _power_of_two_scale_exponent(upper - lower)
+    var scale = _scale_from_exponent(exponent)
+    if fma(Float32(255), scale, lower) < upper and exponent < UInt32(254):
+        exponent += 1
+        scale = _scale_from_exponent(exponent)
+    return (exponent, scale)
+
+
+@always_inline
+def _store_cwbvh_header(
+    nodes: MutPointer[Float32, _],
+    base: Int,
+    x: Float32,
+    y: Float32,
+    z: Float32,
+    exponent_x: UInt32,
+    exponent_y: UInt32,
+    exponent_z: UInt32,
+    internal_mask: UInt32,
+    child_base: UInt32,
+    triangle_base: UInt32,
+):
+    nodes[unsafe_offset=base + CWBVH_PX] = x
+    nodes[unsafe_offset=base + CWBVH_PY] = y
+    nodes[unsafe_offset=base + CWBVH_PZ] = z
+    var words = nodes.unsafe_bitcast[UInt32]()
+    words[unsafe_offset=base + CWBVH_EXP_IMASK] = (
+        exponent_x
+        | (exponent_y << UInt32(8))
+        | (exponent_z << UInt32(16))
+        | (internal_mask << UInt32(24))
+    )
+    words[unsafe_offset=base + CWBVH_CHILD_BASE] = child_base
+    words[unsafe_offset=base + CWBVH_TRIANGLE_BASE] = triangle_base
+
+
+@always_inline
 def _inverse_scale_from_exponent(exponent: UInt32) -> Float32:
     # Reciprocal of 2**(exponent - 127); exponent 254 is subnormal.
     if exponent == UInt32(254):
@@ -185,35 +225,30 @@ def _encode_cwbvh8_node[
     var triangle_base = Atomic.fetch_add[ordering=Ordering.RELAXED](
         triangle_counter, leaf_triangle_count
     )
-    var exponent_x = _power_of_two_scale_exponent(hi_x - lo_x)
-    var exponent_y = _power_of_two_scale_exponent(hi_y - lo_y)
-    var exponent_z = _power_of_two_scale_exponent(hi_z - lo_z)
-    var scale_x = _scale_from_exponent(exponent_x)
-    var scale_y = _scale_from_exponent(exponent_y)
-    var scale_z = _scale_from_exponent(exponent_z)
-    if fma(Float32(255), scale_x, lo_x) < hi_x and exponent_x < UInt32(254):
-        exponent_x += 1
-        scale_x = _scale_from_exponent(exponent_x)
-    if fma(Float32(255), scale_y, lo_y) < hi_y and exponent_y < UInt32(254):
-        exponent_y += 1
-        scale_y = _scale_from_exponent(exponent_y)
-    if fma(Float32(255), scale_z, lo_z) < hi_z and exponent_z < UInt32(254):
-        exponent_z += 1
-        scale_z = _scale_from_exponent(exponent_z)
-
+    var x_axis = _cwbvh_axis_scale(lo_x, hi_x)
+    var y_axis = _cwbvh_axis_scale(lo_y, hi_y)
+    var z_axis = _cwbvh_axis_scale(lo_z, hi_z)
+    var exponent_x = x_axis[0]
+    var exponent_y = y_axis[0]
+    var exponent_z = z_axis[0]
+    var scale_x = x_axis[1]
+    var scale_y = y_axis[1]
+    var scale_z = z_axis[1]
     var base = node_idx_i * CWBVH_NODE_WORDS
-    cwbvh_nodes[unsafe_offset=base + CWBVH_PX] = lo_x
-    cwbvh_nodes[unsafe_offset=base + CWBVH_PY] = lo_y
-    cwbvh_nodes[unsafe_offset=base + CWBVH_PZ] = lo_z
-    var cwbvh_u32 = cwbvh_nodes.unsafe_bitcast[UInt32]()
-    cwbvh_u32[unsafe_offset=base + CWBVH_EXP_IMASK] = (
-        exponent_x
-        | (exponent_y << UInt32(8))
-        | (exponent_z << UInt32(16))
-        | (imask << UInt32(24))
+    _store_cwbvh_header(
+        cwbvh_nodes,
+        base,
+        lo_x,
+        lo_y,
+        lo_z,
+        exponent_x,
+        exponent_y,
+        exponent_z,
+        imask,
+        child_base,
+        triangle_base,
     )
-    cwbvh_u32[unsafe_offset=base + CWBVH_CHILD_BASE] = child_base
-    cwbvh_u32[unsafe_offset=base + CWBVH_TRIANGLE_BASE] = triangle_base
+    var cwbvh_u32 = cwbvh_nodes.unsafe_bitcast[UInt32]()
 
     var leaf_offset = UInt32(0)
     var meta_bytes = SIMD[.uint8, CWBVH_WIDTH](0)

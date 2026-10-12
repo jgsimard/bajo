@@ -63,42 +63,14 @@ def load_gpu_rt_path[
     idx: Int,
 ) -> DeviceWavePath:
     """Load only the path planes consumed by one compile-time integrator."""
-    var path_tile = gpu_rt_path_tile(fields, capacity)
     comptime assert integrator.is_valid()
-    var packed_path_id = path_ids[unsafe_offset=idx]
-    var tx = Float32(1.0)
-    var ty = Float32(1.0)
-    var tz = Float32(1.0)
-    comptime if Integrator.is_path_tracing[integrator]:
-        tx = path_tile[(WavePathFloatAbi.TX, idx)]
-        ty = path_tile[(WavePathFloatAbi.TY, idx)]
-        tz = path_tile[(WavePathFloatAbi.TZ, idx)]
-    var bsdf_pdf = Float32(0.0)
-    comptime if integrator == .MIS:
-        bsdf_pdf = path_tile[(WavePathFloatAbi.BSDF_PDF, idx)]
-    var medium_id = UInt32(0)
-    comptime if Integrator.is_path_tracing[integrator]:
-        medium_id = bitcast[.uint32](path_tile[(WavePathFloatAbi.MEDIUM, idx)])
-    var delta = True
-    comptime if Integrator.uses_direct_lighting[integrator]:
-        delta = (packed_path_id & WAVE_PATH_DELTA_BIT) != 0
-    return DeviceWavePath(
-        packed_path_id & WAVE_PATH_ID_MASK,
-        path_tile[(WavePathFloatAbi.OX, idx)],
-        path_tile[(WavePathFloatAbi.OY, idx)],
-        path_tile[(WavePathFloatAbi.OZ, idx)],
-        RT_RAY_T_MIN,
-        path_tile[(WavePathFloatAbi.DX, idx)],
-        path_tile[(WavePathFloatAbi.DY, idx)],
-        path_tile[(WavePathFloatAbi.DZ, idx)],
-        f32_max,
-        tx,
-        ty,
-        tz,
-        bsdf_pdf,
-        delta,
-        medium_id,
-    )
+    return load_device_wave_path[
+        False,
+        Integrator.is_path_tracing[integrator],
+        integrator == .MIS,
+        Integrator.is_path_tracing[integrator],
+        Integrator.uses_direct_lighting[integrator],
+    ](path_ids, fields, capacity, idx)
 
 
 @always_inline

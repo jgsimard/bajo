@@ -14,7 +14,7 @@ from bajo.rt.shading_types import (
 )
 
 
-comptime BSDF_INV_PI = 1.0 / pi
+comptime INV_PI = 1.0 / pi
 
 
 @always_inline
@@ -27,8 +27,8 @@ def _evaluate_lambertian[
 ) -> BsdfEvaluation[length]:
     var cosine = max(dot(normal, normalize(out_direction)), 0.0)
     return BsdfEvaluation[length](
-        albedo * BSDF_INV_PI,
-        cosine * BSDF_INV_PI,
+        albedo * INV_PI,
+        cosine * INV_PI,
         SIMD[.bool, length](fill=False),
     )
 
@@ -174,6 +174,26 @@ def _sample_metal[
 
 
 @always_inline
+def dielectric_geometry[
+    length: SIMDLength
+](
+    direction: Vec3[.float32, .WORLD, length],
+    normal: Vec3[.float32, .WORLD, length],
+    relative_eta: SIMD[.float32, length],
+) -> Tuple[
+    Vec3[.float32, .WORLD, length],
+    SIMD[.float32, length],
+    SIMD[.float32, length],
+]:
+    """Shared refraction geometry for BSDF sampling and its conditional RNG draw.
+    """
+    var unit_direction = normalize(direction)
+    var cos_theta = min(dot(-unit_direction, normal), 1.0)
+    var sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0))
+    return (unit_direction, cos_theta, relative_eta * sin_theta)
+
+
+@always_inline
 def _sample_dielectric[
     length: SIMDLength
 ](
@@ -186,10 +206,10 @@ def _sample_dielectric[
     var ri = front_face.select(
         Float32(1.0) / refraction_index, refraction_index
     )
-    var unit_direction = normalize(ray_direction)
-    var cos_theta = min(dot(-unit_direction, normal), 1.0)
-    var sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0))
-    var cannot_refract = (ri * sin_theta).gt(1.0)
+    var geometry = dielectric_geometry(ray_direction, normal, ri)
+    var unit_direction = geometry[0]
+    var cos_theta = geometry[1]
+    var cannot_refract = geometry[2].gt(1.0)
     var reflection_probability = reflectance(cos_theta, ri)
     var reflect_sample = cannot_refract | reflection_probability.gt(
         reflect_random

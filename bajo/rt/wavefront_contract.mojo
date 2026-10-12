@@ -6,6 +6,10 @@ from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.rt.render_types import Color
 from bajo.rt.path_values import PathFloatField as WavePathFloatAbi, PathValues
+from bajo.rt.path_store import store_path_values
+from bajo.rt.tensor_layout import rt_field_tile
+from bajo.rt.rays import RT_RAY_T_MIN
+from bajo.bvh.constants import f32_max
 from bajo.rt.material_types import SurfaceId
 from bajo.rt.shading_types import SurfaceHit
 from bajo.rt.wavefront_queue import (
@@ -367,151 +371,87 @@ struct DeviceWaveShadow(DevicePassable, TrivialRegisterPassable, Writable):
 
 
 @always_inline
-def load_device_wave_path(
-    path_ids: Pointer[UInt32, ImmutAnyOrigin],
-    fields: Pointer[Float32, ImmutAnyOrigin],
+def load_device_wave_path[
+    LOAD_BOUNDS: Bool = True,
+    LOAD_THROUGHPUT: Bool = True,
+    LOAD_PDF: Bool = True,
+    LOAD_MEDIUM: Bool = True,
+    LOAD_DELTA: Bool = True,
+](
+    path_ids: ImmPointer[UInt32, _],
+    fields: ImmPointer[Float32, _],
     capacity: Int,
     idx: Int,
 ) -> DeviceWavePath:
-    var packed_path_id = path_ids[unsafe_offset=idx]
+    """Decode host/device planes, reconstructing fields absent from RT stages.
+    """
+    var tile = rt_field_tile[.float32, WavePathFloatAbi.PLANES](
+        fields, capacity
+    )
+    var packed_id = path_ids[unsafe_offset=idx]
+    var t_min = RT_RAY_T_MIN
+    var t_max = f32_max
+    comptime if LOAD_BOUNDS:
+        t_min = tile[(WavePathFloatAbi.T_MIN, idx)]
+        t_max = tile[(WavePathFloatAbi.T_MAX, idx)]
+    var tx = Float32(1.0)
+    var ty = Float32(1.0)
+    var tz = Float32(1.0)
+    comptime if LOAD_THROUGHPUT:
+        tx = tile[(WavePathFloatAbi.TX, idx)]
+        ty = tile[(WavePathFloatAbi.TY, idx)]
+        tz = tile[(WavePathFloatAbi.TZ, idx)]
+    var pdf = Float32(0.0)
+    comptime if LOAD_PDF:
+        pdf = tile[(WavePathFloatAbi.BSDF_PDF, idx)]
+    var medium = UInt32(0)
+    comptime if LOAD_MEDIUM:
+        medium = bitcast[.uint32](tile[(WavePathFloatAbi.MEDIUM, idx)])
+    var delta = True
+    comptime if LOAD_DELTA:
+        delta = (packed_id & WAVE_PATH_DELTA_BIT) != 0
     return DeviceWavePath(
-        packed_path_id & WAVE_PATH_ID_MASK,
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.OX, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.OY, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.OZ, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.T_MIN, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.DX, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.DY, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.DZ, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.T_MAX, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.TX, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.TY, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.TZ, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.BSDF_PDF, capacity, idx
-            )
-        ],
-        (packed_path_id & WAVE_PATH_DELTA_BIT) != 0,
-        bitcast[.uint32](
-            fields[
-                unsafe_offset=wavefront_plane_index(
-                    WavePathFloatAbi.MEDIUM, capacity, idx
-                )
-            ]
-        ),
+        packed_id & WAVE_PATH_ID_MASK,
+        tile[(WavePathFloatAbi.OX, idx)],
+        tile[(WavePathFloatAbi.OY, idx)],
+        tile[(WavePathFloatAbi.OZ, idx)],
+        t_min,
+        tile[(WavePathFloatAbi.DX, idx)],
+        tile[(WavePathFloatAbi.DY, idx)],
+        tile[(WavePathFloatAbi.DZ, idx)],
+        t_max,
+        tx,
+        ty,
+        tz,
+        pdf,
+        delta,
+        medium,
     )
 
 
 @always_inline
 def store_device_wave_path(
     path: DeviceWavePath,
-    path_ids: Pointer[UInt32, MutAnyOrigin],
-    fields: Pointer[Float32, MutAnyOrigin],
+    path_ids: MutPointer[UInt32, _],
+    fields: MutPointer[Float32, _],
     capacity: Int,
     idx: Int,
 ):
+    var tile = rt_field_tile[.float32, WavePathFloatAbi.PLANES](
+        fields, capacity
+    )
     path_ids[unsafe_offset=idx] = (path.path_id & WAVE_PATH_ID_MASK) | (
         WAVE_PATH_DELTA_BIT if path.delta else UInt32(0)
     )
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.OX, capacity, idx)
-    ] = path.ox
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.OY, capacity, idx)
-    ] = path.oy
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.OZ, capacity, idx)
-    ] = path.oz
-    fields[
-        unsafe_offset=wavefront_plane_index(
-            WavePathFloatAbi.T_MIN, capacity, idx
-        )
-    ] = path.t_min
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.DX, capacity, idx)
-    ] = path.dx
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.DY, capacity, idx)
-    ] = path.dy
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.DZ, capacity, idx)
-    ] = path.dz
-    fields[
-        unsafe_offset=wavefront_plane_index(
-            WavePathFloatAbi.T_MAX, capacity, idx
-        )
-    ] = path.t_max
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.TX, capacity, idx)
-    ] = path.tx
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.TY, capacity, idx)
-    ] = path.ty
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.TZ, capacity, idx)
-    ] = path.tz
-    fields[
-        unsafe_offset=wavefront_plane_index(
-            WavePathFloatAbi.BSDF_PDF, capacity, idx
-        )
-    ] = path.bsdf_pdf
-    fields[
-        unsafe_offset=wavefront_plane_index(
-            WavePathFloatAbi.MEDIUM, capacity, idx
-        )
-    ] = bitcast[.float32](path.medium_id)
+    store_path_values(tile, path, idx)
+    tile[(WavePathFloatAbi.MEDIUM, idx)] = bitcast[.float32](path.medium_id)
 
 
 @always_inline
 def load_device_wave_shade(
-    path_refs: Pointer[UInt32, ImmutAnyOrigin],
-    surface_values: Pointer[UInt32, ImmutAnyOrigin],
-    fields: Pointer[Float32, ImmutAnyOrigin],
+    path_refs: ImmPointer[UInt32, _],
+    surface_values: ImmPointer[UInt32, _],
+    fields: ImmPointer[Float32, _],
     capacity: Int,
     idx: Int,
 ) -> DeviceWaveShade:
@@ -546,9 +486,9 @@ def load_device_wave_shade(
 @always_inline
 def store_device_wave_shade(
     work: DeviceWaveShade,
-    path_refs: Pointer[UInt32, MutAnyOrigin],
-    surface_values: Pointer[UInt32, MutAnyOrigin],
-    fields: Pointer[Float32, MutAnyOrigin],
+    path_refs: MutPointer[UInt32, _],
+    surface_values: MutPointer[UInt32, _],
+    fields: MutPointer[Float32, _],
     capacity: Int,
     idx: Int,
 ):
@@ -605,105 +545,23 @@ struct PackedWavePathQueue(Sized):
         debug_assert["safe", _use_compiler_assume=True](
             idx >= 0 and idx < self.capacity
         )
-        self.path_ids[idx] = (path.path_id & WAVE_PATH_ID_MASK) | (
-            WAVE_PATH_DELTA_BIT if path.delta else UInt32(0)
+        store_device_wave_path(
+            path,
+            self.path_ids.unsafe_ptr(),
+            self.fields.unsafe_ptr(),
+            self.capacity,
+            idx,
         )
-        self.fields[
-            wavefront_plane_index(WavePathFloatAbi.OX, self.capacity, idx)
-        ] = path.ox
-        self.fields[
-            wavefront_plane_index(WavePathFloatAbi.OY, self.capacity, idx)
-        ] = path.oy
-        self.fields[
-            wavefront_plane_index(WavePathFloatAbi.OZ, self.capacity, idx)
-        ] = path.oz
-        self.fields[
-            wavefront_plane_index(WavePathFloatAbi.T_MIN, self.capacity, idx)
-        ] = path.t_min
-        self.fields[
-            wavefront_plane_index(WavePathFloatAbi.DX, self.capacity, idx)
-        ] = path.dx
-        self.fields[
-            wavefront_plane_index(WavePathFloatAbi.DY, self.capacity, idx)
-        ] = path.dy
-        self.fields[
-            wavefront_plane_index(WavePathFloatAbi.DZ, self.capacity, idx)
-        ] = path.dz
-        self.fields[
-            wavefront_plane_index(WavePathFloatAbi.T_MAX, self.capacity, idx)
-        ] = path.t_max
-        self.fields[
-            wavefront_plane_index(WavePathFloatAbi.TX, self.capacity, idx)
-        ] = path.tx
-        self.fields[
-            wavefront_plane_index(WavePathFloatAbi.TY, self.capacity, idx)
-        ] = path.ty
-        self.fields[
-            wavefront_plane_index(WavePathFloatAbi.TZ, self.capacity, idx)
-        ] = path.tz
-        self.fields[
-            wavefront_plane_index(WavePathFloatAbi.BSDF_PDF, self.capacity, idx)
-        ] = path.bsdf_pdf
-        self.fields[
-            wavefront_plane_index(WavePathFloatAbi.MEDIUM, self.capacity, idx)
-        ] = bitcast[.float32](path.medium_id)
 
     def get(self, idx: Int) -> WavePath:
         debug_assert["safe", _use_compiler_assume=True](
             idx >= 0 and idx < self.count
         )
-        return DeviceWavePath(
-            self.path_ids[idx] & WAVE_PATH_ID_MASK,
-            self.fields[
-                wavefront_plane_index(WavePathFloatAbi.OX, self.capacity, idx)
-            ],
-            self.fields[
-                wavefront_plane_index(WavePathFloatAbi.OY, self.capacity, idx)
-            ],
-            self.fields[
-                wavefront_plane_index(WavePathFloatAbi.OZ, self.capacity, idx)
-            ],
-            self.fields[
-                wavefront_plane_index(
-                    WavePathFloatAbi.T_MIN, self.capacity, idx
-                )
-            ],
-            self.fields[
-                wavefront_plane_index(WavePathFloatAbi.DX, self.capacity, idx)
-            ],
-            self.fields[
-                wavefront_plane_index(WavePathFloatAbi.DY, self.capacity, idx)
-            ],
-            self.fields[
-                wavefront_plane_index(WavePathFloatAbi.DZ, self.capacity, idx)
-            ],
-            self.fields[
-                wavefront_plane_index(
-                    WavePathFloatAbi.T_MAX, self.capacity, idx
-                )
-            ],
-            self.fields[
-                wavefront_plane_index(WavePathFloatAbi.TX, self.capacity, idx)
-            ],
-            self.fields[
-                wavefront_plane_index(WavePathFloatAbi.TY, self.capacity, idx)
-            ],
-            self.fields[
-                wavefront_plane_index(WavePathFloatAbi.TZ, self.capacity, idx)
-            ],
-            self.fields[
-                wavefront_plane_index(
-                    WavePathFloatAbi.BSDF_PDF, self.capacity, idx
-                )
-            ],
-            (self.path_ids[idx] & WAVE_PATH_DELTA_BIT) != 0,
-            bitcast[.uint32](
-                self.fields[
-                    wavefront_plane_index(
-                        WavePathFloatAbi.MEDIUM, self.capacity, idx
-                    )
-                ]
-            ),
+        return load_device_wave_path(
+            self.path_ids.unsafe_ptr(),
+            self.fields.unsafe_ptr(),
+            self.capacity,
+            idx,
         ).to_path()
 
 
@@ -736,55 +594,26 @@ struct PackedWaveShadeQueue(Sized):
         debug_assert["safe", _use_compiler_assume=True](
             self.count < self.capacity, "packed shade queue overflow"
         )
-        var record = DeviceWaveShade.from_work(work)
-        var path_ref = record.path_idx
-        if record.front_face:
-            path_ref |= FRONT_FACE_BIT
-        self.path_refs[self.count] = path_ref
-        self.surface_values[self.count] = record.surface_value
-        self.fields[
-            wavefront_plane_index(
-                WaveShadeFloatAbi.NX, self.capacity, self.count
-            )
-        ] = record.nx
-        self.fields[
-            wavefront_plane_index(
-                WaveShadeFloatAbi.NY, self.capacity, self.count
-            )
-        ] = record.ny
-        self.fields[
-            wavefront_plane_index(
-                WaveShadeFloatAbi.NZ, self.capacity, self.count
-            )
-        ] = record.nz
-        self.fields[
-            wavefront_plane_index(
-                WaveShadeFloatAbi.T, self.capacity, self.count
-            )
-        ] = record.t
+        store_device_wave_shade(
+            DeviceWaveShade.from_work(work),
+            self.path_refs.unsafe_ptr(),
+            self.surface_values.unsafe_ptr(),
+            self.fields.unsafe_ptr(),
+            self.capacity,
+            self.count,
+        )
         self.count += 1
 
     def get(self, idx: Int) -> WaveShade:
         debug_assert["safe", _use_compiler_assume=True](
             idx >= 0 and idx < self.count
         )
-        var path_ref = self.path_refs[idx]
-        return DeviceWaveShade(
-            path_ref & PATH_INDEX_MASK,
-            self.fields[
-                wavefront_plane_index(WaveShadeFloatAbi.NX, self.capacity, idx)
-            ],
-            self.fields[
-                wavefront_plane_index(WaveShadeFloatAbi.NY, self.capacity, idx)
-            ],
-            self.fields[
-                wavefront_plane_index(WaveShadeFloatAbi.NZ, self.capacity, idx)
-            ],
-            self.surface_values[idx],
-            self.fields[
-                wavefront_plane_index(WaveShadeFloatAbi.T, self.capacity, idx)
-            ],
-            (path_ref & FRONT_FACE_BIT) != 0,
+        return load_device_wave_shade(
+            self.path_refs.unsafe_ptr(),
+            self.surface_values.unsafe_ptr(),
+            self.fields.unsafe_ptr(),
+            self.capacity,
+            idx,
         ).to_work()
 
 

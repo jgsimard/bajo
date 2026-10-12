@@ -146,7 +146,8 @@ def test_direct_cwbvh8_conversion_matches_staged_hits() raises:
             Int32(16),
             Int32(12),
             Float32(1.0) / Float32(12),
-            grid_dim=1,
+            grid_dim=(ray_count + GPU_BOUNDS_BVH_BLOCK_SIZE - 1)
+            // GPU_BOUNDS_BVH_BLOCK_SIZE,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
         ctx.enqueue_function[trace_cwbvh8_camera_kernel[3]](
@@ -159,7 +160,8 @@ def test_direct_cwbvh8_conversion_matches_staged_hits() raises:
             Int32(16),
             Int32(12),
             Float32(1.0) / Float32(12),
-            grid_dim=1,
+            grid_dim=(ray_count + GPU_BOUNDS_BVH_BLOCK_SIZE - 1)
+            // GPU_BOUNDS_BVH_BLOCK_SIZE,
             block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
         )
         ctx.synchronize()

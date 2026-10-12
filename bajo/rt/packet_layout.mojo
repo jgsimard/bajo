@@ -85,6 +85,25 @@ trait TilePacket(Copyable):
 
 
 @always_inline
+def select_packet_lanes[
+    length: SIMDLength, CopyLaneFn: def(Int, Int)
+](
+    mut remaining: UInt64, destination_lane: Int, ref copy_lane: CopyLaneFn
+) -> Tuple[SIMD[.bool, length], Int]:
+    """Consume the next stable mask fragment that fits in a destination packet.
+    """
+    var selected = SIMD[.bool, length](fill=False)
+    var appended = 0
+    while remaining != 0 and destination_lane + appended < length:
+        var source_lane = Int(count_trailing_zeros(remaining))
+        remaining &= remaining - 1
+        selected[source_lane] = True
+        copy_lane(source_lane, destination_lane + appended)
+        appended += 1
+    return (selected, appended)
+
+
+@always_inline
 def append_masked_tile[
     Packet: TilePacket
 ](
@@ -128,15 +147,15 @@ def append_masked_tile[
             if destination_lane == 0:
                 packets.append(Packet())
             ref destination = packets[count / Packet.WIDTH]
-            var selected = SIMD[.bool, Packet.WIDTH](fill=False)
-            var appended = 0
-            while remaining != 0 and destination_lane + appended < Packet.WIDTH:
-                var source_lane = Int(count_trailing_zeros(remaining))
-                remaining &= remaining - 1
-                selected[source_lane] = True
-                destination.copy_metadata_lane(
-                    source, source_lane, destination_lane + appended
-                )
-                appended += 1
-            destination.copy_float_lanes(source, selected, destination_lane)
-            count += appended
+
+            @always_inline
+            def copy_lane(
+                source_lane: Int, target_lane: Int
+            ) {source, mut destination}:
+                destination.copy_metadata_lane(source, source_lane, target_lane)
+
+            var selection = select_packet_lanes[Packet.WIDTH](
+                remaining, destination_lane, copy_lane
+            )
+            destination.copy_float_lanes(source, selection[0], destination_lane)
+            count += selection[1]

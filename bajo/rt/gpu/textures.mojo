@@ -1,8 +1,13 @@
 """Device-safe access to GPU material textures and shading normals."""
 
-from std.math import abs, floor, sqrt
+from std.math import sqrt
+from bajo.rt.texture_math import (
+    image_pixel_offset,
+    texture_luminance,
+    bump_normal,
+)
 from std.memory import bitcast
-from bajo.core import Vec3f32, cross, normalize
+from bajo.core import Vec3f32
 from bajo.rt.render_types import Color
 from bajo.rt.material_types import NO_TEXTURE, SurfaceId
 from bajo.rt.gpu.material_layout import (
@@ -35,11 +40,7 @@ def _sample_gpu_image_texture(
     var height = Int(
         texture_descs[unsafe_offset=desc_base + GpuTextureDescLayout.HEIGHT]
     )
-    var wrapped_u = u - floor(u)
-    var wrapped_v = v - floor(v)
-    var x = min(Int(wrapped_u * Float32(width)), width - 1)
-    var y = min(Int((Float32(1.0) - wrapped_v) * Float32(height)), height - 1)
-    var base = pixel_offset + 3 * (y * width + x)
+    var base = pixel_offset + image_pixel_offset(width, height, u, v)
     return Color(texture_pixels.unsafe_offset(base))
 
 
@@ -198,34 +199,13 @@ def _gpu_bump_normal(
         texture_descs,
         texture_pixels,
     )
-    var value_u0 = (
-        Float32(0.2126) * color_u0.x
-        + Float32(0.7152) * color_u0.y
-        + Float32(0.0722) * color_u0.z
-    )
-    var value_u1 = (
-        Float32(0.2126) * color_u1.x
-        + Float32(0.7152) * color_u1.y
-        + Float32(0.0722) * color_u1.z
-    )
-    var value_v0 = (
-        Float32(0.2126) * color_v0.x
-        + Float32(0.7152) * color_v0.y
-        + Float32(0.0722) * color_v0.z
-    )
-    var value_v1 = (
-        Float32(0.2126) * color_v1.x
-        + Float32(0.7152) * color_v1.y
-        + Float32(0.0722) * color_v1.z
-    )
+    var value_u0 = texture_luminance(color_u0)
+    var value_u1 = texture_luminance(color_u1)
+    var value_v0 = texture_luminance(color_v0)
+    var value_v1 = texture_luminance(color_v1)
     var slope_u = (value_u1 - value_u0) * width * u_scale * scale
     var slope_v = (value_v1 - value_v0) * height * v_scale * scale
-    var helper = Vec3f32[.WORLD](0.0, 1.0, 0.0)
-    if abs(normal.y) > 0.99:
-        helper = Vec3f32[.WORLD](1.0, 0.0, 0.0)
-    var tangent = normalize(cross(helper, normal))
-    var bitangent = cross(normal, tangent)
-    return normalize(normal - tangent * slope_u - bitangent * slope_v)
+    return bump_normal(normal, slope_u, slope_v)
 
 
 @always_inline

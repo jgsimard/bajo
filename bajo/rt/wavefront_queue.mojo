@@ -1,7 +1,6 @@
 """Packet queues and host/device wavefront boundary records."""
 
 from std.collections import Array
-from std.bit import count_trailing_zeros
 from std.memory import pack_bits
 from std.sys.intrinsics import llvm_intrinsic
 from layout import Coord
@@ -14,6 +13,7 @@ from bajo.rt.packet_layout import (
     compact_packet_floats,
     TilePacket,
     append_masked_tile,
+    select_packet_lanes,
 )
 from bajo.core import Rayf32
 from bajo.rt.render_types import Color
@@ -260,31 +260,32 @@ struct PacketPathQueue[length: SIMDLength](Sized):
                 if destination_lane == 0:
                     self.packets.append(PathPacket[Self.length]())
                 ref destination = self.packets[self.count / Self.length]
-                var tile = destination.tile()
-                var selected = SIMD[.bool, Self.length](fill=False)
-                var appended = 0
-                while (
-                    remaining != 0 and destination_lane + appended < Self.length
-                ):
-                    var source_lane = Int(count_trailing_zeros(remaining))
-                    remaining &= remaining - 1
-                    selected[source_lane] = True
-                    var lane = destination_lane + appended
-                    destination.path_ids[lane] = values.path_ids[source_lane]
-                    destination.medium_ids[lane] = values.medium_ids[
+
+                @always_inline
+                def copy_lane(
+                    source_lane: Int, target_lane: Int
+                ) {values, mut destination}:
+                    destination.path_ids[target_lane] = values.path_ids[
                         source_lane
                     ]
-                    destination.deltas[lane] = values.delta[source_lane]
-                    appended += 1
+                    destination.medium_ids[target_lane] = values.medium_ids[
+                        source_lane
+                    ]
+                    destination.deltas[target_lane] = values.delta[source_lane]
+
+                var selection = select_packet_lanes[Self.length](
+                    remaining, destination_lane, copy_lane
+                )
+                var tile = destination.tile()
                 comptime for field in range(PathFloatField.VALUE_PLANES):
                     llvm_intrinsic["llvm.masked.compressstore", NoneType](
                         values.float_field[field](),
                         tile.ptr.unsafe_offset(
                             Int(tile.layout(Coord(field, destination_lane)))
                         ),
-                        selected,
+                        selection[0],
                     )
-                self.count += appended
+                self.count += selection[1]
 
 
 struct ShadePacket[length: SIMDLength](TilePacket):

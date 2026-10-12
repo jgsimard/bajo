@@ -1,9 +1,14 @@
 """Material, texture, environment, and surface storage types."""
 
-from std.math import sqrt, abs, floor
+from std.math import sqrt
+from bajo.rt.texture_math import (
+    image_pixel_offset,
+    texture_luminance,
+    bump_normal,
+)
 from std.utils.numerics import isfinite
 
-from bajo.core import Affine3f32, Vec3f32, cross, normalize
+from bajo.core import Affine3f32, Vec3f32
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.render_types import Color
 
@@ -25,14 +30,7 @@ struct ImageTexture:
     def sample(self, u: Float32, v: Float32) -> Color:
         # PBRT repeats UV image maps. PNG scanlines are top-to-bottom while
         # PBRT's texture coordinate origin is at the lower left.
-        var wrapped_u = u - floor(u)
-        var wrapped_v = v - floor(v)
-        var x = min(Int(wrapped_u * Float32(self.width)), self.width - 1)
-        var y = min(
-            Int((Float32(1.0) - wrapped_v) * Float32(self.height)),
-            self.height - 1,
-        )
-        var base = 3 * (y * self.width + x)
+        var base = image_pixel_offset(self.width, self.height, u, v)
         return Color(
             self.pixels[base],
             self.pixels[base + 1],
@@ -41,11 +39,7 @@ struct ImageTexture:
 
     def sample_scalar(self, u: Float32, v: Float32) -> Float32:
         var color = self.sample(u, v)
-        return (
-            Float32(0.2126) * color.x[0]
-            + Float32(0.7152) * color.y[0]
-            + Float32(0.0722) * color.z[0]
-        )
+        return texture_luminance(color)
 
     def sample_environment(self, u: Float32, v: Float32) -> Color:
         """Nearest lookup in PBRT's top-to-bottom equal-area image domain."""
@@ -802,12 +796,7 @@ struct SurfaceStore:
             * v_scale
             * scale
         )
-        var helper = Vec3f32[.WORLD](0.0, 1.0, 0.0)
-        if abs(normal.y[0]) > 0.99:
-            helper = Vec3f32[.WORLD](1.0, 0.0, 0.0)
-        var tangent = normalize(cross(helper, normal))
-        var bitangent = cross(normal, tangent)
-        return normalize(normal - tangent * slope_u - bitangent * slope_v)
+        return bump_normal(normal, slope_u, slope_v)
 
     def add_lambertian(
         mut self, albedo: Color, texture_index: UInt32 = NO_TEXTURE

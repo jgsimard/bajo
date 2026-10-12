@@ -3,11 +3,10 @@
 from bajo.rt.material_parameters import CoatedParameters
 
 
-from std.math import sqrt
-
-from bajo.core import Vec3f32, dot, normalize, Rayf32
+from bajo.core import Vec3f32, Rayf32, dot
 from bajo.core.random import Rng
 from bajo.rt.shading import (
+    dielectric_geometry,
     _evaluate_coated_diffuse,
     _evaluate_material,
     _sample_coated_diffuse,
@@ -178,11 +177,9 @@ def sample_bsdf(
                 1.0
                 / material.refraction_index if hit.front_face else material.refraction_index
             )
-            var unit_direction = normalize(ray.d)
-            var cos_theta = min(dot(-unit_direction, hit.normal), 1.0)
-            var sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0))
+            var geometry = dielectric_geometry(ray.d, hit.normal, ri)
             var random_u = Float32(0.0)
-            if ri * sin_theta <= 1.0:
+            if geometry[2] <= 1.0:
                 random_u = rng.f32()
             return _sample_material[.DIELECTRIC, 1](
                 ray.d,

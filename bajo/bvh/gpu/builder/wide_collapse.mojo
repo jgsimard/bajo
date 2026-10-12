@@ -1,7 +1,7 @@
 from std.sys.info import is_nvidia_gpu
 from std.atomic import Atomic, Ordering
 from max.gpu import block_idx, global_idx, thread_idx
-from std.math import ceildiv, fma, max, min
+from std.math import ceildiv, max, min
 from std.memory import bitcast, stack_allocation
 from max.gpu.host import DeviceBuffer, DeviceContext
 from max.gpu.memory import AddressSpace
@@ -32,16 +32,10 @@ from bajo.bvh.wide_meta import _pack_wide_meta
 
 from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_NODE_WORDS,
-    CWBVH_PX,
-    CWBVH_PY,
-    CWBVH_PZ,
-    CWBVH_EXP_IMASK,
-    CWBVH_CHILD_BASE,
-    CWBVH_TRIANGLE_BASE,
     CWBVH_META_BASE,
     CWBVH_QUANTIZED_BASE,
-    _power_of_two_scale_exponent,
-    _scale_from_exponent,
+    _cwbvh_axis_scale,
+    _store_cwbvh_header,
     _inverse_scale_from_exponent,
     _quantize_lower,
     _quantize_upper,
@@ -202,35 +196,30 @@ def _write_direct_cwbvh8_node[
     var triangle_base = AtomicU32.fetch_add[ordering=Ordering.RELAXED](
         triangle_counter, triangle_count
     )
-    var exponent_x = _power_of_two_scale_exponent(hi_x - lo_x)
-    var exponent_y = _power_of_two_scale_exponent(hi_y - lo_y)
-    var exponent_z = _power_of_two_scale_exponent(hi_z - lo_z)
-    var scale_x = _scale_from_exponent(exponent_x)
-    var scale_y = _scale_from_exponent(exponent_y)
-    var scale_z = _scale_from_exponent(exponent_z)
-    if fma(Float32(255), scale_x, lo_x) < hi_x and exponent_x < UInt32(254):
-        exponent_x += 1
-        scale_x = _scale_from_exponent(exponent_x)
-    if fma(Float32(255), scale_y, lo_y) < hi_y and exponent_y < UInt32(254):
-        exponent_y += 1
-        scale_y = _scale_from_exponent(exponent_y)
-    if fma(Float32(255), scale_z, lo_z) < hi_z and exponent_z < UInt32(254):
-        exponent_z += 1
-        scale_z = _scale_from_exponent(exponent_z)
-
+    var x_axis = _cwbvh_axis_scale(lo_x, hi_x)
+    var y_axis = _cwbvh_axis_scale(lo_y, hi_y)
+    var z_axis = _cwbvh_axis_scale(lo_z, hi_z)
+    var exponent_x = x_axis[0]
+    var exponent_y = y_axis[0]
+    var exponent_z = z_axis[0]
+    var scale_x = x_axis[1]
+    var scale_y = y_axis[1]
+    var scale_z = z_axis[1]
     var base = Int(out_idx) * CWBVH_NODE_WORDS
-    cwbvh_nodes[unsafe_offset=base + CWBVH_PX] = lo_x
-    cwbvh_nodes[unsafe_offset=base + CWBVH_PY] = lo_y
-    cwbvh_nodes[unsafe_offset=base + CWBVH_PZ] = lo_z
-    var words = cwbvh_nodes.unsafe_bitcast[UInt32]()
-    words[unsafe_offset=base + CWBVH_EXP_IMASK] = (
-        exponent_x
-        | (exponent_y << UInt32(8))
-        | (exponent_z << UInt32(16))
-        | (internal_mask << UInt32(24))
+    _store_cwbvh_header(
+        cwbvh_nodes,
+        base,
+        lo_x,
+        lo_y,
+        lo_z,
+        exponent_x,
+        exponent_y,
+        exponent_z,
+        internal_mask,
+        child_base,
+        triangle_base,
     )
-    words[unsafe_offset=base + CWBVH_CHILD_BASE] = child_base
-    words[unsafe_offset=base + CWBVH_TRIANGLE_BASE] = triangle_base
+    var words = cwbvh_nodes.unsafe_bitcast[UInt32]()
 
     var leaf_offset = UInt32(0)
     var meta_bytes = SIMD[.uint8, 8](0)

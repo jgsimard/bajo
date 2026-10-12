@@ -20,7 +20,6 @@ from bajo.core import (
     Vec3,
     Vec3f32,
     dot,
-    normalize,
 )
 from bajo.rt.render_types import (
     Color,
@@ -49,6 +48,7 @@ from bajo.rt.common import (
 from bajo.rt.lighting import _direct_light_scale
 from bajo.rt.rays import spawn_surface_ray
 from bajo.rt.shading import (
+    dielectric_geometry,
     _evaluate_coated_diffuse,
     _evaluate_material,
     _sample_coated_diffuse,
@@ -329,10 +329,8 @@ def _sample_bsdf_values[
         var ri = batch.front_faces.select(
             Float32(1.0) / material.parameter, material.parameter
         )
-        var unit_direction = normalize(ray_direction)
-        var cos_theta = min(dot(-unit_direction, normal), 1.0)
-        var sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0))
-        var cannot_refract = (ri * sin_theta).gt(1.0)
+        var geometry = dielectric_geometry(ray_direction, normal, ri)
+        var cannot_refract = geometry[2].gt(1.0)
         for lane in range(lane_count):
             if not cannot_refract[lane]:
                 var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)

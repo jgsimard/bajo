@@ -708,7 +708,7 @@ def test_lambertian_scatter_is_explicit() raises:
     assert_false(evaluated.delta)
     assert_true(sampled.pdf > 0.0)
     assert_almost_equal(sampled.pdf, evaluated.pdf)
-    assert_almost_equal(evaluated.value.x, material.albedo.x / 3.14159265)
+    assert_almost_equal(evaluated.value.x, material.albedo.x / pi)
 
 
 def test_metal_scatter_can_absorb() raises:

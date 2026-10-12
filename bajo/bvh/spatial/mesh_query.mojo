@@ -8,7 +8,7 @@ closed surface; open/nonmanifold surfaces do not define a universal inside.
 """
 
 from std.sys.intrinsics import strided_load
-from std.math import abs, sqrt, max, min
+from std.math import abs, sqrt, max, min, pi
 from std.memory import stack_allocation, bitcast
 from std.sys.info import is_gpu
 from std.utils.numerics import isfinite
@@ -35,6 +35,8 @@ from bajo.core.intersect import (
     vector64,
     angle_atan2,
 )
+
+comptime INV_4_PI = 1.0 / (4.0 * pi)
 
 
 @no_inline
@@ -1183,7 +1185,7 @@ struct MeshQueryView[
                         selected_corner = 1
                     elif f2 - e2 > max(f0 + e0, f1 + e1):
                         selected_corner = 2
-                    var selected_distance = Float64(0.0)
+                    var selected_distance: Float64
                     if selected_corner >= 0:
                         var vertex = triangle[0]
                         if selected_corner == 1:
@@ -1710,7 +1712,7 @@ struct MeshQueryView[
                         device_sum,
                         device_compensation,
                     )
-                return device_sum / (4.0 * Float64(3.141592653589793))
+                return device_sum * INV_4_PI
         comptime if width == Self.storage_width:
             if root == 0 and len(self.packed_triangles) > 0:
                 if len(self.winding.offsets) > 2:
@@ -1744,7 +1746,7 @@ struct MeshQueryView[
                         sum,
                         compensation,
                     )
-                return sum.reduce_add() / (4.0 * Float64(3.141592653589793))
+                return sum.reduce_add() * INV_4_PI
         var node = Int(root)
         var end = Int(self.bvh.nodes[node * 2])
         while node < end:
@@ -1778,7 +1780,7 @@ struct MeshQueryView[
             var updated = sum + adjusted
             compensation = (updated - sum) - adjusted
             sum = updated
-        return sum.reduce_add() / (4.0 * Float64(3.141592653589793))
+        return sum.reduce_add() * INV_4_PI
 
     def query_point_sign_winding_number(
         self,

@@ -49,7 +49,7 @@ struct GpuRtPreparedRenderer[
 
     def __init__[
         triangle_build_method: GpuBvhBuildMethod = .HPLOC,
-        tlas_build_method: GpuBvhBuildMethod = .LBVH,
+        tlas_build_method: GpuBvhBuildMethod = .HPLOC,
         blas_build_method: GpuBvhBuildMethod = .HPLOC,
     ](
         out self,

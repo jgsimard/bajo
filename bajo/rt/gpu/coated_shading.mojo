@@ -12,7 +12,6 @@ from bajo.rt.wavefront_contract import (
     DeviceWaveShadow,
     WAVE_COUNTER,
     load_device_wave_shade,
-    wavefront_plane_index,
 )
 from bajo.rt.gpu.common_kernels import (
     GPU_RT_MAX_BLOCKS,
@@ -35,6 +34,7 @@ from bajo.rt.gpu.queue_order import (
     GpuRtQueueOrderScratch,
     gpu_rt_queue_order_enabled,
 )
+from bajo.rt.gpu.queue_layout import gpu_rt_shade_tile
 from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
 from bajo.rt.gpu.wavefront_contract import (
     GPU_SHADE_U,
@@ -62,6 +62,7 @@ def gpu_rt_coated_shade_kernel[
     var fields = queues.shade_fields.unsafe_mut_cast[
         False
     ]().unsafe_origin_cast[ImmutAnyOrigin]()
+    var shade_tile = gpu_rt_shade_tile(fields, capacity)
     var work_count = Int(counters[unsafe_offset=WAVE_COUNTER.SHADE])
     var slot = global_idx.x
     var stride = Int(grid_dim.x * block_dim.x)
@@ -92,15 +93,9 @@ def gpu_rt_coated_shade_kernel[
                 capacity,
                 Int(work.path_idx),
             )
-            path.tx = fields[
-                unsafe_offset=wavefront_plane_index(GPU_SHADE_TX, capacity, idx)
-            ]
-            path.ty = fields[
-                unsafe_offset=wavefront_plane_index(GPU_SHADE_TY, capacity, idx)
-            ]
-            path.tz = fields[
-                unsafe_offset=wavefront_plane_index(GPU_SHADE_TZ, capacity, idx)
-            ]
+            path.tx = shade_tile[(GPU_SHADE_TX, idx)]
+            path.ty = shade_tile[(GPU_SHADE_TY, idx)]
+            path.tz = shade_tile[(GPU_SHADE_TZ, idx)]
             var normal = Vec3f32[.WORLD](work.nx, work.ny, work.nz)
             var ray = Rayf32[.WORLD](
                 Point3f32[.WORLD](path.ox, path.oy, path.oz),
@@ -108,12 +103,8 @@ def gpu_rt_coated_shade_kernel[
                 path.t_min,
                 path.t_max,
             )
-            var uv_u = fields[
-                unsafe_offset=wavefront_plane_index(GPU_SHADE_U, capacity, idx)
-            ]
-            var uv_v = fields[
-                unsafe_offset=wavefront_plane_index(GPU_SHADE_V, capacity, idx)
-            ]
+            var uv_u = shade_tile[(GPU_SHADE_U, idx)]
+            var uv_v = shade_tile[(GPU_SHADE_V, idx)]
             comptime if lighting and Integrator.uses_direct_lighting[
                 integrator
             ]:

@@ -4,6 +4,7 @@ Offsets are in Float32 elements. Texture-table offsets are in UInt32 elements.
 """
 
 from bajo.rt.render_types import Color
+from bajo.rt.gpu.queue_layout import gpu_rt_record_tile
 
 
 struct GpuRgbMaterialLayout:
@@ -83,15 +84,18 @@ def _load_gpu_coated_parameters(
     data: Pointer[Float32, ImmutAnyOrigin], material_idx: Int
 ) -> _GpuCoatedDiffuseParameters:
     var base = material_idx * GpuCoatedDiffuseLayout.STRIDE
+    var records = gpu_rt_record_tile[GpuCoatedDiffuseLayout.STRIDE](
+        data, material_idx + 1
+    )
     return _GpuCoatedDiffuseParameters(
-        data[unsafe_offset=base + GpuCoatedDiffuseLayout.ROUGHNESS],
-        data[unsafe_offset=base + GpuCoatedDiffuseLayout.ETA],
-        data[unsafe_offset=base + GpuCoatedDiffuseLayout.THICKNESS],
+        records[(material_idx, GpuCoatedDiffuseLayout.ROUGHNESS)],
+        records[(material_idx, GpuCoatedDiffuseLayout.ETA)],
+        records[(material_idx, GpuCoatedDiffuseLayout.THICKNESS)],
         Color(data.unsafe_offset(base + GpuCoatedDiffuseLayout.LAYER_ALBEDO)),
-        data[unsafe_offset=base + GpuCoatedDiffuseLayout.G],
-        data[unsafe_offset=base + GpuCoatedDiffuseLayout.MAX_DEPTH],
-        data[unsafe_offset=base + GpuCoatedDiffuseLayout.N_SAMPLES],
+        records[(material_idx, GpuCoatedDiffuseLayout.G)],
+        records[(material_idx, GpuCoatedDiffuseLayout.MAX_DEPTH)],
+        records[(material_idx, GpuCoatedDiffuseLayout.N_SAMPLES)],
         Color(data.unsafe_offset(base + GpuCoatedDiffuseLayout.CONDUCTOR_ETA)),
         Color(data.unsafe_offset(base + GpuCoatedDiffuseLayout.CONDUCTOR_K)),
-        data[unsafe_offset=base + GpuCoatedDiffuseLayout.CONDUCTOR_ROUGHNESS],
+        records[(material_idx, GpuCoatedDiffuseLayout.CONDUCTOR_ROUGHNESS)],
     )

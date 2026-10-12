@@ -6,6 +6,8 @@ from bajo.core import Affine3f32, Point3f32, Vec3f32
 from bajo.bvh.host_utils import compute_bounds
 from bajo.rt import Camera, Color, RenderSettings, SceneBuilder
 from bajo.rt.scene_data import SceneData
+from bajo.rt.wavefront_contract import WavePathFloatAbi, WaveShadowFloatAbi
+from bajo.rt.gpu.queue_layout import GPU_SHADE_PLANES
 from bajo.rt.gpu import (
     GpuRtPreparedRenderer,
     prepare_gpu_scene,
@@ -46,10 +48,17 @@ def test_gpu_scene_target_bounds_and_alignment() raises:
         # The large recommendation is clamped to the full render's 851968 samples.
         assert_equal(large.arena.capacity, 512 * 128 * 13)
         assert_equal(bounded.arena.capacity, 99996)
-        assert_equal(len(small.arena.path_a.fields), 12 * small.arena.capacity)
-        assert_equal(len(large.arena.shade.fields), 6 * large.arena.capacity)
         assert_equal(
-            len(bounded.arena.shadow.fields), 11 * bounded.arena.capacity
+            len(small.arena.path_a.fields),
+            WavePathFloatAbi.PLANES * small.arena.capacity,
+        )
+        assert_equal(
+            len(large.arena.shade.fields),
+            GPU_SHADE_PLANES * large.arena.capacity,
+        )
+        assert_equal(
+            len(bounded.arena.shadow.fields),
+            WaveShadowFloatAbi.PLANES * bounded.arena.capacity,
         )
         var tiny_settings = RenderSettings(2, 3, 17, UInt64(659), 4)
         var tiny = coated_scene.make_render_target(

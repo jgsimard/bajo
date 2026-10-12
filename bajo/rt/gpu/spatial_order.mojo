@@ -2,8 +2,7 @@
 from std.math import ceildiv, max, clamp
 from max.gpu import global_idx, grid_dim, block_dim, lane_id
 from max.gpu.host import DeviceContext
-from layout import TileTensor, Coord, Idx
-from layout.tile_layout import row_major
+from bajo.rt.gpu.queue_layout import gpu_rt_path_tile
 from bajo.rt.wavefront_contract import (
     WAVE_COUNTER,
     WavePathFloatAbi,
@@ -35,13 +34,7 @@ def gpu_rt_spatial_order_rays_kernel[
 ](scene: GpuRtSceneView, queues: GpuRtTraceQueueView):
     var capacity = Int(queues.capacity)
     var active = Int(queues.counters[unsafe_offset=WAVE_COUNTER.ACTIVE])
-    var paths = TileTensor(
-        Span(
-            unsafe_ptr=queues.src_path_fields,
-            length=capacity * WavePathFloatAbi.PLANES,
-        ),
-        row_major(Coord(Idx[WavePathFloatAbi.PLANES], capacity)),
-    )
+    var paths = gpu_rt_path_tile(queues.src_path_fields, capacity)
     var scratch = GpuRtQueueOrderScratch.from_queues(queues)
     var low, high = gpu_rt_order_bounds[
         kind, sphere_format, triangle_format, tlas_format

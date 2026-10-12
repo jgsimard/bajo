@@ -35,18 +35,20 @@ from bajo.rt.wavefront_contract import (
 
 
 comptime WAVEFRONT_CONTRACT_BLOCK_SIZE = 128
-# Deferred coatings retain hit UVs after traversal. The shared CPU ABI remains
-# the four normal/distance planes; these extra planes belong to the GPU arena.
-comptime GPU_SHADE_U = WaveShadeFloatAbi.PLANES
-comptime GPU_SHADE_V = GPU_SHADE_U + 1
-comptime GPU_SHADE_BOUNDARY = GPU_SHADE_V + 1
-comptime GPU_SHADE_GNX = GPU_SHADE_BOUNDARY + 1
-comptime GPU_SHADE_GNY = GPU_SHADE_GNX + 1
-comptime GPU_SHADE_GNZ = GPU_SHADE_GNY + 1
-comptime GPU_SHADE_TX = GPU_SHADE_GNZ + 1
-comptime GPU_SHADE_TY = GPU_SHADE_TX + 1
-comptime GPU_SHADE_TZ = GPU_SHADE_TY + 1
-comptime GPU_SHADE_PLANES = GPU_SHADE_TZ + 1
+from bajo.rt.gpu.queue_layout import (
+    GPU_SHADE_U,
+    GPU_SHADE_V,
+    GPU_SHADE_BOUNDARY,
+    GPU_SHADE_GNX,
+    GPU_SHADE_GNY,
+    GPU_SHADE_GNZ,
+    GPU_SHADE_TX,
+    GPU_SHADE_TY,
+    GPU_SHADE_TZ,
+    GPU_SHADE_PLANES,
+    gpu_rt_path_tile,
+    gpu_rt_shadow_tile,
+)
 
 
 @always_inline
@@ -59,79 +61,34 @@ def load_gpu_rt_path[
     idx: Int,
 ) -> DeviceWavePath:
     """Load only the path planes consumed by one compile-time integrator."""
+    var path_tile = gpu_rt_path_tile(fields, capacity)
     comptime assert integrator.is_valid()
     var packed_path_id = path_ids[unsafe_offset=idx]
     var tx = Float32(1.0)
     var ty = Float32(1.0)
     var tz = Float32(1.0)
     comptime if Integrator.is_path_tracing[integrator]:
-        tx = fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.TX, capacity, idx
-            )
-        ]
-        ty = fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.TY, capacity, idx
-            )
-        ]
-        tz = fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.TZ, capacity, idx
-            )
-        ]
+        tx = path_tile[(WavePathFloatAbi.TX, idx)]
+        ty = path_tile[(WavePathFloatAbi.TY, idx)]
+        tz = path_tile[(WavePathFloatAbi.TZ, idx)]
     var bsdf_pdf = Float32(0.0)
     comptime if integrator == .MIS:
-        bsdf_pdf = fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.BSDF_PDF, capacity, idx
-            )
-        ]
+        bsdf_pdf = path_tile[(WavePathFloatAbi.BSDF_PDF, idx)]
     var medium_id = UInt32(0)
     comptime if Integrator.is_path_tracing[integrator]:
-        medium_id = bitcast[.uint32](
-            fields[
-                unsafe_offset=wavefront_plane_index(
-                    WavePathFloatAbi.MEDIUM, capacity, idx
-                )
-            ]
-        )
+        medium_id = bitcast[.uint32](path_tile[(WavePathFloatAbi.MEDIUM, idx)])
     var delta = True
     comptime if Integrator.uses_direct_lighting[integrator]:
         delta = (packed_path_id & WAVE_PATH_DELTA_BIT) != 0
     return DeviceWavePath(
         packed_path_id & WAVE_PATH_ID_MASK,
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.OX, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.OY, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.OZ, capacity, idx
-            )
-        ],
+        path_tile[(WavePathFloatAbi.OX, idx)],
+        path_tile[(WavePathFloatAbi.OY, idx)],
+        path_tile[(WavePathFloatAbi.OZ, idx)],
         RT_RAY_T_MIN,
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.DX, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.DY, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.DZ, capacity, idx
-            )
-        ],
+        path_tile[(WavePathFloatAbi.DX, idx)],
+        path_tile[(WavePathFloatAbi.DY, idx)],
+        path_tile[(WavePathFloatAbi.DZ, idx)],
         f32_max,
         tx,
         ty,
@@ -153,57 +110,28 @@ def store_gpu_rt_path[
     idx: Int,
 ):
     """Store only the path planes consumed by one compile-time integrator."""
+    var path_tile = gpu_rt_path_tile(fields, capacity)
     comptime assert integrator.is_valid()
     var packed_path_id = path.path_id & WAVE_PATH_ID_MASK
     comptime if Integrator.uses_direct_lighting[integrator]:
         if path.delta:
             packed_path_id |= WAVE_PATH_DELTA_BIT
     path_ids[unsafe_offset=idx] = packed_path_id
-    fields[
-        unsafe_offset=wavefront_plane_index(
-            WavePathFloatAbi.MEDIUM, capacity, idx
-        )
-    ] = bitcast[.float32](path.medium_id)
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.OX, capacity, idx)
-    ] = path.ox
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.OY, capacity, idx)
-    ] = path.oy
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.OZ, capacity, idx)
-    ] = path.oz
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.DX, capacity, idx)
-    ] = path.dx
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.DY, capacity, idx)
-    ] = path.dy
-    fields[
-        unsafe_offset=wavefront_plane_index(WavePathFloatAbi.DZ, capacity, idx)
-    ] = path.dz
+    path_tile[(WavePathFloatAbi.MEDIUM, idx)] = bitcast[.float32](
+        path.medium_id
+    )
+    path_tile[(WavePathFloatAbi.OX, idx)] = path.ox
+    path_tile[(WavePathFloatAbi.OY, idx)] = path.oy
+    path_tile[(WavePathFloatAbi.OZ, idx)] = path.oz
+    path_tile[(WavePathFloatAbi.DX, idx)] = path.dx
+    path_tile[(WavePathFloatAbi.DY, idx)] = path.dy
+    path_tile[(WavePathFloatAbi.DZ, idx)] = path.dz
     comptime if Integrator.is_path_tracing[integrator]:
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.TX, capacity, idx
-            )
-        ] = path.tx
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.TY, capacity, idx
-            )
-        ] = path.ty
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.TZ, capacity, idx
-            )
-        ] = path.tz
+        path_tile[(WavePathFloatAbi.TX, idx)] = path.tx
+        path_tile[(WavePathFloatAbi.TY, idx)] = path.ty
+        path_tile[(WavePathFloatAbi.TZ, idx)] = path.tz
     comptime if integrator == .MIS:
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WavePathFloatAbi.BSDF_PDF, capacity, idx
-            )
-        ] = path.bsdf_pdf
+        path_tile[(WavePathFloatAbi.BSDF_PDF, idx)] = path.bsdf_pdf
 
 
 @always_inline
@@ -216,63 +144,24 @@ def load_gpu_rt_shadow[
     idx: Int,
 ) -> DeviceWaveShadow:
     """Load an RT shadow ray while reconstructing its invariant lower bound."""
+    var shadow_tile = gpu_rt_shadow_tile(fields, capacity)
     var r = Float32(0.0)
     var g = Float32(0.0)
     var b = Float32(0.0)
     comptime if LOAD_CONTRIBUTION:
-        r = fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadowFloatAbi.R, capacity, idx
-            )
-        ]
-        g = fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadowFloatAbi.G, capacity, idx
-            )
-        ]
-        b = fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadowFloatAbi.B, capacity, idx
-            )
-        ]
+        r = shadow_tile[(WaveShadowFloatAbi.R, idx)]
+        g = shadow_tile[(WaveShadowFloatAbi.G, idx)]
+        b = shadow_tile[(WaveShadowFloatAbi.B, idx)]
     return DeviceWaveShadow(
         path_ids[unsafe_offset=idx],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadowFloatAbi.OX, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadowFloatAbi.OY, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadowFloatAbi.OZ, capacity, idx
-            )
-        ],
+        shadow_tile[(WaveShadowFloatAbi.OX, idx)],
+        shadow_tile[(WaveShadowFloatAbi.OY, idx)],
+        shadow_tile[(WaveShadowFloatAbi.OZ, idx)],
         RT_RAY_T_MIN,
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadowFloatAbi.DX, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadowFloatAbi.DY, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadowFloatAbi.DZ, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadowFloatAbi.T_MAX, capacity, idx
-            )
-        ],
+        shadow_tile[(WaveShadowFloatAbi.DX, idx)],
+        shadow_tile[(WaveShadowFloatAbi.DY, idx)],
+        shadow_tile[(WaveShadowFloatAbi.DZ, idx)],
+        shadow_tile[(WaveShadowFloatAbi.T_MAX, idx)],
         r,
         g,
         b,
@@ -290,58 +179,19 @@ def store_gpu_rt_shadow[
     idx: Int,
 ):
     """Store an RT shadow ray without writing its invariant lower bound."""
+    var shadow_tile = gpu_rt_shadow_tile(fields, capacity)
     path_ids[unsafe_offset=idx] = work.path_id
-    fields[
-        unsafe_offset=wavefront_plane_index(
-            WaveShadowFloatAbi.OX, capacity, idx
-        )
-    ] = work.ox
-    fields[
-        unsafe_offset=wavefront_plane_index(
-            WaveShadowFloatAbi.OY, capacity, idx
-        )
-    ] = work.oy
-    fields[
-        unsafe_offset=wavefront_plane_index(
-            WaveShadowFloatAbi.OZ, capacity, idx
-        )
-    ] = work.oz
-    fields[
-        unsafe_offset=wavefront_plane_index(
-            WaveShadowFloatAbi.DX, capacity, idx
-        )
-    ] = work.dx
-    fields[
-        unsafe_offset=wavefront_plane_index(
-            WaveShadowFloatAbi.DY, capacity, idx
-        )
-    ] = work.dy
-    fields[
-        unsafe_offset=wavefront_plane_index(
-            WaveShadowFloatAbi.DZ, capacity, idx
-        )
-    ] = work.dz
-    fields[
-        unsafe_offset=wavefront_plane_index(
-            WaveShadowFloatAbi.T_MAX, capacity, idx
-        )
-    ] = work.t_max
+    shadow_tile[(WaveShadowFloatAbi.OX, idx)] = work.ox
+    shadow_tile[(WaveShadowFloatAbi.OY, idx)] = work.oy
+    shadow_tile[(WaveShadowFloatAbi.OZ, idx)] = work.oz
+    shadow_tile[(WaveShadowFloatAbi.DX, idx)] = work.dx
+    shadow_tile[(WaveShadowFloatAbi.DY, idx)] = work.dy
+    shadow_tile[(WaveShadowFloatAbi.DZ, idx)] = work.dz
+    shadow_tile[(WaveShadowFloatAbi.T_MAX, idx)] = work.t_max
     comptime if STORE_CONTRIBUTION:
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadowFloatAbi.R, capacity, idx
-            )
-        ] = work.r
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadowFloatAbi.G, capacity, idx
-            )
-        ] = work.g
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadowFloatAbi.B, capacity, idx
-            )
-        ] = work.b
+        shadow_tile[(WaveShadowFloatAbi.R, idx)] = work.r
+        shadow_tile[(WaveShadowFloatAbi.G, idx)] = work.g
+        shadow_tile[(WaveShadowFloatAbi.B, idx)] = work.b
 
 
 struct GpuWavePathQueue:

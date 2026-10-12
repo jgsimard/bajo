@@ -199,7 +199,7 @@ def render_gpu_configured[
     tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS2,
     blas_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
     triangle_build_method: GpuBvhBuildMethod = .HPLOC,
-    tlas_build_method: GpuBvhBuildMethod = .LBVH,
+    tlas_build_method: GpuBvhBuildMethod = .HPLOC,
     blas_build_method: GpuBvhBuildMethod = .HPLOC,
 ](
     settings: RenderSettings,

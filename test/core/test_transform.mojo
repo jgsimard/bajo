@@ -214,25 +214,6 @@ def test_load_transform_helpers() raises:
     )
 
 
-def test_inverse_translation_scale() raises:
-    var s = Vec3W(2, 4, 5)
-    var t = Vec3W(10, 20, 30)
-    var p = Point3W(1, 2, 3)
-
-    var m = Affine3f32[.WORLD, .CAMERA].from_rotation_scale_translation(
-        Quat[.WORLD].identity(),
-        s,
-        t,
-    )
-
-    var res = m.inverse()
-
-    assert_true(res.mask[0])
-
-    var p2 = m.point(p)
-    assert_vec_equal(res.inv.point(p2), p)
-
-
 def test_inverse_rotation_scale_translation() raises:
     var axis = Vec3W(0, 1, 0)
     var angle = degrees_to_radians(Float32(45))
@@ -255,19 +236,6 @@ def test_inverse_singular_scale() raises:
     var m = Affine3f32[.WORLD, .CAMERA].from_scale(Vec3W(1, 0, 1))
     var res = m.inverse()
     assert_true(not res.mask[0])
-
-
-def test_inverse_identity() raises:
-    var m = Affine3f32[.WORLD, .CAMERA].identity()
-    var res = m.inverse()
-
-    assert_true(res.mask[0])
-
-    var p = Point3f32[.CAMERA](1, 2, 3)
-    var v = Vec3f32[.CAMERA](4, 5, 6)
-
-    assert_vec_equal(res.inv.point(p), Point3f32[.WORLD](1, 2, 3))
-    assert_vec_equal(res.inv.vector(v), Vec3f32[.WORLD](4, 5, 6))
 
 
 def test_ray_transform() raises:

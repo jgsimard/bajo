@@ -7,7 +7,6 @@ from bajo.bvh.cpu import CpuBlasSet, trace_blas_set
 from bajo.bvh.types import Sphere, Hit
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_sphere
 from bajo.bvh.constants import EMPTY_LANE, f32_max
-from bajo.bvh.host_utils import sphere_bounds
 
 
 def _append_tri[
@@ -84,14 +83,6 @@ def _make_small_sphere_scene[frame: Frame]() -> List[Sphere[frame]]:
         Sphere[frame](Point3f32[frame](4.0, -4.0, 14.0), 1.0),
         Sphere[frame](Point3f32[frame](-4.0, -4.0, 16.0), 1.0),
     ]
-
-
-def _make_small_sphere_scene_with_bounds[
-    frame: Frame
-]() -> Tuple[List[Sphere[frame]], AABB[frame]]:
-    var spheres = _make_small_sphere_scene[frame]()
-    var bounds = sphere_bounds(spheres)
-    return (spheres^, bounds)
 
 
 def _make_single_sphere_scene[frame: Frame]() -> List[Sphere[frame]]:
@@ -250,50 +241,6 @@ def _trace_cpu_triangle_blas[
         if hit.t < f32_max:
             checksum += Float64(hit.t)
     return checksum
-
-
-def _trace_cpu_triangle_camera[
-    width: SIMDLength
-](
-    blases: CpuBlasSet[.TRIANGLE, width],
-    camera: Camera,
-    cwidth: Int,
-    cheight: Int,
-) -> Tuple[Float64, UInt32]:
-    var checksum = Float64(0.0)
-    var hits = UInt32(0)
-
-    for py in range(cheight):
-        for px in range(cwidth):
-            var ray = camera.make_ray(px, py, cwidth, cheight)
-            var hit = trace_blas_set[width, width, .CLOSEST_HIT, .WORLD](
-                blases, UInt32(0), ray
-            )
-            if hit.t < f32_max:
-                checksum += Float64(hit.t)
-                hits += 1
-
-    return (checksum, hits)
-
-
-def _trace_cpu_sphere_camera(
-    spheres: List[Sphere[.WORLD]],
-    camera: Camera,
-    cwidth: Int,
-    cheight: Int,
-) -> Tuple[Float64, UInt32]:
-    var checksum = Float64(0.0)
-    var hits = UInt32(0)
-
-    for py in range(cheight):
-        for px in range(cwidth):
-            var ray = camera.make_ray(px, py, cwidth, cheight)
-            var hit = _brute_sphere_trace(spheres, ray.o, ray.d)
-            if hit.t < f32_max:
-                checksum += Float64(hit.t)
-                hits += 1
-
-    return (checksum, hits)
 
 
 def _trace_cpu_spheres_bruteforce[

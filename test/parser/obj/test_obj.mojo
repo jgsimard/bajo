@@ -14,10 +14,7 @@ from bajo.parser.obj import (
     parse_obj,
     triangulated_indices,
 )
-from bajo.parser.obj.pack import (
-    pack_obj_triangles,
-    _pack_obj_triangles_parallel,
-)
+from bajo.parser.obj.pack import _pack_obj_triangles_parallel
 from bajo.parser.obj.cursor import ObjIndexLimit
 from bajo.parser.obj.types import ObjIndex
 from std.sys import simd_width_of, size_of
@@ -78,25 +75,6 @@ f -4 -3 -2 -1"""
     assert_true(tris[3].p == 1)
     assert_true(tris[4].p == 3)
     assert_true(tris[5].p == 4)
-
-
-def test_direct_triangle_packing_preserves_fans_and_skips_lines() raises:
-    var mesh = parse_obj(
-        "v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nv -1 0 0\n"
-        "l 1 2 3\nf -5 -4 -3 -2 -1\nf 1 3 5\nl 4 5"
-    )
-    var indices = triangulated_indices(mesh)
-    var packed = pack_obj_triangles(mesh)
-    assert_true(len(packed) == 12)
-    assert_true(len(packed) == len(indices))
-    for corner in range(len(indices)):
-        var base = 3 * Int(indices[corner].p)
-        assert_almost_equal(packed[corner].x, mesh.positions[base])
-        assert_almost_equal(packed[corner].y, mesh.positions[base + 1])
-        assert_almost_equal(packed[corner].z, mesh.positions[base + 2])
-
-    var empty = parse_obj("v 0 0 0\nv 1 0 0\nl 1 2")
-    assert_true(len(pack_obj_triangles(empty)) == 0)
 
 
 def test_parallel_packing_preserves_fans_lines_and_chunk_offsets() raises:

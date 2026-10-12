@@ -407,7 +407,7 @@ def _assert_single_segment_morton_sort(size: Int) raises:
         assert_false(Bool(single_workspace.sort))
         assert_false(Bool(composite_workspace.sort32))
         assert_true(Bool(composite_workspace.sort))
-        for repeat in range(2):
+        for _ in range(2):
             enqueue_segmented_morton_codes(ctx, single, single_workspace)
             enqueue_segmented_morton_sort(ctx, single, single_workspace)
             enqueue_segmented_morton_codes(ctx, composite, composite_workspace)

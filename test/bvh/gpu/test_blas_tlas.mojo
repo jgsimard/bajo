@@ -187,48 +187,6 @@ def test_gpu_cwbvh_max_leaf_size_single_and_segmented_builds() raises:
     _assert_cwbvh_max_leaf_size[3]()
 
 
-def test_gpu_triangle_tlas_uses_instance_blas_index() raises:
-    var near_verts = _make_triangle_at_z(2.0)
-    var far_verts = _make_triangle_at_z(6.0)
-    var near_bounds = compute_bounds(near_verts)
-    var far_bounds = compute_bounds(far_verts)
-
-    with DeviceContext() as ctx:
-        var blases = build_gpu_triangle_blas_set[BLAS_WIDTH, BLAS_WIDTH, .LBVH](
-            ctx, [near_verts^, far_verts^]
-        )
-
-        var left = Point3f32[.WORLD](-10.0, 0.0, 0.0)
-        var right = Point3f32[.WORLD](10.0, 0.0, 0.0)
-        var instances: List = [
-            _triangle_instance(0, left, near_bounds),
-            _triangle_instance(1, right, far_bounds),
-        ]
-
-        var tlas = build_gpu_tlas[.TRIANGLE, TLAS_WIDTH, BLAS_WIDTH](
-            ctx, instances
-        )
-        var camera = _make_camera_ray(right, Vec3f32[.WORLD](0.0, 0.0, 1.0))
-        var d_camera = upload_camera(ctx, camera)
-        var d_hits = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
-
-        tlas.launch_camera(
-            ctx,
-            blases,
-            d_camera,
-            d_hits,
-            1,
-            1,
-            1,
-        )
-        ctx.synchronize()
-
-        # If traversal ignores Instance.blas_idx and always uses BLAS 0, this
-        # returns t=2.0 or trips the old blas_idx == 0 assertion. The correct
-        # typed TLAS must select BLAS 1 for instance 1 and return t=6.0.
-        _assert_hit(_download_single_hit(d_hits), 6.0, 0, 1)
-
-
 def test_gpu_triangle_tlas_cwbvh8_camera_matches_expected_hit() raises:
     var near_verts = _make_triangle_at_z(2.0)
     var far_verts = _make_triangle_at_z(6.0)

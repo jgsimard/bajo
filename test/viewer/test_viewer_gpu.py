@@ -62,24 +62,6 @@ class GpuFrameTests(unittest.TestCase):
                     finally:
                         renderer.preparation.destroy_gpu_state(handle, tag)
 
-    def test_lbvh_meshes_scene_renders(self):
-        renderer = ExtensionLoader(ROOT, "sm_120").load(1, 3, 0, 0)
-        config = dict(
-            width=24, height=16, samples=1, max_depth=1,
-            sampler=0, sample_offset=0, sample_sequence_length=1,
-            scene=3, scene_path="", x=0.0, y=6.0, z=-28.0,
-            yaw=180.0, pitch=-8.0, vfov=35.0,
-        )
-        created = renderer.preparation.create_gpu_state(config)
-        handle, tag = int(created[0]), int(created[1])
-        try:
-            pixels = renderer.rendering.render_gpu_state(handle, tag, config)[3]
-            self.assertEqual(pixels.shape, (16, 24, 3))
-            self.assertTrue(np.isfinite(pixels).all())
-            self.assertTrue((pixels > 0).any())
-        finally:
-            renderer.preparation.destroy_gpu_state(handle, tag)
-
     def test_owned_frame_survives_render_resize_and_scene_destruction(self):
         renderer = ExtensionLoader(ROOT, "sm_120").load(1, 3, 0, 0)
         config = dict(

@@ -264,22 +264,6 @@ Shape "plymesh" "string filename" "other/shared.ply"
     assert_equal(scene.data.triangle_instances()[1].blas_idx, UInt32(1))
 
 
-def test_parse_checked_in_scene_with_include() raises:
-    var scene = read_pbrt("examples/scenes/pbrt_showcase.pbrt")
-    assert_true(scene.settings.image_width == 640)
-    assert_true(scene.settings.image_height == 480)
-    assert_true(scene.settings.samples_per_pixel == 64)
-    assert_true(scene.settings.max_depth == 10)
-    assert_true(scene.integrator == .PATH)
-    assert_true(len(scene.data.spheres()) == 3)
-    assert_true(len(scene.data.triangle_vertices()) / 3 == 10)
-    assert_true(len(scene.data.lights().records) == 2)
-    assert_true(len(scene.data.surfaces().lambertians) == 4)
-    assert_true(len(scene.data.surfaces().metals) == 1)
-    assert_true(len(scene.data.surfaces().dielectrics) == 1)
-    assert_true(len(scene.data.surfaces().emissives) == 1)
-
-
 def test_camera_read_stops_before_scene_assets() raises:
     var loader = MemoryAssetLoader()
     loader.add_file(

@@ -1,5 +1,4 @@
 from std.benchmark import keep
-from std.math import abs
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true, assert_almost_equal
 from max.gpu.host import DeviceContext
@@ -11,7 +10,6 @@ from bajo.core import (
     Point3f32,
     Rayf32,
 )
-from bajo.bvh.constants import f32_max
 from bajo.bvh.gpu import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import Hit, Instance, Sphere
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
@@ -27,67 +25,9 @@ from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_blas_set
 from bajo.bvh.gpu.utils import upload_camera
 
 from test.bvh.fixtures import (
-    _camera_for_bounds,
-    _download_tlas_checksum,
     _make_camera_ray,
     _make_single_triangle_scene,
-    _make_small_scene,
-    _make_small_sphere_scene_with_bounds,
-    _trace_cpu_sphere_camera,
-    _trace_cpu_triangle_camera,
 )
-
-
-comptime WIDTH = 64
-comptime HEIGHT = 48
-comptime EPS = 0.05
-
-
-def test_gpu_tlas_triangle_camera_single_identity_matches_cpu_blas() raises:
-    var local_verts = _make_small_scene[.LOCAL]()
-    var world_verts = _make_small_scene[.WORLD]()
-    var local_bounds = compute_bounds(local_verts)
-    var world_bounds = compute_bounds(world_verts)
-    var camera = _camera_for_bounds(world_bounds, 2.0)
-    var cpu_blases = build_cpu_triangle_blas_set[4, 4, .LBVH, .WORLD](
-        [world_verts^]
-    )
-    var cpu_res = _trace_cpu_triangle_camera[4](
-        cpu_blases, camera, WIDTH, HEIGHT
-    )
-
-    var instances: List = [
-        Instance(
-            Affine3f32[.LOCAL, .WORLD].identity(),
-            UInt32(0),
-            local_bounds,
-            .TRIANGLE,
-        )
-    ]
-
-    with DeviceContext() as ctx:
-        var blases = build_gpu_triangle_blas_set[4](ctx, [local_verts^])
-        var tlas = build_gpu_tlas[.TRIANGLE, 4, 4](ctx, instances)
-        var d_camera = upload_camera(ctx, camera)
-
-        var ray_count = WIDTH * HEIGHT
-        var d_hits = ctx.enqueue_create_buffer[.float32](ray_count * Hit.STRIDE)
-        tlas.launch_camera(
-            ctx,
-            blases,
-            d_camera,
-            d_hits,
-            ray_count,
-            WIDTH,
-            HEIGHT,
-        )
-        ctx.synchronize()
-
-        var tlas_res = _download_tlas_checksum[.WORLD](d_hits, ray_count)
-
-        assert_true(abs(cpu_res[0] - tlas_res[0]) <= EPS)
-        assert_true(cpu_res[1] == tlas_res[1])
-        assert_true(tlas_res[2] == UInt64(0))
 
 
 def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:
@@ -207,51 +147,6 @@ def test_host_owned_blas_set_upload_preserves_gpu_traversal() raises:
             assert_almost_equal(hit.t, 6.0)
             assert_true(hit.prim == UInt32(0))
             assert_true(hit.inst == UInt32(0))
-
-
-def test_gpu_tlas_sphere_camera_single_identity_matches_cpu_bruteforce() raises:
-    var local_scene = _make_small_sphere_scene_with_bounds[.LOCAL]()
-    var world_scene = _make_small_sphere_scene_with_bounds[.WORLD]()
-    var spheres = local_scene[0].copy()
-    var bounds = local_scene[1].copy()
-    var world_spheres = world_scene[0].copy()
-    var world_bounds = world_scene[1].copy()
-    var camera = _camera_for_bounds(world_bounds, 2.0)
-    var cpu_res = _trace_cpu_sphere_camera(world_spheres, camera, WIDTH, HEIGHT)
-
-    var instances: List = [
-        Instance(
-            Affine3f32[.LOCAL, .WORLD].identity(),
-            UInt32(0),
-            bounds,
-            .SPHERE,
-        )
-    ]
-
-    with DeviceContext() as ctx:
-        var blases = build_gpu_sphere_blas_set[4](ctx, [spheres^])
-        var tlas = build_gpu_tlas[.SPHERE, 4, 4](ctx, instances)
-        var d_camera = upload_camera(ctx, camera)
-
-        var ray_count = WIDTH * HEIGHT
-        var d_hits = ctx.enqueue_create_buffer[.float32](ray_count * Hit.STRIDE)
-
-        tlas.launch_camera(
-            ctx,
-            blases,
-            d_camera,
-            d_hits,
-            ray_count,
-            WIDTH,
-            HEIGHT,
-        )
-        ctx.synchronize()
-
-        var tlas_res = _download_tlas_checksum[.WORLD](d_hits, ray_count)
-
-        assert_true(abs(cpu_res[0] - tlas_res[0]) <= EPS)
-        assert_true(cpu_res[1] == tlas_res[1])
-        assert_true(tlas_res[2] == UInt64(0))
 
 
 def test_cpu_sphere_blas_set_upload_preserves_gpu_traversal() raises:

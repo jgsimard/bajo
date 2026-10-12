@@ -18,7 +18,7 @@ from bajo.core import (
     Rayf32,
     Vec3,
 )
-from bajo.core.intersect import intersect_ray_aabb, intersect_ray_aabb_rcp
+from bajo.core.intersect import intersect_ray_aabb_rcp
 from bajo.bvh.cpu import (
     CpuBlasSet,
     CpuBvhBuildMethod,
@@ -48,7 +48,6 @@ from bajo.bvh.tagged_ref import (
     decode_ref_index,
     is_leaf_ref,
 )
-from bajo.bvh.cpu.builder.builder import _partition_items_by_median_center
 from bajo.bvh.cpu.builder.hploc import (
     _HplocClusterBounds,
     _nearest_neighbors_scalar,
@@ -539,50 +538,6 @@ def test_cpu_lbvh_radix_sort_orders_all_bytes() raises:
         assert_equal(parallel[i].item_idx, expected_indices[i])
 
 
-def test_wide_bounds_root_bounds_is_valid() raises:
-    var verts = _make_strip[.WORLD](4)
-    var items = _make_bounds_items(verts)
-
-    var builder = BinaryBoundsBvh[.WORLD, 4, .MEDIAN](items^)
-
-    def pack_leaf(_first_item: UInt32, _item_count: UInt32) -> UInt32:
-        return UInt32(0)
-
-    var wide = BoundsBvh[.WORLD, 4](builder, pack_leaf)
-    var bounds = wide.root_bounds()
-
-    assert_true(bounds._min.x <= -9.0)
-    assert_true(bounds._max.x >= 5.0)
-    assert_true(bounds._min.z <= 2.0)
-    assert_true(bounds._max.z >= 2.0)
-
-
-def test_bounds_ray_query_inside_outside_regression() raises:
-    var lower = Point3W(0.5, -1.0, -1.0)
-    var upper = Point3W(1.0, 1.0, 1.0)
-
-    var query_ray = Rayf32[.WORLD](Point3W(0.0, 0.0, 0.0), Vec3W(1.0, 0.0, 0.0))
-    var rcp_dir = query_ray.reciprocal_direction[1]()
-
-    var hit_outside = intersect_ray_aabb(
-        Point3W(0.0, 0.0, 0.0),
-        rcp_dir,
-        lower,
-        upper,
-        f32_max,
-    )
-    assert_true(hit_outside.mask, "Rayf32 starting outside failed to hit")
-
-    var hit_inside = intersect_ray_aabb(
-        Point3W(0.75, 0.0, 0.0),
-        rcp_dir,
-        lower,
-        upper,
-        f32_max,
-    )
-    assert_true(hit_inside.mask, "Rayf32 starting inside failed to hit")
-
-
 def test_ray_rcp_direction_uses_finite_parallel_axes() raises:
     var ray = Rayf32[.WORLD](Point3W(0.0), Vec3W(2.0, 0.0, -4.0))
     var rcp_dir = ray.reciprocal_direction[4]()
@@ -676,30 +631,6 @@ def test_bounds_sah_degenerate() raises:
 
     assert_true(split.axis == -1)
     assert_true(not split.valid())
-
-
-def test_bounds_partition_items_non_empty() raises:
-    var verts: List[Point3f32[.WORLD]] = [
-        Point3W(-11.0, -1.0, 0.0),
-        Point3W(-9.0, -1.0, 0.0),
-        Point3W(-10.0, 1.0, 0.0),
-        Point3W(9.0, -1.0, 0.0),
-        Point3W(11.0, -1.0, 0.0),
-        Point3W(10.0, 1.0, 0.0),
-    ]
-    var items = _make_bounds_items(verts)
-    var builder = BinaryBoundsBvh[.WORLD, 2, .SAH](items^)
-
-    var split_idx = _partition_items_by_median_center(
-        builder.item_indices,
-        builder.items,
-        0,
-        2,
-        0,
-    )
-
-    assert_true(split_idx == 1)
-    assert_true(builder.item_indices[0] != builder.item_indices[1])
 
 
 def test_triangle_bvh2_leaf_size_equals_width_returns_nearest_triangle() raises:

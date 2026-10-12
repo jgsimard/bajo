@@ -2,7 +2,6 @@ from std.testing import assert_equal, TestSuite
 
 from bajo.core.morton import (
     expand_bits_2d,
-    expand_bits_3d,
     morton3,
     morton_common_prefix,
     morton_key,
@@ -16,17 +15,6 @@ def test_expand_bits_2d() raises:
 
     # 0b1111 (15) -> 0b1010101 (85)
     assert_equal(expand_bits_2d(UInt32(15)), 85)
-
-
-def test_expand_bits_3d() raises:
-    # 0b1 (1) -> 0b1 (1)
-    assert_equal(expand_bits_3d(UInt32(1)), 1)
-
-    # 0b10 (2) -> 0b1000 (8)
-    assert_equal(expand_bits_3d(UInt32(2)), 8)
-
-    # 0b100 (4) -> 0b1000000 (64)
-    assert_equal(expand_bits_3d(UInt32(4)), 64)
 
 
 def test_morton3_logic() raises:

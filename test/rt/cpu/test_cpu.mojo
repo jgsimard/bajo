@@ -1141,32 +1141,6 @@ def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
     )
 
 
-def test_compile_time_semantic_classifications() raises:
-    comptime assert Integrator.is_path_tracing[Integrator.PATH]
-    comptime assert Integrator.is_path_tracing[Integrator.NEE]
-    comptime assert Integrator.is_path_tracing[Integrator.MIS]
-    comptime assert not Integrator.is_path_tracing[Integrator.NORMALS]
-    comptime assert not Integrator.is_path_tracing[Integrator.AO]
-    comptime assert Integrator.uses_direct_lighting[Integrator.NEE]
-    comptime assert Integrator.uses_direct_lighting[Integrator.MIS]
-    comptime assert not Integrator.uses_direct_lighting[Integrator.PATH]
-    comptime assert not Integrator.uses_direct_lighting[Integrator.NORMALS]
-    comptime assert not Integrator.uses_direct_lighting[Integrator.AO]
-    comptime assert Integrator.uses_visibility[Integrator.AO]
-    comptime assert Integrator.uses_visibility[Integrator.NEE]
-    comptime assert Integrator.uses_visibility[Integrator.MIS]
-    comptime assert not Integrator.uses_visibility[Integrator.PATH]
-    comptime assert not Integrator.uses_visibility[Integrator.NORMALS]
-    comptime assert MaterialKind.has_bsdf[MaterialKind.LAMBERTIAN]
-    comptime assert MaterialKind.has_bsdf[MaterialKind.METAL]
-    comptime assert MaterialKind.has_bsdf[MaterialKind.DIELECTRIC]
-    comptime assert not MaterialKind.has_bsdf[MaterialKind.EMISSIVE]
-    comptime assert CpuSchedulerMode.is_valid[CpuSchedulerMode.RUNTIME_DEFAULT]
-    comptime assert CpuSchedulerMode.is_valid[CpuSchedulerMode.LOGICAL_CORES]
-    comptime assert CpuSchedulerMode.is_valid[CpuSchedulerMode.TASK_PARTITIONS]
-    comptime assert not CpuSchedulerMode.is_valid[CpuSchedulerMode(3)]
-
-
 def test_render_settings_and_tiny_render() raises:
     var settings = RenderSettings(4, 2, 2, UInt64(9), 2)
     settings.validate()

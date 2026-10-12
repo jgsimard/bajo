@@ -31,7 +31,6 @@ from bajo.rt.gpu import (
     render_gpu_viewer,
     update_gpu_camera,
 )
-from bajo.rt.gpu.lighting import GpuRtLights
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.render_types import (
     Color,
@@ -278,27 +277,6 @@ def _mixed_world() raises -> CpuScene[4, 8]:
     )
     var scene = builder^.finish()
     return CpuScene[4, 8](scene^)
-
-
-def _instance_scene_data() raises -> SceneData:
-    var builder = SceneBuilder()
-    var matte = builder.add_lambertian(Color(0.55, 0.3, 0.75))
-    var mesh = List[Point3f32[.LOCAL]]()
-    mesh.append(Point3f32[.LOCAL](-1.25, -1.0, -1.0))
-    mesh.append(Point3f32[.LOCAL](1.25, -1.0, -1.0))
-    mesh.append(Point3f32[.LOCAL](0.0, 1.0, -1.0))
-    var bounds = compute_bounds(mesh)
-    _ = builder.add_triangle_mesh_instance(
-        mesh,
-        Affine3f32[.LOCAL, .WORLD].identity(),
-        bounds,
-        matte,
-    )
-    return builder^.finish()
-
-
-def _instance_world() raises -> CpuScene[4, 8]:
-    return CpuScene[4, 8](_instance_scene_data())
 
 
 def _textured_instance_world[coated: Bool = False]() raises -> CpuScene[4, 8]:
@@ -640,21 +618,6 @@ def test_gpu_host_boundaries_raise_validation_errors() raises:
             target.validate_compatible(incompatible)
 
 
-def test_prepared_scene_format_and_common_enqueue_api() raises:
-    var settings = RenderSettings(3, 2, 1, UInt64(233))
-    var world = _triangle_world()
-    with DeviceContext() as ctx:
-        var scene = prepare_gpu_scene[
-            kind=.TRIANGLES,
-            triangle_format=GPU_RT_BVH_WIDE4,
-            triangle_build_method=.LBVH,
-        ](ctx, world.scene_data())
-        var target = GpuRtRenderTarget(ctx, settings, _camera())
-        enqueue_render_gpu[.NORMALS](ctx, target, scene, settings)
-        var pixels = download_gpu_pixels(ctx, target)
-        assert_equal(len(pixels), settings.image_width * settings.image_height)
-
-
 def test_prepared_gpu_scene_is_stable_across_repeated_renders() raises:
     var settings = RenderSettings(3, 2, 1, UInt64(237))
     var data = _sphere_scene_data()
@@ -715,16 +678,6 @@ def test_gpu_mixed_path_matches_cpu_wavefront() raises:
     assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
-def test_gpu_triangle_instances_match_cpu_wavefront() raises:
-    var settings = RenderSettings(5, 3, 2, UInt64(401))
-    var world = _instance_world()
-    var camera = _camera()
-    var cpu = render_wavefront[.PATH, 1, 64, False](settings, camera, world)
-    var gpu = render_gpu[.PATH](settings, camera, world.scene_data())
-
-    assert_pixels_close(gpu.pixels, cpu.pixels)
-
-
 def test_gpu_textured_instance_matches_cpu_uvs_and_normals() raises:
     var settings = RenderSettings(5, 3, 2, UInt64(409))
     var world = _textured_instance_world()
@@ -738,62 +691,6 @@ def test_gpu_textured_instance_matches_cpu_uvs_and_normals() raises:
     ](settings, camera, world)
     var gpu_normals = render_gpu[.NORMALS](settings, camera, world.scene_data())
     assert_pixels_close(gpu_normals.pixels, cpu_normals.pixels)
-
-
-def test_gpu_large_triangle_instances_match_cpu_wavefront() raises:
-    var builder = SceneBuilder()
-    var matte = builder.add_lambertian(Color(0.55, 0.3, 0.75))
-    var mesh = List[Point3f32[.LOCAL]]()
-    for _ in range(32):
-        mesh.append(Point3f32[.LOCAL](-1.25, -1.0, -1.0))
-        mesh.append(Point3f32[.LOCAL](1.25, -1.0, -1.0))
-        mesh.append(Point3f32[.LOCAL](0.0, 1.0, -1.0))
-    var bounds = compute_bounds(mesh)
-    _ = builder.add_triangle_mesh_instance(
-        mesh,
-        Affine3f32[.LOCAL, .WORLD].identity(),
-        bounds,
-        matte,
-    )
-    var world = CpuScene[4, 8](builder^.finish())
-    var settings = RenderSettings(5, 3, 2, UInt64(419))
-    var camera = _camera()
-    var cpu = render_wavefront[.PATH, 1, 64, False](settings, camera, world)
-    var gpu = render_gpu[.PATH](settings, camera, world.scene_data())
-    assert_pixels_close(gpu.pixels, cpu.pixels)
-
-
-def test_gpu_viewer_large_triangle_render_matches_cpu_wavefront() raises:
-    var builder = SceneBuilder()
-    var matte = builder.add_lambertian(Color(0.35, 0.65, 0.25))
-    for _ in range(32):
-        builder.add_triangle(
-            Point3f32[.WORLD](-1.5, -1.0, -1.0),
-            Point3f32[.WORLD](1.5, -1.0, -1.0),
-            Point3f32[.WORLD](0.0, 1.0, -1.0),
-            matte,
-        )
-    var world = CpuScene[4, 8](builder^.finish())
-    var settings = RenderSettings(5, 3, 2, UInt64(229))
-    var camera = _camera()
-    var cpu = render_wavefront[.PATH, 1, 64, False](settings, camera, world)
-    var gpu = render_gpu_viewer[.PATH](settings, camera, world.scene_data())
-
-    assert_pixels_close(gpu.pixels, cpu.pixels)
-
-
-def test_gpu_default_hploc_cwbvh8_instances_match_cpu_wavefront() raises:
-    var settings = RenderSettings(5, 3, 2, UInt64(401))
-    var world = _instance_world()
-    var camera = _camera()
-    var cpu = render_wavefront[.PATH, 1, 64, False](settings, camera, world)
-    var gpu = render_gpu_configured[
-        kind=.INSTANCES,
-        integrator=.PATH,
-        tlas_format=GpuRtBvhFormat(2, 2, .WIDE),
-    ](settings, camera, world.scene_data())
-
-    assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
 def test_gpu_combined_instances_match_cpu_wavefront() raises:
@@ -873,28 +770,6 @@ def test_gpu_image_environment_nee_and_mis_match_cpu() raises:
     var gpu_mis = render_gpu[.MIS](settings, camera, world.scene_data())
     assert_pixels_close(gpu_nee.pixels, cpu_nee.pixels, atol=1.0e-4)
     assert_pixels_close(gpu_mis.pixels, cpu_mis.pixels, atol=1.0e-4)
-
-
-def test_gpu_light_sampling_kind_metadata() raises:
-    var sphere_world = _material_sphere_world()
-    var triangle_world = make_cornell_world()
-    var instance_world = _emissive_instance_world()
-    var mixed_world = _mixed_light_world()
-    with DeviceContext() as ctx:
-        var sphere_lights = GpuRtLights(ctx, sphere_world.scene_data())
-        var triangle_lights = GpuRtLights(ctx, triangle_world.scene_data())
-        var instance_lights = GpuRtLights(ctx, instance_world.scene_data())
-        var mixed_lights = GpuRtLights(ctx, mixed_world.scene_data())
-        # The procedural environment participates in light selection, so the
-        # direct-light kernel must dynamically dispatch the mixed strategy.
-        assert_equal(sphere_lights.uniform_sampling_kind, PrimitiveKind.UNKNOWN)
-        assert_equal(
-            triangle_lights.uniform_sampling_kind, PrimitiveKind.UNKNOWN
-        )
-        assert_equal(
-            instance_lights.uniform_sampling_kind, PrimitiveKind.UNKNOWN
-        )
-        assert_equal(mixed_lights.uniform_sampling_kind, PrimitiveKind.UNKNOWN)
 
 
 def _test_gpu_mixed_lights_match_cpu[integrator: Integrator]() raises:

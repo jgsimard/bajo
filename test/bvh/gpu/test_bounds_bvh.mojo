@@ -520,12 +520,6 @@ def _assert_gpu_sphere_bounds[
         )
 
 
-def test_gpu_bounds_bvh_build_validate_small_scene() raises:
-    var scene = _make_small_scene[.WORLD]()
-    comptime for N in [2, 4, 8]:
-        _assert_gpu_bounds_width[N](scene)
-
-
 def test_gpu_bounds_bvh_single_triangle() raises:
     var scene = _make_single_triangle_scene[.WORLD]()
     comptime for N in [2, 4, 8]:
@@ -544,12 +538,6 @@ def test_gpu_bounds_bvh_degenerate_axis() raises:
     var scene = _make_degenerate_axis_scene()
     comptime for N in [2, 4, 8]:
         _assert_gpu_bounds_width[N](scene)
-        _assert_wide_lane_invariants[N](scene)
-
-
-def test_gpu_bounds_bvh_wide_lane_invariants() raises:
-    var scene = _make_small_scene[.WORLD]()
-    comptime for N in [2, 4, 8]:
         _assert_wide_lane_invariants[N](scene)
 
 

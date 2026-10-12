@@ -2,6 +2,8 @@
 
 Build with `mojo build -O3 -I . bench/parser/bench_loaders.mojo -o /tmp/loaders`
 and run `/tmp/loaders <ply|png|exr|pbrt|mtl> <path>`.
+PLY reports file-read + parse time as `read_mean_us` and mapped-input parse
+time as `mean_us`; both timings exclude the digest calculation.
 """
 
 from std.benchmark import Unit, keep, run
@@ -9,7 +11,7 @@ from std.memory import bitcast
 from std.sys.arg import argv
 
 from bajo.parser.mmap import MMap
-from bajo.parser.ply import parse_ply
+from bajo.parser.ply import parse_ply, read_ply
 from bajo.parser.png import parse_png
 from bajo.parser.exr import parse_exr
 from bajo.parser.pbrt import read_pbrt
@@ -69,6 +71,18 @@ def main() raises:
                 keep(output.texcoords.unsafe_ptr())
                 keep(output.indices.unsafe_ptr())
 
+            def bench_read_ply() raises {path}:
+                var output = read_ply(path)
+                keep(output.vertex_count())
+                keep(output.triangle_count())
+                keep(output.positions.unsafe_ptr())
+                keep(output.normals.unsafe_ptr())
+                keep(output.texcoords.unsafe_ptr())
+                keep(output.indices.unsafe_ptr())
+
+            print(
+                "read_mean_us", run(bench_read_ply, max_iters=10).mean(Unit.us)
+            )
             mean_us = run(bench_ply, max_iters=10).mean(Unit.us)
         case "png":
             var image = parse_png(bytes)

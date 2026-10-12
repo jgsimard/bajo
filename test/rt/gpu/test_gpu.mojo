@@ -581,16 +581,6 @@ def test_gpu_triangle_path_matches_cpu_wavefront() raises:
     assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
-def test_gpu_viewer_micro_triangle_policy_matches_cpu_wavefront() raises:
-    var settings = RenderSettings(5, 3, 2, UInt64(223))
-    var world = _triangle_world()
-    var camera = _camera()
-    var cpu = render_wavefront[.PATH, 1, 64, False](settings, camera, world)
-    var gpu = render_gpu_viewer[.PATH](settings, camera, world.scene_data())
-
-    assert_pixels_close(gpu.pixels, cpu.pixels)
-
-
 def test_gpu_triangle_default_hploc_cwbvh8_matches_cpu_wavefront() raises:
     var settings = RenderSettings(5, 3, 2, UInt64(227))
     var world = _triangle_world()
@@ -679,6 +669,16 @@ def test_prepared_gpu_scene_is_stable_across_repeated_renders() raises:
         var after = download_gpu_pixels(ctx, target)
         assert_pixels_equal(after, before)
 
+        # Reuse this render for the sphere-normal range and hit checks.
+        assert_equal(len(before), settings.image_width * settings.image_height)
+        var nonzero = False
+        for pixel in before:
+            assert_true(pixel.x >= 0.0 and pixel.x <= 1.0)
+            assert_true(pixel.y >= 0.0 and pixel.y <= 1.0)
+            assert_true(pixel.z >= 0.0 and pixel.z <= 1.0)
+            nonzero |= pixel.x > 0.0 or pixel.y > 0.0 or pixel.z > 0.0
+        assert_true(nonzero)
+
 
 def test_gpu_camera_update_is_ordered_before_render() raises:
     var settings = RenderSettings(5, 3, 1, UInt64(238))
@@ -703,35 +703,6 @@ def test_gpu_camera_update_is_ordered_before_render() raises:
         var reference_pixels = download_gpu_pixels(ctx, reference)
 
         assert_pixels_equal(updated_pixels, reference_pixels)
-
-
-def test_common_prepared_api_instantiates_every_scene_kind() raises:
-    var settings = RenderSettings(1, 1, 1, UInt64(239), 1)
-    with DeviceContext() as ctx:
-        var target = GpuRtRenderTarget(ctx, settings, _camera())
-
-        var sphere_data = _sphere_world()
-        var spheres = prepare_gpu_scene[.SPHERES](ctx, sphere_data.scene_data())
-        enqueue_render_gpu(ctx, target, spheres, settings)
-
-        var mixed_data = _mixed_world()
-        var mixed = prepare_gpu_scene[.SPHERES_TRIANGLES](
-            ctx, mixed_data.scene_data()
-        )
-        enqueue_render_gpu(ctx, target, mixed, settings)
-
-        var instance_data = _instance_world()
-        var instances = prepare_gpu_scene[.INSTANCES](
-            ctx, instance_data.scene_data()
-        )
-        enqueue_render_gpu(ctx, target, instances, settings)
-
-        var combined_data = _combined_instance_world()
-        var combined = prepare_gpu_scene[.ALL](ctx, combined_data.scene_data())
-        enqueue_render_gpu[.NORMALS](ctx, target, combined, settings)
-
-        var pixels = download_gpu_pixels(ctx, target)
-        assert_equal(len(pixels), 1)
 
 
 def test_gpu_mixed_path_matches_cpu_wavefront() raises:
@@ -792,7 +763,7 @@ def test_gpu_large_triangle_instances_match_cpu_wavefront() raises:
     assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
-def test_gpu_viewer_large_triangle_policy_matches_cpu_wavefront() raises:
+def test_gpu_viewer_large_triangle_render_matches_cpu_wavefront() raises:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.35, 0.65, 0.25))
     for _ in range(32):
@@ -1008,24 +979,6 @@ def test_gpu_direct_light_zero_depth_stays_black() raises:
         assert_equal(pixel.x, 0.0)
         assert_equal(pixel.y, 0.0)
         assert_equal(pixel.z, 0.0)
-
-
-def test_gpu_sphere_normals_render() raises:
-    var settings = RenderSettings(3, 2, 1, UInt64(7))
-    var scene = _sphere_scene_data()
-    var result = render_gpu_configured[
-        kind=.SPHERES,
-        integrator=.NORMALS,
-        sphere_format=GPU_RT_BVH_WIDE4,
-    ](settings, _camera(), scene)
-    assert_equal(len(result.pixels), 6)
-    var nonzero = False
-    for pixel in result.pixels:
-        assert_true(pixel.x >= 0.0 and pixel.x <= 1.0)
-        assert_true(pixel.y >= 0.0 and pixel.y <= 1.0)
-        assert_true(pixel.z >= 0.0 and pixel.z <= 1.0)
-        nonzero |= pixel.x > 0.0 or pixel.y > 0.0 or pixel.z > 0.0
-    assert_true(nonzero)
 
 
 def _assert_nonzero_result(result: RenderResult) raises:

@@ -56,7 +56,9 @@ plot_sort = { cmd = "bash -lc 'cd bench/sort && python plot_gpu_sort.py gpu_sort
 bench_quat = "mojo -I. bench/core/bench_quat.mojo"
 bench_aabb = "mojo -I. bench/core/bench_aabb.mojo"
 bench_obj = { cmd = "mojo -I. bench/parser/obj/bench_obj.mojo", depends-on = ["download_assets"] }
-bench_ply = { cmd = "mojo -I. bench/parser/ply/bench_ply.mojo", depends-on = ["download_assets"] }
+bench_ply = { cmd = "mojo -I . bench/parser/bench_loaders.mojo ply {{path}}", args = [
+  { arg = "path", default = "./assets/crown/geometry/mesh_00009.ply" },
+], depends-on = ["download_assets"] }
 
 
 # bvh cpu

@@ -624,11 +624,7 @@ struct SceneData:
                 for pixel_idx in range(count):
                     var base = 3 * pixel_idx
                     total += _light_importance(
-                        Color(
-                            texture.pixels[base],
-                            texture.pixels[base + 1],
-                            texture.pixels[base + 2],
-                        )
+                        Color.load(texture.pixels, base)
                         * self._environment.scale
                     )
                     self._environment_cdf[pixel_idx] = total

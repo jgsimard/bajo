@@ -313,8 +313,6 @@ def download_gpu_pixels(
     with target.pixels.map_to_host() as mapped:
         for pixel_idx in range(target.pixel_count):
             pixels[pixel_idx] = Color(
-                mapped[3 * pixel_idx + 0],
-                mapped[3 * pixel_idx + 1],
-                mapped[3 * pixel_idx + 2],
+                mapped.unsafe_ptr().unsafe_offset(3 * pixel_idx)
             )
     return pixels^

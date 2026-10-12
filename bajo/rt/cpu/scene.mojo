@@ -19,7 +19,6 @@ from bajo.bvh.types import Hit
 from bajo.core import (
     Frame,
     GeoKind,
-    Normal3f32,
     Point3,
     Point3f32,
     Ray,
@@ -61,17 +60,12 @@ def _triangle_instance_shading(
     ref normals = data.triangle_mesh_normals()[mesh_idx]
     if len(normals) != 0:
         var base = 9 * triangle_idx
-        var local_normal = Normal3f32[.LOCAL](
-            b0 * normals[base]
-            + b1 * normals[base + 3]
-            + b2 * normals[base + 6],
-            b0 * normals[base + 1]
-            + b1 * normals[base + 4]
-            + b2 * normals[base + 7],
-            b0 * normals[base + 2]
-            + b1 * normals[base + 5]
-            + b2 * normals[base + 8],
-        )
+        var n0 = Vec3f32[.LOCAL].load(normals, base)
+        var n1 = Vec3f32[.LOCAL].load(normals, base + 3)
+        var n2 = Vec3f32[.LOCAL].load(normals, base + 6)
+        var local_normal = (b0 * n0 + b1 * n1 + b2 * n2).unsafe_convert[
+            new_kind=GeoKind.NORMAL
+        ]()
         outward_normal = instance.transform.normal(
             local_normal, instance.inv_transform
         ).unsafe_convert[new_kind=GeoKind.VECTOR]()

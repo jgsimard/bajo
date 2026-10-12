@@ -31,11 +31,7 @@ struct ImageTexture:
         # PBRT repeats UV image maps. PNG scanlines are top-to-bottom while
         # PBRT's texture coordinate origin is at the lower left.
         var base = image_pixel_offset(self.width, self.height, u, v)
-        return Color(
-            self.pixels[base],
-            self.pixels[base + 1],
-            self.pixels[base + 2],
-        )
+        return Color.load(self.pixels, base)
 
     def sample_scalar(self, u: Float32, v: Float32) -> Float32:
         var color = self.sample(u, v)

@@ -22,11 +22,7 @@ def _remove_degenerate_triangles(mut mesh: PlyMesh) raises:
         if index >= UInt32(mesh.vertex_count()):
             raise Error("PLY face index is out of range")
         var source = 3 * Int(index)
-        var result = Point3f32[.LOCAL](
-            mesh.positions[source],
-            mesh.positions[source + 1],
-            mesh.positions[source + 2],
-        )
+        var result = Point3f32[.LOCAL].load(mesh.positions, source)
         if not result.is_finite()[0]:
             raise Error("PLY triangle vertices must be finite")
         return result
@@ -85,11 +81,7 @@ def _pack_range(
             if index >= mesh.vertex_count():
                 raise Error("PLY face index is out of range")
             var source = 3 * index
-            var point = Point3f32[.LOCAL](
-                mesh.positions[source],
-                mesh.positions[source + 1],
-                mesh.positions[source + 2],
-            )
+            var point = Point3f32[.LOCAL].load(mesh.positions, source)
             var target = base + lane
             vertices[target] = point
             bounds.grow(point)

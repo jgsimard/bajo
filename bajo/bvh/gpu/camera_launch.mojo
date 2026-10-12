@@ -71,19 +71,10 @@ def _camera_ray_single_view(
     var fov = camera_params[unsafe_offset=Camera.FOV]
     var sx = screen_x * fov
     var sy = screen_y * fov
-    var direction = normalize(
-        Vec3f32[.WORLD](
-            camera_params[unsafe_offset=Camera.FORWARD + 0]
-            + camera_params[unsafe_offset=Camera.RIGHT + 0] * sx
-            + camera_params[unsafe_offset=Camera.UP + 0] * sy,
-            camera_params[unsafe_offset=Camera.FORWARD + 1]
-            + camera_params[unsafe_offset=Camera.RIGHT + 1] * sx
-            + camera_params[unsafe_offset=Camera.UP + 1] * sy,
-            camera_params[unsafe_offset=Camera.FORWARD + 2]
-            + camera_params[unsafe_offset=Camera.RIGHT + 2] * sx
-            + camera_params[unsafe_offset=Camera.UP + 2] * sy,
-        )
-    )
+    var forward = Vec3f32[.WORLD](camera_params.unsafe_offset(Camera.FORWARD))
+    var right = Vec3f32[.WORLD](camera_params.unsafe_offset(Camera.RIGHT))
+    var up = Vec3f32[.WORLD](camera_params.unsafe_offset(Camera.UP))
+    var direction = normalize(forward + right * sx + up * sy)
     var origin = Point3f32[.WORLD](camera_params.unsafe_offset(Camera.ORIGIN))
     return Rayf32[.WORLD](origin, direction, 0.0, f32_max)
 

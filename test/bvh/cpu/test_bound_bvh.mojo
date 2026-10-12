@@ -1001,18 +1001,18 @@ def _test_adaptive_stream_matches_scalar[
 
     var sink = _AdaptiveStreamTestSink(len(rays))
     comptime __match size_sequence:
-    case 0:
-        trace_blas_set_adaptive_stream[16, 16, 16, 8](
-            blases, UInt32(0), rays, sink
-        )
-    case 1:
-        trace_blas_set_adaptive_stream[16, 16, 16, 8, 4](
-            blases, UInt32(0), rays, sink
-        )
-    case _:
-        trace_blas_set_adaptive_stream[16, 16, 8, 4](
-            blases, UInt32(0), rays, sink
-        )
+        case 0:
+            trace_blas_set_adaptive_stream[16, 16, 16, 8](
+                blases, UInt32(0), rays, sink
+            )
+        case 1:
+            trace_blas_set_adaptive_stream[16, 16, 16, 8, 4](
+                blases, UInt32(0), rays, sink
+            )
+        case _:
+            trace_blas_set_adaptive_stream[16, 16, 8, 4](
+                blases, UInt32(0), rays, sink
+            )
     for i in range(len(rays)):
         var expected = trace_blas_set[16, 16, .CLOSEST_HIT, .WORLD](
             blases, UInt32(0), rays[i]

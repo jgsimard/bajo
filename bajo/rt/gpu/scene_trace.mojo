@@ -16,7 +16,6 @@ from bajo.bvh.gpu.blas_trace import trace_gpu_blas
 from bajo.core import (
     Affine3f32,
     GeoKind,
-    Normal3f32,
     Point3f32,
     Rayf32,
     Vec3f32,
@@ -408,17 +407,12 @@ def _gpu_rt_scene_trace_path[
             var normal_offset = normal_offsets[unsafe_offset=mesh_idx]
             if normal_offset != UInt32.MAX:
                 var base = Int(normal_offset) + 9 * triangle_idx
-                var local_normal = Normal3f32[.LOCAL](
-                    b0 * vertex_normals[unsafe_offset=base]
-                    + b1 * vertex_normals[unsafe_offset=base + 3]
-                    + b2 * vertex_normals[unsafe_offset=base + 6],
-                    b0 * vertex_normals[unsafe_offset=base + 1]
-                    + b1 * vertex_normals[unsafe_offset=base + 4]
-                    + b2 * vertex_normals[unsafe_offset=base + 7],
-                    b0 * vertex_normals[unsafe_offset=base + 2]
-                    + b1 * vertex_normals[unsafe_offset=base + 5]
-                    + b2 * vertex_normals[unsafe_offset=base + 8],
-                )
+                var n0 = Vec3f32[.LOCAL](vertex_normals.unsafe_offset(base))
+                var n1 = Vec3f32[.LOCAL](vertex_normals.unsafe_offset(base + 3))
+                var n2 = Vec3f32[.LOCAL](vertex_normals.unsafe_offset(base + 6))
+                var local_normal = (b0 * n0 + b1 * n1 + b2 * n2).unsafe_convert[
+                    new_kind=GeoKind.NORMAL
+                ]()
                 var inverse_span = Span(
                     unsafe_ptr=inst_inv_transform,
                     length=Int(instance_count_i32) * Affine3f32.STRIDE,

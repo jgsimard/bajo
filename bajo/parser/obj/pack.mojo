@@ -53,11 +53,7 @@ def _pack_range[
     @always_inline
     def point(index: Int) {mesh} -> Point3f32[frame]:
         var base = 3 * Int(mesh.indices[index].p)
-        return Point3f32[frame](
-            mesh.positions[base],
-            mesh.positions[base + 1],
-            mesh.positions[base + 2],
-        )
+        return Point3f32[frame].load(mesh.positions, base)
 
     for face in range(begin, end):
         var count = mesh.face_vertices[face]

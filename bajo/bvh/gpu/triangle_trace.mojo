@@ -356,16 +356,8 @@ def _intersect_cwbvh_indexed_triangle[
     var prim = primitive_ids[unsafe_offset=Int(triangle_idx)]
     var base = Int(prim) * TRI_LEAF_VERTEX_STRIDE
     var v0 = Point3f32[frame](vertices.unsafe_offset(base))
-    var e1 = Vec3f32[frame](
-        vertices[unsafe_offset=base + 3] - v0.x,
-        vertices[unsafe_offset=base + 4] - v0.y,
-        vertices[unsafe_offset=base + 5] - v0.z,
-    )
-    var e2 = Vec3f32[frame](
-        vertices[unsafe_offset=base + 6] - v0.x,
-        vertices[unsafe_offset=base + 7] - v0.y,
-        vertices[unsafe_offset=base + 8] - v0.z,
-    )
+    var e1 = Point3f32[frame](vertices.unsafe_offset(base + 3)) - v0
+    var e2 = Point3f32[frame](vertices.unsafe_offset(base + 6)) - v0
     comptime if mode == .ANY_HIT:
         return _intersect_triangle_shadow[frame](ray, v0, e1, e2, hit.t)
     var scaled_hit = intersect_ray_tri_edges_scaled(

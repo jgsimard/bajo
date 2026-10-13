@@ -104,10 +104,6 @@ def _flatten_emissives(world: SceneData) -> List[Float32]:
     return out^
 
 
-def _flatten_coated_diffuses(world: SceneData) -> List[Float32]:
-    return pack_coated_materials[False](world.surfaces())
-
-
 def _flatten_coated_diffuse_texture_indices(world: SceneData) -> List[UInt32]:
     var out = List[UInt32](
         length=len(world.surfaces().coated_diffuses)
@@ -178,7 +174,7 @@ struct GpuRtMaterials:
         self.dielectrics = _upload_nonempty(ctx, _flatten_dielectrics(world))
         self.emissives = _upload_nonempty(ctx, _flatten_emissives(world))
         self.coated_diffuses = _upload_nonempty(
-            ctx, _flatten_coated_diffuses(world)
+            ctx, pack_coated_materials[False](world.surfaces())
         )
         self.lambertian_texture_indices = _upload_nonempty(
             ctx, _flatten_lambertian_texture_indices(world)

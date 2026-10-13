@@ -12,10 +12,10 @@ from bajo.bvh.constants import (
 )
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.segmented_build import enqueue_segmented_wide_build
+from bajo.bvh.gpu.ray_launch import _store_packed_hit
 from bajo.bvh.gpu.camera_launch import (
     _camera_ray,
     _camera_ray_single_view,
-    _store_camera_hit,
 )
 from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_NODE_WORDS,
@@ -168,7 +168,7 @@ def trace_cwbvh8_camera_kernel[
     var hit = trace_cwbvh8_triangles[
         .WORLD, .CLOSEST_HIT, True, max_leaf_size, stack_capacity
     ](nodes, triangles, root_idx, ray)
-    _store_camera_hit(hit, hits, ray_count_int, ray_idx)
+    _store_packed_hit[.WORLD](hit, hits, ray_count_int, ray_idx)
 
 
 def trace_cwbvh8_camera_legacy_decode_kernel[
@@ -209,7 +209,7 @@ def trace_cwbvh8_camera_legacy_decode_kernel[
     var hit = trace_cwbvh8_triangles[.WORLD, .CLOSEST_HIT, False](
         nodes, triangles, root_idx, ray
     )
-    _store_camera_hit(hit, hits, ray_count_int, ray_idx)
+    _store_packed_hit[.WORLD](hit, hits, ray_count_int, ray_idx)
 
 
 def trace_cwbvh8_indexed_camera_kernel[
@@ -236,7 +236,7 @@ def trace_cwbvh8_indexed_camera_kernel[
     var hit = trace_cwbvh8_indexed_triangles[
         .WORLD, .CLOSEST_HIT, max_leaf_size, stack_capacity
     ](nodes, primitive_ids, vertices, root_idx, ray)
-    _store_camera_hit(hit, hits, Int(ray_count), ray_idx)
+    _store_packed_hit[.WORLD](hit, hits, Int(ray_count), ray_idx)
 
 
 def trace_cwbvh8_camera_stats_kernel(
@@ -265,7 +265,7 @@ def trace_cwbvh8_camera_stats_kernel(
     var result = _trace_cwbvh8_with_stats_in_frame[.WORLD](
         nodes, triangles, root_idx, ray
     )
-    _store_camera_hit(result.hit, hits, ray_count_int, ray_idx)
+    _store_packed_hit[.WORLD](result.hit, hits, ray_count_int, ray_idx)
     result.stats.store(stats, ray_idx)
 
 

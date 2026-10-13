@@ -17,6 +17,7 @@ from bajo.bvh.cpu import (
 )
 from bajo.bvh.types import Hit
 from bajo.core import (
+    Affine3f32,
     Frame,
     GeoKind,
     Point3,
@@ -66,9 +67,11 @@ def _triangle_instance_shading(
         var local_normal = (b0 * n0 + b1 * n1 + b2 * n2).unsafe_convert[
             new_kind=GeoKind.NORMAL
         ]()
-        outward_normal = instance.transform.normal(
-            local_normal, instance.inv_transform
-        ).unsafe_convert[new_kind=GeoKind.VECTOR]()
+        outward_normal = (
+            Affine3f32[.LOCAL, .WORLD]
+            .normal_from_inverse(local_normal, instance.inv_transform)
+            .unsafe_convert[new_kind=GeoKind.VECTOR]()
+        )
         if dot(outward_normal, geometric_normal) < 0.0:
             outward_normal = -outward_normal
     var texture_u = Float32(0.0)

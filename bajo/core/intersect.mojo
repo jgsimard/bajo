@@ -267,29 +267,6 @@ def intersect_ray_aabb_octant_fma[
     return RayDistanceHit(tmin.le(tmax), tmin)
 
 
-def intersect_ray_aabb[
-    dtype: DType, frame: Frame, width: SIMDLength
-](
-    o: Point3[dtype, frame, width],
-    rcp_d: Vec3[dtype, frame, width],
-    aabb: AxisAlignedBoundingBox[dtype, frame, width],
-    t_max: SIMD[dtype, width],
-) -> RayDistanceHit[dtype, width]:
-    return intersect_ray_aabb_rcp(o, rcp_d, aabb, t_max)
-
-
-def intersect_ray_aabb[
-    dtype: DType, frame: Frame, width: SIMDLength
-](
-    o: Point3[dtype, frame, width],
-    rcp_d: Vec3[dtype, frame, width],
-    bmin: Point3[dtype, frame, width],
-    bmax: Point3[dtype, frame, width],
-    t_max: SIMD[dtype, width],
-) -> RayDistanceHit[dtype, width]:
-    return intersect_ray_aabb_rcp(o, rcp_d, bmin, bmax, t_max)
-
-
 def intersect_aabb_aabb[
     dtype: DType, frame: Frame, width: SIMDLength
 ](

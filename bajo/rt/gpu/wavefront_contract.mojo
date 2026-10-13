@@ -74,20 +74,6 @@ def load_gpu_rt_path[
 
 
 @always_inline
-def store_gpu_rt_path[
-    integrator: Integrator,
-](
-    path: DeviceWavePath,
-    path_ids: Pointer[UInt32, MutAnyOrigin],
-    fields: Pointer[Float32, MutAnyOrigin],
-    capacity: Int,
-    idx: Int,
-):
-    """Store only the path planes consumed by one compile-time integrator."""
-    store_gpu_rt_path_values[integrator](path, path_ids, fields, capacity, idx)
-
-
-@always_inline
 def store_gpu_rt_path_values[
     Values: PathValues, //, integrator: Integrator
 ](

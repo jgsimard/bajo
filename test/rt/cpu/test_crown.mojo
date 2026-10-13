@@ -16,9 +16,9 @@ from bajo.rt.render_types import Color, RenderSettings
 from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.media import SceneMedia, medium_transmittance, transmitted_medium
 from bajo.rt.material_types import ImageTexture, NO_TEXTURE
+from bajo.rt.material_storage import pack_coated_materials
 from bajo.rt.shading import _sample_dielectric
 from bajo.rt.gpu.materials import (
-    _flatten_coated_diffuses,
     _flatten_coated_diffuse_texture_indices,
     _flatten_texture_descs,
     _flatten_texture_pixels,
@@ -35,7 +35,10 @@ from bajo.rt.wavefront_contract import (
     store_device_wave_path,
     load_device_wave_path,
 )
-from bajo.rt.gpu.wavefront_contract import store_gpu_rt_path, load_gpu_rt_path
+from bajo.rt.gpu.wavefront_contract import (
+    store_gpu_rt_path_values,
+    load_gpu_rt_path,
+)
 
 
 def test_beer_lambert_and_boundary_selection() raises:
@@ -132,7 +135,7 @@ def test_gpu_texture_and_bump_adapters_match_cpu() raises:
     dielectric.displacement_scale = 0.25
     builder.add_sphere(Point3f32[.WORLD](0), 1, glass)
     var world = builder^.finish()
-    var records = _flatten_coated_diffuses(world)
+    var records = pack_coated_materials[False](world.surfaces())
     var indices = _flatten_coated_diffuse_texture_indices(world)
     var descs = _flatten_texture_descs(world)
     var pixels = _flatten_texture_pixels(world)
@@ -209,7 +212,7 @@ def test_gpu_medium_queue_roundtrip() raises:
         0,
     )
     assert_equal(loaded.medium_id, UInt32(2))
-    store_gpu_rt_path[.MIS](
+    store_gpu_rt_path_values[.MIS](
         path,
         ids.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
         fields.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),

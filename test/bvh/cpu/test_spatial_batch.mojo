@@ -2,7 +2,6 @@ from std.testing import TestSuite, assert_true, assert_equal
 from bajo.core import AABB, Point3f32, Vec3f32, Rayf32
 from bajo.bvh.spatial import (
     SpatialBoundsBvh,
-    BoundsQueryBatch,
     BoundsQueryView,
     BoundsQuery,
 )
@@ -21,23 +20,21 @@ def test_serial_batch_capacity_partial_exhaustion_and_zero_capacity() raises:
         )
         groups.append(UInt32(i % 2))
     var tree = SpatialBoundsBvh(boxes, groups)
-    var batch = BoundsQueryBatch(
-        tree.view().query_aabb(
-            AABB(Point3f32[.WORLD](0.0), Point3f32[.WORLD](2.0))
-        )
+    var batch = tree.view().query_aabb(
+        AABB(Point3f32[.WORLD](0.0), Point3f32[.WORLD](2.0))
     )
     var zero = List[UInt32]()
-    assert_equal(batch.next(zero), 0)
+    assert_equal(batch.next_batch(zero), 0)
     var output = List[UInt32](length=4, fill=99)
     var found = List[UInt32]()
-    assert_equal(batch.next(output), 4)
+    assert_equal(batch.next_batch(output), 4)
     for item in output:
         found.append(item)
-    assert_equal(batch.next(output), 4)
+    assert_equal(batch.next_batch(output), 4)
     for item in output:
         found.append(item)
     output[3] = 99
-    assert_equal(batch.next(output), 3)
+    assert_equal(batch.next_batch(output), 3)
     assert_equal(output[3], UInt32(99))
     for i in range(3):
         found.append(output[i])
@@ -45,17 +42,15 @@ def test_serial_batch_capacity_partial_exhaustion_and_zero_capacity() raises:
     for i in range(11):
         assert_equal(found[i], UInt32(i))
     var previous = output.copy()
-    assert_equal(batch.next(output), 0)
+    assert_equal(batch.next_batch(output), 0)
     for i in range(4):
         assert_equal(output[i], previous[i])
-    batch = BoundsQueryBatch(
-        tree.view().query_sphere(
-            Point3f32[.WORLD](0.5), 1.0, tree.group_root(1)
-        )
+    batch = tree.view().query_sphere(
+        Point3f32[.WORLD](0.5), 1.0, tree.group_root(1)
     )
     var count = 0
     while True:
-        var filled = batch.next(output)
+        var filled = batch.next_batch(output)
         if filled == 0:
             break
         for i in range(filled):
@@ -74,22 +69,18 @@ def test_serial_batch_ray_cutoff_and_empty_tree() raises:
         ),
     ]
     var tree = SpatialBoundsBvh(boxes)
-    var batch = BoundsQueryBatch(
-        tree.view().query_ray(
-            Rayf32[.WORLD](
-                Point3f32[.WORLD](0.5, 0.5, 0.0), Vec3f32[.WORLD](0.0, 0.0, 1.0)
-            )
+    var batch = tree.view().query_ray(
+        Rayf32[.WORLD](
+            Point3f32[.WORLD](0.5, 0.5, 0.0), Vec3f32[.WORLD](0.0, 0.0, 1.0)
         )
     )
     var output = List[UInt32](length=4, fill=99)
-    assert_equal(batch.next(output, 2.0), 1)
+    assert_equal(batch.next_batch(output, 2.0), 1)
     assert_equal(output[0], UInt32(0))
-    assert_equal(batch.next(output, 10.0), 0)
+    assert_equal(batch.next_batch(output, 10.0), 0)
     var empty = SpatialBoundsBvh[.WORLD](List[AABB[.WORLD]]())
-    var empty_batch = BoundsQueryBatch(
-        empty.view().query_sphere(Point3f32[.WORLD](0.0), 1.0)
-    )
-    assert_equal(empty_batch.next(output), 0)
+    var empty_batch = empty.view().query_sphere(Point3f32[.WORLD](0.0), 1.0)
+    assert_equal(empty_batch.next_batch(output), 0)
 
 
 def test_mesh_aabb_batch_keeps_original_face_ids_and_groups() raises:
@@ -97,11 +88,11 @@ def test_mesh_aabb_batch_keeps_original_face_ids_and_groups() raises:
     var box = AABB(Point3f32[.WORLD](0.0), Point3f32[.WORLD](1.0))
     var roots: List[UInt32] = [0, mesh.group_root(7), mesh.group_root(999)]
     for r in range(3):
-        var batch = BoundsQueryBatch(mesh.view().query_aabb(box, roots[r]))
+        var batch = mesh.view().query_aabb(box, roots[r])
         var output = List[UInt32](length=3, fill=99)
         var counts = List[Int](length=4, fill=0)
         while True:
-            var count = batch.next(output)
+            var count = batch.next_batch(output)
             if count == 0:
                 break
             for i in range(count):
@@ -153,7 +144,7 @@ def check_packet_batches[
         for root in roots:
             for capacity in capacities:
                 var scalar = make_query(view, kind, root)
-                var batch = BoundsQueryBatch(scalar.copy())
+                var batch = scalar.copy()
                 var expected = List[Int](length=len(tree.item_bounds), fill=0)
                 var actual = expected.copy()
                 var item = UInt32(0)
@@ -161,12 +152,12 @@ def check_packet_batches[
                     expected[Int(item)] += 1
                 var output = List[UInt32](length=capacity, fill=99)
                 if capacity == 0:
-                    var cursor = batch.query.cursor
-                    assert_equal(batch.next[width](output, 0.1), 0)
-                    assert_equal(batch.query.cursor, cursor)
+                    var cursor = batch.cursor
+                    assert_equal(batch.next_batch[width](output, 0.1), 0)
+                    assert_equal(batch.cursor, cursor)
                     output.append(UInt32(99))
                 while True:
-                    var count = batch.next[width](output, 1.5)
+                    var count = batch.next_batch[width](output, 1.5)
                     for i in range(count):
                         actual[Int(output[i])] += 1
                     for i in range(count, len(output)):

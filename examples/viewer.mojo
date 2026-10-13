@@ -20,7 +20,7 @@ from bajo.rt import (
     CpuScene,
     CpuSchedulerMode,
     render_depth_first,
-    render_gpu_viewer,
+    render_gpu,
     render_wavefront,
     render_wavefront_configured,
     write_ppm_from_colors,
@@ -234,7 +234,7 @@ def _render_gpu_frame[
         sample_sequence_length,
     )
     var t0 = perf_counter_ns()
-    var result = render_gpu_viewer[integrator](settings, camera, data)
+    var result = render_gpu[integrator](settings, camera, data)
     var t1 = perf_counter_ns()
     _write_viewer_frame(output, width, height, result.pixels, linear_output)
     return ViewerRenderStats(ns_to_ms(Int(t1 - t0)), _viewer_bvh_stats[1](data))

@@ -133,7 +133,6 @@ def test_width4_translation_and_scale() raises:
 
 
 def test_normal_uses_inverse_transpose_for_nonuniform_scale() raises:
-    var transform = Affine3f32[.WORLD, .CAMERA].from_scale(Vec3W(2.0, 3.0, 4.0))
     var inverse = Affine3f32[.CAMERA, .WORLD].from_scale(
         Vec3f32[.CAMERA](0.5, 1.0 / 3.0, 0.25)
     )
@@ -142,7 +141,10 @@ def test_normal_uses_inverse_transpose_for_nonuniform_scale() raises:
         Vec3f32[.CAMERA](0.5, 1.0 / 3.0, 0.0)
     ).unsafe_convert[new_kind=GeoKind.NORMAL]()
 
-    assert_vec_equal(transform.normal(normal, inverse), expected)
+    assert_vec_equal(
+        Affine3f32[.WORLD, .CAMERA].normal_from_inverse(normal, inverse),
+        expected,
+    )
 
 
 def test_load_store() raises:

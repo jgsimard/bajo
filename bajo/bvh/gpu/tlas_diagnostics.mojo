@@ -11,12 +11,13 @@ from bajo.bvh.constants import (
     TraceMode,
     f32_max,
 )
-from bajo.bvh.gpu.camera_launch import _camera_ray, _store_camera_hit
+from bajo.bvh.gpu.camera_launch import _camera_ray
+from bajo.bvh.gpu.ray_launch import _store_packed_hit
 from bajo.bvh.gpu.trace import (
     GpuTraceResult,
     GpuTraversalStats,
-    _intersect_trace_node_precomputed,
 )
+from bajo.bvh.gpu.wide_layout import _intersect_wide_node_precomputed
 from bajo.bvh.gpu.triangle_trace import _trace_cwbvh8_triangles_impl
 from bajo.bvh.gpu.tlas import GpuTlas
 from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
@@ -151,7 +152,7 @@ def _trace_tlas2_leaf1_cwbvh8_with_stats(
 
     while True:
         stats.tlas_node_visits += 1
-        var node_hit = _intersect_trace_node_precomputed[.WORLD, 2](
+        var node_hit = _intersect_wide_node_precomputed[.WORLD, 2](
             tlas_nodes,
             current,
             bounds_origin,
@@ -288,7 +289,7 @@ def trace_tlas_camera_diagnostic_kernel(
         tlas_root,
         ray,
     )
-    _store_camera_hit(result[0], hits, Int(ray_count), idx)
+    _store_packed_hit[.WORLD](result[0], hits, Int(ray_count), idx)
     result[1].store(stats_out, idx)
 
 

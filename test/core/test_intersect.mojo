@@ -12,7 +12,6 @@ from bajo.core.intersect import (
     closest_point_to_aabb,
     closest_point_to_triangle,
     furthest_point_to_triangle,
-    intersect_ray_aabb,
     intersect_ray_aabb_octant_fma,
     intersect_ray_aabb_rcp,
     intersect_aabb_aabb,
@@ -69,7 +68,7 @@ def test_intersect_aabb_aabb() raises:
     assert_false(intersect_aabb_aabb(a_lower, a_upper, c_lower, c_upper))
 
 
-def test_intersect_ray_aabb() raises:
+def test_intersect_ray_aabb_rcp() raises:
     var lower = Point3W(-1.0)
     var upper = Point3W(1.0)
 
@@ -79,7 +78,7 @@ def test_intersect_ray_aabb() raises:
     # Prevent Inf*0 NaNs for exact 0
     var rcp_dir_hit = Vec3W(1e9, 1e9, 1.0 / dir_hit.z)
 
-    var res = intersect_ray_aabb(pos_hit, rcp_dir_hit, lower, upper, 1e30)
+    var res = intersect_ray_aabb_rcp(pos_hit, rcp_dir_hit, lower, upper, 1e30)
     assert_true(res.mask)
     # Starts at z=5, hits z=1, distance is 4
     assert_almost_equal(res.t, 4.0, atol=1e-4)
@@ -88,7 +87,7 @@ def test_intersect_ray_aabb() raises:
     var pos_miss = Point3W([5.0, 5.0, 5.0])
     var dir_miss = Vec3W([0.0, 1.0, 0.0])
     var rcp_dir_miss = Vec3W(1e9, 1.0 / dir_miss.y, 1e9)
-    res = intersect_ray_aabb(pos_miss, rcp_dir_miss, lower, upper, 1e30)
+    res = intersect_ray_aabb_rcp(pos_miss, rcp_dir_miss, lower, upper, 1e30)
     assert_false(res.mask)
 
 

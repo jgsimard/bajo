@@ -52,7 +52,7 @@ from bajo.rt.gpu.wavefront_contract import (
     _reserve_slot,
     load_gpu_rt_path,
     load_gpu_rt_shadow,
-    store_gpu_rt_path,
+    store_gpu_rt_path_values,
 )
 from bajo.rt.gpu.common_kernels import (
     GPU_RT_BLOCK_SIZE,
@@ -74,11 +74,11 @@ from bajo.rt.gpu.path_shading import (
 )
 from bajo.rt.gpu.queue_order import (
     GpuRtQueueOrderScratch,
+    gpu_rt_queue_order_enabled,
 )
 from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
 from bajo.rt.gpu.spatial_order import gpu_rt_spatial_order_enabled
 from bajo.rt.gpu.light_order import (
-    gpu_rt_light_order_enabled,
     enqueue_gpu_rt_light_order,
 )
 
@@ -734,7 +734,7 @@ def gpu_rt_primary_scene_trace_kernel[
         idx,
     )
     comptime if store_source_path:
-        store_gpu_rt_path[integrator](
+        store_gpu_rt_path_values[integrator](
             path,
             source_path_ids,
             source_path_fields,
@@ -1027,7 +1027,7 @@ def enqueue_gpu_shadows[
 
         comptime if Integrator.uses_direct_lighting[integrator]:
             if (
-                gpu_rt_light_order_enabled(capacity, bounce)
+                gpu_rt_queue_order_enabled(capacity, bounce)
                 and scene.light_count > 0
                 and scene.light_count < 64
             ):

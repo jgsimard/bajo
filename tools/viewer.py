@@ -84,7 +84,7 @@ class Viewer:
         self.gpu_state: GpuState | None = None
         self.cpu_state: CpuState | None = None
         self.extension_loader = ExtensionLoader(ROOT, gpu_arch)
-        self.renderer = self._load_renderer(
+        self.renderer = self.extension_loader.load(
             self.backend_index,
             self.integrator_index,
             self.traversal_index,
@@ -343,17 +343,6 @@ class Viewer:
         self.request_render()
         self.root.after(40, self.tick)
 
-    def _load_renderer(
-        self,
-        backend_index: int,
-        integrator_index: int,
-        traversal_index: int,
-        build_index: int,
-    ):
-        return self.extension_loader.load(
-            backend_index, integrator_index, traversal_index, build_index
-        )
-
     def snapshot(self) -> RenderSnapshot:
         with self.lock:
             options = RenderOptions(
@@ -536,7 +525,7 @@ class Viewer:
                             f"{BUILDERS[build]} / {TRAVERSALS[traversal]} ..... "
                         ),
                     )
-                    renderer = self._load_renderer(
+                    renderer = self.extension_loader.load(
                         work.backend_index,
                         work.integrator_index,
                         work.traversal_index,

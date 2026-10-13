@@ -9,12 +9,6 @@ from .parallel import _parse_obj_bulk
 
 def _parse_obj[
     Loader: AssetLoader
-](path: String, text: String, loader: Loader) raises -> ObjMesh:
-    return _parse_obj(path, StringSpan(text), loader)
-
-
-def _parse_obj[
-    Loader: AssetLoader
 ](path: String, text: ImmStringSpan, loader: Loader) raises -> ObjMesh:
     if text.byte_length() < 256 * 1024:
         return _parse_obj_serial(path, text, loader)

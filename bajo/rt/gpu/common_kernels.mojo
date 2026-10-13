@@ -13,7 +13,7 @@ from bajo.rt.wavefront_contract import (
     WaveSampleFloatAbi,
 )
 from bajo.rt.gpu.queue_layout import gpu_rt_radiance_tile
-from bajo.rt.gpu.wavefront_contract import store_gpu_rt_path
+from bajo.rt.gpu.wavefront_contract import store_gpu_rt_path_values
 
 
 comptime GPU_RT_BLOCK_SIZE = 64
@@ -116,7 +116,7 @@ def gpu_rt_primary_kernel[
     if idx >= active_count:
         return
 
-    store_gpu_rt_path[integrator](
+    store_gpu_rt_path_values[integrator](
         make_gpu_rt_primary_path(
             camera_params,
             sample_base,

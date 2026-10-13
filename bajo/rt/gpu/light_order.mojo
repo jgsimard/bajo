@@ -15,11 +15,6 @@ from bajo.rt.gpu.queue_order import (
 from bajo.rt.gpu.views import GpuRtTraceQueueView
 
 
-@always_inline
-def gpu_rt_light_order_enabled(capacity: Int, bounce: UInt32) -> Bool:
-    return gpu_rt_queue_order_enabled(capacity, bounce)
-
-
 def gpu_rt_light_order_rays_kernel[scatter: Bool](queues: GpuRtTraceQueueView):
     var active = Int(queues.counters[unsafe_offset=WAVE_COUNTER.SHADOW])
     var scratch = GpuRtQueueOrderScratch.from_queues(queues)
@@ -39,7 +34,7 @@ def gpu_rt_light_order_rays_kernel[scatter: Bool](queues: GpuRtTraceQueueView):
 def enqueue_gpu_rt_light_order(
     ctx: DeviceContext, queues: GpuRtTraceQueueView, bounce: UInt32
 ) raises:
-    if not gpu_rt_light_order_enabled(Int(queues.capacity), bounce):
+    if not gpu_rt_queue_order_enabled(Int(queues.capacity), bounce):
         return
     ctx.enqueue_function[gpu_rt_queue_order_init_kernel[64]](
         queues, grid_dim=1, block_dim=64

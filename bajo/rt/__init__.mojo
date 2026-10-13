@@ -10,7 +10,7 @@ from .cpu import (
     sample_bsdf,
     write_ppm_from_colors,
 )
-from .gpu import render_gpu, render_gpu_viewer
+from .gpu import render_gpu
 from .scene_description import SceneDescription
 from .render_types import (
     Color,

@@ -77,15 +77,3 @@ def _camera_ray_single_view(
     var direction = normalize(forward + right * sx + up * sy)
     var origin = Point3f32[.WORLD](camera_params.unsafe_offset(Camera.ORIGIN))
     return Rayf32[.WORLD](origin, direction, 0.0, f32_max)
-
-
-@always_inline
-def _store_camera_hit(
-    hit: Hit[.WORLD],
-    hits: MutPointer[Float32, _],
-    ray_count: Int,
-    ray_idx: Int,
-):
-    hit._store_unchecked(
-        Span(unsafe_ptr=hits, length=ray_count * Hit.STRIDE), ray_idx
-    )

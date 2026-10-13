@@ -38,7 +38,7 @@ def parse_obj[
     Loader: AssetLoader
 ](text: String, path: String, loader: Loader) raises -> ObjMesh:
     """Raw OBJ text plus loader for mtllib resolution."""
-    return _parse_obj(path, text, loader)
+    return _parse_obj(path, StringSpan(text), loader)
 
 
 def parse_obj[

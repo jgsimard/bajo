@@ -9,4 +9,3 @@ from .mesh_query import (
     MeshRayResult,
     MeshSphereQuery,
 )
-from .batch import BoundsQueryBatch

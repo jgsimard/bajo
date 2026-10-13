@@ -16,6 +16,5 @@ from .render import (
     enqueue_render_gpu,
     render_gpu,
     render_gpu_configured,
-    render_gpu_viewer,
 )
 from .prepared_renderer import GpuRtPreparedRenderer

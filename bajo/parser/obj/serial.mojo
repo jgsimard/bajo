@@ -257,12 +257,6 @@ def _parse_face_cursor(
 
 def _parse_obj_serial[
     Loader: AssetLoader
-](path: String, text: String, loader: Loader) raises -> ObjMesh:
-    return _parse_obj_serial(path, StringSpan(text), loader)
-
-
-def _parse_obj_serial[
-    Loader: AssetLoader
 ](path: String, text: ImmStringSpan, loader: Loader) raises -> ObjMesh:
     var mesh = ObjMesh()
     var state = _ObjParserState()

@@ -9,7 +9,6 @@ from bajo.rt.tensor_layout import (
     rt_field_tile,
     RtRecordLayout,
     RtRecordTile,
-    rt_record_tile,
 )
 from bajo.rt.wavefront_contract import (
     WavePathFloatAbi,
@@ -52,52 +51,34 @@ comptime GpuRtRadianceTile[origin: Origin] = GpuRtFieldTile[
 
 
 @always_inline
-def gpu_rt_field_tile[
-    mut: Bool, origin: Origin[mut=mut], //, planes: Int
-](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtFieldTile[
-    planes, origin
-]:
-    return rt_field_tile[.float32, planes](fields, capacity)
-
-
-@always_inline
 def gpu_rt_path_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtPathTile[origin]:
-    return gpu_rt_field_tile[WavePathFloatAbi.PLANES](fields, capacity)
+    return rt_field_tile[.float32, WavePathFloatAbi.PLANES](fields, capacity)
 
 
 @always_inline
 def gpu_rt_shade_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtShadeTile[origin]:
-    return gpu_rt_field_tile[GPU_SHADE_PLANES](fields, capacity)
+    return rt_field_tile[.float32, GPU_SHADE_PLANES](fields, capacity)
 
 
 @always_inline
 def gpu_rt_shadow_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtShadowTile[origin]:
-    return gpu_rt_field_tile[WaveShadowFloatAbi.PLANES](fields, capacity)
+    return rt_field_tile[.float32, WaveShadowFloatAbi.PLANES](fields, capacity)
 
 
 @always_inline
 def gpu_rt_radiance_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtRadianceTile[origin]:
-    return gpu_rt_field_tile[WaveSampleFloatAbi.PLANES](fields, capacity)
+    return rt_field_tile[.float32, WaveSampleFloatAbi.PLANES](fields, capacity)
 
 
 comptime GpuRtRecordLayout[stride: Int] = RtRecordLayout[stride]
 comptime GpuRtRecordTile[stride: Int, origin: Origin] = RtRecordTile[
     .float32, stride, origin
 ]
-
-
-@always_inline
-def gpu_rt_record_tile[
-    mut: Bool, origin: Origin[mut=mut], //, stride: Int
-](records: Pointer[Float32, origin], count: Int) -> GpuRtRecordTile[
-    stride, origin
-]:
-    return rt_record_tile[.float32, stride](records, count)

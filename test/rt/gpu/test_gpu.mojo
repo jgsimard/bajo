@@ -28,7 +28,6 @@ from bajo.rt.gpu import (
     prepare_gpu_scene,
     render_gpu,
     render_gpu_configured,
-    render_gpu_viewer,
     update_gpu_camera,
 )
 from bajo.bvh.constants import PrimitiveKind
@@ -876,9 +875,7 @@ def test_gpu_viewer_renders_all_procedural_stress_scenes() raises:
         52.0,
         18.0,
     )
-    var many = render_gpu_viewer[.MIS](
-        settings, many_camera, many_lights.scene_data()
-    )
+    var many = render_gpu[.MIS](settings, many_camera, many_lights.scene_data())
 
     var indirect_hall = make_indirect_hall_world()
     var indirect_camera = Camera.from_vfov(
@@ -888,7 +885,7 @@ def test_gpu_viewer_renders_all_procedural_stress_scenes() raises:
         55.0,
         22.0,
     )
-    var indirect = render_gpu_viewer[.MIS](
+    var indirect = render_gpu[.MIS](
         settings, indirect_camera, indirect_hall.scene_data()
     )
 
@@ -900,7 +897,7 @@ def test_gpu_viewer_renders_all_procedural_stress_scenes() raises:
         48.0,
         20.0,
     )
-    var difficult = render_gpu_viewer[.MIS](
+    var difficult = render_gpu[.MIS](
         settings, specular_camera, specular.scene_data()
     )
 

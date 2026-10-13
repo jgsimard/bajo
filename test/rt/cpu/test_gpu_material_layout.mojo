@@ -20,7 +20,6 @@ from bajo.rt.render_types import Color
 from bajo.rt.scene_data import SceneBuilder, SceneData
 from bajo.rt.gpu.material_layout import _load_gpu_coated_parameters
 from bajo.rt.gpu.materials import (
-    _flatten_coated_diffuses,
     _flatten_coated_diffuse_texture_indices,
     _flatten_metals,
     _flatten_texture_descs,
@@ -72,7 +71,7 @@ def _world() raises -> SceneData:
 
 def test_material_upload_keeps_packed_abi() raises:
     var world = _world()
-    var coated = _flatten_coated_diffuses(world)
+    var coated = pack_coated_materials[False](world.surfaces())
     # Fixed records intentionally do not use layout constants: changing the
     # schema must not silently change the established upload representation.
     var expected: List[Float32] = [
@@ -162,7 +161,7 @@ def test_material_upload_keeps_packed_abi() raises:
 
 def test_material_texture_tables_address_second_record() raises:
     var world = _world()
-    var coated = _flatten_coated_diffuses(world)
+    var coated = pack_coated_materials[False](world.surfaces())
     var indices = _flatten_coated_diffuse_texture_indices(world)
     var descs = _flatten_texture_descs(world)
     var pixels = _flatten_texture_pixels(world)
@@ -210,7 +209,7 @@ def test_conductor_upload_preserves_optics_and_substrate_roughness() raises:
     )
     builder.add_sphere(Point3f32[.WORLD](0.0), 1.0, surface)
     var world = builder^.finish()
-    var records = _flatten_coated_diffuses(world)
+    var records = pack_coated_materials[False](world.surfaces())
     var parameters = _load_gpu_coated_parameters(
         records.unsafe_ptr()
         .unsafe_mut_cast[False]()

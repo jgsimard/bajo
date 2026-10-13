@@ -6,10 +6,10 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import GPU_BOUNDS_BVH_BLOCK_SIZE
 
+from bajo.bvh.gpu.ray_launch import _store_packed_hit
 from bajo.bvh.gpu.camera_launch import (
     _camera_ray,
     _camera_ray_single_view,
-    _store_camera_hit,
     validate_camera_launch,
 )
 from bajo.bvh.types import Hit
@@ -61,7 +61,7 @@ def trace_bvh_camera_kernel[
             inv_height,
         )
     var hit = trace_ray(nodes, leaves, root_idx, ray)
-    _store_camera_hit(hit, hits, ray_count_int, ray_idx)
+    _store_packed_hit[.WORLD](hit, hits, ray_count_int, ray_idx)
 
 
 @always_inline

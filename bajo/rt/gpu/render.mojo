@@ -287,17 +287,6 @@ def render_gpu[
     )
 
 
-def render_gpu_viewer[
-    integrator: Integrator = .PATH,
-](
-    settings: RenderSettings,
-    camera: Camera,
-    world: SceneData,
-) raises -> RenderResult:
-    """Render the viewer with the fixed default GPU BVH formats."""
-    return render_gpu[integrator](settings, camera, world)
-
-
 def gpu_rt_apply_film_kernel(
     pixels: Pointer[Float32, MutAnyOrigin], count: Int32, film: FilmResponse
 ):

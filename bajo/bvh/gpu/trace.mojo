@@ -1,9 +1,6 @@
 from std.memory import bitcast
 
-from bajo.bvh.gpu.wide_layout import (
-    WideNodeIntersection,
-    _intersect_wide_node_precomputed,
-)
+from bajo.bvh.gpu.wide_layout import _intersect_wide_node_precomputed
 from bajo.bvh.wide_meta import (
     _wide_meta_count,
     _wide_meta_data,
@@ -117,22 +114,6 @@ def _gpu_pending_task_t(task: UInt64) -> Float32:
     return bitcast[.float32, 1](bits)[0]
 
 
-@always_inline
-def _intersect_trace_node_precomputed[
-    frame: Frame,
-    width: SIMDLength,
-](
-    wide_nodes: ImmPointer[Float32, _],
-    node_idx: UInt32,
-    bounds_origin: Point3[.float32, frame, width],
-    reciprocal_direction: Vec3[.float32, frame, width],
-    t_max: Float32,
-) -> WideNodeIntersection[width]:
-    return _intersect_wide_node_precomputed[frame, width](
-        wide_nodes, node_idx, bounds_origin, reciprocal_direction, t_max
-    )
-
-
 def _trace_bounds_bvh_distance_aware[
     frame: Frame,
     width: SIMDLength,
@@ -163,7 +144,7 @@ def _trace_bounds_bvh_distance_aware[
         comptime if mode == .ANY_HIT:
             node_t_max = ray.t_max
 
-        var node_hit = _intersect_trace_node_precomputed[frame, width](
+        var node_hit = _intersect_wide_node_precomputed[frame, width](
             wide_nodes, current, bounds_origin, reciprocal_direction, node_t_max
         )
         var bounds_hit = node_hit.bounds_hit
@@ -303,7 +284,7 @@ def _trace_bounds_bvh_with_counters[
         comptime if mode == .ANY_HIT:
             node_t_max = ray.t_max
 
-        var node_hit = _intersect_trace_node_precomputed[frame, width](
+        var node_hit = _intersect_wide_node_precomputed[frame, width](
             wide_nodes, current, bounds_origin, reciprocal_direction, node_t_max
         )
         var bounds_hit = node_hit.bounds_hit
@@ -412,7 +393,7 @@ def _trace_bounds_bvh_state_bvh2_any[
             if leaf_fn(leaf_state, data, count, ray, hit):
                 return hit
         else:
-            var node_hit = _intersect_trace_node_precomputed[frame, 2](
+            var node_hit = _intersect_wide_node_precomputed[frame, 2](
                 wide_nodes, data, bounds_origin, reciprocal_direction, hit.t
             )
             var meta0 = node_hit.meta[0]
@@ -476,7 +457,7 @@ def _trace_bounds_bvh_state_bvh2_closest[
         if count != 0:
             _ = leaf_fn(leaf_state, data, count, ray, hit)
         else:
-            var node_hit = _intersect_trace_node_precomputed[frame, 2](
+            var node_hit = _intersect_wide_node_precomputed[frame, 2](
                 wide_nodes, data, bounds_origin, reciprocal_direction, hit.t
             )
             var meta0 = node_hit.meta[0]
@@ -598,7 +579,7 @@ def _trace_bounds_bvh_state_bvh2[
     var reciprocal_direction = ray.reciprocal_direction[2]()
 
     while True:
-        var node_hit = _intersect_trace_node_precomputed[frame, 2](
+        var node_hit = _intersect_wide_node_precomputed[frame, 2](
             wide_nodes,
             current,
             bounds_origin,
@@ -711,7 +692,7 @@ def trace_bounds_bvh_state[
         var node_t_max = hit.t
         comptime if mode == .ANY_HIT:
             node_t_max = ray.t_max
-        var node_hit = _intersect_trace_node_precomputed[frame, width](
+        var node_hit = _intersect_wide_node_precomputed[frame, width](
             wide_nodes,
             current,
             bounds_origin,

@@ -238,19 +238,6 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
             t_max,
         )
 
-    def normal(
-        self,
-        n: Normal3[Self.dtype, Self.From, Self.width],
-        inverse: Affine3[Self.dtype, Self.To, Self.From, Self.width],
-    ) -> Normal3[
-        Self.dtype, Self.To, Self.width
-    ] where Self.dtype.is_floating_point():
-        """
-        `inverse` must be the inverse of `self`.
-        # TODO : clunky, change that
-        """
-        return Self.normal_from_inverse(n, inverse)
-
     @staticmethod
     def normal_from_inverse(
         n: Normal3[Self.dtype, Self.From, Self.width],

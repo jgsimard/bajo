@@ -1010,7 +1010,9 @@ def _parse_ply_bulk_from_header(
     return mesh^
 
 
-def _parse_ply(bytes: ImmSpan[UInt8, _]) raises -> PlyMesh:
+def parse_ply[
+    origin: ImmOrigin
+](bytes: ImmSpan[UInt8, origin]) raises -> PlyMesh:
     var header = _parse_header(bytes)
     var small = len(bytes) < 256 * 1024
     if small and not (_common_vertices(header) and _triangle_layout(header)):

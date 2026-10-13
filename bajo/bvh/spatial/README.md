@@ -146,15 +146,14 @@ device reorder because it updates bounds using the current device topology.
 
 ## Query batches
 
-`BoundsQueryBatch(query)` is the CPU/GPU serial fallback. `next(output, cutoff)`
+`BoundsQuery.next_batch(output, cutoff)` is the CPU/GPU serial fallback. It
 fills up to the span's capacity, returns the filled count and preserves unused
 slots. Zero capacity consumes nothing. It accepts every bounds query kind and
-retains the underlying iterator's cutoff and grouping behavior.
-CPU `next[width]` tests a SIMD packet of preorder bounds before following subtree
-escapes; the default width is 2, capped to the native Float64 SIMD width.
-`BoundsQuery.next_batch[width](output, cutoff)` provides the same operation
-directly. GPU serial batches and width 1 use scalar traversal. Cutoffs are
-rechecked on each call, so partially consumed packets retain no stale decisions.
+retains the iterator's cutoff and grouping behavior.
+CPU `next_batch[width]` tests a SIMD packet of preorder bounds before following
+subtree escapes; the default width is 2, capped to the native Float64 SIMD width.
+GPU serial batches and width 1 use scalar traversal. Cutoffs are rechecked on
+each call, so partially consumed packets retain no stale decisions.
 
 GPU kernels can use
 `bajo.bvh.spatial.block_query.BlockBoundsQuery[origin, frame, block_size](query^)`.
@@ -174,9 +173,9 @@ escape among nodes already tested in that batch. This preserves partial batches
 and per-lane validity while avoiding scans of distant subtrees. Power-of-two
 blocks use collective reductions; other positive block sizes use shared scratch.
 
-Mesh AABB queries return the same bounds iterator: wrap
-`mesh.view().query_aabb(box, root)` in `BoundsQueryBatch` or, inside a GPU kernel,
-`BlockBoundsQuery` to cooperatively enumerate original face IDs. Sphere mesh
+Mesh AABB queries return the same bounds iterator: call `next_batch` on
+`mesh.view().query_aabb(box, root)` or wrap the iterator in `BlockBoundsQuery`
+inside a GPU kernel to cooperatively enumerate original face IDs. Sphere mesh
 queries also perform a triangle narrow phase and are not interchangeable with
 bounds-only batches. `mesh.view().bvh` exposes the bounds view for conservative
 ray/sphere/capsule candidate enumeration against face bounds.

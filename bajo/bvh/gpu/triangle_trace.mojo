@@ -12,7 +12,7 @@ from bajo.bvh.constants import (
     TRI_LEAF_VERTEX_STRIDE,
     TraceMode,
 )
-from bajo.bvh.gpu.camera_launch import _camera_ray, _store_camera_hit
+from bajo.bvh.gpu.camera_launch import _camera_ray
 from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_TRIANGLE_WORDS,
     Cwbvh8NodeTasks,
@@ -154,7 +154,7 @@ def trace_triangle_bvh_camera_instrumented_kernel[
         root_idx,
         ray,
     )
-    _store_camera_hit(result.hit, hits, ray_count_int, ray_idx)
+    _store_packed_hit[.WORLD](result.hit, hits, ray_count_int, ray_idx)
     result.stats.store(stats, ray_idx)
 
 

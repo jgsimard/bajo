@@ -158,7 +158,7 @@ def _flatten_triangle_sets[
             packed_vertices.append(vertex.y)
             packed_vertices.append(vertex.z)
     return _TriangleHostSegments(
-        SegmentOffsets.from_counts(primitive_counts^), packed_vertices^
+        SegmentOffsets.from_counts(primitive_counts), packed_vertices^
     )
 
 
@@ -477,7 +477,7 @@ def _build_segmented_compressed_triangle_blas_set[
             ](ctx, segments, source_vertices^, leaf_bounds^, payloads^)
         var workspace = GpuBinaryBuildWorkspace(ctx, segments, True)
         workspace.ensure_topology(ctx)
-        var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds^, payloads^, workspace)
+        var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, payloads, workspace)
         enqueue_segmented_morton_codes(ctx, binary, workspace)
         enqueue_segmented_morton_sort(ctx, binary, workspace)
         ref topology = workspace.topology.value()
@@ -619,7 +619,7 @@ def _build_gpu_triangle_blas_inputs[
     debug_assert["safe", _use_compiler_assume=True](
         inputs.segments.segment_count() > 0
     )
-    comptime __match layout:
+    comptime match layout:
         case .CWBVH8:
             comptime assert node_width == 8 and leaf_width == 4
             return _build_segmented_compressed_triangle_blas_set[

@@ -1033,7 +1033,7 @@ def trace_blas_set_packet_selected[
 ) -> Hit[frame, length]:
     """Trace triangles with fixed or automatically coherent packet dispatch."""
     comptime assert length > 1
-    comptime __match mode:
+    comptime match mode:
         case .FIXED_PACKET:
             return trace_blas_set_packet[
                 node_width, leaf_width, length, False, frame

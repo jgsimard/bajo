@@ -162,7 +162,7 @@ def _parse_channels(mut header: _Header, payload: ImmSpan[UInt8, _]) raises:
             raise Error("subsampled OpenEXR channels are not supported")
         var byte_width = 2 if pixel_type == _HALF_PIXEL else 4
         var output_channel: _OutputChannel
-        __match name:
+        match name:
             case "R":
                 output_channel = .RED
             case "G":
@@ -198,7 +198,7 @@ def _parse_header(bytes: ImmSpan[UInt8, _]) raises -> _Header:
         var size = Int(cursor.read_u32())
         cursor.require(size)
         var payload = bytes[cursor.pos : cursor.pos + size]
-        __match name:
+        match name:
             case "channels":
                 if attribute_type != ImmStringSpan("chlist"):
                     raise Error("invalid OpenEXR channels attribute")
@@ -590,7 +590,7 @@ def _decode_scanlines(
             if channel.output_channel != _OutputChannel.IGNORE:
                 var lane = Int(channel.output_channel.value)
                 var values = chunk[offset : offset + size]
-                __match channel.pixel_type:
+                match channel.pixel_type:
                     case 0:
                         _decode_channel[0](values, pixels, lane, width)
                     case 1:
@@ -627,7 +627,7 @@ def _parse_exr_bulk(
     var header = _parse_header(bytes)
     var rgb = UInt8(0)
     for channel in header.channels:
-        __match channel.output_channel:
+        match channel.output_channel:
             case .RED:
                 rgb |= 1
             case .GREEN:

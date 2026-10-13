@@ -789,7 +789,7 @@ def test_world_hit_maps_material_and_normal() raises:
             Vec3f32[.WORLD](0.0, 0.0, -1.0),
         )
     )
-    __match trace_result:
+    match trace_result:
         case .Some(ref hit):
             assert_equal(hit.primitive.kind(), PrimitiveKind.SPHERE)
             assert_equal(hit.primitive.index(), UInt32(0))
@@ -817,7 +817,7 @@ def test_world_hit_maps_material_and_normal() raises:
             Vec3f32[.WORLD](0.0, 1.0, 0.0),
         )
     )
-    __match miss_result:
+    match miss_result:
         case .Some(_):
             raise Error("expected ray miss")
         case .None:

@@ -147,7 +147,7 @@ def destroy_gpu_state(handle: PythonObject, tag: PythonObject) raises:
     var address = Int(py=handle)
     var state_tag = Int(py=tag)
     var kind = GpuRtSceneKind(state_tag)
-    __match kind:
+    match kind:
         case .SPHERES:
             return _destroy_state[.SPHERES](address)
         case .TRIANGLES:

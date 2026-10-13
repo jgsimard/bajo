@@ -220,7 +220,7 @@ struct DeviceWavePath(
 
     @always_inline
     def float_field[field: Int](self) -> SIMD[.float32, Self.WIDTH]:
-        comptime __match field:
+        comptime match field:
             case WavePathFloatAbi.OX:
                 return self.ox
             case WavePathFloatAbi.OY:

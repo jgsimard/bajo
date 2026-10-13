@@ -1182,7 +1182,7 @@ struct GpuWideCollapseWorkspace:
         self.leaf_capacity = leaf_capacity
         self.block_size = block_size
         self.segments = segments.copy()
-        self.block_segments = SegmentOffsets.from_counts(block_counts^)
+        self.block_segments = SegmentOffsets.from_counts(block_counts)
         self.block_segment_offsets = upload_list(
             ctx, self.block_segments.offsets
         )

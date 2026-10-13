@@ -64,7 +64,7 @@ struct GpuSegmentedWideBuildTicket[
     var collapse_start_ns: Int
 
     def finish_synchronized(mut self) raises:
-        __match self.hploc:
+        match self.hploc:
             case .Some(ref hploc):
                 var status = hploc.result_status()
                 if status != UInt32(HPLOC_STATUS_OK):
@@ -191,10 +191,10 @@ struct GpuWideBuildArena[
         var workspace = GpuBinaryBuildWorkspace(ctx, segments)
         workspace.ensure_topology(ctx)
         var binary = GpuBinaryBoundsBvh(
-            ctx, leaf_bounds^, leaf_payloads^, workspace
+            ctx, leaf_bounds, leaf_payloads, workspace
         )
         var hploc = Optional[GpuHplocBuildState[]]()
-        comptime __match Self.build_method:
+        comptime match Self.build_method:
             case .HPLOC:
                 enqueue_segmented_morton_codes(ctx, binary, workspace)
                 enqueue_segmented_morton_sort(ctx, binary, workspace)
@@ -325,12 +325,10 @@ def _enqueue_segmented_wide_build[
     comptime assert max_leaf_size > 0 and max_leaf_size <= Int(leaf_width)
     var workspace = GpuBinaryBuildWorkspace(ctx, segments)
     workspace.ensure_topology(ctx)
-    var binary = GpuBinaryBoundsBvh(
-        ctx, leaf_bounds^, leaf_payloads^, workspace
-    )
+    var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, leaf_payloads, workspace)
     var hploc = Optional[GpuHplocBuildState[]]()
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
-    comptime __match build_method:
+    comptime match build_method:
         case .LBVH:
             timings = build_binary_bvh_with_lbvh(
                 ctx, binary, workspace, measure_stages

@@ -53,7 +53,7 @@ def _render_mode[
 ](
     settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
 ) raises -> RenderResult:
-    comptime __match MODE:
+    comptime match MODE:
         case 0:
             return render_depth_first[.PATH](settings, camera, world)
         case 1:

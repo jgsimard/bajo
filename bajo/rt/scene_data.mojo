@@ -406,7 +406,7 @@ struct SceneData:
             or self._environment.scale.z[0] < 0.0
         ):
             raise Error("environment scale must be non-negative")
-        __match self._environment.kind:
+        match self._environment.kind:
             case .IMAGE:
                 if self._environment.texture_index >= UInt32(
                     len(self._surfaces.image_textures)
@@ -611,7 +611,7 @@ struct SceneData:
 
     def _build_environment_distribution(mut self) raises:
         var average_radiance = self._environment.scale
-        __match self._environment.kind:
+        match self._environment.kind:
             case .BLACK:
                 return
             case .IMAGE:

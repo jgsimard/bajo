@@ -10,7 +10,7 @@ def _named_optical_constant(name: ImmStringSpan) raises -> Color:
     # PBRT v4's Al/Au eta/k wavelength tables (Apache-2.0):
     # https://github.com/mmp/pbrt-v4/blob/master/src/pbrt/util/spectrum.cpp
     # These are optical constants, not RGB reflectance values.
-    __match name:
+    match name:
         case "metal-Al-eta":
             return Color(1.24750867, 0.95856902, 0.64627187)
         case "metal-Al-k":

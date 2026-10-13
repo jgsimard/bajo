@@ -838,7 +838,7 @@ def _texture(
 ) raises:
     if value_type == "spectrum" or value_type == "color":
         var value: _ColorTexture
-        __match implementation:
+        match implementation:
             case "constant":
                 value = _ColorTexture(
                     params.color("value", Color(1.0)), NO_TEXTURE
@@ -878,7 +878,7 @@ def _texture(
 
     if value_type == "float":
         var value: _FloatTexture
-        __match implementation:
+        match implementation:
             case "constant":
                 value = _FloatTexture(
                     params.f32("float value", 1.0), NO_TEXTURE, 1.0, 1.0
@@ -995,7 +995,7 @@ def _material_roughness(
 def _surface(
     mut builder: _Builder, model: ImmStringSpan, params: _Parameters
 ) raises -> SurfaceId[1]:
-    __match model:
+    match model:
         case "mix":
             var names = params.values("string materials")
             if len(names) != 2:
@@ -1140,7 +1140,7 @@ def _shape[
     if builder.state.area_light:
         surface = builder.scene.surfaces.add_emissive(builder.state.emission)
 
-    __match kind:
+    match kind:
         case "sphere":
             var center = builder.state.transform.point(_PointL(0.0))
             var x_axis = builder.state.transform.vector(_VecL(1.0, 0.0, 0.0))
@@ -1304,7 +1304,7 @@ def _parse_text[
         if command_token.quoted:
             raise Error(t"expected PBRT directive at line {command_token.line}")
 
-        __match command_token.value:
+        match command_token.value:
             case "LookAt":
                 builder.camera_options.transform = (
                     builder.state.transform.copy()
@@ -1351,7 +1351,7 @@ def _parse_text[
 
             case "Sampler":
                 var sampler_name = lexer.next().value
-                __match sampler_name:
+                match sampler_name:
                     case "halton":
                         builder.sampler = .HALTON
                     case "sobol":
@@ -1638,7 +1638,7 @@ def _parse_camera_text[
         if command_token.quoted:
             raise Error(t"expected PBRT directive at line {command_token.line}")
 
-        __match command_token.value:
+        match command_token.value:
             case "WorldBegin":
                 return True
 

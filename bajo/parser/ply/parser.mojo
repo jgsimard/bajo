@@ -55,7 +55,7 @@ struct _ScalarType(EnumLike, Equatable, TrivialRegisterPassable):
             pass
 
     def byte_width(self) -> Int:
-        __match self:
+        match self:
             case .I8 | .U8:
                 return 1
             case .I16 | .U16:
@@ -66,7 +66,7 @@ struct _ScalarType(EnumLike, Equatable, TrivialRegisterPassable):
                 return 8
 
     def is_integer(self) -> Bool:
-        __match self:
+        match self:
             case .I8 | .U8 | .I16 | .U16 | .I32 | .U32:
                 return True
             case .F32 | .F64:
@@ -215,7 +215,7 @@ struct _BinaryCursor[origin: ImmOrigin]:
         return value
 
     def read_integer(mut self, kind: _ScalarType) raises -> Int:
-        __match kind:
+        match kind:
             case .I8:
                 return Int(bitcast[.int8](self.read_u8()))
             case .U8:
@@ -232,7 +232,7 @@ struct _BinaryCursor[origin: ImmOrigin]:
                 raise Error("PLY list sizes and indices must use integer types")
 
     def read_number(mut self, kind: _ScalarType) raises -> Float32:
-        __match kind:
+        match kind:
             case .F32:
                 return bitcast[.float32](self.read_u32())
             case .F64:
@@ -254,7 +254,7 @@ def _parse_nonnegative_int(text: ImmStringSpan) raises -> Int:
 
 
 def _parse_scalar_type(name: ImmStringSpan) raises -> _ScalarType:
-    __match name:
+    match name:
         case "char" | "int8":
             return .I8
 
@@ -283,7 +283,7 @@ def _parse_scalar_type(name: ImmStringSpan) raises -> _ScalarType:
 
 
 def _vertex_semantic(name: ImmStringSpan) -> UInt8:
-    __match name:
+    match name:
         case "x":
             return _X
 
@@ -404,7 +404,7 @@ def _parse_header(bytes: ImmSpan[UInt8, _]) raises -> _Header:
     var saw_face = False
     while True:
         var command = cursor.next()
-        __match command:
+        match command:
             case "comment" | "obj_info":
                 cursor.skip_line()
             case "element":

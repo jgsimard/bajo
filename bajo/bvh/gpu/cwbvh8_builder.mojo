@@ -99,7 +99,7 @@ struct GpuCwbvh8BuildArena[
         )
         workspace.ensure_topology(ctx)
         var binary = GpuBinaryBoundsBvh(
-            ctx, leaf_bounds^, leaf_payloads^, workspace
+            ctx, leaf_bounds, leaf_payloads, workspace
         )
         enqueue_segmented_morton_codes(ctx, binary, workspace)
         enqueue_segmented_morton_sort(ctx, binary, workspace)

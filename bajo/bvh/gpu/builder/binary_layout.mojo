@@ -233,14 +233,14 @@ def _reduced_segment_offsets(segments: SegmentOffsets) -> SegmentOffsets:
                 1,
             )
         )
-    return SegmentOffsets.from_counts(counts^)
+    return SegmentOffsets.from_counts(counts)
 
 
 def _internal_segment_offsets(segments: SegmentOffsets) -> SegmentOffsets:
     var counts = List[Int](capacity=segments.segment_count())
     for segment_idx in range(segments.segment_count()):
         counts.append(max(Int(segments.count(segment_idx)) - 1, 0))
-    return SegmentOffsets.from_counts(counts^)
+    return SegmentOffsets.from_counts(counts)
 
 
 struct GpuBinaryTopologyWorkspace(Copyable):

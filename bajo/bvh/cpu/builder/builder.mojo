@@ -96,7 +96,7 @@ struct BinaryBoundsBvh[
 
         self.nodes_used = 1
         # Match cases do not yet provide evidence for callees' where constraints.
-        comptime __match Self.method:
+        comptime match Self.method:
             case .LBVH:
                 _build_lbvh[
                     Self.frame,
@@ -589,7 +589,7 @@ struct BinaryBoundsBvh[
         centroid_bounds: AABB[Self.frame],
         parallel_root: Bool = False,
     ) -> BoundsPartitionResult[Self.frame]:
-        comptime __match Self.method:
+        comptime match Self.method:
             case .MEDIAN:
                 return self._partition_node_by_median(node)
 

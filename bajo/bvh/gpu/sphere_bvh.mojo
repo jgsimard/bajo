@@ -88,7 +88,7 @@ def _flatten_sphere_sets[
         for sphere in spheres:
             _append_sphere_record(sphere, flat_spheres, leaf_bounds, payloads)
     return _SphereHostSegments(
-        SegmentOffsets.from_counts(primitive_counts^),
+        SegmentOffsets.from_counts(primitive_counts),
         flat_spheres^,
         leaf_bounds^,
         payloads^,

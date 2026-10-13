@@ -47,7 +47,7 @@ def main() raises:
     var bytes = mapped.as_bytes_span()
     var digest = UInt64(14695981039346656037)
     var mean_us: Float64
-    __match kind:
+    match kind:
         case "ply":
             var mesh = parse_ply(bytes)
             _floats(digest, mesh.positions)

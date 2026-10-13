@@ -601,7 +601,7 @@ struct SurfaceStore:
         self.mix_uv_scales = List[Float32]()
 
     def contains(self, surface: SurfaceId[1]) -> Bool:
-        __match surface.kind():
+        match surface.kind():
             case .LAMBERTIAN:
                 return surface.index() < UInt32(len(self.lambertians))
             case .METAL:
@@ -701,7 +701,7 @@ struct SurfaceStore:
     def sample_albedo(
         self, surface: SurfaceId[1], u: Float32, v: Float32
     ) -> Color:
-        __match surface.kind():
+        match surface.kind():
             case .LAMBERTIAN:
                 ref material = self.lambertians[Int(surface.index())]
                 if material.texture_index != NO_TEXTURE:
@@ -752,7 +752,7 @@ struct SurfaceStore:
         var scale: Float32
         var u_scale: Float32
         var v_scale: Float32
-        __match surface.kind():
+        match surface.kind():
             case .COATED_DIFFUSE:
                 ref material = self.coated_diffuses[Int(surface.index())]
                 texture_index = material.displacement_texture_index

@@ -26,8 +26,8 @@ def test_compact_offsets_across_tiles_and_empty_segments() raises:
                 leaves.append(UInt32(l))
                 node_counts.append(n)
                 leaf_counts.append(l)
-            var expected_nodes = SegmentOffsets.from_counts(node_counts^)
-            var expected_leaves = SegmentOffsets.from_counts(leaf_counts^)
+            var expected_nodes = SegmentOffsets.from_counts(node_counts)
+            var expected_leaves = SegmentOffsets.from_counts(leaf_counts)
             var layout = GpuCompactWideLayout(
                 ctx, upload_list(ctx, nodes), upload_list(ctx, leaves), count
             )

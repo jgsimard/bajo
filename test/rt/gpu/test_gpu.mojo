@@ -904,9 +904,9 @@ def test_gpu_viewer_renders_all_procedural_stress_scenes() raises:
         settings, specular_camera, specular.scene_data()
     )
 
-    _assert_nonzero_result(many^)
-    _assert_nonzero_result(indirect^)
-    _assert_nonzero_result(difficult^)
+    _assert_nonzero_result(many)
+    _assert_nonzero_result(indirect)
+    _assert_nonzero_result(difficult)
 
 
 def main() raises:

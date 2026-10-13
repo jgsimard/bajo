@@ -33,7 +33,7 @@ def evaluate_bsdf(
     estimator_seed: UInt32 = 0,
 ) -> BsdfEvaluation[1]:
     """Evaluate the non-delta BSDF and its solid-angle sampling PDF."""
-    __match surface.kind():
+    match surface.kind():
         case .LAMBERTIAN:
             return _evaluate_material[.LAMBERTIAN, 1](
                 ray.d,
@@ -120,7 +120,7 @@ def sample_bsdf(
     mut rng: Rng,
     estimator_seed: UInt32 = 0,
 ) -> BsdfSample[1]:
-    __match surface.kind():
+    match surface.kind():
         case .LAMBERTIAN:
             return _sample_material[.LAMBERTIAN, 1](
                 ray.d,

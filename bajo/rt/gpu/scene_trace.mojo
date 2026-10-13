@@ -102,7 +102,7 @@ def _gpu_environment_radiance(
         scene.environment_scale_y,
         scene.environment_scale_z,
     )
-    __match EnvironmentKind(scene.environment_kind):
+    match EnvironmentKind(scene.environment_kind):
         case .BLACK:
             return Color(0.0)
         case .PROCEDURAL:
@@ -448,7 +448,7 @@ def _gpu_rt_scene_trace_path[
             var environment_light_pdf = Float32(0.0)
             comptime if integrator == .MIS:
                 if bounce > 0 and not path.delta:
-                    __match EnvironmentKind(scene.environment_kind):
+                    match EnvironmentKind(scene.environment_kind):
                         case .IMAGE:
                             environment_light_pdf = (
                                 _light_importance(environment_emission)

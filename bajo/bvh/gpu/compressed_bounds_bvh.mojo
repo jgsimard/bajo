@@ -282,7 +282,7 @@ def _encode_cwbvh8_node[
         comptime for lane in range(CWBVH_WIDTH):
             var q = UInt32(0)
             if _wide_meta_count(metadata[lane]) != EMPTY_LANE:
-                comptime __match plane:
+                comptime match plane:
                     case 0:
                         q = _quantize_lower(min_x[lane], lo_x, scale_x)
                     case 1:
@@ -576,7 +576,7 @@ def _intersect_cwbvh8_node_tasks_legacy[
                 unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2 + qgroup
             ]
             var q = Float32((packed >> qshift) & UInt32(0xFF))
-            comptime __match plane:
+            comptime match plane:
                 case 0:
                     qlo_x[lane] = q
                 case 1:

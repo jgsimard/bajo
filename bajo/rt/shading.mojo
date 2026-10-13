@@ -75,7 +75,7 @@ def _evaluate_material[
     out_direction: Vec3[.float32, .WORLD, length],
 ) -> BsdfEvaluation[length]:
     """Evaluate one homogeneous material group at compile time."""
-    comptime __match MATERIAL_KIND:
+    comptime match MATERIAL_KIND:
         case .LAMBERTIAN:
             return _evaluate_lambertian(normal, albedo, out_direction)
         case .METAL:
@@ -243,7 +243,7 @@ def _sample_material[
     random_v: SIMD[.float32, length],
 ) -> BsdfSample[length]:
     """Dispatch one homogeneous SIMD material group at compile time."""
-    comptime __match MATERIAL_KIND:
+    comptime match MATERIAL_KIND:
         case .LAMBERTIAN:
             return _sample_lambertian(normal, albedo, random_u, random_v)
         case .METAL:

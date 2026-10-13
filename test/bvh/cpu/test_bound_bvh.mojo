@@ -945,7 +945,7 @@ def _test_adaptive_stream_matches_scalar[
         rays.append(Rayf32[.WORLD](center, Vec3f32[.WORLD](dx, dy, 1.0)))
 
     var sink = _AdaptiveStreamTestSink(len(rays))
-    comptime __match size_sequence:
+    comptime match size_sequence:
         case 0:
             trace_blas_set_adaptive_stream[16, 16, 16, 8](
                 blases, UInt32(0), rays, sink

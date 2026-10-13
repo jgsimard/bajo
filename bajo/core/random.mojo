@@ -216,7 +216,7 @@ def _stbn(
     spatial -= floor(spatial)
 
     var temporal_step = Float32(0.6180339887498949)
-    __match dim:
+    match dim:
         case 1:
             temporal_step = Float32(0.7548776662466927)
         case 2:
@@ -356,7 +356,7 @@ def _r2(index: UInt64, dimension: Int) -> Float32:
     # Irrational additive recurrences for the renderer's short staged vectors.
     var alpha = Float32(0.7548776662466927)
     var dim = dimension % 4
-    __match dim:
+    match dim:
         case 1:
             alpha = Float32(0.5698402909980532)
         case 2:
@@ -418,14 +418,14 @@ struct Rng:
         var shift = self._buffer[self._consumed]
         self._consumed += 1
         var val = shift
-        __match self._sampler:
+        match self._sampler:
             case .INDEPENDENT:
                 pass
             case .HALTON:
                 # Eight dimensions per bounce, with disjoint stage domains.
                 var domain = self._stage >> UInt32(30)
                 var offset = Int(0)
-                __match domain:
+                match domain:
                     case 1:
                         offset = 6  # roulette
                     case 2:

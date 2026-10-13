@@ -334,7 +334,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         )
 
     def __getitem__(self, i: Int) -> SIMD[Self.dtype, Self.width]:
-        __match i:
+        match i:
             case 0:
                 return self.x
             case 1:
@@ -347,7 +347,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
     ](ref self) -> ref[origin_of(self.x, self.y, self.z)] SIMD[
         Self.dtype, Self.width
     ]:
-        comptime __match i:
+        comptime match i:
             case 0:
                 return self.x
             case 1:
@@ -362,7 +362,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         i: Int,
         value: SIMD[Self.dtype, Self.width],
     ):
-        __match i:
+        match i:
             case 0:
                 self.x = value
             case 1:
@@ -377,7 +377,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         self[i] = value
 
     def add_axis[i: Int](mut self, value: SIMD[Self.dtype, Self.width]):
-        comptime __match i:
+        comptime match i:
             case 0:
                 self.x += value
             case 1:

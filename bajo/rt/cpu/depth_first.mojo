@@ -245,7 +245,7 @@ def _trace_integrator[
     ray: Rayf32[.WORLD],
     path_id: UInt32,
 ) -> Color:
-    comptime __match integrator:
+    comptime match integrator:
         case .PATH:
             return _trace_path[.PATH, world_bvh_width, instance_bvh_width](
                 settings, sampling, world, ray, path_id
@@ -355,7 +355,7 @@ def render_depth_first[
                 )
 
     var render_t0 = perf_counter_ns()
-    comptime __match scheduler_mode:
+    comptime match scheduler_mode:
         case .LOGICAL_CORES:
             parallelize(
                 worker, tile_count, min(num_logical_cores(), tile_count)

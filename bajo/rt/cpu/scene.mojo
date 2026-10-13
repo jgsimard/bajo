@@ -389,7 +389,7 @@ struct CpuScene[
         valid: SIMD[.bool, length],
     ) -> Hit[.WORLD, length]:
         """Instantiate the viewer-selected triangle packet traversal."""
-        comptime __match traversal_mode:
+        comptime match traversal_mode:
             case .ADAPTIVE:
                 comptime assert len(adaptive_packet_sizes) > 0
                 return trace_blas_set_packet_adaptive[

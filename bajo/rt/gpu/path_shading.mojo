@@ -343,7 +343,7 @@ def _route_surface_hit[
         return
 
     var kind = SurfaceId.kind_from_raw(surface_value)
-    __match kind:
+    match kind:
         case .MIX:
             debug_assert["safe"](
                 False, "mix surfaces must be resolved before shading"
@@ -476,7 +476,7 @@ def _gpu_rt_shade_one[
         sampling, path.path_id, wavefront_rng_stage(bounce)
     )
 
-    comptime __match MATERIAL_KIND:
+    comptime match MATERIAL_KIND:
         case .LAMBERTIAN:
             var base = GpuRgbMaterialLayout.STRIDE * material_idx
             albedo = Color(material_data.unsafe_offset(base))
@@ -555,7 +555,7 @@ def gpu_rt_shade_dispatch_kernel[
     while idx < work_count:
         var surface_value = shade_surfaces[unsafe_offset=idx]
         var kind = SurfaceId.kind_from_raw(surface_value)
-        __match kind:
+        match kind:
             case .METAL:
                 _gpu_rt_shade_one[integrator, .METAL](
                     idx,

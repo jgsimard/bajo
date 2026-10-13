@@ -1022,7 +1022,7 @@ def project_triangle[
     comptime for edge in range(3):
         var start = av
         var end = bv
-        comptime __match edge:
+        comptime match edge:
             case 1:
                 start = bv
                 end = cv
@@ -1041,7 +1041,7 @@ def project_triangle[
         if distance2 < best.distance2:
             var u = Float64(1.0) - t
             var v = t
-            comptime __match edge:
+            comptime match edge:
                 case 1:
                     u = 0.0
                     v = 1.0 - t

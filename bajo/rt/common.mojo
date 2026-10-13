@@ -123,7 +123,7 @@ def environment_radiance[
     direction: Vec3[.float32, .WORLD, length],
 ) -> Vec3[.float32, .WORLD, length]:
     """Evaluate scene-owned miss radiance on the CPU."""
-    __match environment.kind:
+    match environment.kind:
         case .BLACK:
             return Vec3[.float32, .WORLD, length](0.0)
         case .PROCEDURAL:
@@ -176,7 +176,7 @@ def environment_light_pdf[
     """Environment sampling density in world-space solid-angle measure."""
     if environment_weight <= 0.0 or total_light_weight <= 0.0:
         return 0.0
-    __match environment.kind:
+    match environment.kind:
         case .BLACK | .PROCEDURAL | .UNIFORM:
             return environment_weight / (4.0 * pi * total_light_weight)
         case .IMAGE:
@@ -234,7 +234,7 @@ def path_stage_rng(
     var pixel_id = path_id / batch_spp
     var sample_index = sampling.sample_offset + path_id % batch_spp
     var sampler = Sampler(unsafe_from_value=sampling.sampler_value)
-    __match sampler:
+    match sampler:
         case .INDEPENDENT:
             var canonical_path_id = (
                 pixel_id * sampling.sequence_length + sample_index

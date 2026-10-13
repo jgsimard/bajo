@@ -84,7 +84,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
             found_d = False
 
         elif have_current:
-            __match tag:
+            match tag:
                 case "Ka":
                     current.Ka = (
                         cur.next_f32(),
@@ -140,7 +140,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
                         var name = _map_name_from_tail(cur)
                         if name.byte_length() > 0:
                             var val = _add_texture(mesh, name, base)
-                            __match tag:
+                            match tag:
                                 case "map_Ka":
                                     current.map_Ka = val
                                 case "map_Kd":

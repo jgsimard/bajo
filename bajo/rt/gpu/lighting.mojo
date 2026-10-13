@@ -267,7 +267,7 @@ def _sample_direct_light_candidate[
         var direction = normalize(
             environment_light_to_world.vector(local_direction)
         )
-        __match EnvironmentKind(environment_kind):
+        match EnvironmentKind(environment_kind):
             case .IMAGE:
                 var desc_base = GpuTextureDescLayout.STRIDE * Int(
                     environment_texture_index
@@ -290,7 +290,7 @@ def _sample_direct_light_candidate[
                 emission = environment_scale
         var surface_cosine = max(dot(normal, direction), 0.0)
         var light_pdf = environment_weight / (4.0 * pi * total_light_weight)
-        __match EnvironmentKind(environment_kind):
+        match EnvironmentKind(environment_kind):
             case .IMAGE:
                 light_pdf = _light_importance(emission) / total_light_weight
             case .BLACK | .PROCEDURAL | .UNIFORM:
@@ -323,7 +323,7 @@ def _sample_direct_light_candidate[
             light_fields.unsafe_offset(base + GPU_RT_LIGHT_P0_X)
         )
         var surface_sample: _LightSurfaceSample
-        comptime __match light_kind:
+        comptime match light_kind:
             case .SPHERE:
                 var radius = light_fields[
                     unsafe_offset=base + GPU_RT_LIGHT_RADIUS
@@ -375,7 +375,7 @@ def _sample_direct_light_candidate[
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
     var value = Color(0.0)
     var bsdf_pdf = Float32(0.0)
-    __match surface_kind:
+    match surface_kind:
         case .LAMBERTIAN:
             comptime if not coated_pass:
                 var evaluation = _evaluate_material[.LAMBERTIAN, 1](

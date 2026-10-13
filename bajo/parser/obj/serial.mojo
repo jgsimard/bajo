@@ -210,7 +210,7 @@ def _parse_face_cursor(
     mesh.indices.append(first.idx)
     count += 1
 
-    __match shape:
+    match shape:
         case 1:
             while True:
                 cur.skip_ws()

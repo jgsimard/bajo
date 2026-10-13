@@ -91,7 +91,7 @@ def main() raises:
         raise Error("repeats must be positive; packet_width must be 4 or 16")
     var camera = weekend_camera()
     var world: CpuScene[16, 16]
-    __match name:
+    match name:
         case "weekend":
             world = make_weekend_world()
         case "mixed":

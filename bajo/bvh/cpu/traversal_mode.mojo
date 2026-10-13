@@ -31,7 +31,7 @@ struct CpuTraversalMode(EnumLike, Equatable, ImplicitlyCopyable):
             pass
 
     def name(self) -> String:
-        __match self:
+        match self:
             case .FIXED_PACKET:
                 return "fixed-packet"
             case .AUTO_COHERENT:

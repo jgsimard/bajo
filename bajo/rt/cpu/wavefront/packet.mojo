@@ -122,7 +122,7 @@ struct _MaterialParameters[length: SIMDLength]:
             self.albedo.x[lane] = sampled.x
             self.albedo.y[lane] = sampled.y
             self.albedo.z[lane] = sampled.z
-        comptime __match kind:
+        comptime match kind:
             case .METAL:
                 ref material = surfaces.metals[Int(surface_index)]
                 self.parameter[lane] = material.fuzz

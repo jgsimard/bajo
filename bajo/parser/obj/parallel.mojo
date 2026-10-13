@@ -82,7 +82,7 @@ def _record_kind(mut cur: ObjLineCursor) -> Int:
         cur.pos = p + 1
         # Character literals are numeric byte patterns; names in a case
         # pattern would bind a variable instead of comparing the constant.
-        __match first:
+        match first:
             case 102:
                 return 4
             case 108:
@@ -153,7 +153,7 @@ def _count_chunk(text: ImmStringSpan, begin: Int, end: Int) -> _ObjChunk:
         var kind = _record_kind(cur)
         if kind >= 1 and kind <= 5:
             var count = _word_count(bytes, start + cur.pos, stop)
-            __match kind:
+            match kind:
                 case 1:
                     if count >= 3:
                         chunk.positions += 1
@@ -188,7 +188,7 @@ def _next_corner[
     texcoords: ObjIndexLimit,
     normals: ObjIndexLimit,
 ) raises -> ObjIndex:
-    comptime __match shape:
+    comptime match shape:
         case 1:
             return cur.next_index_p_only_at_token(positions)
         case 2:
@@ -253,7 +253,7 @@ def _decode_face(
     var first = cur.next_first_face_index_at_token(
         positions, texcoords, normals
     )
-    __match first.shape:
+    match first.shape:
         case 1:
             return _decode_corners[1](
                 cur,
@@ -375,7 +375,7 @@ def _decode_chunk(
         var stop = lines.next_end()
         var cur = ObjLineCursor(bytes[start:stop])
         var kind = _record_kind(cur)
-        __match kind:
+        match kind:
             case 1:
                 if _decode_numeric(
                     cur,
@@ -453,7 +453,7 @@ def _finish_metadata[
             for output_face in range(previous_face, face):
                 mesh.face_materials[output_face] = state.current_material
             previous_face = face
-            __match event.kind:
+            match event.kind:
                 case 6:
                     state.current_object.face_count = (
                         face - state.current_object.face_offset

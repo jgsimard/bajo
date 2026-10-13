@@ -26,7 +26,7 @@ struct SegmentOffsets(Copyable):
             )
             total += UInt32(count)
             offsets.append(total)
-        return Self(offsets^)
+        return Self(offsets)
 
     @staticmethod
     def single(item_count: Int) -> Self:

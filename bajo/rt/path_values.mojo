@@ -69,7 +69,7 @@ struct PathContinuation[length: SIMDLength](
 
     @always_inline
     def float_field[field: Int](self) -> SIMD[.float32, Self.WIDTH]:
-        comptime __match field:
+        comptime match field:
             case PathFloatField.OX:
                 return self.origin.x
             case PathFloatField.OY:

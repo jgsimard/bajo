@@ -30,7 +30,7 @@ struct CpuBvhBuildMethod(EnumLike, Equatable, ImplicitlyCopyable):
             pass
 
     def name(self) -> String:
-        __match self:
+        match self:
             case .MEDIAN:
                 return "median"
             case .SAH:

@@ -118,7 +118,7 @@ def _dispatch_render[
     integrator: Integrator
 ](handle: Int, tag: Int, config: PythonObject) raises -> PythonObject:
     var kind = GpuRtSceneKind(tag)
-    __match kind:
+    match kind:
         case .SPHERES:
             return _render_state[integrator, .SPHERES](handle, config)
         case .TRIANGLES:

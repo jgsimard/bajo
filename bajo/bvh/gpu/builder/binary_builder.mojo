@@ -45,7 +45,7 @@ def build_binary_bvh[
 ) raises -> GpuBuildTimings:
     """Select the binary topology builder at compile time; LBVH is default."""
 
-    comptime __match method:
+    comptime match method:
         case .LBVH:
             return build_binary_bvh_with_lbvh(
                 ctx, binary, workspace, measure_stages

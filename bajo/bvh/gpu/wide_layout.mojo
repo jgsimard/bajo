@@ -212,8 +212,8 @@ struct GpuWideBuildLayout[
             leaf_capacities.append(leaf_count)
 
         self.segments = segments.copy()
-        self.node_segments = SegmentOffsets.from_counts(node_capacities^)
-        self.leaf_block_segments = SegmentOffsets.from_counts(leaf_capacities^)
+        self.node_segments = SegmentOffsets.from_counts(node_capacities)
+        self.leaf_block_segments = SegmentOffsets.from_counts(leaf_capacities)
         debug_assert["safe", _use_compiler_assume=True](
             UInt64(self.node_segments.item_count())
             * UInt64(Self.node_width * WideNode.CHILD_STRIDE)

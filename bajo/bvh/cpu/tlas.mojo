@@ -42,7 +42,6 @@ from bajo.bvh.cpu.trace import (
 )
 from bajo.bvh.cpu.packet import trace_packet_stack_bounds_bvh
 from bajo.bvh.cpu.triangle_bvh import (
-    _occlude_triangle_packet_primitive,
     _trace_triangle_packet_primitive,
 )
 from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
@@ -730,39 +729,35 @@ struct CpuTlas[
                     hot_inst.inv_transform, rays, packet_hit.t
                 )
                 var local_hit = Hit[.LOCAL, length].miss(packet_hit.t)
-                comptime if mode == .ANY_HIT:
-                    _occlude_triangle_packet_primitive[.LOCAL, length](
-                        local_rays, active, v0, e1, e2, local_hit
-                    )
-                    var occluded = active & local_hit.t.eq(0.0)
-                    packet_hit.t = occluded.select(Float32(0.0), packet_hit.t)
-                else:
-                    _trace_triangle_packet_primitive[.LOCAL, length](
-                        local_rays,
-                        active,
-                        prim_idx,
-                        v0,
-                        e1,
-                        e2,
-                        local_hit,
-                    )
-                    var closer = active & local_hit.is_hit()
-                    packet_hit.t = closer.select(local_hit.t, packet_hit.t)
-                    packet_hit.u = closer.select(local_hit.u, packet_hit.u)
-                    packet_hit.v = closer.select(local_hit.v, packet_hit.v)
-                    packet_hit.prim = closer.select(
-                        local_hit.prim, packet_hit.prim
-                    )
-                    packet_hit.inst = closer.select(inst_idx, packet_hit.inst)
-                    packet_hit.normal.x = closer.select(
-                        local_hit.normal.x, packet_hit.normal.x
-                    )
-                    packet_hit.normal.y = closer.select(
-                        local_hit.normal.y, packet_hit.normal.y
-                    )
-                    packet_hit.normal.z = closer.select(
-                        local_hit.normal.z, packet_hit.normal.z
-                    )
+                _trace_triangle_packet_primitive[.LOCAL, length, mode](
+                    local_rays, active, prim_idx, v0, e1, e2, local_hit
+                )
+                comptime match mode:
+                    case .ANY_HIT:
+                        var occluded = active & local_hit.t.eq(0.0)
+                        packet_hit.t = occluded.select(
+                            Float32(0.0), packet_hit.t
+                        )
+                    case .CLOSEST_HIT:
+                        var closer = active & local_hit.is_hit()
+                        packet_hit.t = closer.select(local_hit.t, packet_hit.t)
+                        packet_hit.u = closer.select(local_hit.u, packet_hit.u)
+                        packet_hit.v = closer.select(local_hit.v, packet_hit.v)
+                        packet_hit.prim = closer.select(
+                            local_hit.prim, packet_hit.prim
+                        )
+                        packet_hit.inst = closer.select(
+                            inst_idx, packet_hit.inst
+                        )
+                        packet_hit.normal.x = closer.select(
+                            local_hit.normal.x, packet_hit.normal.x
+                        )
+                        packet_hit.normal.y = closer.select(
+                            local_hit.normal.y, packet_hit.normal.y
+                        )
+                        packet_hit.normal.z = closer.select(
+                            local_hit.normal.z, packet_hit.normal.z
+                        )
 
         trace_packet_stack_bounds_bvh[
             frame=.WORLD,

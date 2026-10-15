@@ -103,7 +103,6 @@ struct GpuCwbvh8BuildArena[
         )
         enqueue_segmented_morton_codes(ctx, binary, workspace)
         enqueue_segmented_morton_sort(ctx, binary, workspace)
-        ref topology = workspace.topology.value()
         var hploc = GpuHplocBuildState[
             Self.search_radius,
             Self.merging_threshold,
@@ -111,22 +110,7 @@ struct GpuCwbvh8BuildArena[
             True,
             True,
             not Self.direct_conversion or Self.max_leaf_size > 1,
-        ](
-            ctx,
-            binary.leaf_bounds.copy(),
-            topology.morton_keys.copy(),
-            binary.leaf_ids.copy(),
-            binary.segments.copy(),
-            binary.segment_offsets.copy(),
-            binary.internal_segments.copy(),
-            binary.internal_segment_offsets.copy(),
-            binary.node_meta.copy(),
-            topology.leaf_parent.copy(),
-            binary.node_bounds.copy(),
-            topology.node_flags.copy(),
-            binary.node_leaf_counts.copy(),
-        )
-        binary.roots = hploc.root.copy()
+        ].from_binary(ctx, binary, workspace)
 
         var wide = GpuWideBuildLayout[8, CWBVH_LEAF_STORAGE_WIDTH](
             ctx, segments

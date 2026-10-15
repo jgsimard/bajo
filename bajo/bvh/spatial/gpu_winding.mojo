@@ -8,6 +8,7 @@ from bajo.gpu.buffers import upload_list, _device_span
 from bajo.core import Frame
 from bajo.bvh.constants import EMPTY_LANE, f32_max
 
+from .device_update import UPDATE_BLOCK_SIZE
 from .mesh import SpatialMesh
 from .gpu import GpuSpatialBoundsBvh
 from .parallel_refit import (
@@ -138,7 +139,9 @@ struct GpuWindingCache[frame: Frame = .WORLD]:
         )
         ctx.synchronize()
 
-    def enqueue_refit(
+    def enqueue_refit[
+        block_size: Int = UPDATE_BLOCK_SIZE
+    ](
         self,
         ctx: DeviceContext,
         points: DeviceBuffer[.float32],
@@ -179,4 +182,6 @@ struct GpuWindingCache[frame: Frame = .WORLD]:
                 block_dim=128,
             )
         else:
-            self.tree.enqueue_update[False](ctx, self.tree.update_items)
+            self.tree.enqueue_update[False, block_size](
+                ctx, self.tree.update_items
+            )

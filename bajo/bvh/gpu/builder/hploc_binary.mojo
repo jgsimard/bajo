@@ -1,8 +1,6 @@
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
-from bajo.gpu.buffers import _device_span
-from bajo.bvh.constants import GPU_BOUNDS_BVH_BLOCK_SIZE
 from bajo.bvh.gpu.builder.binary_layout import (
     GpuBinaryBoundsBvh,
     GpuBinaryBuildWorkspace,
@@ -24,25 +22,9 @@ def enqueue_binary_bvh_with_hploc(
     """Queue H-PLOC without synchronizing or reading completion status."""
     if workspace.compact_output:
         raise "full H-PLOC requires a full binary output workspace"
-    ref topology = workspace.topology.value()
     enqueue_segmented_morton_codes(ctx, binary, workspace)
     enqueue_segmented_morton_sort(ctx, binary, workspace)
-    var hploc = GpuHplocBuildState[](
-        ctx,
-        binary.leaf_bounds.copy(),
-        topology.morton_keys.copy(),
-        binary.leaf_ids.copy(),
-        binary.segments.copy(),
-        binary.segment_offsets.copy(),
-        binary.internal_segments.copy(),
-        binary.internal_segment_offsets.copy(),
-        binary.node_meta.copy(),
-        topology.leaf_parent.copy(),
-        binary.node_bounds.copy(),
-        topology.node_flags.copy(),
-        binary.node_leaf_counts.copy(),
-    )
-    binary.roots = hploc.root.copy()
+    var hploc = GpuHplocBuildState[].from_binary(ctx, binary, workspace)
     return hploc^
 
 
@@ -56,7 +38,6 @@ def build_binary_bvh_with_hploc(
 
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
     var stage_start = Int(0)
-    ref topology = workspace.topology.value()
     if measure_stages:
         ctx.synchronize()
         stage_start = perf_counter_ns()
@@ -75,22 +56,7 @@ def build_binary_bvh_with_hploc(
         timings.sort_ns = Int(stage_end - stage_start)
         stage_start = stage_end
 
-    var hploc = GpuHplocBuildState[](
-        ctx,
-        binary.leaf_bounds.copy(),
-        topology.morton_keys.copy(),
-        binary.leaf_ids.copy(),
-        binary.segments.copy(),
-        binary.segment_offsets.copy(),
-        binary.internal_segments.copy(),
-        binary.internal_segment_offsets.copy(),
-        binary.node_meta.copy(),
-        topology.leaf_parent.copy(),
-        binary.node_bounds.copy(),
-        topology.node_flags.copy(),
-        binary.node_leaf_counts.copy(),
-    )
-    binary.roots = hploc.root.copy()
+    var hploc = GpuHplocBuildState[].from_binary(ctx, binary, workspace)
 
     # Keep construction scratch alive until the direct production writes finish
     # and turn a device-side failure into a normal raising API boundary.

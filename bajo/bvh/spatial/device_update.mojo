@@ -232,16 +232,11 @@ def reorder_mesh_kernel[
         order[i] = 0
 
 
-def bounds_update_kernel[
-    rebuild: Bool, block_size: Int = UPDATE_BLOCK_SIZE
-](
-    input: ImmSpan[Float32, ImmutAnyOrigin],
-    items: MutSpan[Float32, MutAnyOrigin],
-    bounds: MutSpan[Float32, MutAnyOrigin],
-    nodes: MutSpan[UInt32, MutAnyOrigin],
-    order: MutSpan[UInt32, MutAnyOrigin],
-    status: MutSpan[UInt32, MutAnyOrigin],
-):
+@always_inline
+def _begin_single_block_update[
+    block_size: Int
+](status: MutSpan[UInt32, MutAnyOrigin]) -> Bool:
+    """Reject malformed launches before mutation and mark updates pending."""
     comptime assert (
         block_size >= 32
         and block_size <= 1024
@@ -257,10 +252,26 @@ def bounds_update_kernel[
     ):
         if global_idx.x == 0 and global_idx.y == 0 and global_idx.z == 0:
             status[0] = 1
-        return
+        return False
     var lane = Int(thread_idx.x)
     if lane == 0:
         status[0] = 1
+    return True
+
+
+def bounds_update_kernel[
+    rebuild: Bool, block_size: Int = UPDATE_BLOCK_SIZE
+](
+    input: ImmSpan[Float32, ImmutAnyOrigin],
+    items: MutSpan[Float32, MutAnyOrigin],
+    bounds: MutSpan[Float32, MutAnyOrigin],
+    nodes: MutSpan[UInt32, MutAnyOrigin],
+    order: MutSpan[UInt32, MutAnyOrigin],
+    status: MutSpan[UInt32, MutAnyOrigin],
+):
+    if not _begin_single_block_update[block_size](status):
+        return
+    var lane = Int(thread_idx.x)
     var invalid = False
     for item in range(lane, len(input) // 6, block_size):
         comptime for axis in range(3):
@@ -292,25 +303,9 @@ def mesh_update_kernel[
     order: MutSpan[UInt32, MutAnyOrigin],
     status: MutSpan[UInt32, MutAnyOrigin],
 ):
-    comptime assert (
-        block_size >= 32
-        and block_size <= 1024
-        and (block_size & (block_size - 1)) == 0
-    )
-    if (
-        Int(block_dim.x) != block_size
-        or Int(block_dim.y) != 1
-        or Int(block_dim.z) != 1
-        or Int(grid_dim.x) != 1
-        or Int(grid_dim.y) != 1
-        or Int(grid_dim.z) != 1
-    ):
-        if global_idx.x == 0 and global_idx.y == 0 and global_idx.z == 0:
-            status[0] = 1
+    if not _begin_single_block_update[block_size](status):
         return
     var lane = Int(thread_idx.x)
-    if lane == 0:
-        status[0] = 1
     var invalid = False
     for i in range(lane, len(input), block_size):
         invalid |= not isfinite(input[i])
@@ -343,25 +338,9 @@ def velocity_update_kernel[
     velocities: MutSpan[Float32, MutAnyOrigin],
     status: MutSpan[UInt32, MutAnyOrigin],
 ):
-    comptime assert (
-        block_size >= 32
-        and block_size <= 1024
-        and (block_size & (block_size - 1)) == 0
-    )
-    if (
-        Int(block_dim.x) != block_size
-        or Int(block_dim.y) != 1
-        or Int(block_dim.z) != 1
-        or Int(grid_dim.x) != 1
-        or Int(grid_dim.y) != 1
-        or Int(grid_dim.z) != 1
-    ):
-        if global_idx.x == 0 and global_idx.y == 0 and global_idx.z == 0:
-            status[0] = 1
+    if not _begin_single_block_update[block_size](status):
         return
     var lane = Int(thread_idx.x)
-    if lane == 0:
-        status[0] = 1
     var invalid = False
     for i in range(lane, len(input), block_size):
         invalid |= not isfinite(input.unsafe_ptr().unsafe_load(i))

@@ -75,7 +75,9 @@ def _trace_sphere_leaf_block[
 
 @always_inline
 def _trace_sphere_packet_primitive[
-    frame: Frame, length: SIMDLength
+    frame: Frame,
+    length: SIMDLength,
+    mode: TraceMode = .CLOSEST_HIT,
 ](
     rays: Ray[.float32, frame, length],
     active: SIMD[.bool, length],
@@ -101,6 +103,9 @@ def _trace_sphere_packet_primitive[
         rays.t_min,
     )
     var closer = active & candidate.mask
+    comptime if mode == .ANY_HIT:
+        packet_hit.t = closer.select(Float32(0.0), packet_hit.t)
+        return
     if closer.reduce_or():
         packet_hit.t = closer.select(candidate.t, packet_hit.t)
         packet_hit.u = closer.select(SIMD[.float32, length](0.0), packet_hit.u)
@@ -116,36 +121,6 @@ def _trace_sphere_packet_primitive[
         packet_hit.normal.x = closer.select(normal.x, packet_hit.normal.x)
         packet_hit.normal.y = closer.select(normal.y, packet_hit.normal.y)
         packet_hit.normal.z = closer.select(normal.z, packet_hit.normal.z)
-
-
-@always_inline
-def _occlude_sphere_packet_primitive[
-    frame: Frame, length: SIMDLength
-](
-    rays: Ray[.float32, frame, length],
-    active: SIMD[.bool, length],
-    ray_a: SIMD[.float32, length],
-    ray_inv_a: SIMD[.float32, length],
-    center_scalar: Point3f32[frame],
-    radius_scalar: Float32,
-    mut packet_hit: Hit[frame, length],
-):
-    var center = Point3[.float32, frame, length](
-        center_scalar.x, center_scalar.y, center_scalar.z
-    )
-    var radius = SIMD[.float32, length](radius_scalar)
-    var candidate = intersect_ray_sphere_coefficients(
-        rays.o,
-        rays.d,
-        center,
-        radius,
-        ray_a,
-        ray_inv_a,
-        packet_hit.t,
-        rays.t_min,
-    )
-    var occluded = active & candidate.mask
-    packet_hit.t = occluded.select(Float32(0.0), packet_hit.t)
 
 
 struct _SphereBuild[frame: Frame, width: SIMDLength](Copyable):

@@ -16,9 +16,8 @@ from .parallel_refit import (
     validate_mesh_refit_kernel,
     refit_mesh_chunks_kernel,
     publish_mesh_chunk_parents_kernel,
-    publish_bounds_refit_kernel,
 )
-from bajo.gpu.buffers import upload_list, _device_span, copy_to_device
+from bajo.gpu.buffers import _device_span, copy_to_device
 from bajo.core import Frame, Point3f32, Vec3f32
 
 from .device_update import (
@@ -28,14 +27,13 @@ from .device_update import (
     validate_velocity_blocks,
     publish_velocity_blocks,
     clear_velocity_kernel,
-    bounds_update_kernel,
     rebuild_tile_sort_kernel,
     rebuild_merge_order_kernel,
     publish_rebuild_order_kernel,
     clear_rebuild_order_kernel,
 )
 from .mesh import SpatialMesh
-from .gpu_winding import GpuWindingCache, component_bounds_kernel
+from .gpu_winding import GpuWindingCache
 from .winding import DeviceWindingView
 from .query import BoundsQueryView
 
@@ -273,6 +271,7 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         copy_to_device(self.velocities, self.host.velocities)
         ctx.synchronize()
 
+    @always_inline
     def enqueue_update[
         rebuild: Bool, block_size: Int = UPDATE_BLOCK_SIZE
     ](self, ctx: DeviceContext, points: DeviceBuffer[.float32]) raises:
@@ -283,6 +282,13 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         Invalid data sets update_status[0]=1 without modifying published state.
         Device updates leave the last host snapshot unchanged.
         """
+        self._enqueue_update[rebuild, block_size](ctx, points)
+
+    def _enqueue_update[
+        rebuild: Bool,
+        block_size: Int,
+        winding_block_size: Int = UPDATE_BLOCK_SIZE,
+    ](self, ctx: DeviceContext, points: DeviceBuffer[.float32]) raises:
         comptime assert (
             block_size >= 32
             and block_size <= 1024
@@ -293,7 +299,7 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         if len(self.indices) // 3 >= (256 if rebuild else 1024):
             self._enqueue_parallel_refit[block_size, rebuild](ctx, points)
             if self.winding:
-                self.winding.value().enqueue_refit(
+                self.winding.value().enqueue_refit[winding_block_size](
                     ctx, self.points, self.indices, self.update_status
                 )
             return
@@ -310,7 +316,7 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
             block_dim=block_size,
         )
         if self.winding:
-            self.winding.value().enqueue_refit(
+            self.winding.value().enqueue_refit[winding_block_size](
                 ctx, self.points, self.indices, self.update_status
             )
 
@@ -518,326 +524,15 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         Replay reads current input contents; check_update reports validation
         status after execution. Buffers and scratch are allocated before capture.
         """
-        if len(self.indices) // 3 >= (256 if rebuild else 1024):
-            return self._create_parallel_refit_graph[block_size, rebuild](
-                ctx, input
-            )
-        if self.winding:
-            return self._create_winding_update_graph[rebuild, block_size](
-                ctx, input
-            )
         if len(input) != len(self.points):
             raise Error("Device update graph requires unchanged input count")
-        var function = ctx.compile_function[
-            mesh_update_kernel[rebuild, block_size]
-        ]()
-        var arg0 = _device_span[mut=False](input)
-        var arg1 = _device_span[mut=True](self.points)
-        var arg2 = _device_span[mut=False](self.indices)
-        var arg3 = _device_span[mut=True](self.update_items)
-        var arg4 = _device_span[mut=True](self.bounds)
-        var arg5 = _device_span[mut=True](self.nodes)
-        var arg6 = _device_span[mut=True](self.update_order)
-        var arg7 = _device_span[mut=True](self.update_status)
 
         def build(mut builder: DeviceGraphBuilder) raises {imm}:
-            _ = builder.add_function(
-                function,
-                arg0,
-                arg1,
-                arg2,
-                arg3,
-                arg4,
-                arg5,
-                arg6,
-                arg7,
-                grid_dim=1,
-                block_dim=block_size,
-                dependencies=[],
+            var recording = builder.recording_context()
+            # Graphs historically use the requested block size for small
+            # winding refits; direct submissions retain the default size.
+            self._enqueue_update[rebuild, block_size, block_size](
+                recording, input
             )
-
-        return DeviceGraph.create(ctx, build)
-
-    def _create_parallel_refit_graph[
-        block_size: Int, rebuild: Bool = False
-    ](
-        self, ctx: DeviceContext, input: DeviceBuffer[.float32]
-    ) raises -> DeviceGraph:
-        if len(input) != len(self.points):
-            raise Error("Device update graph requires unchanged vertex count")
-        comptime chunk_block_size = min(block_size, 128)
-        var clear = ctx.compile_function[clear_refit_kernel]()
-        var validate = ctx.compile_function[
-            validate_mesh_refit_kernel[rebuild]
-        ]()
-        var tile_sort = ctx.compile_function[rebuild_tile_sort_kernel]()
-        var order_merge = ctx.compile_function[rebuild_merge_order_kernel]()
-        var order_publish = ctx.compile_function[publish_rebuild_order_kernel]()
-        var order_clear = ctx.compile_function[clear_rebuild_order_kernel]()
-        var merge = ctx.compile_function[
-            refit_mesh_chunks_kernel[chunk_block_size]
-        ]()
-        var publish = ctx.compile_function[publish_mesh_chunk_parents_kernel]()
-        var component_function = ctx.compile_function[
-            component_bounds_kernel[128]
-        ]()
-        var cache_refit_function = ctx.compile_function[
-            bounds_update_kernel[False, block_size]
-        ]()
-        var cache_publish_function = ctx.compile_function[
-            publish_bounds_refit_kernel
-        ]()
-        var counters = _device_span[mut=True](self.update_order)
-        var status = _device_span[mut=True](self.update_status)
-        var read_status = _device_span[mut=False](self.update_status)
-        var source = _device_span[mut=False](input)
-        var points = _device_span[mut=True](self.points)
-        var indices = _device_span[mut=False](self.indices)
-        var items = _device_span[mut=True](self.update_items)
-        var read_items = _device_span[mut=False](self.update_items)
-        var bounds = _device_span[mut=True](self.bounds)
-        var nodes = _device_span[mut=False](self.nodes)
-        var chunks = _device_span[mut=False](self.update_chunks)
-        var parents = _device_span[mut=False](self.update_parents)
-        var clear_grid = ceildiv(len(self.update_order), block_size)
-        var validate_grid = ceildiv(
-            max(len(input), len(self.indices) // 3), block_size
-        )
-
-        def build(mut builder: DeviceGraphBuilder) raises {imm}:
-            var cleared = builder.add_function(
-                clear,
-                counters,
-                status,
-                grid_dim=clear_grid,
-                block_dim=block_size,
-                dependencies=[],
-            )
-            var checked = builder.add_function(
-                validate,
-                source,
-                indices,
-                items,
-                status,
-                grid_dim=validate_grid,
-                block_dim=block_size,
-                dependencies=[cleared],
-            )
-            var ready = checked
-            comptime if rebuild:
-                ready = builder.add_function(
-                    tile_sort,
-                    read_items,
-                    nodes,
-                    _device_span[mut=False](self.rebuild_tiles),
-                    _device_span[mut=True](self.rebuild_scratch),
-                    read_status,
-                    grid_dim=len(self.rebuild_tiles) // 3,
-                    block_dim=256,
-                    dependencies=[checked],
-                )
-                var in_scratch = True
-                var width = 256
-                while width < len(self.indices) // 3:
-                    ready = builder.add_function(
-                        order_merge,
-                        read_items,
-                        _device_span[mut=False](self.rebuild_tiles),
-                        _device_span[mut=False](
-                            self.rebuild_scratch
-                        ) if in_scratch else _device_span[mut=False](
-                            self.update_order
-                        ),
-                        _device_span[mut=True](
-                            self.update_order
-                        ) if in_scratch else _device_span[mut=True](
-                            self.rebuild_scratch
-                        ),
-                        read_status,
-                        UInt32(width),
-                        grid_dim=len(self.rebuild_tiles) // 3,
-                        block_dim=256,
-                        dependencies=[ready],
-                    )
-                    in_scratch = not in_scratch
-                    width *= 2
-                ready = builder.add_function(
-                    order_publish,
-                    _device_span[mut=False](self.rebuild_tiles),
-                    _device_span[mut=False](
-                        self.rebuild_scratch
-                    ) if in_scratch else _device_span[mut=False](
-                        self.update_order
-                    ),
-                    _device_span[mut=True](self.nodes),
-                    read_status,
-                    grid_dim=len(self.rebuild_tiles) // 3,
-                    block_dim=256,
-                    dependencies=[ready],
-                )
-                ready = builder.add_function(
-                    order_clear,
-                    counters,
-                    grid_dim=ceildiv(len(self.update_order), 256),
-                    block_dim=256,
-                    dependencies=[ready],
-                )
-            var merged = builder.add_function(
-                merge,
-                source,
-                points,
-                read_items,
-                bounds,
-                nodes,
-                read_status,
-                chunks,
-                grid_dim=len(chunks),
-                block_dim=chunk_block_size,
-                dependencies=[ready],
-            )
-            var published = builder.add_function(
-                publish,
-                bounds,
-                nodes,
-                parents,
-                counters,
-                read_status,
-                chunks,
-                grid_dim=ceildiv(len(chunks), block_size),
-                block_dim=block_size,
-                dependencies=[merged],
-            )
-            if self.winding:
-                ref cache = self.winding.value()
-                var components = len(cache.offsets) - 2
-                if components > 0:
-                    var cache_ready = published
-                    if components >= 1024:
-                        cache_ready = builder.add_function(
-                            clear,
-                            _device_span[mut=True](cache.tree.update_order),
-                            _device_span[mut=True](cache.tree.update_status),
-                            grid_dim=ceildiv(len(cache.tree.update_order), 128),
-                            block_dim=128,
-                            dependencies=[published],
-                        )
-                    var boxes = builder.add_function(
-                        component_function,
-                        _device_span[mut=False](self.points),
-                        indices,
-                        _device_span[mut=False](cache.offsets),
-                        _device_span[mut=False](cache.faces),
-                        _device_span[mut=True](cache.tree.update_items),
-                        read_status,
-                        grid_dim=(components + 127) // 128,
-                        block_dim=128,
-                        dependencies=[cache_ready],
-                    )
-                    if components >= 1024:
-                        _ = builder.add_function(
-                            cache_publish_function,
-                            _device_span[mut=False](cache.tree.update_items),
-                            _device_span[mut=True](cache.tree.bounds),
-                            _device_span[mut=False](cache.tree.nodes),
-                            _device_span[mut=False](cache.parents),
-                            _device_span[mut=True](cache.tree.update_order),
-                            read_status,
-                            grid_dim=ceildiv(len(cache.tree.update_order), 128),
-                            block_dim=128,
-                            dependencies=[boxes],
-                        )
-                    else:
-                        _ = builder.add_function(
-                            cache_refit_function,
-                            _device_span[mut=False](cache.tree.update_items),
-                            _device_span[mut=True](cache.tree.update_items),
-                            _device_span[mut=True](cache.tree.bounds),
-                            _device_span[mut=True](cache.tree.nodes),
-                            _device_span[mut=True](cache.tree.update_order),
-                            _device_span[mut=True](cache.tree.update_status),
-                            grid_dim=1,
-                            block_dim=block_size,
-                            dependencies=[boxes],
-                        )
-
-        return DeviceGraph.create(ctx, build)
-
-    def _create_winding_update_graph[
-        rebuild: Bool, block_size: Int
-    ](
-        self, ctx: DeviceContext, input: DeviceBuffer[.float32]
-    ) raises -> DeviceGraph:
-        if len(input) != len(self.points):
-            raise Error("Device update graph requires unchanged vertex count")
-        ref cache = self.winding.value()
-        var function = ctx.compile_function[
-            mesh_update_kernel[rebuild, block_size]
-        ]()
-        var component_function = ctx.compile_function[
-            component_bounds_kernel[128]
-        ]()
-        var refit_function = ctx.compile_function[
-            bounds_update_kernel[False, block_size]
-        ]()
-        var a0 = _device_span[mut=False](input)
-        var a1 = _device_span[mut=True](self.points)
-        var a2 = _device_span[mut=False](self.indices)
-        var a3 = _device_span[mut=True](self.update_items)
-        var a4 = _device_span[mut=True](self.bounds)
-        var a5 = _device_span[mut=True](self.nodes)
-        var a6 = _device_span[mut=True](self.update_order)
-        var a7 = _device_span[mut=True](self.update_status)
-        var p = _device_span[mut=False](self.points)
-        var offsets = _device_span[mut=False](cache.offsets)
-        var faces = _device_span[mut=False](cache.faces)
-        var items = _device_span[mut=True](cache.tree.update_items)
-        var source = _device_span[mut=False](cache.tree.update_items)
-        var status = _device_span[mut=False](self.update_status)
-        var cb = _device_span[mut=True](cache.tree.bounds)
-        var cn = _device_span[mut=True](cache.tree.nodes)
-        var co = _device_span[mut=True](cache.tree.update_order)
-        var cs = _device_span[mut=True](cache.tree.update_status)
-        var components = len(cache.offsets) - 2
-
-        def build(mut builder: DeviceGraphBuilder) raises {imm}:
-            var update = builder.add_function(
-                function,
-                a0,
-                a1,
-                a2,
-                a3,
-                a4,
-                a5,
-                a6,
-                a7,
-                grid_dim=1,
-                block_dim=block_size,
-                dependencies=[],
-            )
-            if components > 0:
-                var boxes = builder.add_function(
-                    component_function,
-                    p,
-                    a2,
-                    offsets,
-                    faces,
-                    items,
-                    status,
-                    grid_dim=(components + 127) // 128,
-                    block_dim=128,
-                    dependencies=[update],
-                )
-                _ = builder.add_function(
-                    refit_function,
-                    source,
-                    items,
-                    cb,
-                    cn,
-                    co,
-                    cs,
-                    grid_dim=1,
-                    block_dim=block_size,
-                    dependencies=[boxes],
-                )
 
         return DeviceGraph.create(ctx, build)

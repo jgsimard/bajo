@@ -246,8 +246,9 @@ def _trace_integrator[
     path_id: UInt32,
 ) -> Color:
     comptime match integrator:
-        case .PATH:
-            return _trace_path[.PATH, world_bvh_width, instance_bvh_width](
+        case .PATH | .NEE | .MIS:
+            comptime assert Integrator.is_path_tracing[integrator]
+            return _trace_path[integrator, world_bvh_width, instance_bvh_width](
                 settings, sampling, world, ray, path_id
             )
         case .NORMALS:
@@ -255,14 +256,6 @@ def _trace_integrator[
         case .AO:
             var ao_rng = path_stage_rng(sampling, path_id, UInt32(1))
             return _trace_ao(world, ray, ao_rng)
-        case .NEE:
-            return _trace_path[.NEE, world_bvh_width, instance_bvh_width](
-                settings, sampling, world, ray, path_id
-            )
-        case .MIS:
-            return _trace_path[.MIS, world_bvh_width, instance_bvh_width](
-                settings, sampling, world, ray, path_id
-            )
 
 
 def _render_pixel[

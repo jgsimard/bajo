@@ -9,7 +9,6 @@ from bajo.bvh.constants import (
     CPU_TRI_LEAF_PACKED_STRIDE,
 )
 from bajo.bvh.cpu.sphere_bvh import (
-    _occlude_sphere_packet_primitive,
     _trace_sphere_leaf_block,
     _trace_sphere_packet_primitive,
 )
@@ -18,7 +17,6 @@ from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
 from bajo.bvh.cpu.triangle_bvh import (
     TrianglePacketConfig,
     _PacketKernelTuning,
-    _occlude_triangle_packet_primitive,
     _trace_triangle_leaf_block,
     _trace_triangle_packet_policy,
     _trace_triangle_packet_primitive,
@@ -422,8 +420,8 @@ def _trace_blas_set_packet_policy[
                     block_ptr[unsafe_offset=8 * leaf_width + prim_lane],
                     block_ptr[unsafe_offset=9 * leaf_width + prim_lane],
                 )
-                _occlude_triangle_packet_primitive[frame, length](
-                    rays, live, v0, e1, e2, packet_hit
+                _trace_triangle_packet_primitive[frame, length, .ANY_HIT](
+                    rays, live, prim_idx, v0, e1, e2, packet_hit
                 )
                 prim_lane += 1
         else:
@@ -450,9 +448,9 @@ def _trace_blas_set_packet_policy[
                     comptime if mode == .ANY_HIT:
                         var live = active & packet_hit.t.ne(0.0)
                         if live.reduce_or():
-                            _occlude_triangle_packet_primitive[frame, length](
-                                rays, live, v0, e1, e2, packet_hit
-                            )
+                            _trace_triangle_packet_primitive[
+                                frame, length, .ANY_HIT
+                            ](rays, live, prim_idx, v0, e1, e2, packet_hit)
                     else:
                         _trace_triangle_packet_primitive[frame, length](
                             rays, active, prim_idx, v0, e1, e2, packet_hit
@@ -730,11 +728,12 @@ def _trace_sphere_blas_set_packet_policy[
                 comptime if mode == .ANY_HIT:
                     var live = active & packet_hit.t.ne(0.0)
                     if live.reduce_or():
-                        _occlude_sphere_packet_primitive[frame, length](
+                        _trace_sphere_packet_primitive[frame, length, .ANY_HIT](
                             rays,
                             live,
                             ray_a,
                             ray_inv_a,
+                            prim_idx,
                             center,
                             radius,
                             packet_hit,

@@ -22,6 +22,8 @@ from bajo.bvh.tagged_ref import (
     is_leaf_ref,
 )
 from bajo.bvh.gpu.builder.binary_layout import (
+    GpuBinaryBoundsBvh,
+    GpuBinaryBuildWorkspace,
     _node_parent_index,
     _segment_for_item,
 )
@@ -744,6 +746,33 @@ struct GpuHplocBuildState[
     var node_counter: DeviceBuffer[.uint32]
     var root: DeviceBuffer[.uint32]
     var status: DeviceBuffer[.uint32]
+
+    @staticmethod
+    @always_inline
+    def from_binary(
+        mut ctx: DeviceContext,
+        mut binary: GpuBinaryBoundsBvh,
+        workspace: GpuBinaryBuildWorkspace,
+    ) raises -> Self:
+        """Bind sorted production buffers and publish the retained root."""
+        ref topology = workspace.topology.value()
+        var state = Self(
+            ctx,
+            binary.leaf_bounds.copy(),
+            topology.morton_keys.copy(),
+            binary.leaf_ids.copy(),
+            binary.segments.copy(),
+            binary.segment_offsets.copy(),
+            binary.internal_segments.copy(),
+            binary.internal_segment_offsets.copy(),
+            binary.node_meta.copy(),
+            topology.leaf_parent.copy(),
+            binary.node_bounds.copy(),
+            topology.node_flags.copy(),
+            binary.node_leaf_counts.copy(),
+        )
+        binary.roots = state.root.copy()
+        return state^
 
     def __init__(
         out self,

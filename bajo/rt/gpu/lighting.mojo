@@ -3,7 +3,7 @@
 from std.math import pi
 from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.bvh.constants import f32_max
-from bajo.core import Affine3f32, Point3f32, Rayf32, Vec3f32, dot, normalize
+from bajo.core import Point3f32, Rayf32, Vec3f32, dot, normalize
 from bajo.core.random import random_unit_vector
 from bajo.rt.common import (
     equal_area_square_to_sphere,
@@ -32,6 +32,7 @@ from bajo.rt.wavefront_contract import (
     wavefront_rng_light_stage,
     wavefront_rng_stage,
 )
+from bajo.rt.gpu.views import GpuRtSceneView
 from bajo.rt.gpu.upload import _upload_nonempty
 from bajo.rt.gpu.material_layout import (
     GpuMetalLayout,
@@ -165,25 +166,7 @@ def _sample_direct_light_candidate[
     uv_u: Float32,
     uv_v: Float32,
     surface_value: UInt32,
-    lambertians: Pointer[Float32, ImmutAnyOrigin],
-    lambertian_texture_indices: Pointer[UInt32, ImmutAnyOrigin],
-    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
-    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
-    metals: Pointer[Float32, ImmutAnyOrigin],
-    coated_diffuses: Pointer[Float32, ImmutAnyOrigin],
-    coated_diffuse_texture_indices: Pointer[UInt32, ImmutAnyOrigin],
-    light_kinds: Pointer[UInt32, ImmutAnyOrigin],
-    light_fields: Pointer[Float32, ImmutAnyOrigin],
-    light_count: Int,
-    total_light_weight: Float32,
-    environment_weight: Float32,
-    environment_cdf_total: Float32,
-    environment_cdf: Pointer[Float32, ImmutAnyOrigin],
-    environment_cdf_count: Int,
-    environment_kind: UInt32,
-    environment_texture_index: UInt32,
-    environment_scale: Color,
-    environment_light_to_world: Affine3f32[.LOCAL, .WORLD],
+    scene: GpuRtSceneView,
     sampling: SamplingConfig,
     bounce: UInt32,
 ) -> GpuDirectLightSample:
@@ -193,7 +176,7 @@ def _sample_direct_light_candidate[
         PrimitiveKind.SPHERE,
         PrimitiveKind.TRIANGLE,
     )
-    if total_light_weight <= 0.0:
+    if scene.total_light_weight <= 0.0:
         return GpuDirectLightSample.make_empty()
 
     var surface_kind = SurfaceId.kind_from_raw(surface_value)
@@ -213,7 +196,7 @@ def _sample_direct_light_candidate[
                 SurfaceId.index_from_raw(surface_value)
             )
             if (
-                metals[unsafe_offset=material_base + GpuMetalLayout.FUZZ]
+                scene.metals[unsafe_offset=material_base + GpuMetalLayout.FUZZ]
                 <= 1.0e-4
             ):
                 return GpuDirectLightSample.make_empty()
@@ -222,8 +205,10 @@ def _sample_direct_light_candidate[
         sampling, path.path_id, wavefront_rng_light_stage(bounce)
     )
     var selection_u = rng.f32()
-    var environment_probability = environment_weight / total_light_weight
-    var light_id = UInt32(light_count)
+    var environment_probability = (
+        scene.environment_weight / scene.total_light_weight
+    )
+    var light_id = UInt32(Int(scene.light_count))
     var emission = Color(0.0)
     var geometry = _DirectLightGeometrySample(
         False, Vec3f32[.WORLD](0.0), 0.0, 0.0, 0.0
@@ -231,27 +216,27 @@ def _sample_direct_light_candidate[
     if selection_u < environment_probability:
         var selected_pixel = 0
         var local_direction: Vec3f32[.LOCAL]
-        if environment_cdf_count > 0:
-            var target = rng.f32() * environment_cdf_total
+        if Int(scene.environment_cdf_count) > 0:
+            var target = rng.f32() * scene.environment_cdf_total
             var first = 0
-            var end = environment_cdf_count
+            var end = Int(scene.environment_cdf_count)
             while first < end:
                 var middle = first + (end - first) / 2
-                if target < environment_cdf[unsafe_offset=middle]:
+                if target < scene.environment_cdf[unsafe_offset=middle]:
                     end = middle
                 else:
                     first = middle + 1
-            selected_pixel = min(first, environment_cdf_count - 1)
+            selected_pixel = min(first, Int(scene.environment_cdf_count) - 1)
             var desc_base = GpuTextureDescLayout.STRIDE * Int(
-                environment_texture_index
+                scene.environment_texture_index
             )
             var width = Int(
-                texture_descs[
+                scene.texture_descs[
                     unsafe_offset=desc_base + GpuTextureDescLayout.WIDTH
                 ]
             )
             var height = Int(
-                texture_descs[
+                scene.texture_descs[
                     unsafe_offset=desc_base + GpuTextureDescLayout.HEIGHT
                 ]
             )
@@ -265,34 +250,46 @@ def _sample_direct_light_candidate[
         else:
             local_direction = random_unit_vector[.LOCAL](rng)
         var direction = normalize(
-            environment_light_to_world.vector(local_direction)
+            scene.environment_light_to_world.vector(local_direction)
         )
-        match EnvironmentKind(environment_kind):
+        match EnvironmentKind(scene.environment_kind):
             case .IMAGE:
                 var desc_base = GpuTextureDescLayout.STRIDE * Int(
-                    environment_texture_index
+                    scene.environment_texture_index
                 )
                 var pixel_offset = Int(
-                    texture_descs[
+                    scene.texture_descs[
                         unsafe_offset=desc_base
                         + GpuTextureDescLayout.PIXEL_OFFSET
                     ]
                 )
                 var base = pixel_offset + 3 * selected_pixel
-                emission = environment_scale * Color(
-                    max(texture_pixels[unsafe_offset=base], 0.0),
-                    max(texture_pixels[unsafe_offset=base + 1], 0.0),
-                    max(texture_pixels[unsafe_offset=base + 2], 0.0),
+                emission = Color(
+                    scene.environment_scale_x,
+                    scene.environment_scale_y,
+                    scene.environment_scale_z,
+                ) * Color(
+                    max(scene.texture_pixels[unsafe_offset=base], 0.0),
+                    max(scene.texture_pixels[unsafe_offset=base + 1], 0.0),
+                    max(scene.texture_pixels[unsafe_offset=base + 2], 0.0),
                 )
             case .PROCEDURAL:
                 emission = sky_color(direction)
             case .BLACK | .UNIFORM:
-                emission = environment_scale
+                emission = Color(
+                    scene.environment_scale_x,
+                    scene.environment_scale_y,
+                    scene.environment_scale_z,
+                )
         var surface_cosine = max(dot(normal, direction), 0.0)
-        var light_pdf = environment_weight / (4.0 * pi * total_light_weight)
-        match EnvironmentKind(environment_kind):
+        var light_pdf = scene.environment_weight / (
+            4.0 * pi * scene.total_light_weight
+        )
+        match EnvironmentKind(scene.environment_kind):
             case .IMAGE:
-                light_pdf = _light_importance(emission) / total_light_weight
+                light_pdf = (
+                    _light_importance(emission) / scene.total_light_weight
+                )
             case .BLACK | .PROCEDURAL | .UNIFORM:
                 pass
         geometry = _DirectLightGeometrySample(
@@ -303,29 +300,29 @@ def _sample_direct_light_candidate[
             f32_max,
         )
     else:
-        if light_count <= 0:
+        if Int(scene.light_count) <= 0:
             return GpuDirectLightSample.make_empty()
         var finite_probability = 1.0 - environment_probability
         var finite_u = (
             selection_u - environment_probability
         ) / finite_probability if finite_probability > 0.0 else 0.0
         var draw = _draw_alias_column(
-            min(finite_u, Float32(0.99999994)), light_count
+            min(finite_u, Float32(0.99999994)), Int(scene.light_count)
         )
-        var packed_column = light_kinds[unsafe_offset=draw.column]
-        var alias_probability = light_fields[unsafe_offset=draw.column]
+        var packed_column = scene.light_kinds[unsafe_offset=draw.column]
+        var alias_probability = scene.light_fields[unsafe_offset=draw.column]
         var selected_idx = _resolve_alias_draw(
             draw, alias_probability, packed_column >> UInt32(4)
         )
         light_id = UInt32(selected_idx)
-        var base = light_count + selected_idx * GPU_RT_LIGHT_STRIDE
+        var base = Int(scene.light_count) + selected_idx * GPU_RT_LIGHT_STRIDE
         var p0 = Point3f32[.WORLD](
-            light_fields.unsafe_offset(base + GPU_RT_LIGHT_P0_X)
+            scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT_P0_X)
         )
         var surface_sample: _LightSurfaceSample
         comptime match light_kind:
             case .SPHERE:
-                var radius = light_fields[
+                var radius = scene.light_fields[
                     unsafe_offset=base + GPU_RT_LIGHT_RADIUS
                 ]
                 surface_sample = _sample_sphere_light_surface(
@@ -333,20 +330,20 @@ def _sample_direct_light_candidate[
                 )
             case .TRIANGLE:
                 var p1 = Point3f32[.WORLD](
-                    light_fields.unsafe_offset(base + GPU_RT_LIGHT_P1_X)
+                    scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT_P1_X)
                 )
                 var p2 = Point3f32[.WORLD](
-                    light_fields.unsafe_offset(base + GPU_RT_LIGHT_P2_X)
+                    scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT_P2_X)
                 )
                 surface_sample = _sample_triangle_light_surface(
                     p0, p1, p2, rng.f32(), rng.f32()
                 )
             case _:
                 var kind = PrimitiveKind(
-                    light_kinds[unsafe_offset=selected_idx] & UInt32(0xF)
+                    scene.light_kinds[unsafe_offset=selected_idx] & UInt32(0xF)
                 )
                 if kind == PrimitiveKind.SPHERE:
-                    var radius = light_fields[
+                    var radius = scene.light_fields[
                         unsafe_offset=base + GPU_RT_LIGHT_RADIUS
                     ]
                     surface_sample = _sample_sphere_light_surface(
@@ -354,21 +351,27 @@ def _sample_direct_light_candidate[
                     )
                 else:
                     var p1 = Point3f32[.WORLD](
-                        light_fields.unsafe_offset(base + GPU_RT_LIGHT_P1_X)
+                        scene.light_fields.unsafe_offset(
+                            base + GPU_RT_LIGHT_P1_X
+                        )
                     )
                     var p2 = Point3f32[.WORLD](
-                        light_fields.unsafe_offset(base + GPU_RT_LIGHT_P2_X)
+                        scene.light_fields.unsafe_offset(
+                            base + GPU_RT_LIGHT_P2_X
+                        )
                     )
                     surface_sample = _sample_triangle_light_surface(
                         p0, p1, p2, rng.f32(), rng.f32()
                     )
-        emission = Color(light_fields.unsafe_offset(base + GPU_RT_LIGHT_E_X))
+        emission = Color(
+            scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT_E_X)
+        )
         geometry = _finish_direct_light_geometry(
             incoming_ray.at(hit_t),
             normal,
             surface_sample,
             emission,
-            total_light_weight,
+            scene.total_light_weight,
         )
     if not geometry.valid:
         return GpuDirectLightSample.make_empty()
@@ -385,10 +388,16 @@ def _sample_direct_light_candidate[
                         surface_value,
                         uv_u,
                         uv_v,
-                        lambertians,
-                        lambertian_texture_indices,
-                        texture_descs,
-                        texture_pixels,
+                        scene.lambertians.unsafe_origin_cast[ImmutAnyOrigin](),
+                        scene.lambertian_texture_indices.unsafe_origin_cast[
+                            ImmutAnyOrigin
+                        ](),
+                        scene.texture_descs.unsafe_origin_cast[
+                            ImmutAnyOrigin
+                        ](),
+                        scene.texture_pixels.unsafe_origin_cast[
+                            ImmutAnyOrigin
+                        ](),
                     ),
                     1.0,
                     geometry.direction,
@@ -404,11 +413,13 @@ def _sample_direct_light_candidate[
                     incoming_ray.d,
                     normal,
                     Color(
-                        metals.unsafe_offset(
+                        scene.metals.unsafe_offset(
                             material_base + GpuMetalLayout.ALBEDO
                         )
                     ),
-                    metals[unsafe_offset=material_base + GpuMetalLayout.FUZZ],
+                    scene.metals[
+                        unsafe_offset=material_base + GpuMetalLayout.FUZZ
+                    ],
                     geometry.direction,
                 )
                 value = evaluation.value
@@ -418,13 +429,15 @@ def _sample_direct_light_candidate[
         case .COATED_DIFFUSE:
             comptime if coated_pass:
                 var coated = _sample_gpu_coated_parameters(
-                    coated_diffuses,
+                    scene.coated_diffuses.unsafe_origin_cast[ImmutAnyOrigin](),
                     material_idx,
                     uv_u,
                     uv_v,
-                    coated_diffuse_texture_indices,
-                    texture_descs,
-                    texture_pixels,
+                    scene.coated_diffuse_texture_indices.unsafe_origin_cast[
+                        ImmutAnyOrigin
+                    ](),
+                    scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin](),
+                    scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin](),
                 )
                 var evaluation = _evaluate_coated_diffuse(
                     incoming_ray.d,
@@ -433,10 +446,18 @@ def _sample_direct_light_candidate[
                         surface_value,
                         uv_u,
                         uv_v,
-                        coated_diffuses,
-                        coated_diffuse_texture_indices,
-                        texture_descs,
-                        texture_pixels,
+                        scene.coated_diffuses.unsafe_origin_cast[
+                            ImmutAnyOrigin
+                        ](),
+                        scene.coated_diffuse_texture_indices.unsafe_origin_cast[
+                            ImmutAnyOrigin
+                        ](),
+                        scene.texture_descs.unsafe_origin_cast[
+                            ImmutAnyOrigin
+                        ](),
+                        scene.texture_pixels.unsafe_origin_cast[
+                            ImmutAnyOrigin
+                        ](),
                     ),
                     coated,
                     geometry.direction,

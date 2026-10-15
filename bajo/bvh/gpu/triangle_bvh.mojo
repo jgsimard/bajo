@@ -480,29 +480,13 @@ def _build_segmented_compressed_triangle_blas_set[
         var binary = GpuBinaryBoundsBvh(ctx, leaf_bounds, payloads, workspace)
         enqueue_segmented_morton_codes(ctx, binary, workspace)
         enqueue_segmented_morton_sort(ctx, binary, workspace)
-        ref topology = workspace.topology.value()
         var hploc = GpuHplocBuildState[
             HPLOC_SEARCH_RADIUS,
             HPLOC_MERGING_THRESHOLD,
             True,
             True,
             True,
-        ](
-            ctx,
-            binary.leaf_bounds.copy(),
-            topology.morton_keys.copy(),
-            binary.leaf_ids.copy(),
-            binary.segments.copy(),
-            binary.segment_offsets.copy(),
-            binary.internal_segments.copy(),
-            binary.internal_segment_offsets.copy(),
-            binary.node_meta.copy(),
-            topology.leaf_parent.copy(),
-            binary.node_bounds.copy(),
-            topology.node_flags.copy(),
-            binary.node_leaf_counts.copy(),
-        )
-        binary.roots = hploc.root.copy()
+        ].from_binary(ctx, binary, workspace)
 
         var node_segments = SegmentOffsets.single(max(triangle_count - 1, 1))
         var leaf_block_segments = SegmentOffsets.single(triangle_count)

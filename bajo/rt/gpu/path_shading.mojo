@@ -17,6 +17,11 @@ from bajo.rt.shading import (
     dielectric_geometry,
 )
 from bajo.rt.render_types import Color, SamplingConfig
+from bajo.rt.rays import spawn_surface_ray
+from bajo.rt.media import medium_transmittance
+from bajo.rt.gpu.lighting import GpuDirectLightSample
+from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
+from bajo.rt.gpu.queue_order import GpuRtQueueOrderScratch
 from bajo.rt.material_types import MaterialKind, Integrator, SurfaceId
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
@@ -122,6 +127,49 @@ def _append_shadow[
         work, path_ids, fields, capacity, slot
     )
     return slot
+
+
+@always_inline
+def _append_direct_light_shadow(
+    var direct: GpuDirectLightSample,
+    path: DeviceWavePath,
+    point: Point3f32[.WORLD],
+    scene: GpuRtSceneView,
+    queues: GpuRtTraceQueueView,
+):
+    if not direct.valid:
+        return
+    if path.medium_id != 0:
+        var base = 3 * Int(path.medium_id)
+        direct.contribution *= medium_transmittance(
+            Color(scene.medium_absorption.unsafe_offset(base)),
+            direct.shadow_t_max,
+        )
+    var shadow = spawn_surface_ray(point, direct.direction, direct.shadow_t_max)
+    var slot = _append_shadow(
+        DeviceWaveShadow(
+            path.path_id,
+            shadow.o.x,
+            shadow.o.y,
+            shadow.o.z,
+            shadow.t_min,
+            shadow.d.x,
+            shadow.d.y,
+            shadow.d.z,
+            shadow.t_max,
+            direct.contribution.x,
+            direct.contribution.y,
+            direct.contribution.z,
+        ),
+        queues.shadow_path_ids.unsafe_origin_cast[MutAnyOrigin](),
+        queues.shadow_fields.unsafe_origin_cast[MutAnyOrigin](),
+        queues.counters.unsafe_origin_cast[MutAnyOrigin](),
+        Int(queues.capacity),
+    )
+    if slot >= 0 and scene.light_count > 0:
+        GpuRtQueueOrderScratch.from_queues(queues).light_ids[
+            unsafe_offset=slot
+        ] = direct.light_id
 
 
 @always_inline

@@ -170,26 +170,7 @@ def _trace_triangle_leaf_block[
     """Shared proven CPU SIMD triangle-packet intersection kernel."""
     comptime omit_leaf_validity_mask = width == 16
 
-    comptime if mode == .ANY_HIT:
-        # Visibility only needs the candidate mask.  Keep all barycentric and
-        # distance comparisons determinant-scaled so no SIMD division is
-        # issued for leaf candidates.
-        var tri_hit = intersect_ray_tri_edges_scaled(
-            O,
-            D,
-            block.v0,
-            block.e1,
-            block.e2,
-            hit.t,
-            ray.t_min,
-        )
-        comptime if omit_leaf_validity_mask:
-            return tri_hit.mask.reduce_or()
-        else:
-            var valid_lane = block.prim_indices.ne(EMPTY_LANE)
-            return (tri_hit.mask & valid_lane).reduce_or()
-
-    var scaled_hit = intersect_ray_tri_edges_scaled(
+    var tri_hit = intersect_ray_tri_edges_scaled(
         O,
         D,
         block.v0,
@@ -198,7 +179,14 @@ def _trace_triangle_leaf_block[
         hit.t,
         ray.t_min,
     )
-    var hit_mask = scaled_hit.mask
+    comptime if mode == .ANY_HIT:
+        comptime if omit_leaf_validity_mask:
+            return tri_hit.mask.reduce_or()
+        else:
+            var valid_lane = block.prim_indices.ne(EMPTY_LANE)
+            return (tri_hit.mask & valid_lane).reduce_or()
+
+    var hit_mask = tri_hit.mask
     comptime if not omit_leaf_validity_mask:
         hit_mask &= block.prim_indices.ne(EMPTY_LANE)
 
@@ -219,17 +207,17 @@ def _trace_triangle_leaf_block[
                 comptime assert size_of[
                     TriangleLeafBlock[frame, width]
                 ]() == 10 * 4 * Int(width)
-            var best_t_scaled = _extract_f32_lane(scaled_hit.t_scaled, lane)
-            var best_abs_det = _extract_f32_lane(scaled_hit.abs_det, lane)
+            var best_t_scaled = _extract_f32_lane(tri_hit.t_scaled, lane)
+            var best_abs_det = _extract_f32_lane(tri_hit.abs_det, lane)
 
             while bits != 0:
                 var candidate = Int(count_trailing_zeros(bits))
                 bits &= bits - 1
                 var candidate_t_scaled = _extract_f32_lane(
-                    scaled_hit.t_scaled, candidate
+                    tri_hit.t_scaled, candidate
                 )
                 var candidate_abs_det = _extract_f32_lane(
-                    scaled_hit.abs_det, candidate
+                    tri_hit.abs_det, candidate
                 )
 
                 if (
@@ -242,8 +230,8 @@ def _trace_triangle_leaf_block[
 
             var inv_det = 1.0 / best_abs_det
             hit.t = best_t_scaled * inv_det
-            hit.u = _extract_f32_lane(scaled_hit.u_scaled, lane) * inv_det
-            hit.v = _extract_f32_lane(scaled_hit.v_scaled, lane) * inv_det
+            hit.u = _extract_f32_lane(tri_hit.u_scaled, lane) * inv_det
+            hit.v = _extract_f32_lane(tri_hit.v_scaled, lane) * inv_det
 
             var prim_field = 9
             var e1_field = 3
@@ -278,16 +266,16 @@ def _trace_triangle_leaf_block[
             bits &= bits - 1
 
             if (
-                scaled_hit.t_scaled[candidate] * scaled_hit.abs_det[lane]
-                < scaled_hit.t_scaled[lane] * scaled_hit.abs_det[candidate]
+                tri_hit.t_scaled[candidate] * tri_hit.abs_det[lane]
+                < tri_hit.t_scaled[lane] * tri_hit.abs_det[candidate]
             ):
                 lane = candidate
 
-        var inv_det = 1.0 / scaled_hit.abs_det[lane]
+        var inv_det = 1.0 / tri_hit.abs_det[lane]
 
-        hit.t = scaled_hit.t_scaled[lane] * inv_det
-        hit.u = scaled_hit.u_scaled[lane] * inv_det
-        hit.v = scaled_hit.v_scaled[lane] * inv_det
+        hit.t = tri_hit.t_scaled[lane] * inv_det
+        hit.u = tri_hit.u_scaled[lane] * inv_det
+        hit.v = tri_hit.v_scaled[lane] * inv_det
         hit.prim = block.prim_indices[lane]
         hit.inst = EMPTY_LANE
 
@@ -317,6 +305,7 @@ def _trace_triangle_leaf_block[
 def _trace_triangle_packet_primitive[
     frame: Frame,
     length: SIMDLength,
+    mode: TraceMode = .CLOSEST_HIT,
 ](
     rays: Ray[.float32, frame, length],
     active: SIMD[.bool, length],
@@ -345,6 +334,9 @@ def _trace_triangle_packet_primitive[
         rays.t_min,
     )
     var closer = active & candidate.mask
+    comptime if mode == .ANY_HIT:
+        packet_hit.t = closer.select(Float32(0.0), packet_hit.t)
+        return
     if closer.reduce_or():
         var safe_det = closer.select(candidate.abs_det, 1.0)
         var inv_det = 1.0 / safe_det
@@ -368,41 +360,6 @@ def _trace_triangle_packet_primitive[
         packet_hit.normal.z = closer.select(
             geometric_normal.z, packet_hit.normal.z
         )
-
-
-@always_inline
-def _occlude_triangle_packet_primitive[
-    frame: Frame,
-    length: SIMDLength,
-](
-    rays: Ray[.float32, frame, length],
-    active: SIMD[.bool, length],
-    v0_scalar: Point3f32[frame],
-    e1_scalar: Vec3f32[frame],
-    e2_scalar: Vec3f32[frame],
-    mut packet_hit: Hit[frame, length],
-):
-    """Mark packet lanes whose bounded ray intersects one triangle."""
-    var v0 = Point3[.float32, frame, length](
-        v0_scalar.x, v0_scalar.y, v0_scalar.z
-    )
-    var e1 = Vec3[.float32, frame, length](
-        e1_scalar.x, e1_scalar.y, e1_scalar.z
-    )
-    var e2 = Vec3[.float32, frame, length](
-        e2_scalar.x, e2_scalar.y, e2_scalar.z
-    )
-    var candidate = intersect_ray_tri_edges_scaled(
-        rays.o,
-        rays.d,
-        v0,
-        e1,
-        e2,
-        packet_hit.t,
-        rays.t_min,
-    )
-    var occluded = active & candidate.mask
-    packet_hit.t = occluded.select(Float32(0.0), packet_hit.t)
 
 
 @always_inline

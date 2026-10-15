@@ -28,7 +28,7 @@ from bajo.rt.common import (
 )
 from bajo.rt.geometry import orient_surface_normal
 from bajo.rt.lighting import _emissive_hit_weight_from_pdf
-from bajo.rt.rays import make_ao_ray, spawn_surface_ray
+from bajo.rt.rays import make_ao_ray
 from bajo.rt.render_types import (
     Color,
     SamplingConfig,
@@ -70,6 +70,7 @@ from bajo.rt.gpu.textures import (
 from bajo.rt.gpu.path_shading import (
     _accumulate_sample,
     _append_shadow,
+    _append_direct_light_shadow,
     _route_surface_hit,
 )
 from bajo.rt.gpu.queue_order import (
@@ -169,9 +170,6 @@ def _gpu_rt_scene_trace_path[
     var texture_pixels = scene.texture_pixels.unsafe_origin_cast[
         ImmutAnyOrigin
     ]()
-    var light_kinds = scene.light_kinds.unsafe_origin_cast[ImmutAnyOrigin]()
-    var light_fields = scene.light_fields.unsafe_origin_cast[ImmutAnyOrigin]()
-    var light_count_i32 = scene.light_count
     var total_light_weight = scene.total_light_weight
     var dst_path_ids = queues.dst_path_ids.unsafe_origin_cast[MutAnyOrigin]()
     var dst_path_fields = queues.dst_path_fields.unsafe_origin_cast[
@@ -562,68 +560,13 @@ def _gpu_rt_scene_trace_path[
             uv_u,
             uv_v,
             surface_value,
-            lambertians,
-            lambertian_texture_indices,
-            texture_descs,
-            texture_pixels,
-            metals,
-            coated_diffuses,
-            coated_diffuse_texture_indices,
-            light_kinds,
-            light_fields,
-            Int(light_count_i32),
-            total_light_weight,
-            scene.environment_weight,
-            scene.environment_cdf_total,
-            scene.environment_cdf.unsafe_origin_cast[ImmutAnyOrigin](),
-            Int(scene.environment_cdf_count),
-            scene.environment_kind,
-            scene.environment_texture_index,
-            Color(
-                scene.environment_scale_x,
-                scene.environment_scale_y,
-                scene.environment_scale_z,
-            ),
-            scene.environment_light_to_world,
+            scene,
             sampling,
             bounce,
         )
-        if direct.valid:
-            if path.medium_id != 0:
-                var base = 3 * Int(path.medium_id)
-                direct.contribution *= medium_transmittance(
-                    Color(scene.medium_absorption.unsafe_offset(base)),
-                    direct.shadow_t_max,
-                )
-            var shadow_ray = spawn_surface_ray(
-                ray.at(closest_t),
-                direct.direction,
-                direct.shadow_t_max,
-            )
-            var shadow_slot = _append_shadow(
-                DeviceWaveShadow(
-                    path.path_id,
-                    shadow_ray.o.x,
-                    shadow_ray.o.y,
-                    shadow_ray.o.z,
-                    shadow_ray.t_min,
-                    shadow_ray.d.x,
-                    shadow_ray.d.y,
-                    shadow_ray.d.z,
-                    shadow_ray.t_max,
-                    direct.contribution.x,
-                    direct.contribution.y,
-                    direct.contribution.z,
-                ),
-                shadow_path_ids,
-                shadow_fields,
-                counters,
-                capacity,
-            )
-            if shadow_slot >= 0 and scene.light_count > 0:
-                GpuRtQueueOrderScratch.from_queues(queues).light_ids[
-                    unsafe_offset=shadow_slot
-                ] = direct.light_id
+        _append_direct_light_shadow(
+            direct, path, ray.at(closest_t), scene, queues
+        )
 
     _route_surface_hit[integrator](
         idx,

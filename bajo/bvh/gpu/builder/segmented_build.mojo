@@ -198,25 +198,9 @@ struct GpuWideBuildArena[
             case .HPLOC:
                 enqueue_segmented_morton_codes(ctx, binary, workspace)
                 enqueue_segmented_morton_sort(ctx, binary, workspace)
-                ref topology = workspace.topology.value()
                 hploc = Optional(
-                    GpuHplocBuildState[](
-                        ctx,
-                        binary.leaf_bounds.copy(),
-                        topology.morton_keys.copy(),
-                        binary.leaf_ids.copy(),
-                        binary.segments.copy(),
-                        binary.segment_offsets.copy(),
-                        binary.internal_segments.copy(),
-                        binary.internal_segment_offsets.copy(),
-                        binary.node_meta.copy(),
-                        topology.leaf_parent.copy(),
-                        binary.node_bounds.copy(),
-                        topology.node_flags.copy(),
-                        binary.node_leaf_counts.copy(),
-                    )
+                    GpuHplocBuildState[].from_binary(ctx, binary, workspace)
                 )
-                binary.roots = hploc.value().root.copy()
             case .LBVH:
                 _ = build_binary_bvh_with_lbvh(ctx, binary, workspace)
         var wide = GpuWideBoundsBvhBatch[

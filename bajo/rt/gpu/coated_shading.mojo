@@ -6,10 +6,8 @@ from max.gpu.host import DeviceContext
 from bajo.bvh.constants import PrimitiveKind
 from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.rt.material_types import Integrator, SurfaceId
-from bajo.rt.render_types import Color, SamplingConfig
-from bajo.rt.rays import spawn_surface_ray
+from bajo.rt.render_types import SamplingConfig
 from bajo.rt.wavefront_contract import (
-    DeviceWaveShadow,
     WAVE_COUNTER,
     load_device_wave_shade,
 )
@@ -25,11 +23,10 @@ from bajo.rt.gpu.material_order import (
 from bajo.rt.gpu.material_layout import GpuCoatedDiffuseLayout
 from bajo.rt.gpu.lighting import _sample_direct_light_candidate
 from bajo.rt.gpu.path_shading import (
-    _append_shadow,
+    _append_direct_light_shadow,
     _shade_coated_diffuse_inline,
     GPU_RT_SHADE_BLOCK_SIZE,
 )
-from bajo.rt.media import medium_transmittance
 from bajo.rt.gpu.queue_order import (
     GpuRtQueueOrderScratch,
     gpu_rt_queue_order_enabled,
@@ -118,72 +115,13 @@ def gpu_rt_coated_shade_kernel[
                     uv_u,
                     uv_v,
                     surface_value,
-                    scene.lambertians.unsafe_origin_cast[ImmutAnyOrigin](),
-                    scene.lambertian_texture_indices.unsafe_origin_cast[
-                        ImmutAnyOrigin
-                    ](),
-                    scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin](),
-                    scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin](),
-                    scene.metals.unsafe_origin_cast[ImmutAnyOrigin](),
-                    scene.coated_diffuses.unsafe_origin_cast[ImmutAnyOrigin](),
-                    scene.coated_diffuse_texture_indices.unsafe_origin_cast[
-                        ImmutAnyOrigin
-                    ](),
-                    scene.light_kinds.unsafe_origin_cast[ImmutAnyOrigin](),
-                    scene.light_fields.unsafe_origin_cast[ImmutAnyOrigin](),
-                    Int(scene.light_count),
-                    scene.total_light_weight,
-                    scene.environment_weight,
-                    scene.environment_cdf_total,
-                    scene.environment_cdf.unsafe_origin_cast[ImmutAnyOrigin](),
-                    Int(scene.environment_cdf_count),
-                    scene.environment_kind,
-                    scene.environment_texture_index,
-                    Color(
-                        scene.environment_scale_x,
-                        scene.environment_scale_y,
-                        scene.environment_scale_z,
-                    ),
-                    scene.environment_light_to_world,
+                    scene,
                     sampling,
                     bounce,
                 )
-                if direct.valid:
-                    if path.medium_id != 0:
-                        var base = 3 * Int(path.medium_id)
-                        direct.contribution *= medium_transmittance(
-                            Color(scene.medium_absorption.unsafe_offset(base)),
-                            direct.shadow_t_max,
-                        )
-                    var shadow = spawn_surface_ray(
-                        ray.at(work.t), direct.direction, direct.shadow_t_max
-                    )
-                    var shadow_slot = _append_shadow(
-                        DeviceWaveShadow(
-                            path.path_id,
-                            shadow.o.x,
-                            shadow.o.y,
-                            shadow.o.z,
-                            shadow.t_min,
-                            shadow.d.x,
-                            shadow.d.y,
-                            shadow.d.z,
-                            shadow.t_max,
-                            direct.contribution.x,
-                            direct.contribution.y,
-                            direct.contribution.z,
-                        ),
-                        queues.shadow_path_ids.unsafe_origin_cast[
-                            MutAnyOrigin
-                        ](),
-                        queues.shadow_fields.unsafe_origin_cast[MutAnyOrigin](),
-                        counters,
-                        capacity,
-                    )
-                    if shadow_slot >= 0 and scene.light_count > 0:
-                        GpuRtQueueOrderScratch.from_queues(queues).light_ids[
-                            unsafe_offset=shadow_slot
-                        ] = direct.light_id
+                _append_direct_light_shadow(
+                    direct, path, ray.at(work.t), scene, queues
+                )
             comptime if continuation:
                 _shade_coated_diffuse_inline[integrator](
                     path,

@@ -629,10 +629,7 @@ def pack_wave_paths(
 
 
 def unpack_wave_paths(packed: PackedWavePathQueue) -> List[WavePath]:
-    var paths = List[WavePath](capacity=len(packed))
-    for i in range(len(packed)):
-        paths.append(packed.get(i))
-    return paths^
+    return [packed.get(i) for i in range(len(packed))]
 
 
 def pack_wave_shades(
@@ -646,7 +643,4 @@ def pack_wave_shades(
 
 
 def unpack_wave_shades(packed: PackedWaveShadeQueue) -> List[WaveShade]:
-    var works = List[WaveShade](capacity=len(packed))
-    for i in range(len(packed)):
-        works.append(packed.get(i))
-    return works^
+    return [packed.get(i) for i in range(len(packed))]

@@ -766,9 +766,7 @@ def _matrix[
 ](values: ImmSpan[StringSpan[origin], _]) raises -> _Transform:
     if len(values) != 16:
         raise Error("PBRT transform matrix requires 16 values")
-    var m = List[Float32](capacity=16)
-    for value in values:
-        m.append(_parse_f32(value))
+    var m = [_parse_f32(value) for value in values]
     if m[12] != 0.0 or m[13] != 0.0 or m[14] != 0.0 or m[15] != 1.0:
         raise Error("projective PBRT transforms are not supported")
     return _Transform(
@@ -941,9 +939,7 @@ def _optical_constant(
             _parse_f32(values[0]), _parse_f32(values[1]), _parse_f32(values[2])
         )
     if len(values) >= 4 and len(values) % 2 == 0:
-        var samples = List[Float32](capacity=len(values))
-        for value in values:
-            samples.append(_parse_f32(value))
+        var samples = [_parse_f32(value) for value in values]
         for i in range(0, len(samples), 2):
             if (
                 not isfinite(samples[i])

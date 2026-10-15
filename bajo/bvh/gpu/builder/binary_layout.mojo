@@ -225,21 +225,20 @@ def reduce_segment_bounds_partials_kernel[
 
 
 def _reduced_segment_offsets(segments: SegmentOffsets) -> SegmentOffsets:
-    var counts = List[Int](capacity=segments.segment_count())
-    for segment_idx in range(segments.segment_count()):
-        counts.append(
-            max(
-                ceildiv(Int(segments.count(segment_idx)), BOUNDS_REDUCE_CHUNK),
-                1,
-            )
-        )
+    var counts = List[Int](
+        length=segments.segment_count(),
+        fill_with=lambda (i: Int) -> Int: max(
+            ceildiv(Int(segments.count(i)), BOUNDS_REDUCE_CHUNK), 1
+        ),
+    )
     return SegmentOffsets.from_counts(counts)
 
 
 def _internal_segment_offsets(segments: SegmentOffsets) -> SegmentOffsets:
-    var counts = List[Int](capacity=segments.segment_count())
-    for segment_idx in range(segments.segment_count()):
-        counts.append(max(Int(segments.count(segment_idx)) - 1, 0))
+    var counts = List[Int](
+        length=segments.segment_count(),
+        fill_with=lambda (i: Int) -> Int: max(Int(segments.count(i)) - 1, 0),
+    )
     return SegmentOffsets.from_counts(counts)
 
 

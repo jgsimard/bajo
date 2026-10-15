@@ -209,9 +209,10 @@ struct WindingLayout[frame: Frame, width: SIMDLength](Copyable):
             self.offsets[len(self.offsets) - 1]
             + (open_count + Self.width - 1) // Self.width
         )
-        var cursors = List[Int]()
-        for component in range(len(component_boxes) + 1):
-            cursors.append(self.offsets[component] * Self.width)
+        var cursors = [
+            self.offsets[i] * Self.width
+            for i in range(len(component_boxes) + 1)
+        ]
         self.face_slots = List[Int](length=count, fill=0)
         for face in range(count):
             var component = self.face_components[face]

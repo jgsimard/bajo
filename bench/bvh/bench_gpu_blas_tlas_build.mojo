@@ -53,10 +53,7 @@ def _make_mesh(triangle_count: Int, seed: Int) -> List[Point3f32[.LOCAL]]:
 def _make_uniform_sets(
     blas_count: Int, triangles_per_blas: Int
 ) -> List[List[Point3f32[.LOCAL]]]:
-    var sets = List[List[Point3f32[.LOCAL]]](capacity=blas_count)
-    for blas_idx in range(blas_count):
-        sets.append(_make_mesh(triangles_per_blas, blas_idx))
-    return sets^
+    return [_make_mesh(triangles_per_blas, i) for i in range(blas_count)]
 
 
 def _make_instances(bounds: List[AABB[.LOCAL]]) -> List[Instance]:

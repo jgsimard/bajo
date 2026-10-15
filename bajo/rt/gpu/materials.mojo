@@ -27,10 +27,7 @@ def _flatten_lambertians(world: SceneData) -> List[Float32]:
 
 
 def _flatten_lambertian_texture_indices(world: SceneData) -> List[UInt32]:
-    var out = List[UInt32](capacity=len(world.surfaces().lambertians))
-    for material in world.surfaces().lambertians:
-        out.append(material.texture_index)
-    return out^
+    return [material.texture_index for material in world.surfaces().lambertians]
 
 
 def _flatten_texture_descs(world: SceneData) -> List[UInt32]:

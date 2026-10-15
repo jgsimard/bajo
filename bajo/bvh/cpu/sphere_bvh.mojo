@@ -166,14 +166,12 @@ struct _SphereBuild[frame: Frame, width: SIMDLength](Copyable):
         self.leaf_blocks = []
 
         var sphere_ptr = spheres.unsafe_ptr()
-        var items = List[BoundsItem[Self.frame]](capacity=len(spheres))
-        for sphere_idx in range(len(spheres)):
-            items.append(
-                BoundsItem(
-                    sphere_ptr[unsafe_offset=sphere_idx].bounds(),
-                    UInt32(sphere_idx),
-                )
-            )
+        var items = List[BoundsItem[Self.frame]](
+            length=len(spheres),
+            fill_with=lambda (i: Int) -> BoundsItem[Self.frame]: BoundsItem(
+                spheres[i].bounds(), UInt32(i)
+            ),
+        )
 
         var builder = BinaryBoundsBvh[Self.frame, Self.width, method](items^)
 

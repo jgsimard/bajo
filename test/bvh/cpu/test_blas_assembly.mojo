@@ -98,15 +98,12 @@ def _test_triangles(count: Int) raises:
 
 
 def _spheres(count: Int, offset: Float32) -> List[Sphere[.LOCAL]]:
-    var spheres = List[Sphere[.LOCAL]](capacity=count)
-    for idx in range(count):
-        spheres.append(
-            Sphere[.LOCAL](
-                Point3f32[.LOCAL](offset + Float32(idx) * 2.0, 0.0, 2.0),
-                0.5,
-            )
-        )
-    return spheres^
+    return List[Sphere[.LOCAL]](
+        length=count,
+        fill_with=lambda (i: Int) -> Sphere[.LOCAL]: Sphere[.LOCAL](
+            Point3f32[.LOCAL](offset + Float32(i) * 2.0, 0.0, 2.0), 0.5
+        ),
+    )
 
 
 def _test_spheres(count: Int) raises:

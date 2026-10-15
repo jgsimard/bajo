@@ -269,15 +269,13 @@ def _build_exact_triangle_blas_batch[
     .TRIANGLE, node_width, leaf_width
 ]:
     """Build private exact BLASes, prefix their sizes, then concatenate once."""
-    var built = List[CpuBlasSet[.TRIANGLE, node_width, leaf_width]](
-        capacity=len(vertex_sets)
+    comptime Blas = CpuBlasSet[.TRIANGLE, node_width, leaf_width]
+    var built = List[Blas](
+        length=len(vertex_sets),
+        fill_with=lambda (i: Int) -> Blas: Blas(
+            List[UInt32](), List[Float32](), List[Float32](), 1
+        ),
     )
-    for _ in range(len(vertex_sets)):
-        built.append(
-            CpuBlasSet[.TRIANGLE, node_width, leaf_width](
-                List[UInt32](), List[Float32](), List[Float32](), 1
-            )
-        )
     var total_triangle_count = 0
     var allow_across_blas_parallelism = len(vertex_sets) > 1
     for vertices in vertex_sets:
@@ -565,13 +563,13 @@ def _build_exact_sphere_blas_batch[
     method: CpuBvhBuildMethod,
     frame: Frame,
 ](sphere_sets: ImmSpan[List[Sphere[frame]], _]) -> CpuBlasSet[.SPHERE, width]:
-    var built = List[CpuBlasSet[.SPHERE, width]](capacity=len(sphere_sets))
-    for _ in range(len(sphere_sets)):
-        built.append(
-            CpuBlasSet[.SPHERE, width](
-                List[UInt32](), List[Float32](), List[Float32](), 1
-            )
-        )
+    comptime Blas = CpuBlasSet[.SPHERE, width]
+    var built = List[Blas](
+        length=len(sphere_sets),
+        fill_with=lambda (i: Int) -> Blas: Blas(
+            List[UInt32](), List[Float32](), List[Float32](), 1
+        ),
+    )
 
     def build_one(blas_idx: Int) {imm, mut built}:
         built[blas_idx] = _build_single_sphere_blas[width, method, frame](

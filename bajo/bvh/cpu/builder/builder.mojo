@@ -80,7 +80,7 @@ struct BinaryBoundsBvh[
         self.item_count = UInt32(len(self.items))
         debug_assert["safe", _use_compiler_assume=True](self.item_count > 0)
 
-        comptime if Self.method == .HPLOC:
+        comptime if Self.method == .HPLOC or Self.method == .LBVH:
             # Emission writes every index from the sorted Morton pairs.
             self.item_indices = List[UInt32](capacity=Int(self.item_count))
             self.item_indices.resize(unsafe_uninit_length=Int(self.item_count))
@@ -104,6 +104,7 @@ struct BinaryBoundsBvh[
                     Self.method,
                     Self.hploc_microleaf_size,
                 ](self, centroid_bounds)
+
             case .HPLOC:
                 comptime assert (
                     Self.hploc_microleaf_size > 0

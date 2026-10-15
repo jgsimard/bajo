@@ -396,8 +396,10 @@ def build_cpu_triangle_blas_set[
     var descs = List[UInt32](
         length=len(vertex_sets) * BlasDescLayout.STRIDE, fill=0
     )
-    var nodes = List[Float32](length=layout.node_f32_count, fill=0.0)
-    var leaves = List[Float32](length=layout.leaf_f32_count, fill=0.0)
+    var nodes = List[Float32](capacity=layout.node_f32_count)
+    var leaves = List[Float32](capacity=layout.leaf_f32_count)
+    nodes.resize(unsafe_uninit_length=layout.node_f32_count)
+    leaves.resize(unsafe_uninit_length=layout.leaf_f32_count)
     var descs_ptr = descs.unsafe_ptr()
     var nodes_ptr = nodes.unsafe_ptr()
     var leaves_ptr = leaves.unsafe_ptr()
@@ -605,8 +607,10 @@ def build_cpu_sphere_blas_set[
     var descs = List[UInt32](
         length=len(sphere_sets) * BlasDescLayout.STRIDE, fill=0
     )
-    var nodes = List[Float32](length=layout.node_f32_count, fill=0.0)
-    var leaves = List[Float32](length=layout.leaf_f32_count, fill=0.0)
+    var nodes = List[Float32](capacity=layout.node_f32_count)
+    var leaves = List[Float32](capacity=layout.leaf_f32_count)
+    nodes.resize(unsafe_uninit_length=layout.node_f32_count)
+    leaves.resize(unsafe_uninit_length=layout.leaf_f32_count)
     var descs_ptr = descs.unsafe_ptr()
     var nodes_ptr = nodes.unsafe_ptr()
     var leaves_ptr = leaves.unsafe_ptr()

@@ -120,12 +120,14 @@ def test_construction_zero_extents_and_overflowing_float32_centroids() raises:
         check_forest(tree, boxes)
 
 
-def test_parallel_group_emission_thresholds_and_refit() raises:
+def _check_parallel_group_emission_thresholds_and_refit(
+    group_count: Int,
+) raises:
     var boxes = List[AABB[.WORLD]]()
     var groups = List[UInt32]()
-    var labels: List[UInt32] = [97, 3, 200]
-    var sizes: List[Int] = [16383, 16384, 16385]
-    for group in range(3):
+    var labels: List[UInt32] = [97, 3, 200, 17, 19, 21, 23, 25, UInt32.MAX]
+    var sizes: List[Int] = [16383, 16384, 16385, 1, 2, 3, 4, 5, 6]
+    for group in range(group_count):
         for item in range(sizes[group]):
             var x = Float32((item * 17) % 127) * 0.25
             var y = Float32((item * 13) % 31) * 0.125
@@ -156,6 +158,11 @@ def test_parallel_group_emission_thresholds_and_refit() raises:
     check_forest(tree, boxes)
 
 
+def test_parallel_group_emission_thresholds_and_refit() raises:
+    _check_parallel_group_emission_thresholds_and_refit(3)
+    _check_parallel_group_emission_thresholds_and_refit(9)
+
+
 def test_morton_packet_tails_negative_coordinates() raises:
     var counts: List[Int] = [16391, 16393]
     for count in counts:
@@ -176,6 +183,63 @@ def test_morton_packet_tails_negative_coordinates() raises:
         check_forest(tree, boxes)
         var grouped = SpatialBoundsBvh(boxes, groups)
         check_forest(grouped, boxes)
+
+
+def test_many_sparse_groups_preserve_membership_and_morton_order() raises:
+    for count, group_count in [
+        (17, 8),
+        (17, 9),
+        (257, 257),
+        (4097, 65),
+        (16383, 65),
+        (16384, 65),
+        (16385, 65),
+    ]:
+        var boxes = List[AABB[.WORLD]](capacity=count)
+        var groups = List[UInt32](capacity=count)
+        var labels = List[UInt32](capacity=group_count)
+        for group in range(group_count):
+            # Include UInt32.MAX and non-dense, unsorted labels. Their order
+            # must follow first appearance rather than a directory's iteration.
+            labels.append(UInt32.MAX - UInt32(group) * UInt32(2654435761))
+        for face in range(count):
+            var x = Float32((face * 17) % 19)
+            var y = Float32((face * 13) % 7)
+            boxes.append(
+                AABB(
+                    Point3f32[.WORLD](x, y, 0.0),
+                    Point3f32[.WORLD](x + 0.5, y + 0.25, 0.0),
+                )
+            )
+            groups.append(labels[face % group_count])
+        var tree = SpatialBoundsBvh(boxes, groups)
+        assert_equal(len(tree.group_ids), group_count)
+        for group in range(group_count):
+            assert_equal(tree.group_ids[group], labels[group])
+            assert_equal(
+                tree.group_root(labels[group]), tree.group_roots[group]
+            )
+        check_forest(tree, boxes)
+        if count >= 16384:
+            # Morton collisions keep the global stable leaf order inside
+            # every group. Verify this observable traversal order directly.
+            var global_end = Int(tree.nodes[0])
+            for group in range(group_count):
+                var cursor = Int(tree.group_roots[group])
+                var end = Int(tree.nodes[cursor * 2])
+                for node in range(global_end):
+                    var id = tree.nodes[node * 2 + 1]
+                    if id == EMPTY_LANE or groups[Int(id)] != labels[group]:
+                        continue
+                    while (
+                        cursor < end
+                        and tree.nodes[cursor * 2 + 1] == EMPTY_LANE
+                    ):
+                        cursor += 1
+                    assert_true(cursor < end)
+                    assert_equal(tree.nodes[cursor * 2 + 1], id)
+                    cursor += 1
+                assert_equal(cursor, end)
 
 
 def main() raises:

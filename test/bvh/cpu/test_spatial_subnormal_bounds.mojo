@@ -148,5 +148,44 @@ def test_inverted_subnormal_rejection_is_atomic() raises:
             assert_equal(tree.nodes[i], original_nodes[i])
 
 
+def test_many_groups_precise_build_and_rebuild_preserve_roots_and_storage() raises:
+    for count in [513, 16385]:
+        var boxes = List[AABB[.WORLD]](capacity=count)
+        var groups = List[UInt32](capacity=count)
+        for i in range(count):
+            var x = Float32((i * 17) % 127 - 63)
+            var z = bitcast[.float32](
+                UInt32(1 + i % 71) | (UInt32(i % 2) << 31)
+            )
+            boxes.append(
+                AABB(
+                    Point3f32[.WORLD](x, 0.0, z),
+                    Point3f32[.WORLD](x + 0.5, 0.25, z),
+                )
+            )
+            groups.append(UInt32.MAX - UInt32(i % 33) * UInt32(65537))
+        var tree = SpatialBoundsBvh(boxes, groups)
+        check_bits(tree, boxes)
+        var roots = tree.group_roots.copy()
+        var labels = tree.group_ids.copy()
+        var bounds_ptr = Int(tree.bounds.unsafe_ptr())
+        var nodes_ptr = Int(tree.nodes.unsafe_ptr())
+        for i in range(count):
+            boxes[i]._min.x += 0.125
+            boxes[i]._max.x += 0.125
+            var z = bitcast[.float32](UInt32(17) | (UInt32((i + 1) % 2) << 31))
+            boxes[i]._min.z = z
+            boxes[i]._max.z = z
+        tree.refit(boxes)
+        check_bits(tree, boxes)
+        tree.rebuild(boxes)
+        check_bits(tree, boxes)
+        assert_equal(Int(tree.bounds.unsafe_ptr()), bounds_ptr)
+        assert_equal(Int(tree.nodes.unsafe_ptr()), nodes_ptr)
+        for group in range(len(labels)):
+            assert_equal(tree.group_ids[group], labels[group])
+            assert_equal(tree.group_roots[group], roots[group])
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

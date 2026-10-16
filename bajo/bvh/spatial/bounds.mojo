@@ -20,6 +20,11 @@ from bajo.bvh.cpu.builder.lbvh import (
 )
 
 
+# A bounded label scan avoids hashing for the common few-group case. Larger
+# forests discover labels with a directory and partition all groups together.
+comptime _SMALL_GROUP_COUNT = 8
+
+
 @always_inline
 def _finite_key[
     width: SIMDLength
@@ -148,13 +153,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
             self._append_validated_boxes[True](boxes)
         else:
             self._append_validated_boxes[False](boxes)
-        for group in groups:
-            self.groups.append(group)
-            var found = False
-            for previous in self.group_ids:
-                found |= previous == group
-            if not found:
-                self.group_ids.append(group)
+        var group_index = self._collect_groups(groups)
         var item_count = len(self.item_bounds)
         var node_count = 2 * item_count - 1 if item_count > 0 else 0
         if len(groups) > 0:
@@ -168,9 +167,37 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
         self.bounds.resize(unsafe_uninit_length=6 * node_count)
         self.nodes.resize(unsafe_uninit_length=2 * node_count)
         if precise:
-            self._build_all_trees[True](items)
+            self._build_all_trees[True](items, group_index)
         else:
-            self._build_all_trees[False](items)
+            self._build_all_trees[False](items, group_index)
+
+    def _collect_groups(
+        mut self, groups: ImmSpan[UInt32, _]
+    ) -> Dict[UInt32, Int]:
+        var index = Dict[UInt32, Int]()
+        for group in groups:
+            self.groups.append(group)
+            var count = len(self.group_ids)
+            if count > 0 and self.group_ids[count - 1] == group:
+                continue
+            if count <= _SMALL_GROUP_COUNT:
+                var found = False
+                for previous in self.group_ids:
+                    if previous == group:
+                        found = True
+                        break
+                if found:
+                    continue
+                if count == _SMALL_GROUP_COUNT:
+                    for slot, label in enumerate(self.group_ids):
+                        index[label] = slot
+                    index[group] = count
+            else:
+                if index.get(group, -1) >= 0:
+                    continue
+                index[group] = count
+            self.group_ids.append(group)
+        return index^
 
     def _append_validated_boxes[
         precise: Bool
@@ -197,11 +224,20 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
 
     def _build_all_trees[
         precise: Bool
-    ](mut self, items: ImmSpan[BoundsItem[Self.frame], _]):
+    ](
+        mut self,
+        items: ImmSpan[BoundsItem[Self.frame], _],
+        group_index: Dict[UInt32, Int],
+    ):
         var shared_pairs = List[MortonItem]()
         var output = self._build_tree[precise](
             items, EMPTY_LANE, False, 0, shared_pairs
         )
+        if len(self.group_ids) > _SMALL_GROUP_COUNT:
+            self._build_partitioned_groups[precise](
+                items, shared_pairs, group_index, output
+            )
+            return
         for group in self.group_ids:
             self.group_roots.append(UInt32(output))
             if len(shared_pairs) > 0:
@@ -211,6 +247,67 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
             else:
                 output = self._build_tree[precise](
                     items, group, True, output, shared_pairs
+                )
+
+    def _build_partitioned_groups[
+        precise: Bool
+    ](
+        mut self,
+        items: ImmSpan[BoundsItem[Self.frame], _],
+        shared_pairs: ImmSpan[MortonItem, _],
+        group_index: Dict[UInt32, Int],
+        output: Int,
+    ):
+        # Prefix offsets give each group a disjoint slice of one flat buffer.
+        # Cache each item's dense group slot so scattering the global Morton
+        # order needs no further label lookups or per-group input scans.
+        var group_count = len(self.group_ids)
+        var offsets = List[Int](length=group_count + 1, fill=0)
+        var slots = List[UInt32](capacity=len(items))
+        slots.resize(unsafe_uninit_length=len(items))
+        for item in range(len(items)):
+            var slot = group_index.get(self.groups[item], -1)
+            debug_assert["safe", _use_compiler_assume=True](
+                slot >= 0 and slot < group_count,
+                "spatial group label is missing from the build directory",
+            )
+            slots.unsafe_get(item) = UInt32(slot)
+            offsets[slot + 1] += 1
+        for group in range(group_count):
+            offsets[group + 1] += offsets[group]
+        var cursors = offsets.copy()
+        var next_node = output
+        if len(shared_pairs) > 0:
+            var pairs = List[MortonItem](capacity=len(items))
+            pairs.resize(unsafe_uninit_length=len(items))
+            for pair in shared_pairs:
+                var slot = Int(slots.unsafe_get(Int(pair.item_idx)))
+                pairs.unsafe_get(cursors[slot]) = pair
+                cursors[slot] += 1
+            for group in range(group_count):
+                self.group_roots.append(UInt32(next_node))
+                next_node = self._emit_morton[precise](
+                    items,
+                    pairs,
+                    offsets[group],
+                    offsets[group + 1] - offsets[group],
+                    next_node,
+                )
+        else:
+            var order = List[UInt32](capacity=len(items))
+            order.resize(unsafe_uninit_length=len(items))
+            for item in range(len(items)):
+                var slot = Int(slots.unsafe_get(item))
+                order.unsafe_get(cursors[slot]) = UInt32(item)
+                cursors[slot] += 1
+            for group in range(group_count):
+                self.group_roots.append(UInt32(next_node))
+                next_node = self._emit_median[precise](
+                    items,
+                    order,
+                    offsets[group],
+                    offsets[group + 1] - offsets[group],
+                    next_node,
                 )
 
     def _build_shared_group[

@@ -44,7 +44,7 @@ def _query_kernel[
         output[lane * Int(count) + Int(index)] += 1
 
 
-def test_gpu_bounds_queries_groups_and_updates_match_cpu() raises:
+def _check_gpu_bounds_queries_groups_and_updates(group_count: Int) raises:
     var boxes = List[AABB[.WORLD]]()
     var groups = List[UInt32]()
     for i in range(31):
@@ -52,7 +52,7 @@ def test_gpu_bounds_queries_groups_and_updates_match_cpu() raises:
             Float32(i % 3) * 0.5, Float32(i % 5) * 0.5, Float32(i % 7) * 0.5
         )
         boxes.append(AABB(p, p + Vec3f32[.WORLD](0.25)))
-        groups.append(UInt32(i % 2))
+        groups.append(UInt32(i % group_count))
     var cpu = SpatialBoundsBvh(boxes, groups)
     with DeviceContext() as ctx:
         var gpu = GpuSpatialBoundsBvh(ctx, cpu.copy())
@@ -76,6 +76,7 @@ def test_gpu_bounds_queries_groups_and_updates_match_cpu() raises:
             var roots: List[UInt32] = [
                 0,
                 cpu.group_root(1),
+                cpu.group_root(UInt32(group_count - 1)),
                 cpu.group_root(999),
             ]
             for root in roots:
@@ -125,6 +126,14 @@ def test_gpu_bounds_queries_groups_and_updates_match_cpu() raises:
                             assert_equal(
                                 actual[lane * len(boxes) + i], expected[i]
                             )
+
+
+def test_gpu_bounds_queries_groups_and_updates_match_cpu() raises:
+    _check_gpu_bounds_queries_groups_and_updates(2)
+
+
+def test_gpu_many_group_queries_and_updates_match_cpu() raises:
+    _check_gpu_bounds_queries_groups_and_updates(17)
 
 
 def _invalid_kernel[

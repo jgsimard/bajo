@@ -226,8 +226,8 @@ without allocation; mesh refit fuses face bounds with triangle packing. The
 shared default in `policy.mojo` caps width 4 to the target native Float32 width.
 Explicit widths remain available for workload-specific measurements.
 
-Spatial construction emits median partitions for trees below 16,384 items and
-balanced, stable Morton order for larger trees, directly into preallocated
+Spatial construction selects median partitions below 16,384 input items and
+balanced, stable Morton order for larger inputs, directly into preallocated
 preorder buffers. All global/group roots borrow one temporary array of build
 items; groups select subsets of original IDs. Median split axes specialize
 at compile time, and bounds reductions are generic over SIMD width. Morton
@@ -243,7 +243,16 @@ requesting `enable_winding=True` builds missing host winding metadata before
 publishing its device cache. Complete construction benchmarks match host and
 device winding-cache settings to Warp's disabled/enabled modes.
 
-Large group trees filter the global stable Morton order instead of recomputing
-and sorting group-local codes. Both global and group trees retain balanced
-splits, exact node unions and original face IDs. Groups below 16,384 items
-continue to use median partitions.
+When the global tree uses Morton order, every group preserves that same stable
+order instead of recomputing and sorting group-local codes. Smaller inputs use
+median partitions for both global and group trees. Both paths retain balanced
+splits, exact node unions and original face IDs.
+
+Forests with more than eight groups discover arbitrary UInt32 labels through a
+temporary directory, then count and scatter items into disjoint slices of one
+flat buffer. Group preparation takes expected O(items + groups) work and
+O(items + groups) scratch instead of scanning every item for every group.
+Labels and roots remain in first-appearance order. Up to eight groups retain
+the simpler scan path without a label directory. The construction benchmark
+`pixi run bench_bvh_cpu_spatial_groups` covers both paths and reports full forest
+hashes for comparisons across revisions.

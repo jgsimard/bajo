@@ -125,6 +125,7 @@ struct GpuWindingCache[frame: Frame = .WORLD]:
         self.parents = storage.create_sub_buffer[.uint32](starts[4], lengths[4])
         self.tree = GpuSpatialBoundsBvh(
             host=tree^,
+            update_parents=self.parents,
             bounds=storage.create_sub_buffer[.float32](starts[2], lengths[2]),
             nodes=storage.create_sub_buffer[.uint32](starts[3], lengths[3]),
             update_status=storage.create_sub_buffer[.uint32](

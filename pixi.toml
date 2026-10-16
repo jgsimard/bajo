@@ -80,6 +80,7 @@ bench_bvh_cpu_report = { cmd = "python bench/bvh/bench_bvh_cpu_report.py", depen
 
 # bvh gpu
 bench_bvh_gpu = {cmd = "mojo -I . bench/bvh/bench_gpu_bounds_bvh.mojo",  depends-on = ["download_assets"] }
+bench_bvh_gpu_spatial_bounds_updates = "mojo -I . bench/bvh/bench_gpu_spatial_bounds_updates.mojo"
 bench_bvh_gpu_tlas = { cmd = "mojo -I . bench/bvh/bench_gpu_tlas.mojo",  depends-on = ["download_assets"] }
 bench_bvh_gpu_blas_tlas_build = { cmd = "mojo -I . --target-accelerator sm_120 bench/bvh/bench_gpu_blas_tlas_build.mojo", depends-on = ["download_assets"] }
 bench_bvh_gpu_nexus_compare = { cmd = "python bench/bvh/bench_gpu_nexus_compare.py", depends-on = ["download_assets"] }

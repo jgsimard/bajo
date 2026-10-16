@@ -118,8 +118,12 @@ Replay reads current input contents and uses retained scratch/geometry buffers.
 Keep the owner and input alive until all operations/replays finish, serialize
 queries and updates on their context, and check validation status after replay.
 The default block size is 256; explicit powers of two from 32 through 1024 are
-available. Bounds updates and small mesh updates validate input in one block
-before copying geometry and refitting the retained balanced skeleton. Mesh refits
+available. Bounds updates with at least 1,024 items validate across blocks, then
+publish leaves and merge ancestors through retained parent links and
+acquire/release child-arrival counters. Separate launches finish validation
+before any bounds or leaf IDs can change. Direct updates and captured graphs
+share this path, and host-input rebuilds refresh parent links in place. Smaller
+bounds inputs and small mesh updates retain the single-block path. Mesh refits
 with at least 1,024 faces validate across blocks, merge disjoint subtrees of at
 most 64 leaves in shared memory, then merge remaining ancestors through retained
 parent links and child-arrival counters. Both direct updates and captured refit
@@ -140,6 +144,8 @@ Direct updates and captured graphs use the same dependencies, including winding
 cache updates. The owner retains sort scratch and tile descriptors; device
 rebuild operations allocate no new storage. Bounds and smaller mesh rebuilds
 retain their single-block sorting path.
+The GPU bounds update benchmark `pixi run bench_bvh_gpu_spatial_bounds_updates`
+compares direct submissions and graph replay with full CPU-reference hashes.
 Device updates leave `host` as the last host-input snapshot, not a mirror of
 current device geometry. Subsequent host-input refit remains valid after a
 device reorder because it updates bounds using the current device topology.

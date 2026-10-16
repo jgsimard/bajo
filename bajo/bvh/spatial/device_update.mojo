@@ -1,7 +1,8 @@
 """Allocation-free device-input updates for the preorder spatial forest.
 
-Bounds and small mesh updates use one block; larger mesh rebuilds sort tiles
-and merge their exact orders across blocks before refitting. Updates retain
+Small updates use one block; larger bounds and mesh updates validate and refit
+across blocks. Larger mesh rebuilds sort tiles and merge their exact orders
+across blocks before refitting. Updates retain
 every published address, need no host geometry transfer and support capture. Rebuild sorts leaf IDs by X centroid within each independent
 root, then refits the retained balanced skeleton. Group membership stays fixed.
 """
@@ -229,6 +230,22 @@ def reorder_mesh_kernel[
     # the following multi-block merge; preserve rejected-input status.
     var lane = Int(thread_idx.x)
     for i in range(lane, len(order), block_size):
+        order[i] = 0
+
+
+def reorder_bounds_kernel[
+    block_size: Int
+](
+    items: ImmSpan[Float32, ImmutAnyOrigin],
+    nodes: MutSpan[UInt32, MutAnyOrigin],
+    order: MutSpan[UInt32, MutAnyOrigin],
+    status: ImmSpan[UInt32, ImmutAnyOrigin],
+):
+    if status[0] == 0:
+        reorder_forest[block_size](items, nodes, order)
+    # Sorting shares scratch with parent-arrival counters. Reset every word
+    # before the following multi-block publication, even after rejection.
+    for i in range(Int(thread_idx.x), len(order), block_size):
         order[i] = 0
 
 

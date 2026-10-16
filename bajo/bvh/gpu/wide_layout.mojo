@@ -198,6 +198,7 @@ struct GpuWideBuildLayout[
         mut ctx: DeviceContext,
         segments: SegmentOffsets,
     ) raises:
+        segments.validate()
         debug_assert["safe", _use_compiler_assume=True](
             segments.segment_count() > 0,
             "wide batch requires at least one segment",

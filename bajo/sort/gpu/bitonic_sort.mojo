@@ -11,6 +11,7 @@ from max.gpu.memory import AddressSpace
 from max.gpu.primitives import warp
 from std.math import iota
 from std.memory import stack_allocation
+from .validation import validate_bitonic_size, require_sort_capacity
 
 
 def bitonic_sort_shared[
@@ -247,8 +248,16 @@ def bitonic_sort_pairs[
     """
     Bitonic Sort.
     """
-    debug_assert["safe", _use_compiler_assume=True](size.is_power_of_two())
+    validate_bitonic_size(size)
+    require_sort_capacity(size, len(keys), "key input")
+    require_sort_capacity(size, len(values), "value input")
+    if size <= 1:
+        return
 
+    comptime assert (
+        THREADS_PER_BLOCK > 0 and THREADS_PER_BLOCK.is_power_of_two()
+    )
+    comptime assert ITEMS_PER_THREAD > 0 and ITEMS_PER_THREAD.is_power_of_two()
     comptime PART_SIZE = THREADS_PER_BLOCK * ITEMS_PER_THREAD
     var blocks = (size + PART_SIZE - 1) / PART_SIZE
 
@@ -322,7 +331,13 @@ def naive_bitonic_sort_pairs[
     size: Int,
 ) raises:
     """Enqueue an in-place pair sort without synchronizing the context."""
-    debug_assert["safe", _use_compiler_assume=True](size.is_power_of_two())
+    validate_bitonic_size(size)
+    require_sort_capacity(size, len(keys), "key input")
+    require_sort_capacity(size, len(values), "value input")
+    if size <= 1:
+        return
+
+    comptime assert THREADS_PER_BLOCK > 0
 
     # 1 thread maps to 1 pair
     var total_pairs = size / 2

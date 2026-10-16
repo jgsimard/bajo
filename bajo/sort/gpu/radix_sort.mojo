@@ -18,6 +18,7 @@ from std.memory import stack_allocation
 from std.sys.info import bit_width_of
 
 from .utils import circular_shift, warp_level_multi_split, DoubleBuffer
+from .validation import validate_sort_size, require_sort_capacity
 
 comptime ordering = Ordering.RELAXED
 comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)  # 2^5 = 32 => 5
@@ -407,6 +408,17 @@ struct RadixSortWorkspace[
     ) raises:
         """Allocate reusable sorting storage; omit payload scratch for keys only.
         """
+        comptime assert Self.keys_dtype == .uint32 or Self.keys_dtype == .uint64
+        # DoubleBuffer must end in the original allocation after an even pass count.
+        comptime assert Self.BITS_PER_PASS > 0 and Self.BITS_PER_PASS <= 8
+        comptime assert (
+            bit_width_of[Self.keys_dtype]() % Self.BITS_PER_PASS == 0
+        )
+        comptime assert (
+            bit_width_of[Self.keys_dtype]() / Self.BITS_PER_PASS
+        ) % 2 == 0
+        comptime assert Self.KEYS_PER_THREAD > 0
+        validate_sort_size(size)
         comptime NUM_PASSES = bit_width_of[
             Self.keys_dtype
         ]() / Self.BITS_PER_PASS
@@ -424,6 +436,19 @@ struct RadixSortWorkspace[
 
         self.global_hist = ctx.enqueue_create_buffer[.uint32](GLOBAL_HIST)
         self.pass_hist = ctx.enqueue_create_buffer[.uint32](gdim * RADIX)
+
+    def validate(self, size: Int) raises:
+        validate_sort_size(size)
+        comptime radix = 2**Self.BITS_PER_PASS
+        comptime passes = bit_width_of[Self.keys_dtype]() / Self.BITS_PER_PASS
+        var blocks = ceildiv(size, 512 * Self.KEYS_PER_THREAD)
+        require_sort_capacity(size, len(self.keys_alternate), "key scratch")
+        require_sort_capacity(
+            radix * passes, len(self.global_hist), "global histogram"
+        )
+        require_sort_capacity(
+            blocks * radix, len(self.pass_hist), "pass histogram"
+        )
 
     def __init__(out self, other: Self):
         """Create a shared-storage lease for a reusable build arena."""
@@ -444,8 +469,11 @@ def device_radix_sort_keys[
     size: Int,
 ) raises:
     """Sort unsigned keys using a reusable workspace."""
+    validate_sort_size(size)
+    require_sort_capacity(size, len(keys), "key input")
     if size <= 1:
         return
+    workspace.validate(size)
     comptime NUM_PASSES = bit_width_of[dtype]() / BITS_PER_PASS
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = RADIX - 1
@@ -529,6 +557,8 @@ def device_radix_sort_keys[
 def device_radix_sort_keys[
     dtype: DType, BITS_PER_PASS: Int = 8, KEYS_PER_THREAD: Int = 9
 ](ctx: DeviceContext, mut keys: DeviceBuffer[dtype], size: Int) raises:
+    validate_sort_size(size)
+    require_sort_capacity(size, len(keys), "key input")
     if size <= 1:
         return
     var workspace = RadixSortWorkspace[
@@ -551,12 +581,13 @@ def device_radix_sort_pairs[
     mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
+    validate_sort_size(size)
+    require_sort_capacity(size, len(keys), "key input")
+    require_sort_capacity(size, len(values), "value input")
     if size <= 1:
         return
-    debug_assert["safe", _use_compiler_assume=True](
-        len(workspace.vals_alternate) >= size,
-        "pair sorting requires payload scratch in the workspace",
-    )
+    workspace.validate(size)
+    require_sort_capacity(size, len(workspace.vals_alternate), "value scratch")
     comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
     comptime RADIX = 2**BITS_PER_PASS
     comptime RADIX_MASK = RADIX - 1
@@ -646,6 +677,9 @@ def device_radix_sort_pairs[
     mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
+    validate_sort_size(size)
+    require_sort_capacity(size, len(keys), "key input")
+    require_sort_capacity(size, len(values), "value input")
     if size <= 1:
         return
     var workspace = RadixSortWorkspace[keys_dtype, vals_dtype](ctx, size)

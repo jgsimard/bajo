@@ -30,12 +30,15 @@ test_host = { depends-on = [
   { task = "test", args = ["parser"] },
   { task = "test", args = ["rt/cpu"] },
   { task = "test", args = ["bvh/cpu"] },
+  { task = "test", args = ["sort/cpu"] },
+  { task = "test", args = ["viewer/test_linear_frame.mojo"] },
   "test_python_host",
 ] }
 test_gpu = { depends-on = [
   { task = "test", args = ["sort"] },
   { task = "test", args = ["bvh/gpu"] },
   { task = "test", args = ["rt/gpu"] },
+  { task = "test", args = ["gpu"] },
   "test_python_gpu",
 ] }
 
@@ -118,8 +121,8 @@ bench_bvh_smoke = { depends-on = [
 
 [dependencies]
 libpng = ">=1.6.59,<2"
-mojo = ">=1.2.0.dev2026101405,<2"
-max = ">=26.7.0.dev2026101405,<27"
+mojo = ">=1.2.0.dev2026101520,<2"
+max = ">=26.7.0.dev2026101520,<27"
 python = ">=3.13.16,<3.14"
 polars = ">=2.0.0,<3"
 matplotlib = ">=3.11.2,<4"

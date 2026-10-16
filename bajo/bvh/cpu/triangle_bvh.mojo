@@ -144,7 +144,10 @@ struct _TriangleBuildTuning[
 def _make_triangle_bounds_item[
     frame: Frame
 ](vertices: ImmSpan[Point3f32[frame], _], i: Int) -> BoundsItem[frame]:
-    debug_assert["safe", _use_compiler_assume=True](i * 3 + 2 <= len(vertices))
+    debug_assert["safe", _use_compiler_assume=True](
+        i >= 0 and i < len(vertices) // 3,
+        "triangle index is outside the vertex span",
+    )
 
     ref v0 = vertices.unsafe_get(i * 3 + 0)
     ref v1 = vertices.unsafe_get(i * 3 + 1)

@@ -300,6 +300,7 @@ struct GpuBinaryBuildWorkspace:
         compact_output: Bool = False,
         compute_leaf_counts: Bool = True,
     ) raises:
+        segments.validate()
         if not compact_output and not compute_leaf_counts:
             raise "full binary output requires leaf counts"
         var leaf_capacity = segments.item_count()

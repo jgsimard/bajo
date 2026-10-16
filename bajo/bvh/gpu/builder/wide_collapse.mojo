@@ -1165,6 +1165,7 @@ struct GpuWideCollapseWorkspace:
         segments: SegmentOffsets,
         block_size: Int = GPU_BOUNDS_BVH_BLOCK_SIZE,
     ) raises:
+        segments.validate()
         var leaf_capacity = segments.item_count()
         debug_assert["safe", _use_compiler_assume=True](
             leaf_capacity > 0,

@@ -12,7 +12,7 @@ def gpu_sort_pairs[
     mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
-    if size <= 2**14:
+    if size > 1 and size <= 2**14 and size.is_power_of_two():
         bitonic_sort_pairs(ctx, keys, values, size)
     else:
         onesweep_radix_sort_pairs(ctx, keys, values, size)

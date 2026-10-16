@@ -12,17 +12,12 @@ def validate_ray_launch(
     d_hits: DeviceBuffer[.float32],
     ray_count: Int,
 ) raises:
-    debug_assert["safe", _use_compiler_assume=True](
-        ray_count > 0, "ray count must be positive"
-    )
-    debug_assert["safe", _use_compiler_assume=True](
-        len(d_rays) >= ray_count * Rayf32.STRIDE,
-        "packed ray input buffer is too short",
-    )
-    debug_assert["safe", _use_compiler_assume=True](
-        len(d_hits) >= ray_count * Hit.STRIDE,
-        "hit output buffer is too short",
-    )
+    if ray_count <= 0 or ray_count > Int(Int32.MAX):
+        raise Error("ray count must fit a positive Int32")
+    if ray_count > len(d_rays) // Rayf32.STRIDE:
+        raise Error("packed ray input buffer is too short")
+    if ray_count > len(d_hits) // Hit.STRIDE:
+        raise Error("hit output buffer is too short")
 
 
 @always_inline

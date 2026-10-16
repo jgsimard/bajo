@@ -17,6 +17,8 @@ def validate_sorted_keys(
     values: DeviceBuffer[.uint32],
     size: Int,
 ) raises -> SortedKeysValidation:
+    if size < 0 or size > len(keys) or size > len(values):
+        raise Error("sort validation size is outside the input buffers")
     var keys_sorted = True
     var values_valid = True
     var first_bad_key = -1
@@ -40,13 +42,22 @@ def validate_sorted_keys(
         for i in range(0, size, 1024):
             checksum += UInt64(k[i])
 
+    var seen = List[Bool](length=size, fill=False)
     with values.map_to_host() as v:
-        for i in range(0, size, 1024):
-            if v[i] >= UInt32(size):
+        for i in range(size):
+            var value = Int(v[i])
+            if value >= size:
                 values_valid = False
                 if first_bad_value == -1:
                     first_bad_value = i
-            checksum += UInt64(v[i])
+            elif seen[value]:
+                values_valid = False
+                if first_bad_value == -1:
+                    first_bad_value = i
+            else:
+                seen[value] = True
+            if i % 1024 == 0:
+                checksum += UInt64(v[i])
 
     return SortedKeysValidation(
         keys_sorted,

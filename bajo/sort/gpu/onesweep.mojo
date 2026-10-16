@@ -17,6 +17,11 @@ from std.memory import stack_allocation, bitcast
 from std.sys.info import bit_width_of
 
 from .utils import circular_shift, warp_level_multi_split, DoubleBuffer
+from .validation import (
+    validate_sort_size,
+    require_sort_capacity,
+    validate_onesweep_size,
+)
 
 comptime ordering = Ordering.RELAXED
 comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)  # 2^5 = 32 => 5
@@ -371,18 +376,38 @@ struct OneSweepWorkspace[
         comptime BIN_PART_SIZE = Self.BLOCK_SIZE * Self.KEYS_PER_THREAD
         comptime NUM_PASSES = bit_width_of[Self.keys_dtype]() / 8
 
-        var binning_blocks = ceildiv(size, BIN_PART_SIZE)
-        var hist_blocks = binning_blocks + 1
+        comptime assert Self.keys_dtype == .uint32 or Self.keys_dtype == .uint64
+        comptime assert (
+            Self.BLOCK_SIZE >= 256 and Self.BLOCK_SIZE % WARP_SIZE == 0
+        )
+        comptime assert Self.KEYS_PER_THREAD > 0
+        var histogram_size = validate_onesweep_size[BIN_PART_SIZE, NUM_PASSES](
+            size
+        )
 
         self.keys_alternate = ctx.enqueue_create_buffer[Self.keys_dtype](size)
         self.vals_alternate = ctx.enqueue_create_buffer[Self.vals_dtype](size)
         self.global_hist = ctx.enqueue_create_buffer[.uint32](
             RADIX * NUM_PASSES
         )
-        self.pass_hist = ctx.enqueue_create_buffer[.uint32](
-            hist_blocks * RADIX * NUM_PASSES
-        )
+        self.pass_hist = ctx.enqueue_create_buffer[.uint32](histogram_size)
         self.index = ctx.enqueue_create_buffer[.uint32](NUM_PASSES)
+
+    def validate(self, size: Int) raises:
+        """Check retained scratch, including its publicly mutable side buffers.
+        """
+        comptime passes = bit_width_of[Self.keys_dtype]() / 8
+        var histogram_size = validate_onesweep_size[
+            Self.BLOCK_SIZE * Self.KEYS_PER_THREAD, passes
+        ](size)
+        require_sort_capacity(size, len(self.keys_alternate), "key scratch")
+        require_sort_capacity(
+            256 * passes, len(self.global_hist), "global histogram"
+        )
+        require_sort_capacity(
+            histogram_size, len(self.pass_hist), "pass histogram"
+        )
+        require_sort_capacity(passes, len(self.index), "partition index")
 
 
 def onesweep_radix_sort_keys[
@@ -398,8 +423,11 @@ def onesweep_radix_sort_keys[
     mut keys: DeviceBuffer[keys_dtype],
     size: Int,
 ) raises:
+    validate_sort_size(size)
+    require_sort_capacity(size, len(keys), "key input")
     if size <= 1:
         return
+    workspace.validate(size)
     comptime BITS_PER_PASS = 8
     comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
     comptime RADIX = 2**BITS_PER_PASS
@@ -418,9 +446,9 @@ def onesweep_radix_sort_keys[
         workspace.global_hist,
         workspace.pass_hist,
         workspace.index,
-        Int32(len(workspace.pass_hist)),
+        Int32(hist_blocks * RADIX * NUM_PASSES),
         grid_dim=ceildiv(
-            max(len(workspace.pass_hist), NUM_PASSES * RADIX), 256
+            max(hist_blocks * RADIX * NUM_PASSES, NUM_PASSES * RADIX), 256
         ),
         block_dim=256,
     )
@@ -505,8 +533,13 @@ def onesweep_radix_sort_pairs[
     mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
+    validate_sort_size(size)
+    require_sort_capacity(size, len(keys), "key input")
+    require_sort_capacity(size, len(values), "value input")
     if size <= 1:
         return
+    workspace.validate(size)
+    require_sort_capacity(size, len(workspace.vals_alternate), "value scratch")
     comptime BITS_PER_PASS = 8
     comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
     comptime RADIX = 2**BITS_PER_PASS
@@ -525,9 +558,9 @@ def onesweep_radix_sort_pairs[
         workspace.global_hist,
         workspace.pass_hist,
         workspace.index,
-        Int32(len(workspace.pass_hist)),
+        Int32(hist_blocks * RADIX * NUM_PASSES),
         grid_dim=ceildiv(
-            max(len(workspace.pass_hist), NUM_PASSES * RADIX), 256
+            max(hist_blocks * RADIX * NUM_PASSES, NUM_PASSES * RADIX), 256
         ),
         block_dim=256,
     )
@@ -605,6 +638,9 @@ def onesweep_radix_sort_pairs[
     mut values: DeviceBuffer[vals_dtype],
     size: Int,
 ) raises:
+    validate_sort_size(size)
+    require_sort_capacity(size, len(keys), "key input")
+    require_sort_capacity(size, len(values), "value input")
     if size <= 1:
         return
     comptime BLOCK_SIZE = 512

@@ -1,4 +1,4 @@
-from std.testing import TestSuite, assert_equal
+from std.testing import TestSuite, assert_equal, assert_raises
 
 from bajo.core import SegmentOffsets
 
@@ -30,6 +30,29 @@ def test_segment_offsets_can_describe_no_segments() raises:
 
     assert_equal(segments.segment_count(), 0)
     assert_equal(segments.item_count(), 0)
+
+
+def test_segment_offsets_preserve_the_uint32_limit() raises:
+    var segments = SegmentOffsets.from_counts([Int(UInt32.MAX) - 1, 0, 1])
+    assert_equal(segments.item_count(), Int(UInt32.MAX))
+    assert_equal(segments.count(0), UInt32.MAX - 1)
+    assert_equal(segments.count(1), UInt32(0))
+    assert_equal(segments.count(2), UInt32(1))
+
+
+def test_checked_boundary_rejects_mutated_offsets() raises:
+    var segments = SegmentOffsets.from_counts([3, 2])
+    segments.validate()
+    segments.offsets[0] = 1
+    with assert_raises():
+        segments.validate()
+    segments.offsets[0] = 0
+    segments.offsets[1] = 6
+    with assert_raises():
+        segments.validate()
+    segments.offsets.clear()
+    with assert_raises():
+        segments.validate()
 
 
 def main() raises:

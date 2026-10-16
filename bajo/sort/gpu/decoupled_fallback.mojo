@@ -22,6 +22,7 @@ from std.memory import stack_allocation, bitcast
 from std.sys.info import bit_width_of
 
 from .utils import circular_shift, warp_level_multi_split, DoubleBuffer
+from .validation import require_sort_capacity
 
 comptime ordering = Ordering.RELAXED
 comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)
@@ -538,6 +539,18 @@ struct DecoupledFallbackWorkspace[
         )
         self.index = ctx.enqueue_create_buffer[.uint32](NUM_PASSES)
 
+    def validate(self, size: Int) raises:
+        _validate_size(size, len(self.keys_alternate), len(self.keys_alternate))
+        comptime passes = bit_width_of[Self.keys_dtype]() / 8
+        var rows = ceildiv(size, Self.BLOCK_SIZE * Self.KEYS_PER_THREAD) + 1
+        require_sort_capacity(
+            256 * passes, len(self.global_hist), "global histogram"
+        )
+        require_sort_capacity(
+            rows * 256 * passes * 2, len(self.pass_hist), "pass histogram"
+        )
+        require_sort_capacity(passes, len(self.index), "partition index")
+
 
 def decoupled_fallback_radix_sort_keys[
     keys_dtype: DType,
@@ -561,6 +574,7 @@ def decoupled_fallback_radix_sort_keys[
     _validate_size(size, len(workspace.keys_alternate), len(keys))
     if size <= 1:
         return
+    workspace.validate(size)
     comptime BITS_PER_PASS = 8
     comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
     comptime RADIX = 2**BITS_PER_PASS
@@ -670,6 +684,8 @@ def decoupled_fallback_radix_sort_pairs[
     )
     if size <= 1:
         return
+    workspace.validate(size)
+    require_sort_capacity(size, len(workspace.vals_alternate), "value scratch")
     comptime BITS_PER_PASS = 8
     comptime NUM_PASSES = bit_width_of[keys_dtype]() / BITS_PER_PASS
     comptime RADIX = 2**BITS_PER_PASS

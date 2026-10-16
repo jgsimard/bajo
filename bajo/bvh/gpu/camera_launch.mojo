@@ -16,19 +16,22 @@ def validate_camera_launch(
     width: Int,
     height: Int,
 ) raises:
-    debug_assert["safe", _use_compiler_assume=True](
-        ray_count > 0 and width > 0 and height > 0,
-        "camera launch dimensions must be positive",
-    )
-    debug_assert["safe", _use_compiler_assume=True](
-        len(d_camera_params)
-        >= ceildiv(ray_count, width * height) * Camera.STRIDE,
-        "camera parameter buffer is too short",
-    )
-    debug_assert["safe", _use_compiler_assume=True](
-        len(d_hits) >= ray_count * Hit.STRIDE,
-        "hit output buffer is too short",
-    )
+    if (
+        ray_count <= 0
+        or ray_count > Int(Int32.MAX)
+        or width <= 0
+        or width > Int(Int32.MAX)
+        or height <= 0
+        or height > Int(Int32.MAX)
+    ):
+        raise Error("camera launch dimensions must fit positive Int32 values")
+    if (
+        ceildiv(ray_count, width * height)
+        > len(d_camera_params) // Camera.STRIDE
+    ):
+        raise Error("camera parameter buffer is too short")
+    if ray_count > len(d_hits) // Hit.STRIDE:
+        raise Error("hit output buffer is too short")
 
 
 @always_inline

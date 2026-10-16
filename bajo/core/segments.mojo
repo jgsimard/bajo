@@ -24,6 +24,10 @@ struct SegmentOffsets(Copyable):
             debug_assert["safe", _use_compiler_assume=True](
                 count >= 0, "segment counts must be nonnegative"
             )
+            debug_assert["safe", _use_compiler_assume=True](
+                UInt64(count) <= UInt64(UInt32.MAX - total),
+                "segment item count exceeds UInt32 storage",
+            )
             total += UInt32(count)
             offsets.append(total)
         return Self(offsets)
@@ -34,6 +38,16 @@ struct SegmentOffsets(Copyable):
 
     def segment_count(self) -> Int:
         return len(self.offsets) - 1
+
+    def validate(self) raises:
+        """Validate mutable offsets when they enter a checked host API."""
+        if len(self.offsets) == 0:
+            raise Error("segment offsets require a leading zero")
+        if self.offsets[0] != 0:
+            raise Error("segment offsets must start at zero")
+        for i in range(1, len(self.offsets)):
+            if self.offsets[i - 1] > self.offsets[i]:
+                raise Error("segment offsets must be nondecreasing")
 
     def item_count(self) -> Int:
         return Int(self.offsets[len(self.offsets) - 1])

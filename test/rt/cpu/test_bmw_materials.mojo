@@ -67,14 +67,16 @@ def test_ggx_conductor_samples_match_bsdf_and_pdf() raises:
     var wo = Vec3f32[.WORLD](0.0, 0.0, 1.0)
     var eta = Vec3f32[.WORLD](1.2, 0.95, 0.65)
     var k = Vec3f32[.WORLD](7.3, 6.7, 5.6)
+    var p = CoatedParameters[1]()
+    p.conductor_eta = eta
+    p.conductor_k = k
+    p.conductor_roughness = 0.2
     var successes = 0
     for i in range(256):
         var sampled = _sample_substrate(
             wo,
             Color(1.0),
-            eta,
-            k,
-            0.2,
+            p,
             Float32(i) / 256.0,
             Float32((i * 73) % 256) / 256.0,
         )
@@ -82,8 +84,8 @@ def test_ggx_conductor_samples_match_bsdf_and_pdf() raises:
             continue
         successes += 1
         assert_false(sampled.delta[0])
-        var value = _substrate_f(wo, sampled.direction, Color(1.0), eta, k, 0.2)
-        var pdf = _substrate_pdf(wo, sampled.direction, eta, 0.2)
+        var value = _substrate_f(wo, sampled.direction, Color(1.0), p)
+        var pdf = _substrate_pdf(wo, sampled.direction, p)
         assert_almost_equal(sampled.pdf[0], pdf, atol=1.0e-6)
         assert_almost_equal(
             sampled.weight.x[0],
@@ -93,11 +95,12 @@ def test_ggx_conductor_samples_match_bsdf_and_pdf() raises:
         assert_true(sampled.weight.is_finite()[0])
         assert_true(sampled.direction.z[0] > 0.0)
     assert_true(successes > 200)
-    var sampled = _sample_substrate(wo, Color(1.0), eta, k, 0.2, 0.0, 0.0)
+    var sampled = _sample_substrate(wo, Color(1.0), p, 0.0, 0.0)
     assert_almost_equal(
         sampled.pdf[0], Float32(1.0 / (4.0 * pi * 0.2 * 0.2)), atol=1.0e-5
     )
-    var smooth = _sample_substrate(wo, Color(1.0), eta, k, 0.0, 0.2, 0.4)
+    p.conductor_roughness = 0.0
+    var smooth = _sample_substrate(wo, Color(1.0), p, 0.2, 0.4)
     assert_true(smooth.delta[0])
     assert_equal(smooth.pdf[0], Float32(1.0))
     assert_almost_equal(

@@ -90,6 +90,7 @@ bench_rt_cpu_any_hit = "mojo -I . bench/rt/bench_cpu_any_hit.mojo"
 bench_rt_cpu_triangle_normals = "mojo -I . bench/rt/bench_cpu_triangle_normals.mojo"
 bench_rt_cpu_end_to_end = "mojo -I . bench/rt/bench_cpu_end_to_end.mojo"
 bench_rt_cpu_wavefront = "mojo -I . bench/rt/bench_cpu_wavefront.mojo"
+bench_rt_cpu_coated_simd = "mojo -I . bench/rt/bench_cpu_coated_simd.mojo"
 
 # ray tracing gpu
 bench_rt_gpu = "mojo -I . bench/rt/bench_gpu_rt.mojo"

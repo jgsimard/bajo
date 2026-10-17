@@ -514,43 +514,10 @@ struct CpuTlas[
                 if worker_count > 1:
                     self._refit_parallel(instances, worker_count)
                     return
-        self.all_translation_only = True
-        for inst_idx in range(len(instances)):
-            ref inst = instances[inst_idx]
-            self.hot_instances[
-                inst_idx
-            ].inv_transform = inst.inv_transform.copy()
-            self.hot_instances[inst_idx].blas_idx = inst.blas_idx
-            self.hot_instances[
-                inst_idx
-            ].translation_only = _is_translation_only(inst.inv_transform)
-            self.all_translation_only &= self.hot_instances[
-                inst_idx
-            ].translation_only
-
-        for block_idx in range(len(self.leaf_blocks)):
-            comptime for lane in range(Self.leaf_width):
-                var inst_idx = self.leaf_blocks[block_idx].inst_indices[lane]
-                if inst_idx != EMPTY_LANE:
-                    ref bounds = instances[Int(inst_idx)].bounds
-                    self.leaf_blocks[block_idx].bounds._min.x[
-                        lane
-                    ] = bounds._min.x
-                    self.leaf_blocks[block_idx].bounds._min.y[
-                        lane
-                    ] = bounds._min.y
-                    self.leaf_blocks[block_idx].bounds._min.z[
-                        lane
-                    ] = bounds._min.z
-                    self.leaf_blocks[block_idx].bounds._max.x[
-                        lane
-                    ] = bounds._max.x
-                    self.leaf_blocks[block_idx].bounds._max.y[
-                        lane
-                    ] = bounds._max.y
-                    self.leaf_blocks[block_idx].bounds._max.z[
-                        lane
-                    ] = bounds._max.z
+        self.all_translation_only = self._refit_instances(
+            instances, 0, len(instances)
+        )
+        self._refit_leaves(instances, 0, len(self.leaf_blocks))
 
         if len(self.tree.nodes) > 0:
             _ = self._refit_node(0)

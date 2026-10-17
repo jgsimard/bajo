@@ -27,6 +27,44 @@ def packet_float_tile[
 
 
 @always_inline
+def packet_field_index[name: StaticString, *names: StaticString]() -> Int:
+    """Resolve a named float row at compile time for either packet layout."""
+    comptime for field in range(len(names)):
+        comptime if name == names[field]:
+            return field
+    return -1
+
+
+@always_inline
+def packet_float_field[
+    length: SIMDLength, fields: Int, name: StaticString, *names: StaticString
+](ref rows: Array[SIMD[.float32, length], fields]) -> ref[rows] SIMD[
+    .float32, length
+]:
+    comptime field = packet_field_index[name, *names]()
+    comptime assert field >= 0, "unknown float packet field"
+    return rows[field]
+
+
+@always_inline
+def copy_packet_float_lane[
+    source_mut: Bool,
+    source_origin: Origin[mut=source_mut],
+    destination_origin: Origin[mut=True],
+    //,
+    fields: Int,
+    length: SIMDLength,
+](
+    source: PacketFloatTile[fields, length, source_origin],
+    destination: PacketFloatTile[fields, length, destination_origin],
+    source_lane: Int,
+    destination_lane: Int,
+):
+    comptime for field in range(fields):
+        destination[field, destination_lane] = source[field, source_lane]
+
+
+@always_inline
 def compact_packet_floats[
     source_mut: Bool,
     source_origin: Origin[mut=source_mut],

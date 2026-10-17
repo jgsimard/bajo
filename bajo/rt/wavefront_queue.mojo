@@ -11,6 +11,9 @@ from bajo.rt.packet_layout import (
     PacketFloatTile,
     packet_float_tile,
     compact_packet_floats,
+    packet_field_index,
+    packet_float_field,
+    copy_packet_float_lane,
     TilePacket,
     append_masked_tile,
     select_packet_lanes,
@@ -54,7 +57,7 @@ struct PathPacket[length: SIMDLength](TilePacket):
     """A field/lane float tile with separately typed path metadata."""
 
     comptime WIDTH = Self.length
-    comptime FLOAT_NAMES = (
+    comptime FLOAT_NAMES = ParameterList.of[
         StaticString("ox"),
         StaticString("oy"),
         StaticString("oz"),
@@ -67,7 +70,7 @@ struct PathPacket[length: SIMDLength](TilePacket):
         StaticString("ty"),
         StaticString("tz"),
         StaticString("bsdf_pdfs"),
-    )
+    ]()
     comptime FLOAT_FIELDS = len(Self.FLOAT_NAMES)
     var floats: Array[SIMD[.float32, Self.length], Self.FLOAT_FIELDS]
     var path_ids: SIMD[.uint32, Self.length]
@@ -104,10 +107,7 @@ struct PathPacket[length: SIMDLength](TilePacket):
 
     @staticmethod
     def field_index[name: StaticString]() -> Int:
-        comptime for field in range(Self.FLOAT_FIELDS):
-            comptime if name == Self.FLOAT_NAMES[field]:
-                return field
-        return -1
+        return packet_field_index[name, *Self.FLOAT_NAMES]()
 
     @always_inline
     def __getattr__[
@@ -115,11 +115,12 @@ struct PathPacket[length: SIMDLength](TilePacket):
     ](ref self, attr: StringLiteral[name]) -> ref[self.floats] SIMD[
         .float32, Self.length
     ]:
-        # A literal selects one SIMD row at compile time; ordinary named field
-        # access remains valid without a runtime string lookup.
-        comptime field = Self.field_index[StaticString(StringLiteral[name]())]()
-        comptime assert field >= 0, "unknown float packet field"
-        return self.floats[field]
+        return packet_float_field[
+            Self.length,
+            Self.FLOAT_FIELDS,
+            StaticString(StringLiteral[name]()),
+            *Self.FLOAT_NAMES,
+        ](self.floats)
 
     @always_inline
     def copy_metadata_lane(
@@ -134,10 +135,9 @@ struct PathPacket[length: SIMDLength](TilePacket):
         mut self, source: Self, source_lane: Int, destination_lane: Int
     ):
         self.copy_metadata_lane(source, source_lane, destination_lane)
-        var src = source.tile()
-        var dst = self.tile()
-        comptime for field in range(Self.FLOAT_FIELDS):
-            dst[field, destination_lane] = src[field, source_lane]
+        copy_packet_float_lane[Self.FLOAT_FIELDS, Self.length](
+            source.tile(), self.tile(), source_lane, destination_lane
+        )
 
     @always_inline
     def copy_float_lanes(
@@ -292,7 +292,7 @@ struct ShadePacket[length: SIMDLength](TilePacket):
     """A field/lane float tile with separately typed path metadata."""
 
     comptime WIDTH = Self.length
-    comptime FLOAT_NAMES = (
+    comptime FLOAT_NAMES = ParameterList.of[
         StaticString("ox"),
         StaticString("oy"),
         StaticString("oz"),
@@ -311,7 +311,7 @@ struct ShadePacket[length: SIMDLength](TilePacket):
         StaticString("gnx"),
         StaticString("gny"),
         StaticString("gnz"),
-    )
+    ]()
     comptime FLOAT_FIELDS = len(Self.FLOAT_NAMES)
     var floats: Array[SIMD[.float32, Self.length], Self.FLOAT_FIELDS]
     var path_ids: SIMD[.uint32, Self.length]
@@ -342,10 +342,7 @@ struct ShadePacket[length: SIMDLength](TilePacket):
 
     @staticmethod
     def field_index[name: StaticString]() -> Int:
-        comptime for field in range(Self.FLOAT_FIELDS):
-            comptime if name == Self.FLOAT_NAMES[field]:
-                return field
-        return -1
+        return packet_field_index[name, *Self.FLOAT_NAMES]()
 
     @always_inline
     def __getattr__[
@@ -353,11 +350,12 @@ struct ShadePacket[length: SIMDLength](TilePacket):
     ](ref self, attr: StringLiteral[name]) -> ref[self.floats] SIMD[
         .float32, Self.length
     ]:
-        # A literal selects one SIMD row at compile time; ordinary named field
-        # access remains valid without a runtime string lookup.
-        comptime field = Self.field_index[StaticString(StringLiteral[name]())]()
-        comptime assert field >= 0, "unknown float packet field"
-        return self.floats[field]
+        return packet_float_field[
+            Self.length,
+            Self.FLOAT_FIELDS,
+            StaticString(StringLiteral[name]()),
+            *Self.FLOAT_NAMES,
+        ](self.floats)
 
     @always_inline
     def set_paths(mut self, paths: PathPacket[Self.length]):
@@ -435,10 +433,9 @@ struct ShadePacket[length: SIMDLength](TilePacket):
         mut self, source: Self, source_lane: Int, destination_lane: Int
     ):
         self.copy_metadata_lane(source, source_lane, destination_lane)
-        var src = source.tile()
-        var dst = self.tile()
-        comptime for field in range(Self.FLOAT_FIELDS):
-            dst[field, destination_lane] = src[field, source_lane]
+        copy_packet_float_lane[Self.FLOAT_FIELDS, Self.length](
+            source.tile(), self.tile(), source_lane, destination_lane
+        )
 
     @always_inline
     def copy_float_lanes(

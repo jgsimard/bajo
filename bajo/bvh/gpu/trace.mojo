@@ -114,19 +114,21 @@ def _gpu_pending_task_t(task: UInt64) -> Float32:
     return bitcast[.float32, 1](bits)[0]
 
 
-def _trace_bounds_bvh_distance_aware[
+def _trace_bounds_bvh_with_counters[
     frame: Frame,
     width: SIMDLength,
     mode: TraceMode,
     leaf_fn: GpuLeafFn[frame],
     collect_stats: Bool,
-    packed_stack: Bool = False,
+    distance_aware: Bool = False,
+    packed_distance_stack: Bool = False,
 ](
     wide_nodes: ImmPointer[Float32, _],
     leaves: ImmPointer[Float32, _],
     root_idx: UInt32,
     ray: Rayf32[frame],
 ) -> GpuTraceResult[frame]:
+    """Shared node/leaf processing with compile-time stack policies."""
     var hit = Hit[frame].miss(ray.t_max)
     var stats = GpuTraversalStats.zero()
     # Comptime specialization removes the unused representation.
@@ -192,13 +194,14 @@ def _trace_bounds_bvh_distance_aware[
                     stack_ptr < GPU_STACK_SIZE,
                     "GPU BVH traversal stack overflow",
                 )
-                comptime if packed_stack:
+                comptime if distance_aware and packed_distance_stack:
                     packed_tasks[stack_ptr] = _pack_gpu_pending_task(
                         child_data[lane], child_t[lane]
                     )
                 else:
                     stack[stack_ptr] = child_data[lane]
-                    stack_near[stack_ptr] = child_t[lane]
+                    comptime if distance_aware:
+                        stack_near[stack_ptr] = child_t[lane]
                 stack_ptr += 1
                 comptime if collect_stats:
                     if UInt32(stack_ptr) > stats.max_stack_depth:
@@ -213,11 +216,11 @@ def _trace_bounds_bvh_distance_aware[
                 current = child_data[nearest_lane]
                 continue
 
-        comptime if mode == .CLOSEST_HIT:
+        comptime if distance_aware and mode == .CLOSEST_HIT:
             var found_pending = False
             while stack_ptr > 0:
                 stack_ptr -= 1
-                comptime if packed_stack:
+                comptime if distance_aware and packed_distance_stack:
                     var task = packed_tasks[stack_ptr]
                     if _gpu_pending_task_t(task) <= hit.t:
                         current = _gpu_pending_task_ref(task)
@@ -236,127 +239,10 @@ def _trace_bounds_bvh_distance_aware[
                 break
 
             stack_ptr -= 1
-            comptime if packed_stack:
+            comptime if distance_aware and packed_distance_stack:
                 current = _gpu_pending_task_ref(packed_tasks[stack_ptr])
             else:
                 current = stack[stack_ptr]
-
-    return GpuTraceResult[frame](hit, stats)
-
-
-def _trace_bounds_bvh_with_counters[
-    frame: Frame,
-    width: SIMDLength,
-    mode: TraceMode,
-    leaf_fn: GpuLeafFn[frame],
-    collect_stats: Bool,
-    distance_aware: Bool = False,
-    packed_distance_stack: Bool = False,
-](
-    wide_nodes: ImmPointer[Float32, _],
-    leaves: ImmPointer[Float32, _],
-    root_idx: UInt32,
-    ray: Rayf32[frame],
-) -> GpuTraceResult[frame]:
-    comptime if distance_aware:
-        return _trace_bounds_bvh_distance_aware[
-            frame,
-            width,
-            mode,
-            leaf_fn,
-            collect_stats,
-            packed_distance_stack,
-        ](wide_nodes, leaves, root_idx, ray)
-
-    var hit = Hit[frame].miss(ray.t_max)
-    var stats = GpuTraversalStats.zero()
-
-    var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
-    var stack_ptr = 0
-    var current = root_idx
-    var bounds_origin = ray.origin[width]()
-    var reciprocal_direction = ray.reciprocal_direction[width]()
-
-    while True:
-        comptime if collect_stats:
-            stats.node_visits += 1
-        var node_t_max = hit.t
-        comptime if mode == .ANY_HIT:
-            node_t_max = ray.t_max
-
-        var node_hit = _intersect_wide_node_precomputed[frame, width](
-            wide_nodes, current, bounds_origin, reciprocal_direction, node_t_max
-        )
-        var bounds_hit = node_hit.bounds_hit
-
-        var child_valid = Array[Bool, width](fill=False)
-        var child_data = Array[UInt32, width](fill=0)
-        var child_t = Array[Float32, width](fill=0.0)
-
-        comptime for node_lane in range(width):
-            var meta = node_hit.meta[node_lane]
-            var count = _wide_meta_count(meta)
-
-            if count != EMPTY_LANE and bounds_hit.mask[node_lane]:
-                var data = _wide_meta_data(meta)
-
-                if count == 0:
-                    comptime if collect_stats:
-                        stats.internal_child_hits += 1
-                    child_valid[node_lane] = True
-                    child_data[node_lane] = data
-                    child_t[node_lane] = bounds_hit.t[node_lane]
-                else:
-                    comptime if collect_stats:
-                        stats.leaf_blocks += 1
-                        stats.primitive_tests += count
-                    var leaf_hit = leaf_fn(leaves, data, count, ray, hit)
-
-                    comptime if mode == .ANY_HIT:
-                        if leaf_hit:
-                            return GpuTraceResult[frame](
-                                Hit[frame].shadow_hit(), stats
-                            )
-
-        # Keep the nearest child as the direct continuation. Only deferred
-        # siblings consume stack entries.
-        var nearest_lane = -1
-        var nearest_t = f32_max
-        comptime for lane in range(width):
-            if child_valid[lane] and child_t[lane] < nearest_t:
-                nearest_lane = lane
-                nearest_t = child_t[lane]
-
-        comptime for lane in range(width):
-            if child_valid[lane] and lane != nearest_lane:
-                comptime if mode != .ANY_HIT:
-                    if child_t[lane] > hit.t:
-                        continue
-
-                debug_assert["safe", _use_compiler_assume=True](
-                    stack_ptr < GPU_STACK_SIZE,
-                    "GPU BVH traversal stack overflow",
-                )
-                stack[stack_ptr] = child_data[lane]
-                stack_ptr += 1
-                comptime if collect_stats:
-                    if UInt32(stack_ptr) > stats.max_stack_depth:
-                        stats.max_stack_depth = UInt32(stack_ptr)
-
-        if nearest_lane != -1:
-            comptime if mode == .CLOSEST_HIT:
-                if nearest_t > hit.t:
-                    nearest_lane = -1
-
-            if nearest_lane != -1:
-                current = child_data[nearest_lane]
-                continue
-
-        if stack_ptr == 0:
-            break
-
-        stack_ptr -= 1
-        current = stack[stack_ptr]
 
     return GpuTraceResult[frame](hit, stats)
 

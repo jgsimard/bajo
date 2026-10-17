@@ -10,11 +10,74 @@ from bajo.bvh.cpu.trace import _cpu_traversal_ref
 from bajo.bvh.types import Hit
 from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 from bajo.core import Frame, Point3, Ray, Vec3
-from bajo.core.intersect import intersect_ray_aabb_rcp
+from bajo.core.intersect import RayDistanceHit, intersect_ray_aabb_rcp
 from bajo.core.utils import fmin, fmax
 
 
 comptime CPU_PACKET_STACK_SIZE = 256
+
+
+@always_inline
+def _intersect_packet_child_fma[
+    frame: Frame,
+    length: SIMDLength,
+    positive_x: Bool,
+    positive_y: Bool,
+    positive_z: Bool,
+](
+    bounds_min: Point3[.float32, frame],
+    bounds_max: Point3[.float32, frame],
+    reciprocal_direction: Vec3[.float32, frame, length],
+    origin_rcp_direction: Vec3[.float32, frame, length],
+    max_dist: SIMD[.float32, length],
+) -> RayDistanceHit[.float32, length]:
+    """Intersect one child against rays sharing a compile-time octant."""
+    var near_x = bounds_min.x[0]
+    var far_x = bounds_max.x[0]
+    var near_y = bounds_min.y[0]
+    var far_y = bounds_max.y[0]
+    var near_z = bounds_min.z[0]
+    var far_z = bounds_max.z[0]
+    comptime if not positive_x:
+        near_x, far_x = far_x, near_x
+    comptime if not positive_y:
+        near_y, far_y = far_y, near_y
+    comptime if not positive_z:
+        near_z, far_z = far_z, near_z
+
+    var tx_near = fma(
+        SIMD[.float32, length](near_x),
+        reciprocal_direction.x,
+        -origin_rcp_direction.x,
+    )
+    var tx_far = fma(
+        SIMD[.float32, length](far_x),
+        reciprocal_direction.x,
+        -origin_rcp_direction.x,
+    )
+    var ty_near = fma(
+        SIMD[.float32, length](near_y),
+        reciprocal_direction.y,
+        -origin_rcp_direction.y,
+    )
+    var ty_far = fma(
+        SIMD[.float32, length](far_y),
+        reciprocal_direction.y,
+        -origin_rcp_direction.y,
+    )
+    var tz_near = fma(
+        SIMD[.float32, length](near_z),
+        reciprocal_direction.z,
+        -origin_rcp_direction.z,
+    )
+    var tz_far = fma(
+        SIMD[.float32, length](far_z),
+        reciprocal_direction.z,
+        -origin_rcp_direction.z,
+    )
+    var bounds_t = fmax(fmax(tx_near, ty_near), fmax(tz_near, 0.0))
+    var bounds_far = fmin(fmin(tx_far, ty_far), fmin(tz_far, max_dist))
+    return RayDistanceHit[.float32, length](bounds_t.le(bounds_far), bounds_t)
 
 
 @fieldwise_init
@@ -349,52 +412,25 @@ def trace_packet_stack_bounds_bvh[
                 if data == EMPTY_LANE:
                     continue
                 var next_ref = _cpu_traversal_ref[packed_meta](data)
-                var near_x = node.aabb._min.x[child_lane]
-                var far_x = node.aabb._max.x[child_lane]
-                var near_y = node.aabb._min.y[child_lane]
-                var far_y = node.aabb._max.y[child_lane]
-                var near_z = node.aabb._min.z[child_lane]
-                var far_z = node.aabb._max.z[child_lane]
-                comptime if not positive_x:
-                    near_x, far_x = far_x, near_x
-                comptime if not positive_y:
-                    near_y, far_y = far_y, near_y
-                comptime if not positive_z:
-                    near_z, far_z = far_z, near_z
-
-                var tx_near = fma(
-                    SIMD[.float32, length](near_x),
-                    reciprocal_direction.x,
-                    -origin_rcp_direction.x,
+                var bounds_hit = _intersect_packet_child_fma[
+                    frame, length, positive_x, positive_y, positive_z
+                ](
+                    Point3[.float32, frame](
+                        node.aabb._min.x[child_lane],
+                        node.aabb._min.y[child_lane],
+                        node.aabb._min.z[child_lane],
+                    ),
+                    Point3[.float32, frame](
+                        node.aabb._max.x[child_lane],
+                        node.aabb._max.y[child_lane],
+                        node.aabb._max.z[child_lane],
+                    ),
+                    reciprocal_direction,
+                    origin_rcp_direction,
+                    hit.t,
                 )
-                var tx_far = fma(
-                    SIMD[.float32, length](far_x),
-                    reciprocal_direction.x,
-                    -origin_rcp_direction.x,
-                )
-                var ty_near = fma(
-                    SIMD[.float32, length](near_y),
-                    reciprocal_direction.y,
-                    -origin_rcp_direction.y,
-                )
-                var ty_far = fma(
-                    SIMD[.float32, length](far_y),
-                    reciprocal_direction.y,
-                    -origin_rcp_direction.y,
-                )
-                var tz_near = fma(
-                    SIMD[.float32, length](near_z),
-                    reciprocal_direction.z,
-                    -origin_rcp_direction.z,
-                )
-                var tz_far = fma(
-                    SIMD[.float32, length](far_z),
-                    reciprocal_direction.z,
-                    -origin_rcp_direction.z,
-                )
-                var bounds_t = fmax(fmax(tx_near, ty_near), fmax(tz_near, 0.0))
-                var bounds_far = fmin(fmin(tx_far, ty_far), fmin(tz_far, hit.t))
-                var next_mask = active & bounds_t.le(bounds_far)
+                var bounds_t = bounds_hit.t
+                var next_mask = active & bounds_hit.mask
                 if next_mask.reduce_or():
                     push_task(next_ref, next_mask, bounds_t)
         else:
@@ -405,56 +441,25 @@ def trace_packet_stack_bounds_bvh[
                     var bounds_mask: SIMD[.bool, length]
                     var bounds_t: SIMD[.float32, length]
                     comptime if common_octant_fma:
-                        var near_x = node.aabb._min.x[child_lane]
-                        var far_x = node.aabb._max.x[child_lane]
-                        var near_y = node.aabb._min.y[child_lane]
-                        var far_y = node.aabb._max.y[child_lane]
-                        var near_z = node.aabb._min.z[child_lane]
-                        var far_z = node.aabb._max.z[child_lane]
-                        comptime if not positive_x:
-                            near_x, far_x = far_x, near_x
-                        comptime if not positive_y:
-                            near_y, far_y = far_y, near_y
-                        comptime if not positive_z:
-                            near_z, far_z = far_z, near_z
-
-                        var tx_near = fma(
-                            SIMD[.float32, length](near_x),
-                            reciprocal_direction.x,
-                            -origin_rcp_direction.x,
+                        var bounds_hit = _intersect_packet_child_fma[
+                            frame, length, positive_x, positive_y, positive_z
+                        ](
+                            Point3[.float32, frame](
+                                node.aabb._min.x[child_lane],
+                                node.aabb._min.y[child_lane],
+                                node.aabb._min.z[child_lane],
+                            ),
+                            Point3[.float32, frame](
+                                node.aabb._max.x[child_lane],
+                                node.aabb._max.y[child_lane],
+                                node.aabb._max.z[child_lane],
+                            ),
+                            reciprocal_direction,
+                            origin_rcp_direction,
+                            hit.t,
                         )
-                        var tx_far = fma(
-                            SIMD[.float32, length](far_x),
-                            reciprocal_direction.x,
-                            -origin_rcp_direction.x,
-                        )
-                        var ty_near = fma(
-                            SIMD[.float32, length](near_y),
-                            reciprocal_direction.y,
-                            -origin_rcp_direction.y,
-                        )
-                        var ty_far = fma(
-                            SIMD[.float32, length](far_y),
-                            reciprocal_direction.y,
-                            -origin_rcp_direction.y,
-                        )
-                        var tz_near = fma(
-                            SIMD[.float32, length](near_z),
-                            reciprocal_direction.z,
-                            -origin_rcp_direction.z,
-                        )
-                        var tz_far = fma(
-                            SIMD[.float32, length](far_z),
-                            reciprocal_direction.z,
-                            -origin_rcp_direction.z,
-                        )
-                        bounds_t = fmax(
-                            fmax(tx_near, ty_near), fmax(tz_near, 0.0)
-                        )
-                        var bounds_far = fmin(
-                            fmin(tx_far, ty_far), fmin(tz_far, hit.t)
-                        )
-                        bounds_mask = bounds_t.le(bounds_far)
+                        bounds_t = bounds_hit.t
+                        bounds_mask = bounds_hit.mask
                     else:
                         var bmin = Point3[.float32, frame, length](
                             node.aabb._min.x[child_lane],

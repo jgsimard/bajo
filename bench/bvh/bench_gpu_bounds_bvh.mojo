@@ -71,17 +71,17 @@ from bajo.parser.obj.pack import pack_obj_triangles
 # comptime DEFAULT_OBJ_PATH = "./assets/dragon/dragon.obj"
 # comptime DEFAULT_OBJ_PATH = "./assets/rungholt/rungholt.obj"
 comptime DEFAULT_OBJ_PATH = "./assets/sponza/sponza.obj"
-comptime PRIMARY_WIDTH = 1280
-comptime PRIMARY_HEIGHT = 640
+comptime PRIMARY_WIDTH = 320
+comptime PRIMARY_HEIGHT = 180
 comptime FOV_SCALE = 0.2
-comptime PRIMARY_VIEWS = 3
-comptime BENCH_REPEATS = 8
-comptime BUILD_REPEATS = 11
+comptime PRIMARY_VIEWS = 2
+comptime BENCH_REPEATS = 3
+comptime BUILD_REPEATS = 3
 comptime SPHERE_GRID_X = 64
 comptime SPHERE_GRID_Y = 64
-comptime SPHERE_RAY_WIDTH = 1280
-comptime SPHERE_RAY_HEIGHT = 640
-comptime SPHERE_RAY_VIEWS = 3
+comptime SPHERE_RAY_WIDTH = 320
+comptime SPHERE_RAY_HEIGHT = 180
+comptime SPHERE_RAY_VIEWS = 2
 
 comptime TRIANGLE_HIT_REL_EPS = 0.0
 comptime SPHERE_HIT_REL_EPS = 1.0e-3
@@ -1021,8 +1021,8 @@ def run_benchmark() raises:
         ctx.synchronize()
 
         # Measurement order is retained; tables group matching leaf widths.
-        comptime configs = ((2, 2), (4, 4), (8, 8), (2, 4), (8, 4))
-        comptime display_order = (0, 3, 1, 4, 2)
+        comptime configs = ((4, 4),)
+        comptime display_order = (0,)
         comptime methods = (GpuBvhBuildMethod.LBVH, GpuBvhBuildMethod.HPLOC)
         var triangle_rows = List[GpuBenchResult]()
         comptime for i in range(len(configs)):
@@ -1159,7 +1159,7 @@ def run_benchmark() raises:
         var cpu_sphere_table = _print_cpu_ref_header()
 
         var sphere_references = List[Tuple[Float64, UInt32]]()
-        comptime for width in [2, 4, 8]:
+        comptime for width in [4, 8]:
             sphere_references.append(
                 _print_cpu_sphere_reference[width](
                     cpu_sphere_table,
@@ -1169,7 +1169,7 @@ def run_benchmark() raises:
                 )
             )
         var sphere_rows = List[GpuBenchResult]()
-        comptime sphere_configs = ((2, 2, 0), (4, 4, 1), (8, 8, 2), (2, 4, 1))
+        comptime sphere_configs = ((4, 4, 0), (8, 8, 1))
         comptime for i in range(len(sphere_configs)):
             comptime config = sphere_configs[i]
             var reference = sphere_references[config[2]]
@@ -1190,7 +1190,7 @@ def run_benchmark() raises:
         print("TOL marks a nonzero hit delta within the numerical tolerance.")
         var sphere_table = _gpu_results_table()
         sphere_table.header()
-        for i in [0, 3, 1, 2]:
+        for i in range(len(sphere_rows)):
             _print_gpu_result_row(sphere_table, sphere_rows[i], "LBVH")
 
 

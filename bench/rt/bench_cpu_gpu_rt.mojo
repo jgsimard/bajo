@@ -216,7 +216,7 @@ def main() raises:
     var camera = gpu_rt_camera()
     var world = make_cornell_world()
     var sample_count = IMAGE_WIDTH * IMAGE_HEIGHT * SAMPLES_PER_PIXEL
-    print("CPU/GPU RT long-workload comparison")
+    print("CPU/GPU RT comparison")
     print(
         t"identical Cornell triangles, {IMAGE_WIDTH}x{IMAGE_HEIGHT}, "
         t"spp={SAMPLES_PER_PIXEL}, depth={MAX_DEPTH}, median of {BENCH_REPEATS}"

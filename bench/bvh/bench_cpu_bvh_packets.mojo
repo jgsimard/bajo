@@ -33,7 +33,7 @@ comptime OBJ_PATH = "./assets/dragon/dragon.obj"
 comptime DRAGON_WIDTH = 1024
 comptime DRAGON_HEIGHT = 576
 comptime FOV_SCALE = 0.2
-comptime REPEATS = 8
+comptime REPEATS = 3
 
 
 @fieldwise_init
@@ -384,18 +384,11 @@ def benchmark_scene[
     print_timing(
         "scalar", benchmark[bounds_width, leaf_width, 1](bvh, rays), len(rays)
     )
-    print_packet_widths[bounds_width, leaf_width, False, 4, 8, 16](
-        "", bvh, rays
-    )
+    print_packet_widths[bounds_width, leaf_width, False, 16]("", bvh, rays)
     comptime if include_common_octant:
-        print_packet_widths[bounds_width, leaf_width, True, 4, 8, 16](
+        print_packet_widths[bounds_width, leaf_width, True, 16](
             "coh-", bvh, rays
         )
-    print_timing(
-        "adaptive-16-8-scalar",
-        benchmark_adaptive[bounds_width, leaf_width, 16, 8](bvh, rays),
-        len(rays),
-    )
     print_timing(
         "adaptive-16-8-4-scalar",
         benchmark_adaptive[bounds_width, leaf_width, 16, 8, 4](bvh, rays),
@@ -425,7 +418,7 @@ def benchmark_scene_any_hit[
         benchmark_any_hit[bounds_width, leaf_width, 1](bvh, rays),
         len(rays),
     )
-    print_any_hit_packet_widths[bounds_width, leaf_width, False, 4, 8, 16](
+    print_any_hit_packet_widths[bounds_width, leaf_width, False, 16](
         "", bvh, rays
     )
     comptime if include_common_octant:
@@ -449,13 +442,7 @@ def run_benchmark() raises:
     benchmark_scene[16, 16, .MEDIAN](
         "Regular grid closest-hit", grid_vertices, grid_rays
     )
-    benchmark_scene[8, 8, .MEDIAN](
-        "Regular grid closest-hit", grid_vertices, grid_rays
-    )
     benchmark_scene[16, 16, .LBVH](
-        "Regular grid closest-hit", grid_vertices, grid_rays
-    )
-    benchmark_scene[8, 8, .LBVH](
         "Regular grid closest-hit", grid_vertices, grid_rays
     )
     benchmark_scene[16, 16, .HPLOC](

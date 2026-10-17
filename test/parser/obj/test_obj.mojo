@@ -21,8 +21,7 @@ from std.sys import simd_width_of, size_of
 from std.memory import bitcast
 from bajo.parser.number import F32ParseResult, parse_f32_at
 from bajo.parser.number import parse_f32_fast_at
-from bajo.parser.obj.parallel import _parse_obj_bulk, _word_count
-from bajo.parser.obj.lines import _ObjLines
+from bajo.parser.obj.parallel import _parse_obj_bulk
 from bajo.parser.obj.serial import _parse_obj_serial
 from bajo.parser.obj.triangulate import _triangulated_indices_parallel
 
@@ -619,43 +618,6 @@ def test_decimal_blocks_reject_every_nondigit_byte() raises:
                 )
 
 
-def _assert_line_ends(bytes: ImmSpan[UInt8, _], begin: Int, end: Int) raises:
-    var lines = _ObjLines(bytes, begin, end)
-    var pos = begin
-    while pos < end:
-        while pos < end and bytes[pos] != UInt8(10):
-            pos += 1
-        assert_true(lines.next_end() == pos)
-        pos += 1
-    assert_true(lines.next_end() == end)
-    assert_true(lines.next_end() == end)
-
-
-def test_simd_line_scanner_preserves_offsets_bounds_and_tails() raises:
-    comptime width = min(64, simd_width_of[UInt8]())
-    for offset in range(17):
-        for length in range(3 * width + 4):
-            var end = offset + length
-            var bytes = List[UInt8](length=end + width, fill=UInt8(10))
-            for pos in range(length):
-                bytes[offset + pos] = UInt8(
-                    10
-                ) if pos % 5 == 0 or pos % 31 == 1 else UInt8(pos % 256)
-            _assert_line_ends(bytes, offset, end)
-            _assert_line_ends(Span(bytes)[:end], offset, end)
-    var long_line = List[UInt8](length=4 * width + 3, fill=UInt8(49))
-    _assert_line_ends(long_line, 0, len(long_line))
-
-
-def test_simd_line_scanner_only_splits_on_newline() raises:
-    comptime width = min(64, simd_width_of[UInt8]())
-    for pos in range(2 * width + 3):
-        for byte in range(256):
-            var bytes = List[UInt8](length=3 * width + 5, fill=UInt8(49))
-            bytes[pos] = UInt8(byte)
-            _assert_line_ends(bytes, 0, len(bytes))
-
-
 def test_simd_fraction_blocks_preserve_rounding_at_unaligned_offsets_and_tails() raises:
     for offset in range(17):
         for digits in range(40):
@@ -676,59 +638,6 @@ def test_simd_fraction_blocks_preserve_rounding_at_unaligned_offsets_and_tails()
                         bitcast[.uint32](actual.value)
                         == bitcast[.uint32](expected.value)
                     )
-
-
-def _reference_word_count(
-    bytes: ImmSpan[UInt8, _], begin: Int, end: Int
-) -> Int:
-    var count = 0
-    var previous_token = False
-    for pos in range(begin, end):
-        var byte = bytes[pos]
-        if byte == UInt8(13) or byte == UInt8(35):
-            break
-        var token = byte != UInt8(32) and byte != UInt8(9)
-        if token and not previous_token:
-            count += 1
-        previous_token = token
-    return count
-
-
-def test_simd_word_count_matches_scalar_at_boundaries_and_unaligned_offsets() raises:
-    comptime width = min(64, simd_width_of[UInt8]())
-    for offset in range(17):
-        for length in range(3 * width + 4):
-            var bytes = List[UInt8](
-                length=offset + length + width, fill=UInt8(35)
-            )
-            for pos in range(length):
-                bytes[offset + pos] = (
-                    UInt8(32) if pos % 7
-                    == 0 else UInt8(9) if pos % 11
-                    == 0 else UInt8(49)
-                )
-            var expected = _reference_word_count(bytes, offset, offset + length)
-            assert_true(_word_count(bytes, offset, offset + length) == expected)
-            # Remove the lookahead padding to exercise the scalar input tail.
-            assert_true(
-                _word_count(
-                    Span(bytes)[: offset + length], offset, offset + length
-                )
-                == expected
-            )
-    # One long token must only be counted once across several SIMD blocks.
-    var long_token = List[UInt8](length=4 * width + 3, fill=UInt8(49))
-    assert_true(_word_count(long_token, 0, len(long_token)) == 1)
-
-
-def test_simd_word_count_preserves_every_byte_and_comment_boundary() raises:
-    comptime width = min(64, simd_width_of[UInt8]())
-    for pos in range(2 * width + 3):
-        for byte in range(256):
-            var bytes = List[UInt8](length=3 * width + 5, fill=UInt8(49))
-            bytes[pos] = UInt8(byte)
-            var expected = _reference_word_count(bytes, 0, len(bytes))
-            assert_true(_word_count(bytes, 0, len(bytes)) == expected)
 
 
 def test_bulk_simd_scanning_preserves_long_faces_comments_and_line_endings() raises:

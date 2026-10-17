@@ -1,4 +1,4 @@
-"""Long GPU RT workloads: triangles (default) or mixed spheres/triangles."""
+"""GPU RT workloads: triangles (default) or mixed spheres/triangles."""
 
 from std.math import round
 from std.sys import has_accelerator

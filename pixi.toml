@@ -70,7 +70,6 @@ bench_bvh_cpu_packets = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_packets.mojo"
 bench_bvh_cpu_instances = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_instances.mojo", depends-on = ["download_assets"] }
 bench_bvh_cpu_blas_set = "mojo -I . bench/bvh/bench_cpu_blas_set_build.mojo"
 bench_bvh_cpu_spatial_groups = "mojo -I . bench/bvh/bench_cpu_spatial_groups.mojo"
-bench_bvh_cpu_tlas = { cmd = "mojo -I . bench/bvh/bench_cpu_tlas.mojo", depends-on = ["download_assets"] }
 bench_bvh_cpu_embree = { cmd = "bash -lc 'g++ -O3 -march=native -DNDEBUG -std=c++20 bench/bvh/bench_embree_cpu.cpp -lembree4 -o /tmp/bajo_bench_embree_cpu && /tmp/bajo_bench_embree_cpu assets/dragon/dragon.obj'", depends-on = ["download_assets"] }
 bench_bvh_cpu_tinybvh = { cmd = "bash bench/bvh/bench_tinybvh.sh ./assets/dragon/dragon.obj", depends-on = ["download_assets"] }
 bench_bvh_cpu_compare = { cmd = "bash bench/bvh/bench_bvh_cpu_compare.sh", depends-on = ["download_assets"] }

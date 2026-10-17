@@ -47,12 +47,12 @@ from bajo.benchmark.timing import summarize_timings
 comptime DEFAULT_OBJ_PATH = "./assets/bunny/bunny.obj"
 comptime MULTI_OBJ_PATH_1 = "./assets/buddha/buddha.obj"
 comptime MULTI_OBJ_PATH_2 = "./assets/dragon/dragon.obj"
-comptime PRIMARY_WIDTH = 640
-comptime PRIMARY_HEIGHT = 360
-comptime PRIMARY_VIEWS = 3
-comptime BENCH_REPEATS = 8
+comptime PRIMARY_WIDTH = 320
+comptime PRIMARY_HEIGHT = 180
+comptime PRIMARY_VIEWS = 2
+comptime BENCH_REPEATS = 3
 comptime TLAS_HIT_REL_EPS = 0.0
-comptime TLAS_CONFIGS = ((2, 1), (2, 2), (4, 4), (8, 8))
+comptime TLAS_CONFIGS = ((2, 1), (8, 8))
 
 
 def _make_single_instance(
@@ -996,12 +996,6 @@ def run_benchmark() raises:
             direct[2],
         )
 
-        _bench_triangle_instance_set[4](
-            ctx, triangle_blas_set, cpu_blas, blas_bounds
-        )
-        _bench_triangle_instance_set[8](
-            ctx, triangle_blas_set, cpu_blas, blas_bounds
-        )
         _bench_triangle_instance_set[16](
             ctx, triangle_blas_set, cpu_blas, blas_bounds
         )

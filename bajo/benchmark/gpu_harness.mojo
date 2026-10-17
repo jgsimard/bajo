@@ -1,4 +1,4 @@
-"""Shared fixtures, timing, and reporting for long GPU RT benchmarks."""
+"""Shared fixtures, timing, and reporting for GPU RT benchmarks."""
 
 from std.math import round
 from std.time import perf_counter_ns
@@ -23,11 +23,11 @@ from bajo.rt.gpu.render import enqueue_render_gpu
 from .timing import summarize_timings
 
 
-comptime IMAGE_WIDTH = 1024
-comptime IMAGE_HEIGHT = 1024
-comptime SAMPLES_PER_PIXEL = 8
+comptime IMAGE_WIDTH = 512
+comptime IMAGE_HEIGHT = 288
+comptime SAMPLES_PER_PIXEL = 4
 comptime MAX_DEPTH = 8
-comptime BENCH_REPEATS = 9
+comptime BENCH_REPEATS = 3
 comptime RNG_SEED = UInt64(2026)
 comptime NODE_WIDTH = 8
 comptime LEAF_WIDTH = 4

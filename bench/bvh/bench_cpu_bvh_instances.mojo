@@ -37,9 +37,9 @@ comptime INSTANCE_COUNT = INSTANCE_X * INSTANCE_Y
 comptime RAY_WIDTH = 512
 comptime RAY_HEIGHT = 288
 comptime FOV_SCALE = 0.2
-comptime TRAVERSAL_REPEATS = 8
-comptime TRAVERSAL_BATCHES = 8
-comptime BUILD_REPEATS = 5
+comptime TRAVERSAL_REPEATS = 3
+comptime TRAVERSAL_BATCHES = 1
+comptime BUILD_REPEATS = 3
 
 
 @fieldwise_init
@@ -460,11 +460,11 @@ def benchmark_method[
 
     var closest = List[TraceResult]()
     closest.append(benchmark_scalar[.CLOSEST_HIT](tlas, blases, rays))
-    comptime for length in [4, 8, 16]:
+    comptime for length in [16]:
         closest.append(benchmark_packet_closest[length](tlas, blases, rays))
     var any_hit = List[TraceResult]()
     any_hit.append(benchmark_scalar[.ANY_HIT](tlas, blases, rays))
-    comptime for length in [4, 8, 16]:
+    comptime for length in [16]:
         any_hit.append(benchmark_packet_any[length](tlas, blases, rays))
 
     for mode in range(2):
@@ -479,8 +479,6 @@ def benchmark_method[
         for i, traversal in enumerate(
             [
                 String("scalar1"),
-                String("packet4"),
-                String("packet8"),
                 String("packet16"),
             ]
         ):
@@ -538,7 +536,6 @@ def make_flattened_triangle_grid() -> List[Point3f32[.WORLD]]:
 def benchmark_flattened_mode[
     leaf_width: SIMDLength,
     mode: TraceMode,
-    coherent_packet16_only: Bool = False,
 ](
     blas: CpuBlasSet[.TRIANGLE, 16, leaf_width],
     vertices: List[Point3f32[.WORLD]],
@@ -552,53 +549,37 @@ def benchmark_flattened_mode[
     print(t"Rays: {len(rays)}")
     var table = make_table()
     table.header()
-    comptime if coherent_packet16_only:
-        var result = benchmark_flat_packet[leaf_width, 16, mode, True](
-            blas, rays
-        )
-        print_result(
-            table,
-            "sah",
-            "coh-packet16",
-            build_ns,
-            result,
-            len(rays),
-            16,
-            Int(leaf_width),
-        )
-    else:
-        var scalar = benchmark_flat_scalar[leaf_width, mode](blas, rays)
-        print_result(
-            table,
-            "sah",
-            "scalar1",
-            build_ns,
-            scalar,
-            len(rays),
-            16,
-            Int(leaf_width),
-        )
-        comptime for length in [4, 8, 16]:
-            comptime for common_octant in [False, True]:
-                var result = benchmark_flat_packet[
-                    leaf_width, length, mode, common_octant
-                ](blas, rays)
-                comptime prefix = "coh-" if common_octant else ""
-                print_result(
-                    table,
-                    "sah",
-                    String(t"{prefix}packet{length}"),
-                    build_ns,
-                    result,
-                    len(rays),
-                    16,
-                    Int(leaf_width),
-                )
+    var scalar = benchmark_flat_scalar[leaf_width, mode](blas, rays)
+    print_result(
+        table,
+        "sah",
+        "scalar1",
+        build_ns,
+        scalar,
+        len(rays),
+        16,
+        Int(leaf_width),
+    )
+    comptime for length in [16]:
+        comptime for common_octant in [False, True]:
+            var result = benchmark_flat_packet[
+                leaf_width, length, mode, common_octant
+            ](blas, rays)
+            comptime prefix = "coh-" if common_octant else ""
+            print_result(
+                table,
+                "sah",
+                String(t"{prefix}packet{length}"),
+                build_ns,
+                result,
+                len(rays),
+                16,
+                Int(leaf_width),
+            )
 
 
 def benchmark_flattened_layout[
     leaf_width: SIMDLength,
-    coherent_packet16_only: Bool = False,
 ](vertices: List[Point3f32[.WORLD]], rays: List[Rayf32[.WORLD]]) raises:
     var blas = build_cpu_triangle_blas_set[16, leaf_width, .SAH, .WORLD](
         [vertices.copy()]
@@ -612,10 +593,10 @@ def benchmark_flattened_layout[
         build_times.append(Int(perf_counter_ns() - start))
         blas = sample^
     var build_ns = _median_ns(build_times)
-    benchmark_flattened_mode[leaf_width, .CLOSEST_HIT, coherent_packet16_only](
+    benchmark_flattened_mode[leaf_width, .CLOSEST_HIT](
         blas, vertices, rays, build_ns
     )
-    benchmark_flattened_mode[leaf_width, .ANY_HIT, coherent_packet16_only](
+    benchmark_flattened_mode[leaf_width, .ANY_HIT](
         blas, vertices, rays, build_ns
     )
 
@@ -627,7 +608,6 @@ def benchmark_flattened_scene() raises:
     )
     var rays = camera[0].copy()
     benchmark_flattened_layout[16](vertices, rays)
-    benchmark_flattened_layout[8, True](vertices, rays)
 
 
 def run_benchmark() raises:

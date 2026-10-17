@@ -20,8 +20,8 @@ comptime OBJ_PATH = "./assets/dragon/dragon.obj"
 comptime RAY_WIDTH = 1024
 comptime RAY_HEIGHT = 576
 comptime FOV_SCALE = 0.2
-comptime TRAVERSAL_REPEATS = 8
-comptime BUILD_REPEATS = 5
+comptime TRAVERSAL_REPEATS = 3
+comptime BUILD_REPEATS = 3
 
 
 @fieldwise_init

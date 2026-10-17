@@ -2,9 +2,10 @@
 
 from bajo.core.tensor_layout import record_tile
 from max.algorithm import parallelize
+from std.bit import byte_swap
 from std.math import ceildiv
 from std.memory import bitcast, pack_bits
-from std.sys import num_logical_cores, simd_width_of
+from std.sys import Endian, num_logical_cores, simd_width_of
 from std.utils import IndexList
 
 from bajo.parser.ply.types import PlyMesh
@@ -207,11 +208,14 @@ struct _BinaryCursor[origin: ImmOrigin]:
 
     def read_u64(mut self) raises -> UInt64:
         self._require(8)
-        var value = UInt64(0)
-        for i in range(8):
-            value |= UInt64(self.bytes.unsafe_get(self.pos + i)) << UInt64(
-                8 * i
-            )
+        var value = (
+            self.bytes.unsafe_ptr()
+            .unsafe_offset(self.pos)
+            .unsafe_bitcast[UInt64]()
+            .unsafe_load[alignment=1]()
+        )
+        comptime if Endian.native() == .big:
+            value = byte_swap(value)
         self.pos += 8
         return value
 

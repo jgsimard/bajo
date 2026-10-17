@@ -6,6 +6,7 @@ The output span is a capacity bound; return values report consumed input and
 written output. No speculative memory access extends outside either span.
 """
 
+from std.bit import bit_reverse
 from std.memory import unsafe_memcpy
 from std.sys.info import CompilationTarget
 from std.sys.intrinsics import llvm_intrinsic
@@ -186,14 +187,6 @@ comptime _PRECODE_ORDER = SIMD[.uint8, 32](
 
 
 @always_inline
-def _reverse_code(value: UInt32, length: Int) -> Int:
-    var reversed = llvm_intrinsic[
-        "llvm.bitreverse", UInt32, has_side_effect=False
-    ](value)
-    return Int(reversed >> UInt32(32 - length))
-
-
-@always_inline
 def _shift_right(value: UInt64, count: UInt64) -> UInt64:
     # The modulo-64 mask matches x86 variable-shift semantics. LLVM removes it
     # when selecting SHRX; a funnel-shift intrinsic instead selected slower SHRD.
@@ -356,7 +349,9 @@ struct _Huffman:
             var length = Int(lengths[symbol])
             if length == 0:
                 continue
-            codes[symbol] = _reverse_code(next[length], length)
+            codes[symbol] = Int(
+                bit_reverse(next[length]) >> UInt32(32 - length)
+            )
             next[length] += 1
             if length > self.root:
                 var prefix = codes[symbol] & (root_size - 1)

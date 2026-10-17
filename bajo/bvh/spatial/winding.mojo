@@ -5,6 +5,7 @@ opposite edge pairs once; retain unverified faces in an unconditional range.
 Position updates cannot change this topological certificate.
 """
 
+from std.bit import next_power_of_two
 from std.math import min, max
 from bajo.core import AABB, Frame
 from bajo.bvh.constants import EMPTY_LANE
@@ -110,9 +111,7 @@ struct WindingLayout[frame: Frame, width: SIMDLength](Copyable):
             parents[face] = UInt32(face)
         # At most three unique keys per face. A power-of-two table with
         # four slots per face stays at most 75% full, including open meshes.
-        var capacity = 1
-        while capacity < count * 4:
-            capacity *= 2
+        var capacity = next_power_of_two(count * 4)
         var mask = UInt64(capacity - 1)
         var keys = List[UInt64](capacity=capacity)
         keys.resize(unsafe_uninit_length=capacity)

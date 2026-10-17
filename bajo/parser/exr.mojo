@@ -1,9 +1,10 @@
 """Minimal OpenEXR scanline decoder for linear RGB environment maps."""
 
+from std.bit import byte_swap
 from std.memory import bitcast
 from max.algorithm import parallelize
 from std.math import ceildiv
-from std.sys import num_logical_cores, simd_width_of
+from std.sys import Endian, num_logical_cores, simd_width_of
 from std.utils.numerics import isfinite
 
 from bajo.parser.mmap import MMap
@@ -52,9 +53,14 @@ struct _Cursor[origin: ImmOrigin]:
 
     def read_u64(mut self) raises -> UInt64:
         self.require(8)
-        var value = UInt64(0)
-        for byte in range(8):
-            value |= UInt64(self.bytes[self.pos + byte]) << UInt64(8 * byte)
+        var value = (
+            self.bytes.unsafe_ptr()
+            .unsafe_offset(self.pos)
+            .unsafe_bitcast[UInt64]()
+            .unsafe_load[alignment=1]()
+        )
+        comptime if Endian.native() == .big:
+            value = byte_swap(value)
         self.pos += 8
         return value
 
@@ -306,23 +312,7 @@ def _decompress_zip(
 
 @always_inline
 def _half_to_float(bits: UInt16) -> Float32:
-    var sign = UInt32(bits >> UInt16(15))
-    var exponent = UInt32((bits >> UInt16(10)) & UInt16(31))
-    var mantissa = UInt32(bits & UInt16(1023))
-    if exponent == 0:
-        if mantissa == 0:
-            return bitcast[.float32](sign << UInt32(31))
-        var value = Float32(mantissa) * Float32(5.960464477539063e-8)
-        return -value if sign != 0 else value
-    if exponent == 31:
-        return bitcast[.float32](
-            (sign << UInt32(31)) | UInt32(0x7F800000) | (mantissa << UInt32(13))
-        )
-    return bitcast[.float32](
-        (sign << UInt32(31))
-        | ((exponent + UInt32(112)) << UInt32(23))
-        | (mantissa << UInt32(13))
-    )
+    return bitcast[.float16](bits).cast[.float32]()
 
 
 def _read_channel_value(

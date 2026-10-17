@@ -19,7 +19,8 @@ from std.math import ceildiv
 from .device_update import (
     UPDATE_BLOCK_SIZE,
     bounds_update_kernel,
-    reorder_bounds_kernel,
+    forest_rebuild_tiles,
+    enqueue_forest_rebuild,
 )
 from .parallel_refit import (
     forest_parents_kernel,
@@ -44,6 +45,8 @@ struct GpuSpatialBoundsBvh[frame: Frame = .WORLD]:
     var update_order: DeviceBuffer[.uint32]
     var update_parents: DeviceBuffer[.uint32]
     var update_status: DeviceBuffer[.uint32]
+    var rebuild_tiles: DeviceBuffer[.uint32]
+    var rebuild_scratch: DeviceBuffer[.uint32]
 
     def __init__(
         out self, mut ctx: DeviceContext, var host: SpatialBoundsBvh[Self.frame]
@@ -60,6 +63,13 @@ struct GpuSpatialBoundsBvh[frame: Frame = .WORLD]:
         self.update_parents = ctx.enqueue_create_buffer[.uint32](
             len(host.nodes) // 2 if len(host.item_bounds)
             >= _PARALLEL_BOUNDS_MIN_ITEMS else 0
+        )
+        var large = len(host.item_bounds) >= _PARALLEL_BOUNDS_MIN_ITEMS
+        self.rebuild_tiles = upload_list(
+            ctx, forest_rebuild_tiles(host.nodes) if large else List[UInt32]()
+        )
+        self.rebuild_scratch = ctx.enqueue_create_buffer[.uint32](
+            len(host.nodes) // 2 if large else 0
         )
         self.host = host^
         self._enqueue_parents(ctx)
@@ -152,13 +162,15 @@ struct GpuSpatialBoundsBvh[frame: Frame = .WORLD]:
             block_dim=block_size,
         )
         comptime if rebuild:
-            ctx.enqueue_function[reorder_bounds_kernel[block_size]](
-                _device_span[mut=False](self.update_items),
-                _device_span[mut=True](self.nodes),
-                _device_span[mut=True](self.update_order),
-                _device_span[mut=False](self.update_status),
-                grid_dim=1,
-                block_dim=block_size,
+            enqueue_forest_rebuild[False](
+                ctx,
+                self.update_items,
+                self.nodes,
+                self.rebuild_tiles,
+                self.rebuild_scratch,
+                self.update_order,
+                self.update_status,
+                len(boxes) // 6,
             )
         ctx.enqueue_function[publish_bounds_refit_kernel](
             _device_span[mut=False](self.update_items),

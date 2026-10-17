@@ -8,7 +8,7 @@ from bajo.gpu.buffers import upload_list, _device_span
 from bajo.core import Frame
 from bajo.bvh.constants import EMPTY_LANE, f32_max
 
-from .device_update import UPDATE_BLOCK_SIZE
+from .device_update import UPDATE_BLOCK_SIZE, forest_rebuild_tiles
 from .mesh import SpatialMesh
 from .gpu import GpuSpatialBoundsBvh
 from .parallel_refit import (
@@ -123,8 +123,18 @@ struct GpuWindingCache[frame: Frame = .WORLD]:
         self.offsets = storage.create_sub_buffer[.uint32](starts[0], lengths[0])
         self.faces = storage.create_sub_buffer[.uint32](starts[1], lengths[1])
         self.parents = storage.create_sub_buffer[.uint32](starts[4], lengths[4])
+        var tiles = (
+            forest_rebuild_tiles(tree.nodes) if count
+            >= 1024 else List[UInt32]()
+        )
+        var rebuild_tiles = upload_list(ctx, tiles)
+        var rebuild_scratch = ctx.enqueue_create_buffer[.uint32](
+            len(tree.nodes) // 2 if count >= 1024 else 0
+        )
         self.tree = GpuSpatialBoundsBvh(
             host=tree^,
+            rebuild_tiles=rebuild_tiles^,
+            rebuild_scratch=rebuild_scratch^,
             update_parents=self.parents,
             bounds=storage.create_sub_buffer[.float32](starts[2], lengths[2]),
             nodes=storage.create_sub_buffer[.uint32](starts[3], lengths[3]),

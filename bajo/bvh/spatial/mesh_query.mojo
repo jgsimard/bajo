@@ -7,6 +7,7 @@ choose the lowest original face ID. Sign classification assumes an oriented,
 closed surface; open/nonmanifold surfaces do not define a universal inside.
 """
 
+from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.sys.intrinsics import strided_load
 from std.math import abs, sqrt, max, min, pi
 from std.memory import stack_allocation, bitcast
@@ -19,6 +20,7 @@ from .query import BoundsQueryView, BoundsQuery, _gpu_ray_bounds_interval
 from .policy import BATCH_WIDTH, RAY_COUNT_WIDTH
 from .winding import WindingView, DeviceWindingView
 from .ordered_traversal import traverse_ordered
+from .adjacency import NormalSignFaces
 from .gpu_geometry import (
     ray_triangle_filter,
     ray_triangle_interval,
@@ -199,7 +201,7 @@ struct MeshSphereQuery[origin: ImmOrigin, frame: Frame](Copyable):
 
 struct MeshQueryView[
     origin: ImmOrigin, frame: Frame, storage_width: SIMDLength = 8
-](Copyable):
+](Copyable, DevicePassable):
     var points: ImmSpan[Float32, Self.origin]
     var indices: ImmSpan[UInt32, Self.origin]
     var velocities: ImmSpan[Float32, Self.origin]
@@ -207,6 +209,18 @@ struct MeshQueryView[
     var packed_triangles: ImmSpan[Float32, Self.origin]
     var winding: WindingView[Self.origin, Self.frame]
     var device_winding: DeviceWindingView[Self.origin, Self.frame]
+    var adjacency: ImmSpan[UInt32, Self.origin]
+
+    comptime device_type: AnyType = Self
+
+    def _to_device_type(
+        self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
+    ):
+        encoder.encode(self, target)
+
+    @staticmethod
+    def get_type_name() -> String:
+        return "MeshQueryView"
 
     @always_inline
     def __init__(
@@ -229,6 +243,7 @@ struct MeshQueryView[
         var bvh: BoundsQueryView[Self.origin, Self.frame],
         packed_triangles: ImmSpan[Float32, Self.origin],
     ):
+        self.adjacency = ImmSpan[UInt32, Self.origin]()
         self.points = points
         self.indices = indices
         self.velocities = velocities
@@ -1946,7 +1961,14 @@ struct MeshQueryView[
                 ] if edge_opposite
                 >= 0 else target_a
             )
-            var faces = self._all_faces(root)
+            var faces = NormalSignFaces(
+                self.adjacency,
+                target_a,
+                root,
+                self.bvh.nodes[Int(root) * 2] if Int(root)
+                < len(self.bvh.nodes) // 2 else root,
+                self._all_faces(root),
+            )
             var face = UInt32(0)
             while faces.next(face):
                 var matched_a = -1

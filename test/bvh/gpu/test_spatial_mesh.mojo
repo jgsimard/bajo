@@ -3,6 +3,7 @@ from std.testing import (
     assert_equal,
     assert_almost_equal,
     assert_true,
+    assert_raises,
 )
 from std.memory import bitcast
 from max.gpu import global_idx
@@ -27,6 +28,7 @@ def _mesh_kernel[
     nodes: ImmSpan[UInt32, ImmutAnyOrigin],
     output: MutSpan[Float64, MutAnyOrigin],
     root: UInt32,
+    adjacency: ImmSpan[UInt32, ImmutAnyOrigin],
 ):
     var lane = global_idx.x
     if lane >= count:
@@ -37,6 +39,7 @@ def _mesh_kernel[
         velocities,
         BoundsQueryView[ImmutAnyOrigin, .WORLD](bounds, nodes),
     )
+    view.adjacency = adjacency
     var p = Point3f32[.WORLD](
         Float32(lane % 7) * 0.19 - 0.1,
         Float32(lane % 5) * 0.23 + 0.017,
@@ -130,6 +133,7 @@ def test_gpu_mesh_queries_groups_and_updates_match_cpu() raises:
                     _device_span[mut=False](gpu.nodes),
                     _device_span[mut=True](output),
                     root,
+                    _device_span[mut=False](gpu.adjacency),
                     grid_dim=1,
                     block_dim=128,
                 )
@@ -216,6 +220,7 @@ def test_gpu_empty_mesh_and_failed_update_atomicity() raises:
             _device_span[mut=False](empty.nodes),
             _device_span[mut=True](output),
             UInt32(0),
+            _device_span[mut=False](empty.adjacency),
             grid_dim=1,
             block_dim=32,
         )
@@ -370,6 +375,96 @@ def test_mesh_aabb_cooperative_original_faces_groups_and_updates() raises:
             with stats.map_to_host() as flags:
                 for i in range(4 * 32):
                     assert_equal(flags[i] & UInt32(11), UInt32(0))
+
+
+def _adjacent_normal_kernel[
+    count: Int
+](
+    view: MeshQueryView[ImmutAnyOrigin, .WORLD],
+    output: MutSpan[Float32, MutAnyOrigin],
+    root: UInt32,
+):
+    var i = Int(global_idx.x)
+    if i >= len(output):
+        return
+    var point = Point3f32[.WORLD](Float32(i * 3) - 0.1, -0.1, -0.1)
+    output[i] = view.query_point_sign_normal(point, root=root).sign
+
+
+def test_gpu_adjacency_view_survives_parallel_device_rebuild_and_graph() raises:
+    var points = List[Point3f32[.WORLD]]()
+    var indices = List[UInt32]()
+    var groups = List[UInt32]()
+    for t in range(257):
+        var x = Float32(t * 3)
+        points.extend(
+            [
+                Point3f32[.WORLD](x, 0.0, 0.0),
+                Point3f32[.WORLD](x + 1.0, 0.0, 0.0),
+                Point3f32[.WORLD](x, 1.0, 0.0),
+                Point3f32[.WORLD](x, 0.0, 1.0),
+            ]
+        )
+        for offset in [0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3]:
+            indices.append(UInt32(t * 4 + offset))
+        for _ in range(4):
+            groups.append(UInt32(t % 3))
+    var cpu = SpatialMesh(points, indices, groups, cache_winding=False)
+    with DeviceContext() as ctx:
+        var gpu = GpuSpatialMesh(ctx, cpu.copy())
+        var input = ctx.enqueue_create_buffer[.float32](len(cpu.points))
+        var graph = gpu.create_update_graph[True](ctx, input)
+        var address = Int(gpu.adjacency.unsafe_ptr())
+        var output = ctx.enqueue_create_buffer[.float32](17)
+        for phase in range(3):
+            if phase > 0:
+                for i in range(len(points)):
+                    points[i].x = -points[i].x + 768.0
+                cpu.rebuild(points)
+                with input.map_to_host() as target:
+                    for i in range(len(cpu.points)):
+                        target[i] = cpu.points[i]
+                if phase == 1:
+                    gpu.enqueue_update[True](ctx, input)
+                else:
+                    graph.replay()
+                gpu.check_update(ctx)
+            assert_equal(Int(gpu.adjacency.unsafe_ptr()), address)
+            for root in [UInt32(0), cpu.group_root(0), cpu.group_root(2)]:
+                ctx.enqueue_function[_adjacent_normal_kernel[17]](
+                    gpu.view(),
+                    _device_span[mut=True](output),
+                    root,
+                    grid_dim=1,
+                    block_dim=32,
+                )
+                ctx.synchronize()
+                var reference = cpu.view()
+                reference.adjacency = ImmSpan[UInt32, origin_of(cpu)]()
+                with output.map_to_host() as actual:
+                    for i in range(17):
+                        var point = Point3f32[.WORLD](
+                            Float32(i * 3) - 0.1, -0.1, -0.1
+                        )
+                        assert_equal(
+                            actual[i],
+                            reference.query_point_sign_normal(
+                                point, root=root
+                            ).sign,
+                        )
+
+        var adjacency = List[UInt32]()
+        with gpu.adjacency.map_to_host() as values:
+            for i in range(len(values)):
+                adjacency.append(values[i])
+        with input.map_to_host() as values:
+            values[0] = bitcast[.float32](UInt32(0x7FC00000))
+        graph.replay()
+        with assert_raises():
+            gpu.check_update(ctx)
+        with gpu.adjacency.map_to_host() as values:
+            for i in range(len(values)):
+                assert_equal(values[i], adjacency[i])
 
 
 def main() raises:

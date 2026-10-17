@@ -7,6 +7,7 @@ from .bounds import SpatialBoundsBvh
 from .query import BoundsQueryView
 from .mesh_query import MeshQueryView
 from .winding import WindingLayout
+from .adjacency import build_adjacency, refresh_adjacency
 
 
 struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
@@ -19,7 +20,8 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
     the owner and must be discarded before updates. Published buffers retain
     their addresses through refit/rebuild and velocity updates.
     cache_winding=False skips the optional winding layout/packing; exact queries
-    still work through the indexed Float64 fallback.
+    still work through the indexed Float64 fallback. cache_adjacency=False
+    skips the normal-sign incidence cache and retains the full face walk.
     """
 
     var points: List[Float32]
@@ -27,6 +29,7 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
     var velocities: List[Float32]
     var bvh: SpatialBoundsBvh[Self.frame]
     var packed_triangles: List[Float32]
+    var adjacency: List[UInt32]
     var winding: WindingLayout[Self.frame, Self.storage_width]
 
     def __init__(
@@ -34,6 +37,7 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
         points: ImmSpan[Point3f32[Self.frame], _],
         indices: ImmSpan[UInt32, _],
         cache_winding: Bool = True,
+        cache_adjacency: Bool = True,
     ) raises:
         self = Self(
             points,
@@ -41,6 +45,7 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
             List[UInt32](),
             List[Vec3f32[Self.frame]](),
             cache_winding,
+            cache_adjacency,
         )
 
     def __init__(
@@ -49,9 +54,15 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
         indices: ImmSpan[UInt32, _],
         groups: ImmSpan[UInt32, _],
         cache_winding: Bool = True,
+        cache_adjacency: Bool = True,
     ) raises:
         self = Self(
-            points, indices, groups, List[Vec3f32[Self.frame]](), cache_winding
+            points,
+            indices,
+            groups,
+            List[Vec3f32[Self.frame]](),
+            cache_winding,
+            cache_adjacency,
         )
 
     def __init__(
@@ -61,7 +72,10 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
         groups: ImmSpan[UInt32, _],
         velocities: ImmSpan[Vec3f32[Self.frame], _],
         cache_winding: Bool = True,
+        cache_adjacency: Bool = True,
     ) raises:
+        if len(points) > Int(UInt32.MAX) or len(indices) > Int(UInt32.MAX):
+            raise Error("Mesh incidence storage exceeds UInt32 capacity")
         if len(indices) % 3 != 0:
             raise Error("Mesh indices must contain three vertex IDs per face")
         if len(velocities) != 0 and len(velocities) != len(points):
@@ -97,6 +111,9 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
             Self._face_bounds_validated(points, self.indices), groups
         )
 
+        self.adjacency = build_adjacency(
+            self.indices, len(points), self.bvh.nodes
+        ) if cache_adjacency else List[UInt32]()
         comptime assert Self.storage_width > 0
         self.winding = WindingLayout[Self.frame, Self.storage_width](
             List[UInt32](), List[AABB[Self.frame]]()
@@ -212,7 +229,9 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
     def view(
         self,
     ) -> MeshQueryView[origin_of(self), Self.frame, Self.storage_width]:
-        return MeshQueryView[origin_of(self), Self.frame, Self.storage_width](
+        var result = MeshQueryView[
+            origin_of(self), Self.frame, Self.storage_width
+        ](
             ImmSpan(
                 unsafe_ptr=self.points.unsafe_ptr().unsafe_origin_cast[
                     origin_of(self)
@@ -254,6 +273,14 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
             self.winding._view[origin_of(self)](),
         )
 
+        result.adjacency = ImmSpan(
+            unsafe_ptr=self.adjacency.unsafe_ptr().unsafe_origin_cast[
+                origin_of(self)
+            ](),
+            length=len(self.adjacency),
+        )
+        return result^
+
     def group_root(self, group: UInt32) -> UInt32:
         return self.bvh.group_root(group)
 
@@ -282,6 +309,7 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
     def rebuild(mut self, points: ImmSpan[Point3f32[Self.frame], _]) raises:
         self._validate_points(points)
         self.bvh.rebuild(Self._face_bounds(points, self.indices))
+        refresh_adjacency(self.bvh.nodes, self.adjacency)
         self._store_points(points)
         self._pack_triangles[True]()
         self.winding.bvh._refit_nodes()

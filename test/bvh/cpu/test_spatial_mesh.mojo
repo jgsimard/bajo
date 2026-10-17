@@ -450,5 +450,82 @@ def test_normal_sign_preserves_barycentrics_and_velocity() raises:
         assert_almost_equal(velocity.z, signed.point.z * 4.0 + 0.5, atol=1e-6)
 
 
+def test_normal_sign_adjacency_preserves_preorder_groups_and_updates() raises:
+    var mesh = tetrahedron()
+    var address = Int(mesh.adjacency.unsafe_ptr())
+    for phase in range(3):
+        if phase > 0:
+            var points = List[Point3f32[.WORLD]]()
+            for i in range(len(mesh.points) // 3):
+                var p = mesh.view().vertex(UInt32(i))
+                points.append(Point3f32[.WORLD](-p.x + 0.25, p.y, p.z))
+            if phase == 1:
+                mesh.refit(points)
+            else:
+                mesh.rebuild(points)
+        assert_equal(Int(mesh.adjacency.unsafe_ptr()), address)
+        var view = mesh.view()
+        var reference = view.copy()
+        reference.adjacency = ImmSpan[UInt32, origin_of(mesh)]()
+        for node in range(len(mesh.bvh.nodes) // 2):
+            for i in range(64):
+                var p = Point3f32[.WORLD](
+                    Float32(i % 4) * 0.5 - 0.25,
+                    Float32((i // 4) % 4) * 0.5 - 0.25,
+                    Float32(i // 16) * 0.5 - 0.25,
+                )
+                var nearest = view.query_point_no_sign(p, root=UInt32(node))
+                var actual = view.apply_point_sign_normal(
+                    p, nearest, root=UInt32(node)
+                )
+                var expected = reference.apply_point_sign_normal(
+                    p, nearest, root=UInt32(node)
+                )
+                assert_equal(actual.sign, expected.sign)
+
+
+def test_normal_sign_high_valence_and_repeated_vertex_incidence() raises:
+    for count in [1, 31, 32, 33, 65]:
+        var points: List[Point3f32[.WORLD]] = [
+            Point3f32[.WORLD](0.0),
+            Point3f32[.WORLD](1.0, 0.0, 0.0),
+            Point3f32[.WORLD](0.0, 1.0, 0.0),
+        ]
+        var indices = List[UInt32]()
+        for _ in range(count):
+            indices.extend([UInt32(0), UInt32(1), UInt32(2)])
+        indices.extend([UInt32(0), UInt32(0), UInt32(1)])
+        var mesh = SpatialMesh(points, indices, cache_winding=False)
+        var view = mesh.view()
+        var reference = view.copy()
+        reference.adjacency = ImmSpan[UInt32, origin_of(mesh)]()
+        var p = Point3f32[.WORLD](-0.1, -0.1, -0.1)
+        assert_equal(
+            view.query_point_sign_normal(p).sign,
+            reference.query_point_sign_normal(p).sign,
+        )
+        # A repeated index contributes its face once, as the original face walk.
+        assert_equal(mesh.adjacency[3] - mesh.adjacency[2], UInt32(count + 1))
+
+
+def test_normal_sign_without_adjacency_and_invalid_root() raises:
+    var points: List[Point3f32[.WORLD]] = [
+        Point3f32[.WORLD](0.0),
+        Point3f32[.WORLD](1.0, 0.0, 0.0),
+        Point3f32[.WORLD](0.0, 1.0, 0.0),
+    ]
+    var indices: List[UInt32] = [0, 1, 2]
+    var cached = SpatialMesh(points, indices)
+    var uncached = SpatialMesh(points, indices, cache_adjacency=False)
+    assert_equal(len(uncached.adjacency), 0)
+    var p = Point3f32[.WORLD](-0.1)
+    var nearest = cached.view().query_point_no_sign(p)
+    for root in [UInt32(0), UInt32.MAX]:
+        assert_equal(
+            cached.view().apply_point_sign_normal(p, nearest, root=root).sign,
+            uncached.view().apply_point_sign_normal(p, nearest, root=root).sign,
+        )
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

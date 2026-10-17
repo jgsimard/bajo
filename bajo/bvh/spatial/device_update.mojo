@@ -1,17 +1,19 @@
 """Allocation-free device-input updates for the preorder spatial forest.
 
 Small updates use one block; larger bounds and mesh updates validate and refit
-across blocks. Larger mesh rebuilds sort tiles and merge their exact orders
+across blocks. Larger rebuilds sort tiles and merge their exact orders
 across blocks before refitting. Updates retain
 every published address, need no host geometry transfer and support capture. Rebuild sorts leaf IDs by X centroid within each independent
 root, then refits the retained balanced skeleton. Group membership stays fixed.
 """
 
+from max.gpu.host import DeviceContext, DeviceBuffer
+from bajo.gpu.buffers import _device_span
 from max.gpu import global_idx, thread_idx, block_idx, block_dim, grid_dim
 from max.gpu.primitives import block
 from max.gpu.sync import barrier
 from max.gpu.memory import AddressSpace
-from std.memory import stack_allocation
+from std.memory import stack_allocation, bitcast
 from std.atomic import Atomic, Ordering
 from std.bit import log2_floor, pop_count
 from std.sys.info import is_nvidia_gpu
@@ -96,23 +98,41 @@ def refit_forest[
 
 
 @always_inline
+def centroid_order_key(lo: Float32, hi: Float32) -> UInt64:
+    """Encode the exact finite endpoint sum, with both zeros comparing equal."""
+    var center = Float64(lo) + Float64(hi)
+    var bits = bitcast[.uint64](center)
+    if center == 0.0:
+        bits = 0
+    comptime sign = UInt64(0x8000000000000000)
+    return ~bits if (bits & sign) != 0 else bits ^ sign
+
+
+@always_inline
+def _rebuild_key[
+    cached_keys: Bool
+](items: ImmSpan[Float32, ImmutAnyOrigin], item: UInt32) -> UInt64:
+    if item == EMPTY_LANE:
+        return UInt64.MAX
+    comptime if cached_keys:
+        return (
+            items.unsafe_ptr()
+            .unsafe_bitcast[UInt64]()
+            .unsafe_load(len(items) // 8 * 3 + Int(item))
+        )
+    else:
+        return centroid_order_key(
+            items[Int(item) * 6], items[Int(item) * 6 + 3]
+        )
+
+
+@always_inline
 def _item_less[
     cached_keys: Bool = False
 ](items: ImmSpan[Float32, ImmutAnyOrigin], a: UInt32, b: UInt32) -> Bool:
-    # Padding sorts last. Float64 centroids preserve ordering at extreme scales.
-    if a == EMPTY_LANE:
-        return False
-    if b == EMPTY_LANE:
-        return True
-    comptime if cached_keys:
-        var keys = items.unsafe_ptr().unsafe_bitcast[UInt64]()
-        var base = len(items) // 8 * 3
-        var ka = keys.unsafe_load(base + Int(a))
-        var kb = keys.unsafe_load(base + Int(b))
-        return ka < kb or (ka == kb and a < b)
-    var ca = Float64(items[Int(a) * 6]) + Float64(items[Int(a) * 6 + 3])
-    var cb = Float64(items[Int(b) * 6]) + Float64(items[Int(b) * 6 + 3])
-    return ca < cb or (ca == cb and a < b)
+    var ka = _rebuild_key[cached_keys](items, a)
+    var kb = _rebuild_key[cached_keys](items, b)
+    return ka < kb or (ka == kb and a < b)
 
 
 @no_inline
@@ -485,7 +505,9 @@ def _rebuild_leaf(
     return node
 
 
-def rebuild_tile_sort_kernel(
+def rebuild_tile_sort_kernel[
+    cached_keys: Bool = True
+](
     items: ImmSpan[Float32, ImmutAnyOrigin],
     nodes: ImmSpan[UInt32, ImmutAnyOrigin],
     tiles: ImmSpan[UInt32, ImmutAnyOrigin],
@@ -508,11 +530,7 @@ def rebuild_tile_sort_kernel(
     var key = UInt64.MAX
     if begin + lane < count:
         item = nodes[_rebuild_leaf(nodes, root, count, begin + lane) * 2 + 1]
-        key = (
-            items.unsafe_ptr()
-            .unsafe_bitcast[UInt64]()
-            .unsafe_load(len(items) // 8 * 3 + Int(item))
-        )
+        key = _rebuild_key[cached_keys](items, item)
     ids[unsafe_offset=lane] = item
     keys[unsafe_offset=lane] = key
     barrier()
@@ -542,7 +560,9 @@ def rebuild_tile_sort_kernel(
         output[root + begin + lane] = ids[unsafe_offset=lane]
 
 
-def rebuild_merge_order_kernel(
+def rebuild_merge_order_kernel[
+    cached_keys: Bool = True
+](
     items: ImmSpan[Float32, ImmutAnyOrigin],
     tiles: ImmSpan[UInt32, ImmutAnyOrigin],
     source: ImmSpan[UInt32, ImmutAnyOrigin],
@@ -570,7 +590,7 @@ def rebuild_merge_order_kernel(
     var item = source[root + i]
     while lo < hi:
         var mid = (lo + hi) // 2
-        if _item_less[True](items, source[root + mid], item):
+        if _item_less[cached_keys](items, source[root + mid], item):
             lo = mid + 1
         else:
             hi = mid
@@ -598,3 +618,76 @@ def clear_rebuild_order_kernel(order: MutSpan[UInt32, MutAnyOrigin]):
     var i = Int(block_idx.x) * 256 + Int(thread_idx.x)
     if i < len(order):
         order[i] = 0
+
+
+def forest_rebuild_tiles(nodes: ImmSpan[UInt32, _]) -> List[UInt32]:
+    """Retained root/count/start descriptors shared by bounds and mesh sorting.
+    """
+    var tiles = List[UInt32]()
+    var root = 0
+    while root < len(nodes) // 2:
+        var end = Int(nodes[root * 2])
+        var count = (end - root + 1) // 2
+        for begin in range(0, count, 256):
+            tiles.extend([UInt32(root), UInt32(count), UInt32(begin)])
+        root = end
+    return tiles^
+
+
+def enqueue_forest_rebuild[
+    cached_keys: Bool
+](
+    ctx: DeviceContext,
+    items: DeviceBuffer[.float32],
+    nodes: DeviceBuffer[.uint32],
+    tiles: DeviceBuffer[.uint32],
+    scratch: DeviceBuffer[.uint32],
+    order: DeviceBuffer[.uint32],
+    status: DeviceBuffer[.uint32],
+    item_count: Int,
+) raises:
+    """Sort independent roots and publish only after complete validation."""
+    var blocks = len(tiles) // 3
+    ctx.enqueue_function[rebuild_tile_sort_kernel[cached_keys]](
+        _device_span[mut=False](items),
+        _device_span[mut=False](nodes),
+        _device_span[mut=False](tiles),
+        _device_span[mut=True](scratch),
+        _device_span[mut=False](status),
+        grid_dim=blocks,
+        block_dim=256,
+    )
+    var in_scratch = True
+    var width = 256
+    while width < item_count:
+        ctx.enqueue_function[rebuild_merge_order_kernel[cached_keys]](
+            _device_span[mut=False](items),
+            _device_span[mut=False](tiles),
+            _device_span[mut=False](scratch) if in_scratch else _device_span[
+                mut=False
+            ](order),
+            _device_span[mut=True](order) if in_scratch else _device_span[
+                mut=True
+            ](scratch),
+            _device_span[mut=False](status),
+            UInt32(width),
+            grid_dim=blocks,
+            block_dim=256,
+        )
+        in_scratch = not in_scratch
+        width *= 2
+    ctx.enqueue_function[publish_rebuild_order_kernel](
+        _device_span[mut=False](tiles),
+        _device_span[mut=False](scratch) if in_scratch else _device_span[
+            mut=False
+        ](order),
+        _device_span[mut=True](nodes),
+        _device_span[mut=False](status),
+        grid_dim=blocks,
+        block_dim=256,
+    )
+    ctx.enqueue_function[clear_rebuild_order_kernel](
+        _device_span[mut=True](order),
+        grid_dim=(len(order) + 255) // 256,
+        block_dim=256,
+    )

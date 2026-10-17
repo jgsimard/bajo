@@ -1,7 +1,10 @@
 """Persistent prepared GPU renderer ownership."""
 
 from std.time import perf_counter_ns
-from max.gpu.host import DeviceContext
+from std.memory import bitcast
+from std.reflection import reflect
+from std.builtin.rebind import downcast, rebind
+from max.gpu.host import DeviceContext, DeviceGraph, DeviceGraphBuilder
 
 from bajo.bvh import Camera
 from bajo.bvh.gpu import GpuBvhBuildMethod
@@ -19,6 +22,11 @@ from bajo.rt.gpu.resources import (
     update_gpu_camera,
 )
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
+from bajo.rt.gpu.views import (
+    GpuRtSceneView,
+    GpuRtTraceQueueView,
+    gpu_rt_trace_queue_view,
+)
 from bajo.rt.render_types import (
     RenderResult,
     RenderSettings,
@@ -26,6 +34,78 @@ from bajo.rt.render_types import (
 )
 from bajo.rt.material_types import Integrator
 from bajo.rt.scene_data import SceneData
+
+
+@always_inline
+def _same_captured_fields[T: AnyType](a: T, b: T) -> Bool:
+    # Compare initialized fields rather than struct padding. Float constants
+    # compare by bits so a changed signed zero also invalidates the capture.
+    comptime if T == Float32:
+        return bitcast[.uint32](rebind[Float32](a)) == bitcast[.uint32](
+            rebind[Float32](b)
+        )
+    elif T == Float64:
+        return bitcast[.uint64](rebind[Float64](a)) == bitcast[.uint64](
+            rebind[Float64](b)
+        )
+    elif conforms_to(T, Equatable):
+        return rebind[downcast[T, Equatable]](a) == rebind[
+            downcast[T, Equatable]
+        ](b)
+    else:
+        comptime for field in range(reflect[T].field_count()):
+            if not _same_captured_fields(
+                __struct_field_ref(field, a), __struct_field_ref(field, b)
+            ):
+                return False
+        return True
+
+
+def _same_optional_capture[T: Copyable](a: Optional[T], b: Optional[T]) -> Bool:
+    if Bool(a) != Bool(b):
+        return False
+    return not a or _same_captured_fields(a.value(), b.value())
+
+
+def _same_scene_capture(a: GpuRtSceneView, b: GpuRtSceneView) -> Bool:
+    # Optional payloads are read only when present. All other scene fields
+    # participate automatically, including buffer addresses and environment.
+    if not (
+        _same_optional_capture(a.spheres, b.spheres)
+        and _same_optional_capture(a.triangles, b.triangles)
+        and _same_optional_capture(a.instances, b.instances)
+    ):
+        return False
+    comptime names = reflect[GpuRtSceneView].field_names()
+    comptime for field in range(reflect[GpuRtSceneView].field_count()):
+        comptime if names[field] != "spheres" and names[
+            field
+        ] != "triangles" and names[field] != "instances":
+            if not _same_captured_fields(
+                __struct_field_ref(field, a), __struct_field_ref(field, b)
+            ):
+                return False
+    return True
+
+
+@fieldwise_init
+struct _RenderGraphArguments(Copyable):
+    var settings: RenderSettings
+    var scene: GpuRtSceneView
+    var queues: GpuRtTraceQueueView
+    var camera: Int
+    var pixels: Int
+    var integrator: UInt32
+
+    def matches(self, other: Self) -> Bool:
+        return (
+            self.integrator == other.integrator
+            and self.camera == other.camera
+            and self.pixels == other.pixels
+            and _same_captured_fields(self.settings, other.settings)
+            and _same_scene_capture(self.scene, other.scene)
+            and _same_captured_fields(self.queues, other.queues)
+        )
 
 
 struct GpuRtPreparedRenderer[
@@ -46,6 +126,8 @@ struct GpuRtPreparedRenderer[
         Self.blas_format,
     ]
     var target: GpuRtRenderTarget
+    var _render_graph: Optional[DeviceGraph]
+    var _graph_arguments: Optional[_RenderGraphArguments]
 
     def __init__[
         triangle_build_method: GpuBvhBuildMethod = .HPLOC,
@@ -57,6 +139,8 @@ struct GpuRtPreparedRenderer[
         camera: Camera,
         data: SceneData,
     ) raises:
+        self._render_graph = Optional[DeviceGraph]()
+        self._graph_arguments = Optional[_RenderGraphArguments]()
         self.ctx = DeviceContext()
         self.scene = prepare_gpu_scene[
             Self.kind,
@@ -69,6 +153,68 @@ struct GpuRtPreparedRenderer[
             blas_build_method,
         ](self.ctx, data)
         self.target = self.scene.make_render_target(self.ctx, settings, camera)
+
+    def invalidate_graph(mut self):
+        """Release the retained graph; the next frame uses direct submission."""
+        self._render_graph = Optional[DeviceGraph]()
+        self._graph_arguments = Optional[_RenderGraphArguments]()
+
+    def enqueue[
+        integrator: Integrator
+    ](mut self, settings: RenderSettings) raises:
+        """Submit a frame without a download; repeated configurations replay a graph.
+
+        Camera uploads and downstream device operations can use the retained
+        context/target. Captured settings include all sampling and film values.
+        """
+        self.target.validate_compatible(settings)
+        var queues = gpu_rt_trace_queue_view(
+            self.target.arena,
+            self.target.arena.path_a.path_ids,
+            self.target.arena.path_a.fields,
+            self.target.arena.path_b.path_ids,
+            self.target.arena.path_b.fields,
+        )
+        queues.sample_base = (
+            0  # The scheduler sets this independently per chunk.
+        )
+        var arguments = _RenderGraphArguments(
+            settings.copy(),
+            self.scene.view(),
+            queues^,
+            Int(self.target.camera.unsafe_ptr()),
+            Int(self.target.pixels.unsafe_ptr()),
+            integrator.value,
+        )
+        if (
+            not self._graph_arguments
+            or not self._graph_arguments.value().matches(arguments)
+        ):
+            # Changing sample offsets are common in progressive rendering.
+            # Submit a new configuration directly; capture only when reused.
+            self.invalidate_graph()
+            enqueue_render_gpu[integrator](
+                self.ctx, self.target, self.scene, settings
+            )
+            self._graph_arguments = arguments^
+            return
+        if not self._render_graph:
+            # Capture the existing scheduler, keeping one implementation of
+            # the bounce sequence. The owner retains all referenced buffers.
+            var ctx = self.ctx.copy()
+            ref target = self.target
+            ref scene = self.scene
+
+            def record(
+                mut builder: DeviceGraphBuilder,
+            ) raises {mut target, imm scene, settings}:
+                var recording = builder.recording_context()
+                enqueue_render_gpu[integrator](
+                    recording, target, scene, settings
+                )
+
+            self._render_graph = DeviceGraph.create(ctx, record)
+        self._render_graph.value().replay()
 
     def render[
         integrator: Integrator,
@@ -86,6 +232,7 @@ struct GpuRtPreparedRenderer[
             or settings.image_height != self.target.image_height
             or settings.samples_per_pixel != self.target.samples_per_pixel
         ):
+            self.invalidate_graph()
             self.target = self.scene.make_render_target(
                 self.ctx, settings, camera
             )
@@ -94,9 +241,7 @@ struct GpuRtPreparedRenderer[
         var init_ns = Int(perf_counter_ns() - init_t0)
 
         var render_t0 = perf_counter_ns()
-        enqueue_render_gpu[integrator](
-            self.ctx, self.target, self.scene, settings
-        )
+        self.enqueue[integrator](settings)
         var pixels = download_gpu_pixels(self.ctx, self.target)
         var render_ns = Int(perf_counter_ns() - render_t0)
         return RenderResult(

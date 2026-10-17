@@ -50,6 +50,16 @@ def _check[
                     Point3f32[.WORLD](x, -1.0, z),
                     Point3f32[.WORLD](x + 0.5, 1.0, z),
                 )
+                if i % 23 == 0:
+                    var tiny = bitcast[.float32](
+                        UInt32(1 + (i + phase) % 71)
+                        | (UInt32((i + phase) % 2) << 31)
+                    )
+                    boxes[i]._min.x = tiny
+                    boxes[i]._max.x = tiny
+                if i % 29 == 0:
+                    boxes[i]._min.x = -0.0 if (i + phase) % 2 else 0.0
+                    boxes[i]._max.x = boxes[i]._min.x
                 if i == count // 2:
                     boxes[i]._min.x = 2.0e38
                     boxes[i]._max.x = 3.0e38
@@ -153,6 +163,7 @@ def test_bounds_parallel_refit_thresholds_groups_graphs_and_rejection() raises:
 def test_bounds_parallel_rebuild_groups_graphs_and_rejection() raises:
     _check[32, True](1025, True)
     _check[256, True](4097, True)
+    _check[256, True](65537, False)
 
 
 def test_bounds_parallel_refit_explicit_block_sizes() raises:

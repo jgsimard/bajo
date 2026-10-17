@@ -14,6 +14,7 @@ from max.gpu.sync import barrier
 from max.gpu.memory import AddressSpace
 from std.memory import stack_allocation, bitcast
 from bajo.bvh.constants import EMPTY_LANE
+from .device_update import centroid_order_key
 
 
 def forest_parents(nodes: ImmSpan[UInt32, _]) -> List[UInt32]:
@@ -105,14 +106,9 @@ def validate_mesh_refit_kernel[
         comptime if cache_keys:
             # Finite Float32 endpoints have finite Float64 sums. Preserve the
             # original sum exactly, then encode its numeric ordering as UInt64.
-            var center = Float64(items.unsafe_get(i * 6)) + Float64(
-                items.unsafe_get(i * 6 + 3)
+            var key = centroid_order_key(
+                items.unsafe_get(i * 6), items.unsafe_get(i * 6 + 3)
             )
-            var bits = bitcast[.uint64](center)
-            if center == 0.0:
-                bits = 0  # Both signed zeros tie in the original comparator.
-            comptime sign = UInt64(0x8000000000000000)
-            var key = ~bits if (bits & sign) != 0 else bits ^ sign
             items.unsafe_ptr().unsafe_bitcast[UInt64]().unsafe_store(
                 len(indices) + i, key
             )

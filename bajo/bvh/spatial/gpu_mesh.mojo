@@ -17,7 +17,7 @@ from .parallel_refit import (
     refit_mesh_chunks_kernel,
     publish_mesh_chunk_parents_kernel,
 )
-from bajo.gpu.buffers import _device_span, copy_to_device
+from bajo.gpu.buffers import _device_span, copy_to_device, upload_list
 from bajo.core import Frame, Point3f32, Vec3f32
 
 from .device_update import (
@@ -27,12 +27,12 @@ from .device_update import (
     validate_velocity_blocks,
     publish_velocity_blocks,
     clear_velocity_kernel,
-    rebuild_tile_sort_kernel,
-    rebuild_merge_order_kernel,
-    publish_rebuild_order_kernel,
-    clear_rebuild_order_kernel,
+    forest_rebuild_tiles,
+    enqueue_forest_rebuild,
 )
 from .mesh import SpatialMesh
+from .mesh_query import MeshQueryView
+from .adjacency import refresh_adjacency_kernel
 from .gpu_winding import GpuWindingCache
 from .winding import DeviceWindingView
 from .query import BoundsQueryView
@@ -41,12 +41,13 @@ from .query import BoundsQueryView
 struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
     """Consume a CPU mesh snapshot and publish retained device buffers.
 
-    Kernels construct MeshQueryView from these five buffers. Host-input updates
+    view() borrows device geometry, adjacency and optional winding metadata. Host-input updates
     synchronize before mutation and on return; externally serialize kernels and
     updates. Device-input updates and reusable graphs use retained scratch.
     """
 
     var host: SpatialMesh[Self.frame, Self.storage_width]
+    var adjacency: DeviceBuffer[.uint32]
     var points: DeviceBuffer[.float32]
     var indices: DeviceBuffer[.uint32]
     var velocities: DeviceBuffer[.float32]
@@ -68,17 +69,13 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         var host: SpatialMesh[Self.frame, Self.storage_width],
         enable_winding: Bool = False,
     ) raises:
-        var tiles = List[UInt32]()
+        self.adjacency = upload_list(ctx, host.adjacency)
         var node_count = len(host.bvh.nodes) // 2
         var face_count = len(host.indices) // 3
-        if face_count >= 256:
-            var root = 0
-            while root < node_count:
-                var end = Int(host.bvh.nodes[root * 2])
-                var count = (end - root + 1) // 2
-                for begin in range(0, count, 256):
-                    tiles.extend([UInt32(root), UInt32(count), UInt32(begin)])
-                root = end
+        var tiles = (
+            forest_rebuild_tiles(host.bvh.nodes) if face_count
+            >= 256 else List[UInt32]()
+        )
         var chunks = forest_chunks(host.bvh.nodes)
         var parents = List[UInt32]()
         if node_count < 4096:
@@ -215,6 +212,37 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         ctx.synchronize()
         self.host = host^
 
+    def view(
+        self,
+    ) -> MeshQueryView[ImmutAnyOrigin, Self.frame, Self.storage_width]:
+        """Borrow device storage for a query kernel; never dereference on host.
+        """
+        var result = MeshQueryView[
+            ImmutAnyOrigin, Self.frame, Self.storage_width
+        ](
+            _device_span[mut=False](self.points),
+            _device_span[mut=False](self.indices),
+            _device_span[mut=False](self.velocities),
+            BoundsQueryView[ImmutAnyOrigin, Self.frame](
+                _device_span[mut=False](self.bounds),
+                _device_span[mut=False](self.nodes),
+            ),
+        )
+        result.adjacency = _device_span[mut=False](self.adjacency)
+        result.device_winding = self.device_winding_view()
+        return result^
+
+    def _enqueue_adjacency(self, ctx: DeviceContext) raises:
+        if len(self.adjacency) == 0:
+            return
+        ctx.enqueue_function[refresh_adjacency_kernel](
+            _device_span[mut=False](self.nodes),
+            _device_span[mut=True](self.adjacency),
+            _device_span[mut=False](self.update_status),
+            grid_dim=ceildiv(len(self.nodes) // 2, 256),
+            block_dim=256,
+        )
+
     def device_winding_view(
         self,
     ) -> DeviceWindingView[ImmutAnyOrigin, Self.frame]:
@@ -259,6 +287,7 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         self.host.rebuild(points)
         self._upload_geometry(ctx)
         copy_to_device(self.nodes, self.host.bvh.nodes)
+        copy_to_device(self.adjacency, self.host.adjacency)
         ctx.synchronize()
 
     def set_velocities(
@@ -298,6 +327,8 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
             raise Error("Device mesh update requires unchanged vertex count")
         if len(self.indices) // 3 >= (256 if rebuild else 1024):
             self._enqueue_parallel_refit[block_size, rebuild](ctx, points)
+            comptime if rebuild:
+                self._enqueue_adjacency(ctx)
             if self.winding:
                 self.winding.value().enqueue_refit[winding_block_size](
                     ctx, self.points, self.indices, self.update_status
@@ -315,6 +346,9 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
             grid_dim=1,
             block_dim=block_size,
         )
+        comptime if rebuild:
+            if len(self.nodes) > 0:
+                self._enqueue_adjacency(ctx)
         if self.winding:
             self.winding.value().enqueue_refit[winding_block_size](
                 ctx, self.points, self.indices, self.update_status
@@ -341,52 +375,15 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
             block_dim=block_size,
         )
         comptime if rebuild:
-            ctx.enqueue_function[rebuild_tile_sort_kernel](
-                _device_span[mut=False](self.update_items),
-                _device_span[mut=False](self.nodes),
-                _device_span[mut=False](self.rebuild_tiles),
-                _device_span[mut=True](self.rebuild_scratch),
-                _device_span[mut=False](self.update_status),
-                grid_dim=len(self.rebuild_tiles) // 3,
-                block_dim=256,
-            )
-            var in_scratch = True
-            var width = 256
-            while width < len(self.indices) // 3:
-                ctx.enqueue_function[rebuild_merge_order_kernel](
-                    _device_span[mut=False](self.update_items),
-                    _device_span[mut=False](self.rebuild_tiles),
-                    _device_span[mut=False](
-                        self.rebuild_scratch
-                    ) if in_scratch else _device_span[mut=False](
-                        self.update_order
-                    ),
-                    _device_span[mut=True](
-                        self.update_order
-                    ) if in_scratch else _device_span[mut=True](
-                        self.rebuild_scratch
-                    ),
-                    _device_span[mut=False](self.update_status),
-                    UInt32(width),
-                    grid_dim=len(self.rebuild_tiles) // 3,
-                    block_dim=256,
-                )
-                in_scratch = not in_scratch
-                width *= 2
-            ctx.enqueue_function[publish_rebuild_order_kernel](
-                _device_span[mut=False](self.rebuild_tiles),
-                _device_span[mut=False](
-                    self.rebuild_scratch
-                ) if in_scratch else _device_span[mut=False](self.update_order),
-                _device_span[mut=True](self.nodes),
-                _device_span[mut=False](self.update_status),
-                grid_dim=len(self.rebuild_tiles) // 3,
-                block_dim=256,
-            )
-            ctx.enqueue_function[clear_rebuild_order_kernel](
-                _device_span[mut=True](self.update_order),
-                grid_dim=ceildiv(len(self.update_order), 256),
-                block_dim=256,
+            enqueue_forest_rebuild[True](
+                ctx,
+                self.update_items,
+                self.nodes,
+                self.rebuild_tiles,
+                self.rebuild_scratch,
+                self.update_order,
+                self.update_status,
+                len(self.indices) // 3,
             )
         ctx.enqueue_function[refit_mesh_chunks_kernel[chunk_block_size]](
             _device_span[mut=False](input),

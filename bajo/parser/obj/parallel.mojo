@@ -370,6 +370,14 @@ def _decode_chunk(
     var indices = Span(mesh.indices)[
         chunk.index_offset : chunk.index_offset + chunk.indices
     ]
+    # First-touch these pages in the same workers that decode their faces.
+    # The ordered metadata pass then only overwrites non-default materials.
+    _fill_face_materials(
+        Span(mesh.face_materials)[
+            chunk.face_offset : chunk.face_offset + chunk.faces
+        ],
+        0,
+    )
     var lines = _ObjLines(bytes, chunk.begin, chunk.end)
     while start < chunk.end:
         var stop = lines.next_end()
@@ -436,6 +444,18 @@ def _decode_chunk(
         raise Error("OBJ structural count mismatch")
 
 
+@always_inline
+def _fill_face_materials(output: MutSpan[Int, _], material: Int):
+    comptime width = simd_width_of[Int]()
+    var end = len(output) // width * width
+    var ptr = output.unsafe_ptr()
+    var value = SIMD[.int, width](material)
+    for i in range(0, end, width):
+        ptr.unsafe_offset(i).unsafe_store[width=width](value)
+    for i in range(end, len(output)):
+        ptr[unsafe_offset=i] = material
+
+
 def _finish_metadata[
     Loader: AssetLoader
 ](
@@ -450,8 +470,11 @@ def _finish_metadata[
         for event in chunk.events:
             var face = chunk.face_offset + event.face
             var index = chunk.index_offset + event.index
-            for output_face in range(previous_face, face):
-                mesh.face_materials[output_face] = state.current_material
+            if state.current_material != 0:
+                _fill_face_materials(
+                    Span(mesh.face_materials)[previous_face:face],
+                    state.current_material,
+                )
             previous_face = face
             match event.kind:
                 case 6:
@@ -474,8 +497,10 @@ def _finish_metadata[
                     _read_mtl_file(mesh, path, event.name, loader)
                 case _:
                     pass
-    for face in range(previous_face, len(mesh.face_vertices)):
-        mesh.face_materials[face] = state.current_material
+    if state.current_material != 0:
+        _fill_face_materials(
+            Span(mesh.face_materials)[previous_face:], state.current_material
+        )
     state.current_group.face_count = (
         len(mesh.face_vertices) - state.current_group.face_offset
     )

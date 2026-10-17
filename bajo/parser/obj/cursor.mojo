@@ -101,14 +101,17 @@ struct ObjLineCursor[origin: ImmOrigin]:
         return sign * output
 
     @always_inline
-    def _parse_positive_index_int(
+    def _parse_resolved_index(
         mut self, slash_terminates: Bool, limit: ObjIndexLimit
-    ) raises -> Int:
+    ) -> Int:
+        # Zero reports an invalid field. The corner parser raises once after
+        # validating its fields, keeping error construction out of this loop.
         if self.pos >= len(self.bytes):
-            raise String("missing OBJ index")
+            return 0
         var first = self.bytes.unsafe_get(self.pos)
-        if first == MINUS or first == PLUS:
-            return self._parse_index_int(slash_terminates, limit)
+        var negative = first == MINUS
+        if negative or first == PLUS:
+            self.pos += 1
 
         var output = 0
         while self.pos < len(self.bytes):
@@ -117,70 +120,48 @@ struct ObjLineCursor[origin: ImmOrigin]:
                 var digit = Int(b - ZERO)
                 output = output * 10 + digit
                 if output > limit.max_magnitude:
-                    raise String(
-                        "OBJ index exceeds the available element count"
-                    )
+                    return 0
                 self.pos += 1
                 continue
             break
 
         if output == 0:
-            raise String("missing or zero OBJ index")
+            return 0
         if self.pos < len(self.bytes):
             var b = self.bytes.unsafe_get(self.pos)
             if not ((slash_terminates and b == SLASH) or _is_ws_or_line_cut(b)):
-                raise String("invalid character in OBJ index")
-        return output
-
-    @always_inline
-    def _at_signed_index(self) -> Bool:
-        if self.pos >= len(self.bytes):
-            return False
-        var b = self.bytes.unsafe_get(self.pos)
-        return b == MINUS or b == PLUS
+                return 0
+        return limit.count_with_dummy - output if negative else output
 
     @always_inline
     def next_index_p_only_at_token(
         mut self, position_limit: ObjIndexLimit
     ) raises -> ObjIndex:
-        var needs_fix = self._at_signed_index()
-        var p_raw = self._parse_positive_index_int(False, position_limit)
-        if needs_fix:
-            return ObjIndex._from_validated(
-                _fix_index(p_raw, position_limit.count_with_dummy), 0, 0
-            )
-        return ObjIndex._from_validated(p_raw, 0, 0)
+        var p = self._parse_resolved_index(False, position_limit)
+        if p == 0:
+            raise Error("invalid or out-of-range OBJ position index")
+        return ObjIndex._from_validated(p, 0, 0)
 
     def next_index_p_t_at_token(
         mut self, position_limit: ObjIndexLimit, texcoord_limit: ObjIndexLimit
     ) raises -> ObjIndex:
-        var needs_fix = self._at_signed_index()
-        var p_raw = self._parse_positive_index_int(True, position_limit)
-        var t_raw = 0
+        var p = self._parse_resolved_index(True, position_limit)
+        var t = 0
         if (
             self.pos < len(self.bytes)
             and self.bytes.unsafe_get(self.pos) == SLASH
         ):
             self.pos += 1
-            if self._at_signed_index():
-                needs_fix = True
-            t_raw = self._parse_positive_index_int(False, texcoord_limit)
-        if t_raw == 0:
-            raise String("missing OBJ texture index")
-        if not needs_fix:
-            return ObjIndex._from_validated(p_raw, t_raw, 0)
-        return ObjIndex._from_validated(
-            _fix_index(p_raw, position_limit.count_with_dummy),
-            _fix_index(t_raw, texcoord_limit.count_with_dummy),
-            0,
-        )
+            t = self._parse_resolved_index(False, texcoord_limit)
+        if p == 0 or t == 0:
+            raise Error("invalid or out-of-range OBJ position/texture index")
+        return ObjIndex._from_validated(p, t, 0)
 
     def next_index_p_n_at_token(
         mut self, position_limit: ObjIndexLimit, normal_limit: ObjIndexLimit
     ) raises -> ObjIndex:
-        var needs_fix = self._at_signed_index()
-        var p_raw = self._parse_positive_index_int(True, position_limit)
-        var n_raw = 0
+        var p = self._parse_resolved_index(True, position_limit)
+        var n = 0
         if (
             self.pos < len(self.bytes)
             and self.bytes.unsafe_get(self.pos) == SLASH
@@ -191,18 +172,10 @@ struct ObjLineCursor[origin: ImmOrigin]:
                 and self.bytes.unsafe_get(self.pos) == SLASH
             ):
                 self.pos += 1
-                if self._at_signed_index():
-                    needs_fix = True
-                n_raw = self._parse_positive_index_int(False, normal_limit)
-        if n_raw == 0:
-            raise String("missing OBJ normal index")
-        if not needs_fix:
-            return ObjIndex._from_validated(p_raw, 0, n_raw)
-        return ObjIndex._from_validated(
-            _fix_index(p_raw, position_limit.count_with_dummy),
-            0,
-            _fix_index(n_raw, normal_limit.count_with_dummy),
-        )
+                n = self._parse_resolved_index(False, normal_limit)
+        if p == 0 or n == 0:
+            raise Error("invalid or out-of-range OBJ position/normal index")
+        return ObjIndex._from_validated(p, 0, n)
 
     def next_index_p_t_n_at_token(
         mut self,
@@ -210,35 +183,24 @@ struct ObjLineCursor[origin: ImmOrigin]:
         texcoord_limit: ObjIndexLimit,
         normal_limit: ObjIndexLimit,
     ) raises -> ObjIndex:
-        var needs_fix = self._at_signed_index()
-        var p_raw = self._parse_positive_index_int(True, position_limit)
-        var t_raw = 0
-        var n_raw = 0
+        var p = self._parse_resolved_index(True, position_limit)
+        var t = 0
+        var n = 0
         if (
             self.pos < len(self.bytes)
             and self.bytes.unsafe_get(self.pos) == SLASH
         ):
             self.pos += 1
-            if self._at_signed_index():
-                needs_fix = True
-            t_raw = self._parse_positive_index_int(True, texcoord_limit)
+            t = self._parse_resolved_index(True, texcoord_limit)
             if (
                 self.pos < len(self.bytes)
                 and self.bytes.unsafe_get(self.pos) == SLASH
             ):
                 self.pos += 1
-                if self._at_signed_index():
-                    needs_fix = True
-                n_raw = self._parse_positive_index_int(False, normal_limit)
-        if t_raw == 0 or n_raw == 0:
-            raise String("missing OBJ texture or normal index")
-        if not needs_fix:
-            return ObjIndex._from_validated(p_raw, t_raw, n_raw)
-        return ObjIndex._from_validated(
-            _fix_index(p_raw, position_limit.count_with_dummy),
-            _fix_index(t_raw, texcoord_limit.count_with_dummy),
-            _fix_index(n_raw, normal_limit.count_with_dummy),
-        )
+                n = self._parse_resolved_index(False, normal_limit)
+        if p == 0 or t == 0 or n == 0:
+            raise Error("invalid or out-of-range OBJ face index")
+        return ObjIndex._from_validated(p, t, n)
 
     def next_index_generic_at_token(
         mut self,
@@ -274,10 +236,10 @@ struct ObjLineCursor[origin: ImmOrigin]:
         normal_limit: ObjIndexLimit,
     ) raises -> FirstFaceIndex:
         var shape = 1
-        var needs_fix = self._at_signed_index()
-        var p_raw = self._parse_positive_index_int(True, position_limit)
-        var t_raw = 0
-        var n_raw = 0
+        var p = self._parse_resolved_index(True, position_limit)
+        var valid = p != 0
+        var t = 0
+        var n = 0
         if (
             self.pos < len(self.bytes)
             and self.bytes.unsafe_get(self.pos) == SLASH
@@ -289,34 +251,22 @@ struct ObjLineCursor[origin: ImmOrigin]:
             ):
                 self.pos += 1
                 shape = 3
-                if self._at_signed_index():
-                    needs_fix = True
-                n_raw = self._parse_positive_index_int(False, normal_limit)
+                n = self._parse_resolved_index(False, normal_limit)
+                valid = valid and n != 0
             else:
                 shape = 2
-                if self._at_signed_index():
-                    needs_fix = True
-                t_raw = self._parse_positive_index_int(True, texcoord_limit)
+                t = self._parse_resolved_index(True, texcoord_limit)
+                valid = valid and t != 0
                 if (
                     self.pos < len(self.bytes)
                     and self.bytes.unsafe_get(self.pos) == SLASH
                 ):
                     self.pos += 1
                     shape = 4
-                    if self._at_signed_index():
-                        needs_fix = True
-                    n_raw = self._parse_positive_index_int(False, normal_limit)
-        if not needs_fix:
-            return FirstFaceIndex(
-                ObjIndex._from_validated(p_raw, t_raw, n_raw), shape
-            )
-        var p = _fix_index(p_raw, position_limit.count_with_dummy)
-        var t = t_raw
-        var n = n_raw
-        if t_raw != 0:
-            t = _fix_index(t_raw, texcoord_limit.count_with_dummy)
-        if n_raw != 0:
-            n = _fix_index(n_raw, normal_limit.count_with_dummy)
+                    n = self._parse_resolved_index(False, normal_limit)
+                    valid = valid and n != 0
+        if not valid:
+            raise Error("invalid or out-of-range OBJ face index")
         return FirstFaceIndex(ObjIndex._from_validated(p, t, n), shape)
 
     def joined_rest_of_line(mut self) -> String:

@@ -15,7 +15,7 @@ from bajo.parser.obj import (
     triangulated_indices,
 )
 from bajo.parser.obj.pack import _pack_obj_triangles_parallel
-from bajo.parser.obj.cursor import ObjIndexLimit
+from bajo.parser.obj.cursor import ObjIndexLimit, ObjLineCursor
 from bajo.parser.obj.types import ObjIndex
 from std.sys import simd_width_of, size_of
 from std.memory import bitcast
@@ -159,6 +159,98 @@ def test_compact_indices_check_the_storage_limit() raises:
     assert_true(Int(index.p) == 0x7FFFFFFF)
     with assert_raises():
         _ = ObjIndexLimit(0x80000001)
+
+
+def _assert_resolved_index_matches_scalar(
+    bytes: ImmSpan[UInt8, _], limit: ObjIndexLimit
+) raises:
+    var reference = ObjLineCursor(bytes)
+    var actual = ObjLineCursor(bytes)
+    var valid = True
+    var raw = 0
+    try:
+        raw = reference._parse_index_int(False, limit)
+    except:
+        valid = False
+    if valid:
+        var index = actual.next_index_p_only_at_token(limit)
+        var expected = raw if raw > 0 else limit.count_with_dummy + raw
+        assert_true(Int(index.p) == expected)
+        assert_true(actual.pos == reference.pos)
+    else:
+        with assert_raises():
+            _ = actual.next_index_p_only_at_token(limit)
+
+
+def test_resolved_indices_match_scalar_boundaries_and_all_byte_values() raises:
+    for count in [1, 2, 11, 65536, 100000001, 0x80000000]:
+        var limit = ObjIndexLimit(count)
+        for token in [
+            "",
+            "+",
+            "-",
+            "0",
+            "+0",
+            "-0",
+            "1",
+            "+1",
+            "-1",
+            "10",
+            "-10",
+            "65535",
+            "65536",
+            "100000000",
+            "2147483647",
+            "-2147483647",
+            "2147483648",
+            "-2147483648",
+            "999999999999999999999999",
+            "000000000000000000000001",
+        ]:
+            for suffix in ["", " ", "\t", "\rignored", "#ignored", "/1", "x"]:
+                var text = token + suffix
+                _assert_resolved_index_matches_scalar(
+                    StringSpan(text).as_bytes(), limit
+                )
+    var token = List[UInt8](length=11, fill=32)
+    var limit = ObjIndexLimit(0x80000000)
+    for position in range(10):
+        for byte in range(256):
+            for digit in range(10):
+                token[digit] = UInt8(49 + digit % 9)
+            token[position] = UInt8(byte)
+            _assert_resolved_index_matches_scalar(ImmSpan(token), limit)
+
+
+def test_every_face_index_component_rejects_invalid_fields() raises:
+    var loader = MemoryAssetLoader()
+    var prefix = String("v 0 0 0\nvt 0 0\nvn 0 0 1\n")
+    for bad in [
+        "0/1/1",
+        "1/0/1",
+        "1/1/0",
+        "2/1/1",
+        "1/2/1",
+        "1/1/2",
+        "-2/1/1",
+        "1/-2/1",
+        "1/1/-2",
+        "x/1/1",
+        "1/x/1",
+        "1/1/x",
+        "1//",
+        "1/1/",
+    ]:
+        for position in range(3):
+            var text = prefix + "f"
+            for corner in range(3):
+                text += " " + (bad if corner == position else "1/1/1")
+            with assert_raises():
+                _ = _parse_obj_serial("invalid.obj", StringSpan(text), loader)
+            with assert_raises():
+                _ = _parse_obj_bulk(
+                    "invalid.obj", StringSpan(text), loader, 8, 1
+                )
 
 
 def test_decimal_exponent_work_is_bounded() raises:

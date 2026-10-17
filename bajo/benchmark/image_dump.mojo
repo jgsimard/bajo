@@ -1,6 +1,5 @@
 """Linear Float32 RGB image output for CPU/GPU benchmark comparisons."""
 
-from std.io.file_descriptor import FileDescriptor
 from std.memory import bitcast
 from bajo.rt.render_types import Color
 
@@ -16,5 +15,4 @@ def write_linear(path: String, pixels: ImmSpan[Color, _]) raises:
                 bytes[index + byte] = UInt8(word >> UInt32(byte * 8))
             index += 4
     with open(path, "w") as f:
-        var fd = FileDescriptor(f)
-        fd.write_bytes(bytes)
+        f.write_bytes(bytes)

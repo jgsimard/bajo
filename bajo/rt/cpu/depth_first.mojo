@@ -1,7 +1,6 @@
 """Depth-first tiled CPU renderer."""
 
 from max.algorithm import parallelize
-from std.io.file_descriptor import FileDescriptor
 from std.math import ceildiv, sqrt
 from std.sys import num_logical_cores
 from std.time import perf_counter_ns
@@ -388,8 +387,7 @@ def write_ppm_from_colors(
     pixels: ImmSpan[Color, _],
 ) raises:
     with open(path, "w") as f:
-        var fd = FileDescriptor(f)
-        fd.write(t"P6\n{width} {height}\n255\n")
+        f.write(t"P6\n{width} {height}\n255\n")
 
         var bytes = List[UInt8](length=width * height * 3, fill=0)
         var out_i = 0

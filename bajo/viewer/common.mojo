@@ -5,7 +5,6 @@ The Python viewer retains the preparation module until its handles are freed.
 """
 
 from std.math import cos, sin
-from std.io.file_descriptor import FileDescriptor
 from std.memory import Pointer, bitcast
 from std.python import Python, PythonObject
 from bajo.bvh import Camera
@@ -82,8 +81,7 @@ def _write_linear_frame(path: String, pixels: ImmSpan[Vec3W, _]) raises:
             bytes[out_idx + 3] = UInt8(word >> UInt32(24))
             out_idx += 4
     with open(path, "w") as f:
-        var fd = FileDescriptor(f)
-        fd.write_bytes(bytes)
+        f.write_bytes(bytes)
 
 
 def _settings(config: PythonObject) raises -> RenderSettings:

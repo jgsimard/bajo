@@ -3,7 +3,6 @@
 Camera rays use direct traversal; ray sorting is intended for incoherent rays.
 """
 
-from std.io.file_descriptor import FileDescriptor
 from max.gpu.host import DeviceBuffer, DeviceContext
 from max.algorithm import parallelize
 from std.math import max, round, clamp
@@ -221,8 +220,7 @@ def write_ppm_normals_from_hits(
     var byte_count = pixel_count * 3
 
     with open(path, "w") as f:
-        var fd = FileDescriptor(f)
-        fd.write(t"P6\n{width} {height}\n255\n")
+        f.write(t"P6\n{width} {height}\n255\n")
         var _bytes = List[UInt8](length=byte_count, fill=0)
         var out = _bytes.unsafe_ptr()
 
@@ -255,7 +253,7 @@ def write_ppm_normals_from_hits(
                 out[unsafe_offset=i * 3 + 1] = _unit_to_u8(g)
                 out[unsafe_offset=i * 3 + 2] = _unit_to_u8(b)
 
-        fd.write_bytes(_bytes)
+        f.write_bytes(_bytes)
 
 
 def _print_bounds_by_blas(instances: List[Instance]):

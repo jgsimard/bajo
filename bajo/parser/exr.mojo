@@ -1,6 +1,5 @@
 """Minimal OpenEXR scanline decoder for linear RGB environment maps."""
 
-from std.ffi import OwnedDLHandle
 from std.memory import bitcast
 from max.algorithm import parallelize
 from std.math import ceildiv
@@ -8,6 +7,7 @@ from std.sys import num_logical_cores, simd_width_of
 from std.utils.numerics import isfinite
 
 from bajo.parser.mmap import MMap
+from bajo.parser.deflate import inflate_zlib
 from bajo.rt.material_types import ImageTexture
 
 
@@ -298,16 +298,8 @@ def _decompress_zip(
     payload: ImmSpan[UInt8, _], decoded_size: Int
 ) raises -> List[UInt8]:
     var predicted = List[UInt8](length=decoded_size, fill=0)
-    var result_size = List[UInt](length=1, fill=UInt(decoded_size))
-    var lib = OwnedDLHandle("libz.so.1")
-    var status = lib.call["uncompress", Int32](
-        predicted.unsafe_ptr(),
-        result_size.unsafe_ptr(),
-        payload.unsafe_ptr(),
-        UInt(len(payload)),
-    )
-    if status != 0 or Int(result_size[0]) != decoded_size:
-        raise Error("zlib failed to decompress OpenEXR scanlines")
+    if inflate_zlib(payload, predicted) != decoded_size:
+        raise Error("unexpected OpenEXR scanline byte count")
     _undo_zip_prediction(predicted)
     return _undo_zip_interleave(predicted)
 
@@ -606,17 +598,9 @@ def _inflate_chunk(
     payload: ImmSpan[UInt8, _],
     predicted: MutSpan[UInt8, _],
     decoded: MutSpan[UInt8, _],
-    lib: OwnedDLHandle,
 ) raises:
-    var result_size = List[UInt](length=1, fill=UInt(len(predicted)))
-    var status = lib.call["uncompress", Int32](
-        predicted.unsafe_ptr(),
-        result_size.unsafe_ptr(),
-        payload.unsafe_ptr(),
-        UInt(len(payload)),
-    )
-    if status != 0 or Int(result_size[0]) != len(predicted):
-        raise Error("zlib failed to decompress OpenEXR scanlines")
+    if inflate_zlib(payload, predicted) != len(predicted):
+        raise Error("unexpected OpenEXR scanline byte count")
     _undo_zip_prediction(predicted)
     _undo_zip_interleave_into(predicted, decoded)
 
@@ -667,9 +651,7 @@ def _parse_exr_bulk(
                         chunk.lines,
                     )
             else:
-                # One library handle and scratch allocation per worker task,
-                # reused across all its compressed scanline chunks.
-                var lib = OwnedDLHandle("libz.so.1")
+                # Reuse scratch allocations across each worker's ZIP chunks.
                 var scratch_size = 0
                 for i in range(begin, end):
                     scratch_size = max(scratch_size, chunks[i].decoded_size)
@@ -684,7 +666,6 @@ def _parse_exr_bulk(
                         bytes[chunk.begin : chunk.end],
                         Span(predicted)[: chunk.decoded_size],
                         data,
-                        lib,
                     )
                     _decode_scanlines(
                         Span(pixels)[

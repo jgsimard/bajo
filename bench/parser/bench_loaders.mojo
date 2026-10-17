@@ -1,7 +1,8 @@
 """Parser timings and full geometry/pixel digests for before/after comparisons.
 
 Build with `mojo build -O3 -I . bench/parser/bench_loaders.mojo -o /tmp/loaders`
-and run `/tmp/loaders <obj|ply|png|exr|pbrt> <path>`.
+and run `/tmp/loaders <obj|ply|png|png-libpng|exr|pbrt> <path>`.
+Use `png-libpng` as the reference for the SIMD PNG loader.
 PLY reports file-read + parse time as `read_mean_us` and mapped-input parse
 time as `mean_us`; both timings exclude the digest calculation.
 """
@@ -12,7 +13,7 @@ from std.sys.arg import argv
 
 from bajo.parser.mmap import MMap
 from bajo.parser.ply import parse_ply, read_ply
-from bajo.parser.png import parse_png
+from bajo.parser.png import parse_png, _parse_png_libpng
 from bajo.parser.exr import parse_exr
 from bajo.parser.pbrt import read_pbrt
 from bajo.parser.obj import read_obj
@@ -40,7 +41,9 @@ def _image(mut digest: UInt64, images: ImmSpan[ImageTexture, _], index: UInt32):
 def main() raises:
     var args = argv()
     if len(args) != 3:
-        raise Error("usage: bench_loaders <obj|ply|png|exr|pbrt> <path>")
+        raise Error(
+            "usage: bench_loaders <obj|ply|png|png-libpng|exr|pbrt> <path>"
+        )
     var kind = String(args[1])
     var path = String(args[2])
     var mapped = MMap(path)
@@ -84,13 +87,18 @@ def main() raises:
                 "read_mean_us", run(bench_read_ply, max_iters=10).mean(Unit.us)
             )
             mean_us = run(bench_ply, max_iters=10).mean(Unit.us)
-        case "png":
-            var image = parse_png(bytes)
+        case "png" | "png-libpng":
+            var reference = kind == "png-libpng"
+            var image = _parse_png_libpng(bytes) if reference else parse_png(
+                bytes
+            )
             _floats(digest, image.pixels)
             print("size", image.width, image.height)
 
-            def bench_png() raises {bytes}:
-                var output = parse_png(bytes)
+            def bench_png() raises {bytes, reference}:
+                var output = _parse_png_libpng(
+                    bytes
+                ) if reference else parse_png(bytes)
                 keep(output.width)
                 keep(output.pixels.unsafe_ptr())
 

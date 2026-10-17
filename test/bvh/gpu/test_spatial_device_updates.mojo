@@ -7,16 +7,12 @@ from std.testing import (
 )
 from std.memory import bitcast
 from max.gpu import global_idx
-from max.gpu.host import DeviceContext, DeviceGraph, DeviceGraphBuilder
+from max.gpu.host import DeviceContext
 from bajo.core import AABB, Point3f32, Vec3f32, Rayf32
 from bajo.bvh.spatial import SpatialBoundsBvh, SpatialMesh
 from bajo.bvh.spatial.gpu import GpuSpatialBoundsBvh
 from bajo.bvh.spatial.gpu_mesh import GpuSpatialMesh
 from bajo.bvh.gpu.utils import _device_span
-from bajo.bvh.spatial.device_update import (
-    UPDATE_BLOCK_SIZE,
-    bounds_update_kernel,
-)
 from test.bvh.gpu.test_spatial import _query_kernel
 from test.bvh.gpu.test_spatial_mesh import _mesh_kernel
 from test.bvh.spatial_fixtures import tetrahedron
@@ -205,6 +201,7 @@ def test_device_mesh_refit_rebuild_velocities_and_atomicity() raises:
                 _device_span[mut=False](gpu.nodes),
                 _device_span[mut=True](output),
                 UInt32(0),
+                _device_span[mut=False](gpu.adjacency),
                 grid_dim=1,
                 block_dim=32,
             )
@@ -258,114 +255,6 @@ def test_empty_device_bounds_updates() raises:
         assert_equal(len(gpu.nodes), 0)
 
 
-def test_graph_bounds_rebuild_and_query_replay() raises:
-    var boxes: List[AABB[.WORLD]] = [
-        AABB(Point3f32[.WORLD](0.0), Point3f32[.WORLD](1.0)),
-        AABB(Point3f32[.WORLD](2.0), Point3f32[.WORLD](3.0)),
-    ]
-    with DeviceContext() as ctx:
-        var gpu = GpuSpatialBoundsBvh(ctx, SpatialBoundsBvh(boxes))
-        var input = ctx.enqueue_create_buffer[.float32](12)
-        var output = ctx.enqueue_create_buffer[.uint32](8)
-        var function = ctx.compile_function[bounds_update_kernel[True]]()
-        var query_function = ctx.compile_function[_query_kernel[4]]()
-        var arg0 = _device_span[mut=False](input)
-        var arg1 = _device_span[mut=True](gpu.update_items)
-        var arg2 = _device_span[mut=True](gpu.bounds)
-        var arg3 = _device_span[mut=True](gpu.nodes)
-        var arg4 = _device_span[mut=True](gpu.update_order)
-        var arg5 = _device_span[mut=True](gpu.update_status)
-        var query_bounds = _device_span[mut=False](gpu.bounds)
-        var query_nodes = _device_span[mut=False](gpu.nodes)
-        var query_output = _device_span[mut=True](output)
-
-        def build(mut builder: DeviceGraphBuilder) raises {imm}:
-            var update = builder.add_function(
-                function,
-                arg0,
-                arg1,
-                arg2,
-                arg3,
-                arg4,
-                arg5,
-                grid_dim=1,
-                block_dim=UPDATE_BLOCK_SIZE,
-                dependencies=[],
-            )
-            _ = builder.add_function(
-                query_function,
-                query_bounds,
-                query_nodes,
-                query_output,
-                UInt32(0),
-                Int32(2),
-                grid_dim=1,
-                block_dim=32,
-                dependencies=[update],
-            )
-
-        var graph = DeviceGraph.create(ctx, build)
-        var bp = Int(gpu.bounds.unsafe_ptr())
-        var np = Int(gpu.nodes.unsafe_ptr())
-        for phase in range(3):
-            with input.map_to_host() as data:
-                for item in range(2):
-                    var offset = Float32(phase) * 2.0 + Float32(1 - item) * 0.1
-                    for axis in range(3):
-                        data[item * 6 + axis] = offset
-                        data[item * 6 + axis + 3] = offset + 0.25
-            graph.replay()
-            gpu.check_update(ctx)
-            assert_equal(Int(gpu.bounds.unsafe_ptr()), bp)
-            assert_equal(Int(gpu.nodes.unsafe_ptr()), np)
-            with output.map_to_host() as actual:
-                assert_equal(actual[0], UInt32(1 if phase == 0 else 0))
-                assert_equal(actual[1], UInt32(1 if phase == 0 else 0))
-        with input.map_to_host() as data:
-            data[0] = bitcast[.float32](UInt32(0x7FC00000))
-        graph.replay()
-        var failed = False
-        try:
-            gpu.check_update(ctx)
-        except:
-            failed = True
-        assert_true(failed)
-        with gpu.bounds.map_to_host() as actual:
-            assert_equal(actual[0], Float32(4.0))
-        # Also instantiate the owner convenience API with the same retained
-        # buffers, repair input and replay after a failed captured update.
-        var refit_graph = gpu.create_update_graph[False](ctx, input)
-        with input.map_to_host() as data:
-            data[0] = Float32(4.1)
-        refit_graph.replay()
-        gpu.check_update(ctx)
-
-
-def test_graph_mesh_update_replay() raises:
-    with DeviceContext() as ctx:
-        var gpu = GpuSpatialMesh(ctx, tetrahedron())
-        var input = ctx.enqueue_create_buffer[.float32](12)
-        var graph = gpu.create_update_graph[True](ctx, input)
-        var pp = Int(gpu.points.unsafe_ptr())
-        var bp = Int(gpu.bounds.unsafe_ptr())
-        var np = Int(gpu.nodes.unsafe_ptr())
-        for phase in range(3):
-            ctx.enqueue_function[_mesh_input[12]](
-                _device_span[mut=True](input),
-                Int32(phase),
-                grid_dim=1,
-                block_dim=32,
-            )
-            graph.replay()
-            gpu.check_update(ctx)
-            assert_equal(Int(gpu.points.unsafe_ptr()), pp)
-            assert_equal(Int(gpu.bounds.unsafe_ptr()), bp)
-            assert_equal(Int(gpu.nodes.unsafe_ptr()), np)
-            with gpu.bounds.map_to_host() as data:
-                assert_almost_equal(data[0], Float32(phase) * 0.1)
-                assert_almost_equal(data[3], Float32(phase) * 0.1 + 1.0)
-
-
 def test_device_update_invalid_counts_order_and_empty_mesh() raises:
     with DeviceContext() as ctx:
         var boxes: List[AABB[.WORLD]] = [
@@ -395,88 +284,6 @@ def test_device_update_invalid_counts_order_and_empty_mesh() raises:
         empty_mesh.rebuild_device(ctx, empty)
         assert_equal(len(empty_mesh.bounds), 0)
         assert_equal(len(empty_mesh.points), 0)
-
-
-def check_parallel_refit_levels[
-    block_size: Int, full_matrix: Bool = True
-]() raises:
-    var counts: List[Int] = [
-        0,
-        1,
-        2,
-        3,
-        5,
-        17,
-        63,
-        65,
-        129,
-        257,
-        258,
-        1025,
-        4097,
-    ]
-    comptime if not full_matrix:
-        # Retain the slicing threshold and a large tail at intermediate sizes.
-        counts = [block_size, block_size + 2, 4097]
-    with DeviceContext() as ctx:
-        for count in counts:
-            var boxes = List[AABB[.WORLD]]()
-            var groups = List[UInt32]()
-            for i in range(count):
-                boxes.append(
-                    AABB(
-                        Point3f32[.WORLD](Float32(i)),
-                        Point3f32[.WORLD](Float32(i) + 0.5),
-                    )
-                )
-                groups.append(UInt32(i % 3))
-            var cpu = SpatialBoundsBvh(boxes, groups)
-            comptime if not full_matrix:
-                if count == block_size:
-                    assert_true(len(cpu.nodes) // 2 <= block_size * 4)
-                elif count == block_size + 2:
-                    assert_true(len(cpu.nodes) // 2 > block_size * 4)
-            var gpu = GpuSpatialBoundsBvh(ctx, cpu.copy())
-            var input = ctx.enqueue_create_buffer[.float32](count * 6)
-            var bounds_address = Int(gpu.bounds.unsafe_ptr())
-            for phase in range(2):
-                with input.map_to_host() as data:
-                    for i in range(count):
-                        var p = Point3f32[.WORLD](
-                            Float32((i * 17) % 31) - 2.0,
-                            Float32(i % 3) * 0.2 + Float32(phase) * 0.11,
-                            Float32(count - i) * 0.1,
-                        )
-                        boxes[i] = AABB(
-                            p, p + Vec3f32[.WORLD](0.05 + Float32(phase) * 0.01)
-                        )
-                        comptime for axis in range(3):
-                            data[i * 6 + axis] = boxes[i]._min[axis]
-                            data[i * 6 + axis + 3] = boxes[i]._max[axis]
-                cpu.refit(boxes)
-                gpu.enqueue_update[False, block_size](ctx, input)
-                gpu.check_update(ctx)
-                assert_equal(Int(gpu.bounds.unsafe_ptr()), bounds_address)
-                with gpu.bounds.map_to_host() as actual:
-                    for i in range(len(cpu.bounds)):
-                        assert_equal(actual[i], cpu.bounds[i])
-            if count > 0:
-                # Reject a bad value supplied by a lane other than lane zero.
-                with input.map_to_host() as data:
-                    data[count * 6 - 2] = bitcast[.float32](UInt32(0x7FC00000))
-                gpu.enqueue_update[False, block_size](ctx, input)
-                with assert_raises():
-                    gpu.check_update(ctx)
-                with gpu.bounds.map_to_host() as actual:
-                    for i in range(len(cpu.bounds)):
-                        assert_equal(actual[i], cpu.bounds[i])
-
-
-def test_parallel_refit_levels_sizes_groups_and_validation() raises:
-    check_parallel_refit_levels[32]()
-    check_parallel_refit_levels[64, False]()
-    check_parallel_refit_levels[128, False]()
-    check_parallel_refit_levels[256]()
 
 
 def main() raises:

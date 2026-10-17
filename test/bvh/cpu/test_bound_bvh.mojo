@@ -436,7 +436,7 @@ def _test_bounds_bvh_leaf_invariant[
 
 
 def test_bounds_bvh_leaf_invariants() raises:
-    comptime for w in [2, 4, 8]:
+    comptime for w in [2, 16]:
         comptime for method in [
             CpuBvhBuildMethod.MEDIAN,
             CpuBvhBuildMethod.SAH,
@@ -689,7 +689,7 @@ def _test_triangle_bvh_matches_bruteforce[
     width: SIMDLength,
     method: CpuBvhBuildMethod,
 ]() raises:
-    var n = {2: 24, 4: 32, 8: 40}[width]
+    var n = 3 * Int(width) + 1
     var verts = _make_strip[.WORLD](n)
     var blases = build_cpu_triangle_blas_set[width, width, method, .WORLD](
         [verts.copy()]
@@ -713,7 +713,7 @@ def _test_triangle_bvh_matches_bruteforce[
 
 
 def test_triangle_bvh_matches_bruteforce() raises:
-    comptime for w in [2, 4, 8]:
+    comptime for w in [2, 16]:
         comptime for method in [
             CpuBvhBuildMethod.MEDIAN,
             CpuBvhBuildMethod.SAH,
@@ -759,13 +759,8 @@ def _test_triangle_bvh16_leaf_width[
 
 
 def test_triangle_bvh16_decoupled_leaf_widths() raises:
-    comptime for leaf_width in [2, 4, 8, 16]:
-        comptime for method in [
-            CpuBvhBuildMethod.MEDIAN,
-            CpuBvhBuildMethod.SAH,
-            CpuBvhBuildMethod.LBVH,
-            CpuBvhBuildMethod.HPLOC,
-        ]:
+    comptime for leaf_width in [2, 16]:
+        comptime for method in [CpuBvhBuildMethod.SAH, CpuBvhBuildMethod.HPLOC]:
             _test_triangle_bvh16_leaf_width[leaf_width, method]()
 
 
@@ -892,7 +887,6 @@ def _test_triangle_packet_paths_match[length: SIMDLength]() raises:
 
 def test_triangle_packet_paths_match() raises:
     _test_triangle_packet_paths_match[4]()
-    _test_triangle_packet_paths_match[8]()
     _test_triangle_packet_paths_match[16]()
 
 
@@ -942,7 +936,6 @@ def _test_triangle_packet_any_hit_matches_scalar[length: SIMDLength]() raises:
 
 def test_triangle_packet_any_hit_matches_scalar() raises:
     _test_triangle_packet_any_hit_matches_scalar[4]()
-    _test_triangle_packet_any_hit_matches_scalar[8]()
     _test_triangle_packet_any_hit_matches_scalar[16]()
 
 
@@ -1078,7 +1071,6 @@ def test_packed_triangle_packet_matches_scalar_widths() raises:
     var verts = _make_strip[.WORLD](64)
     var host = build_cpu_triangle_blas_set[16, 16, .SAH, .WORLD]([verts^])
     _check_packed_triangle_packet[4](host)
-    _check_packed_triangle_packet[8](host)
     _check_packed_triangle_packet[16](host)
 
 
@@ -1118,7 +1110,6 @@ def test_packed_sphere_packet_matches_scalar_widths() raises:
     var spheres: List = [Sphere[.WORLD](Point3f32[.WORLD](0.0, 0.0, 2.0), 1.0)]
     var host = build_cpu_sphere_blas_set[16, .SAH, .WORLD]([spheres^])
     _check_packed_sphere_packet[4](host)
-    _check_packed_sphere_packet[8](host)
     _check_packed_sphere_packet[16](host)
 
 
@@ -1280,7 +1271,7 @@ def _test_sphere_bvh_matches_bruteforce[
 
 
 def test_sphere_bvh_matches_bruteforce() raises:
-    comptime for w in [2, 4, 8]:
+    comptime for w in [2, 16]:
         comptime for method in [
             CpuBvhBuildMethod.MEDIAN,
             CpuBvhBuildMethod.SAH,

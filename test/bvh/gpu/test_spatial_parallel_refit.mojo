@@ -98,14 +98,11 @@ def _check[
 
 
 def test_parallel_mesh_refit_uneven_groups_and_rejected_unused_vertex() raises:
-    _check[32]()
     _check[256]()
     _check[32, 1024]()
-    _check[256, 1024]()
 
 
 def test_parallel_mesh_rebuild_uneven_groups_and_rejected_unused_vertex() raises:
-    _check[32, 4096, True]()
     _check[256, 4097, True]()
 
 

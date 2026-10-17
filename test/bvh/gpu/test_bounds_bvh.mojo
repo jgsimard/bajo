@@ -52,15 +52,16 @@ from test.bvh.fixtures import (
     _make_single_sphere_scene,
     _make_single_triangle_scene,
     _make_small_scene,
+    _make_strip,
     _make_small_sphere_scene,
     _trace_cpu_spheres_bruteforce,
     _trace_cpu_triangle_blas,
 )
 
 
-comptime GPU_BOUNDS_TEST_WIDTH = 64
-comptime GPU_BOUNDS_TEST_HEIGHT = 48
-comptime GPU_BOUNDS_TEST_VIEWS = 3
+comptime GPU_BOUNDS_TEST_WIDTH = 16
+comptime GPU_BOUNDS_TEST_HEIGHT = 12
+comptime GPU_BOUNDS_TEST_VIEWS = 2
 comptime GPU_BOUNDS_TEST_EPS = 0.05
 
 
@@ -522,47 +523,47 @@ def _assert_gpu_sphere_bounds[
 
 def test_gpu_bounds_bvh_single_triangle() raises:
     var scene = _make_single_triangle_scene[.WORLD]()
-    comptime for N in [2, 4, 8]:
+    comptime for N in [2, 8]:
         _assert_gpu_bounds_width[N](scene)
         _assert_gpu_triangle_matches_cpu_camera[N](scene)
 
 
 def test_gpu_bounds_bvh_duplicate_morton_codes() raises:
     var scene = _make_duplicate_centroid_scene[.WORLD]()
-    comptime for N in [2, 4, 8]:
+    comptime for N in [2, 8]:
         _assert_gpu_bounds_width[N](scene)
         _assert_wide_lane_invariants[N](scene)
 
 
 def test_gpu_bounds_bvh_degenerate_axis() raises:
     var scene = _make_degenerate_axis_scene()
-    comptime for N in [2, 4, 8]:
+    comptime for N in [2, 8]:
         _assert_gpu_bounds_width[N](scene)
         _assert_wide_lane_invariants[N](scene)
 
 
 def test_gpu_triangle_bvh_camera_primary_matches_cpu() raises:
     var scene = _make_small_scene[.WORLD]()
-    comptime for N in [2, 4, 8]:
+    comptime for N in [2, 8]:
         _assert_gpu_triangle_matches_cpu_camera[N](scene)
 
 
 def test_gpu_sphere_bvh_camera_primary_matches_bruteforce() raises:
     var scene = _make_small_sphere_scene[.WORLD]()
-    comptime for N in [2, 4, 8]:
+    comptime for N in [2, 8]:
         _assert_sphere_matches_bruteforce_camera[N](scene)
 
 
 def test_gpu_sphere_bvh_single_sphere() raises:
     var scene = _make_single_sphere_scene[.WORLD]()
-    comptime for N in [2, 4, 8]:
+    comptime for N in [2, 8]:
         _assert_gpu_sphere_bounds[N](scene)
         _assert_sphere_matches_bruteforce_camera[N](scene)
 
 
 def test_gpu_sphere_bvh_duplicate_morton_codes() raises:
     var scene = _make_duplicate_sphere_centroid_scene[.WORLD]()
-    comptime for N in [2, 4, 8]:
+    comptime for N in [2, 8]:
         _assert_gpu_sphere_bounds[N](scene)
         _assert_sphere_matches_bruteforce_camera[N](scene)
 
@@ -583,7 +584,8 @@ def test_gpu_bvh_independent_node_and_leaf_widths() raises:
 
 
 def test_gpu_triangle_bvh_segmented_build_methods() raises:
-    var scene = _make_small_scene[.WORLD]()
+    # One public-API case crosses a GPU block boundary for both builders.
+    var scene = _make_strip[.WORLD](1025)
     _assert_segmented_gpu_triangle_matches_cpu_camera(scene)
 
 

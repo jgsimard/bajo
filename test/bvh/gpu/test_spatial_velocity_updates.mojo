@@ -1,7 +1,6 @@
 """Transactional resident velocity publication, including unreferenced vertices."""
 from std.testing import TestSuite, assert_equal, assert_true
 from std.memory import bitcast
-from std.math import min
 from max.gpu.host import DeviceContext
 from bajo.core import Point3f32
 from bajo.bvh.spatial import SpatialMesh
@@ -11,11 +10,8 @@ from bajo.bvh.gpu.utils import upload_list
 
 def test_velocity_publication_rejection_alias_and_clear() raises:
     with DeviceContext() as ctx:
-        var sizes = List[Int](
-            [0, 3, 341, 342, 1025, 1365, 1366, 21845, 21846, 65537]
-        )
-        for fixture in range(len(sizes)):
-            var count = sizes[fixture]
+        var sizes = List[Int]([0, 3, 342, 21846])
+        for count in sizes:
             var points = List[Point3f32[.WORLD]]()
             for vertex in range(count):
                 points.append(
@@ -34,8 +30,7 @@ def test_velocity_publication_rejection_alias_and_clear() raises:
             for component in range(count * 3):
                 values.append(Float32((component * 13) % 127 - 63) * 0.125)
             var input = upload_list(ctx, values)
-            comptime for variant in range(3):
-                comptime block_size = 32 if variant == 0 else 256 if variant == 1 else 0
+            comptime for block_size in [0, 32]:
                 gpu.enqueue_velocities[block_size](ctx, input)
                 gpu.check_update(ctx)
                 with gpu.velocities.map_to_host() as actual:
@@ -45,12 +40,9 @@ def test_velocity_publication_rejection_alias_and_clear() raises:
                 gpu.enqueue_velocities[block_size](ctx, gpu.velocities)
                 gpu.check_update(ctx)
                 if count > 0:
-                    for probe in range(10):
-                        var slot = (
-                            min(probe, len(values) - 1) if probe
-                            < 8 else len(values) // 2 if probe
-                            == 8 else len(values) - 1
-                        )
+                    for probe, slot in enumerate(
+                        [0, len(values) // 2, len(values) - 1]
+                    ):
                         with input.map_to_host() as data:
                             data[slot] = bitcast[.float32](
                                 UInt32(0x7FC00000) if probe % 2

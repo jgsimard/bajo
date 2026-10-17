@@ -18,7 +18,6 @@ example_cornell = "mojo -I . examples/cornell_box.mojo"
 example_mis_showcase = "mojo -I . examples/mis_showcase.mojo"
 example_pbrt = "mojo -I . examples/pbrt_scene.mojo"
 viewer = "python tools/viewer.py"
-bench_rtiaw = "mojo -I . bench/rt/bench_example_rtiaw.mojo"
 
 # tests
 test = { cmd = "bash scripts/run_tests.sh test/{{suite}}", args = [
@@ -55,10 +54,10 @@ bench_sort_cub = { cmd = "bash -lc 'cd bench/sort && make run-radix'" }
 plot_sort = { cmd = "bash -lc 'cd bench/sort && python plot_gpu_sort.py gpu_sort_benchmark_results.csv cub_sort_benchmark_results.csv'" }
 
 
-# bench core
-bench_quat = "mojo -I. bench/core/bench_quat.mojo"
-bench_aabb = "mojo -I. bench/core/bench_aabb.mojo"
-bench_obj = { cmd = "mojo -I. bench/parser/obj/bench_obj.mojo", depends-on = ["download_assets"] }
+# parsers: whole-file loading, not individual implementation stages
+bench_obj = { cmd = "mojo -I . bench/parser/bench_loaders.mojo obj {{path}}", args = [
+  { arg = "path", default = "./assets/dragon/dragon.obj" },
+], depends-on = ["download_assets"] }
 bench_ply = { cmd = "mojo -I . bench/parser/bench_loaders.mojo ply {{path}}", args = [
   { arg = "path", default = "./assets/crown/geometry/mesh_00009.ply" },
 ], depends-on = ["download_assets"] }
@@ -85,42 +84,17 @@ bench_bvh_gpu_tlas = { cmd = "mojo -I . bench/bvh/bench_gpu_tlas.mojo",  depends
 bench_bvh_gpu_blas_tlas_build = { cmd = "mojo -I . --target-accelerator sm_120 bench/bvh/bench_gpu_blas_tlas_build.mojo", depends-on = ["download_assets"] }
 bench_bvh_gpu_nexus_compare = { cmd = "python bench/bvh/bench_gpu_nexus_compare.py", depends-on = ["download_assets"] }
 
-# ray tracing cpu
-bench_rt_cpu_any_hit = "mojo -I . bench/rt/bench_cpu_any_hit.mojo"
-bench_rt_cpu_triangle_normals = "mojo -I . bench/rt/bench_cpu_triangle_normals.mojo"
-bench_rt_cpu_end_to_end = "mojo -I . bench/rt/bench_cpu_end_to_end.mojo"
-bench_rt_cpu_wavefront = "mojo -I . bench/rt/bench_cpu_wavefront.mojo"
-bench_rt_cpu_coated_simd = "mojo -I . bench/rt/bench_cpu_coated_simd.mojo"
+# ray tracing cpu: scalar, native SIMD and parallel SIMD
+bench_rt_cpu = "mojo -I . bench/rt/bench_cpu_rt.mojo"
 
 # ray tracing gpu
 bench_rt_gpu = "mojo -I . bench/rt/bench_gpu_rt.mojo"
 bench_rt_gpu_mixed = "mojo -I . bench/rt/bench_gpu_rt.mojo mixed"
 bench_rt_cpu_gpu = "mojo -I . bench/rt/bench_cpu_gpu_rt.mojo"
 
-bench_rt_cpu = { depends-on = [
-  "bench_rt_cpu_any_hit",
-  "bench_rt_cpu_triangle_normals",
-  "bench_rt_cpu_end_to_end",
-  "bench_rt_cpu_wavefront",
-] }
-
-
-
-bench_smoke = { depends-on = [
-  "bench_quat",
-  "bench_aabb",
-  "bench_obj",
-  "bench_bvh_cpu_grid",
-  "bench_bvh_cpu_dragon",
-  "bench_bvh_gpu",
-  "bench_bvh_gpu_tlas"
-] }
-bench_bvh_smoke = { depends-on = [
-  "bench_bvh_cpu_grid",
-  "bench_bvh_cpu_dragon",
-  "bench_bvh_gpu",
-  "bench_bvh_gpu_tlas"
-] }
+# Small, self-contained CPU runs; downloaded assets and GPU sweeps are explicit.
+bench_smoke = { depends-on = ["bench_bvh_cpu_grid", "bench_rt_cpu"] }
+bench_bvh_smoke = { depends-on = ["bench_bvh_cpu_grid"] }
 
 [dependencies]
 libpng = ">=1.6.59,<2"

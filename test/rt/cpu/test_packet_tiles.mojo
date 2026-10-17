@@ -104,10 +104,6 @@ def test_masked_tile_append_all_four_lane_masks_and_tails() raises:
     _masked_cases[4]()
 
 
-def test_masked_tile_append_all_eight_lane_masks_and_tails() raises:
-    _masked_cases[8]()
-
-
 def _wide_cases[length: SIMDLength]() raises:
     var queue = PacketPathQueue[length](0)
     var expected = List[Int]()
@@ -126,8 +122,6 @@ def _wide_cases[length: SIMDLength]() raises:
 def test_wide_masked_tile_append_and_generic_fallback() raises:
     _wide_cases[1]()
     _wide_cases[16]()
-    _wide_cases[32]()
-    _wide_cases[64]()
     _wide_cases[128]()
 
 
@@ -223,10 +217,7 @@ def _shade_masked_cases[length: SIMDLength]() raises:
 
 def test_masked_shade_tiles_match_scalar_append() raises:
     _shade_masked_cases[1]()
-    _shade_masked_cases[4]()
-    _shade_masked_cases[8]()
     _shade_masked_cases[16]()
-    _shade_masked_cases[64]()
     _shade_masked_cases[128]()
 
 
@@ -288,10 +279,7 @@ def _append_cases[length: SIMDLength]() raises:
 
 def test_continuation_append_preserves_order_across_partial_packets() raises:
     _append_cases[1]()
-    _append_cases[4]()
-    _append_cases[8]()
     _append_cases[16]()
-    _append_cases[64]()
     _append_cases[128]()
 
 

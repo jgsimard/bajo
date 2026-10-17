@@ -95,6 +95,11 @@ Run the GPU test suites:
 pixi run test_gpu
 ```
 
+Tests focus on public API behavior, invalid input, CPU/GPU agreement and
+numerical regressions. SIMD and launch configurations use representative
+cases rather than exhaustive matrices. Internal tree layouts and diagnostic
+counters are not separate contracts.
+
 The host and GPU tasks include the relevant Mojo and Python tests. Run the
 Python checks separately with `pixi run test_python_host` or
 `pixi run test_python_gpu`; the GPU task enables the viewer GPU integration tests.
@@ -123,7 +128,26 @@ instance per leaf, with direct traversal for camera rays. The source files in
 
 ## Benchmarks
 
-Common benchmark tasks include:
+`bench_smoke` runs a synthetic CPU BVH benchmark and a small CPU MIS render;
+it needs no downloaded assets or accelerator. The render compares scalar,
+native SIMD and parallel SIMD using a warmup, three timed repeats and a
+checksum. For a larger run or another scene:
+
+```bash
+pixi run mojo -I . bench/rt/bench_cpu_rt.mojo mixed 640 360 4 5
+```
+
+Parser benchmarks measure complete loaders, with digests outside the timed
+region. For example:
+
+```bash
+pixi run mojo -I . bench/parser/bench_loaders.mojo png path/to/image.png
+```
+
+Available loaders are `obj`, `ply`, `png`, `exr` and `pbrt`; `bench_obj` and
+`bench_ply` provide shortcuts using downloaded assets.
+
+Common tasks (larger comparisons are opt-in):
 
 ```bash
 pixi run bench_smoke

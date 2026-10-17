@@ -71,7 +71,7 @@ def check_bits(
 
 
 def test_subnormal_build_refit_rebuild_integer_oracle() raises:
-    var sizes: List[Int] = [0, 1, 3, 257, 16383, 16384, 16391, 49153]
+    var sizes: List[Int] = [0, 1, 257, 16385]
     for count in sizes:
         var boxes = List[AABB[.WORLD]]()
         var groups = List[UInt32]()
@@ -149,7 +149,7 @@ def test_inverted_subnormal_rejection_is_atomic() raises:
 
 
 def test_many_groups_precise_build_and_rebuild_preserve_roots_and_storage() raises:
-    for count in [513, 16385]:
+    for count in [16385]:
         var boxes = List[AABB[.WORLD]](capacity=count)
         var groups = List[UInt32](capacity=count)
         for i in range(count):

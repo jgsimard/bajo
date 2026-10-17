@@ -19,8 +19,8 @@ from bajo.benchmark.bvh_fixtures import (
 from bajo.benchmark.bvh_reporting import TablePrinter
 
 
-comptime TRAVERSAL_REPEATS = 8
-comptime BUILD_REPEATS = 5
+comptime TRAVERSAL_REPEATS = 3
+comptime BUILD_REPEATS = 3
 
 
 @fieldwise_init
@@ -156,7 +156,7 @@ def benchmark_widths[
     vertices: List[Point3f32[.WORLD]],
     rays: List[Rayf32[.WORLD]],
 ) raises:
-    comptime for width in [2, 4, 8, 16]:
+    comptime for width in [4, 16]:
         benchmark_case[width, method](
             table,
             vertices,

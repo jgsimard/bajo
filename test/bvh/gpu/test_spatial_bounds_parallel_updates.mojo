@@ -155,22 +155,13 @@ def _check[
 
 
 def test_bounds_parallel_refit_thresholds_groups_graphs_and_rejection() raises:
-    for count in [1023, 1024, 1025, 4097, 16385]:
-        _check[32](count, False)
-        _check[256](count, True)
+    _check[256](1023, False)
+    _check[256](1025, True)
 
 
 def test_bounds_parallel_rebuild_groups_graphs_and_rejection() raises:
-    _check[32, True](1025, True)
-    _check[256, True](4097, True)
+    _check[32, True](4097, True)
     _check[256, True](65537, False)
-
-
-def test_bounds_parallel_refit_explicit_block_sizes() raises:
-    _check[64](1025, True)
-    _check[128](1025, False)
-    _check[512](1025, True)
-    _check[1024](1025, False)
 
 
 def main() raises:

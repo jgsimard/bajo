@@ -1,7 +1,7 @@
 """Parser timings and full geometry/pixel digests for before/after comparisons.
 
 Build with `mojo build -O3 -I . bench/parser/bench_loaders.mojo -o /tmp/loaders`
-and run `/tmp/loaders <ply|png|exr|pbrt|mtl> <path>`.
+and run `/tmp/loaders <obj|ply|png|exr|pbrt> <path>`.
 PLY reports file-read + parse time as `read_mean_us` and mapped-input parse
 time as `mean_us`; both timings exclude the digest calculation.
 """
@@ -40,7 +40,7 @@ def _image(mut digest: UInt64, images: ImmSpan[ImageTexture, _], index: UInt32):
 def main() raises:
     var args = argv()
     if len(args) != 3:
-        raise Error("usage: bench_loaders <ply|png|exr|pbrt|mtl> <path>")
+        raise Error("usage: bench_loaders <obj|ply|png|exr|pbrt> <path>")
     var kind = String(args[1])
     var path = String(args[2])
     var mapped = MMap(path)
@@ -161,8 +161,20 @@ def main() raises:
                 keep(output.data.surfaces().image_textures.unsafe_ptr())
 
             mean_us = run(bench_pbrt, max_iters=3).mean(Unit.us)
-        case "mtl":
+        case "obj":
             var mesh = read_obj(path)
+            _floats(digest, mesh.positions)
+            _floats(digest, mesh.normals)
+            _floats(digest, mesh.texcoords)
+            _floats(digest, mesh.colors)
+            for index in mesh.indices:
+                _hash(digest, UInt32(index.p))
+                _hash(digest, UInt32(index.t))
+                _hash(digest, UInt32(index.n))
+            for count in mesh.face_vertices:
+                _hash(digest, UInt32(count))
+            for material in mesh.face_materials:
+                _hash(digest, UInt32(material))
             for material in mesh.materials:
                 for byte in StringSpan(material.name).as_bytes():
                     _hash(digest, UInt32(byte))
@@ -174,20 +186,26 @@ def main() raises:
                 for byte in StringSpan(texture.path).as_bytes():
                     _hash(digest, UInt32(byte))
             print(
+                "vertices",
+                mesh.position_count(include_dummy=False),
+                "faces",
+                mesh.face_count(),
                 "materials",
                 mesh.material_count(),
                 "textures",
                 len(mesh.textures),
             )
 
-            def bench_mtl() raises {path}:
+            def bench_obj() raises {path}:
                 var output = read_obj(path)
+                keep(output.positions.unsafe_ptr())
+                keep(output.indices.unsafe_ptr())
                 keep(output.material_count())
                 keep(len(output.textures))
                 keep(output.materials.unsafe_ptr())
                 keep(output.textures.unsafe_ptr())
 
-            mean_us = run(bench_mtl, max_iters=10).mean(Unit.us)
+            mean_us = run(bench_obj, max_iters=10).mean(Unit.us)
         case _:
             raise Error("unknown parser: " + kind)
     print("digest", digest)

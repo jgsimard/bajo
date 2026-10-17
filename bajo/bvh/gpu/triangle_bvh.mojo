@@ -743,6 +743,10 @@ struct GpuTriangleBvh[
     ) raises:
         """Trace a packed ray buffer without camera-generation assumptions."""
         validate_ray_launch(d_rays, d_hits, ray_count)
+        comptime block_size = (
+            64 if Self.node_width == 2
+            and mode == .CLOSEST_HIT else GPU_BOUNDS_BVH_BLOCK_SIZE
+        )
         ctx.enqueue_function[
             trace_triangle_bvh_rays_kernel[
                 Self.frame,
@@ -757,8 +761,8 @@ struct GpuTriangleBvh[
             d_rays,
             d_hits,
             Int32(ray_count),
-            grid_dim=ceildiv(ray_count, GPU_BOUNDS_BVH_BLOCK_SIZE),
-            block_dim=GPU_BOUNDS_BVH_BLOCK_SIZE,
+            grid_dim=ceildiv(ray_count, block_size),
+            block_dim=block_size,
         )
 
 

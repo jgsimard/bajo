@@ -501,6 +501,9 @@ def main() raises:
             )
             return
 
+        _run_case[.LBVH, 2, 1](
+            ctx, d_vertices, d_camera, triangle_count, ray_count
+        )
         _run_case[.LBVH, 2, 2](
             ctx, d_vertices, d_camera, triangle_count, ray_count
         )
@@ -517,6 +520,9 @@ def main() raises:
             ctx, d_vertices, d_camera, triangle_count, ray_count
         )
         _run_case[.LBVH, 8, 8](
+            ctx, d_vertices, d_camera, triangle_count, ray_count
+        )
+        _run_case[.HPLOC, 2, 1](
             ctx, d_vertices, d_camera, triangle_count, ray_count
         )
         _run_case[.HPLOC, 2, 2](

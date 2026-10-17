@@ -54,7 +54,7 @@ def _trace_triangle_bvh_camera_ray[
 ) -> Hit[.WORLD]:
     # extra distance stack benchmarks positively for triangle BVH4;
     # BVH8 retains the lower-memory stack specialization.
-    return trace_bounds_bvh[
+    var hit = trace_bounds_bvh[
         .WORLD,
         node_width,
         .CLOSEST_HIT,
@@ -62,12 +62,18 @@ def _trace_triangle_bvh_camera_ray[
             .WORLD,
             leaf_width,
             .CLOSEST_HIT,
-            leaf_width > node_width or leaf_width == 8,
+            node_width == 2 or leaf_width > node_width or leaf_width == 8,
+            normalize_hit=False,
         ],
         node_width == 4,
         node_width == 2,
         node_width == 4 and leaf_width == 2,
     ](wide_nodes, leaf_vertices, root_idx, ray)
+    if hit.is_hit():
+        hit.normal = normalize(
+            hit.normal.unsafe_convert[new_kind=GeoKind.VECTOR]()
+        ).unsafe_convert[new_kind=GeoKind.NORMAL]()
+    return hit
 
 
 def trace_triangle_bvh_rays_kernel[
@@ -97,12 +103,18 @@ def trace_triangle_bvh_rays_kernel[
             frame,
             leaf_width,
             mode,
-            leaf_width > node_width or leaf_width == 8,
+            node_width == 2 or leaf_width > node_width or leaf_width == 8,
+            normalize_hit=False,
         ],
         node_width == 4,
         mode == .CLOSEST_HIT and node_width == 2,
         mode == .CLOSEST_HIT and node_width == 4 and leaf_width == 2,
     ](wide_nodes, leaf_vertices, root_idx, ray)
+    comptime if mode == .CLOSEST_HIT:
+        if hit.is_hit():
+            hit.normal = normalize(
+                hit.normal.unsafe_convert[new_kind=GeoKind.VECTOR]()
+            ).unsafe_convert[new_kind=GeoKind.NORMAL]()
     _store_packed_hit[frame](hit, hits, ray_count_int, ray_idx)
 
 
@@ -199,6 +211,8 @@ def _intersect_triangle_leaf[
     width: SIMDLength,
     mode: TraceMode,
     division_free: Bool = False,
+    # Standalone traversal normalizes once after selecting the final hit.
+    normalize_hit: Bool = True,
 ](
     leaf_vertices: ImmPointer[Float32, _],
     leaf_block_idx: UInt32,
@@ -286,7 +300,7 @@ def _intersect_triangle_leaf[
                         new_kind=GeoKind.NORMAL
                     ]()
                     any_hit = True
-    comptime if mode == .CLOSEST_HIT:
+    comptime if mode == .CLOSEST_HIT and normalize_hit:
         if any_hit:
             hit.normal = normalize(
                 hit.normal.unsafe_convert[new_kind=GeoKind.VECTOR]()

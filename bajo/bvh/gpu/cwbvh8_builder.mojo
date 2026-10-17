@@ -12,6 +12,7 @@ from bajo.bvh.gpu.builder.binary_layout import (
 )
 from bajo.bvh.gpu.builder.hploc_layout import (
     HPLOC_MERGING_THRESHOLD,
+    HPLOC_SEARCH_RADIUS,
     HPLOC_STATUS_OK,
 )
 from bajo.bvh.gpu.builder.hploc_multi_wave import GpuHplocBuildState
@@ -40,7 +41,8 @@ from bajo.bvh.gpu.wide_layout import GpuWideBuildLayout
 from bajo.core import SegmentOffsets
 
 
-comptime CWBVH_HPLOC_SEARCH_RADIUS = 4
+# Match the single-BLAS builder's neighborhood when choosing merge partners.
+comptime CWBVH_HPLOC_SEARCH_RADIUS = HPLOC_SEARCH_RADIUS
 
 
 struct GpuCwbvh8BuildArena[

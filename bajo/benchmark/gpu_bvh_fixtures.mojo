@@ -22,7 +22,10 @@ from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_TRIANGLE_WORDS,
     enqueue_segmented_cwbvh8_representation,
 )
-from bajo.bvh.gpu.cwbvh8_builder import GpuCwbvh8BuildArena
+from bajo.bvh.gpu.cwbvh8_builder import (
+    CWBVH_HPLOC_SEARCH_RADIUS,
+    GpuCwbvh8BuildArena,
+)
 from bajo.bvh.gpu.builder.hploc_layout import HPLOC_MERGING_THRESHOLD
 from bajo.bvh.gpu.triangle_bvh import (
     compute_triangle_bounds_kernel,
@@ -50,6 +53,7 @@ def create_cwbvh8_bench_arena[
     indexed_triangle_layout: Bool = False,
     spatial_slots: Bool = True,
     merging_threshold: Int = HPLOC_MERGING_THRESHOLD,
+    search_radius: Int = CWBVH_HPLOC_SEARCH_RADIUS,
 ](
     mut ctx: DeviceContext, d_vertices: DeviceBuffer[.float32]
 ) raises -> GpuCwbvh8BuildArena[
@@ -57,7 +61,7 @@ def create_cwbvh8_bench_arena[
     direct_conversion,
     indexed_triangle_layout,
     spatial_slots,
-    4,
+    search_radius,
     merging_threshold,
 ]:
     """Create a fixed-capacity H-PLOC arena and queue its initial build."""
@@ -76,7 +80,7 @@ def create_cwbvh8_bench_arena[
         direct_conversion,
         indexed_triangle_layout,
         spatial_slots,
-        4,
+        search_radius,
         merging_threshold,
     ](ctx, leaf_bounds^, payloads^, d_vertices)
 

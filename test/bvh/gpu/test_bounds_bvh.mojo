@@ -1,10 +1,16 @@
 from std.benchmark import keep
 from std.math import abs, max
 from std.sys import has_accelerator
-from std.testing import TestSuite, assert_true
+from std.testing import (
+    TestSuite,
+    assert_true,
+    assert_equal,
+    assert_almost_equal,
+)
 from max.gpu.host import DeviceContext, DeviceBuffer
 
-from bajo.core import Vec3f32, Point3f32, AABB
+from bajo.core import Vec3f32, Point3f32, AABB, Rayf32, cross, normalize
+from bajo.core.intersect import intersect_ray_tri
 from bajo.bvh.types import Sphere, Hit
 from bajo.bvh.host_utils import sphere_bounds
 from bajo.bvh.constants import (
@@ -63,6 +69,80 @@ comptime GPU_BOUNDS_TEST_WIDTH = 16
 comptime GPU_BOUNDS_TEST_HEIGHT = 12
 comptime GPU_BOUNDS_TEST_VIEWS = 2
 comptime GPU_BOUNDS_TEST_EPS = 0.05
+
+
+def _assert_packed_triangle_hit_attributes[
+    node_width: SIMDLength, leaf_width: SIMDLength
+]() raises:
+    # Overlapping faces have different areas and normals. The selected face
+    # changes with the interval; the odd batch also exercises partial blocks.
+    var vertices: List[Point3f32[.WORLD]] = [
+        Point3f32[.WORLD](-2, -2, 4),
+        Point3f32[.WORLD](2, -2, 4),
+        Point3f32[.WORLD](-2, 2, 4),
+        Point3f32[.WORLD](-2, -2, 2),
+        Point3f32[.WORLD](2, -2, 3),
+        Point3f32[.WORLD](-2, 2, 2),
+    ]
+    var rays = List[Rayf32[.WORLD]]()
+    for i in range(131):
+        rays.append(
+            Rayf32[.WORLD](
+                Point3f32[.WORLD](0, -0.5, 0),
+                Vec3f32[.WORLD](0, 0, 1),
+                Float32(3) if i % 3 == 1 else Float32(0),
+                Float32(2) if i % 3 == 2 else Float32(100),
+            )
+        )
+    with DeviceContext() as ctx:
+        var d_vertices = upload_vertices(ctx, vertices)
+        var bvh = build_gpu_triangle_bvh[
+            .WORLD, node_width, leaf_width, .HPLOC
+        ](ctx, d_vertices)
+        var d_rays = upload_rays(ctx, rays)
+        var d_hits = ctx.enqueue_create_buffer[.float32](len(rays) * Hit.STRIDE)
+        bvh.launch_rays(ctx, d_rays, d_hits, len(rays))
+        ctx.synchronize()
+        with d_hits.map_to_host() as output:
+            for i in range(len(rays)):
+                var expected = Hit[.WORLD].miss(rays[i].t_max)
+                for face in range(2):
+                    var a = vertices[face * 3]
+                    var b = vertices[face * 3 + 1]
+                    var c = vertices[face * 3 + 2]
+                    var candidate = intersect_ray_tri(
+                        rays[i].o,
+                        rays[i].d,
+                        a,
+                        b,
+                        c,
+                        expected.t,
+                        rays[i].t_min,
+                    )
+                    if candidate.mask:
+                        expected.prim = UInt32(face)
+                        expected.t = candidate.t
+                        expected.u = candidate.u
+                        expected.v = candidate.v
+                        expected.normal = normalize(
+                            cross(b - a, c - a)
+                        ).unsafe_convert[new_kind=.NORMAL]()
+                var hit = Hit[.WORLD].load(
+                    Span(unsafe_ptr=output.unsafe_ptr(), length=len(output)), i
+                )
+                assert_equal(hit.prim, expected.prim)
+                assert_almost_equal(hit.t, expected.t)
+                assert_almost_equal(hit.u, expected.u)
+                assert_almost_equal(hit.v, expected.v)
+                assert_almost_equal(hit.normal.x, expected.normal.x)
+                assert_almost_equal(hit.normal.y, expected.normal.y)
+                assert_almost_equal(hit.normal.z, expected.normal.z)
+
+
+def test_gpu_packed_triangle_hit_attributes() raises:
+    _assert_packed_triangle_hit_attributes[2, 1]()
+    _assert_packed_triangle_hit_attributes[2, 4]()
+    _assert_packed_triangle_hit_attributes[4, 1]()
 
 
 def _triangle_bounds(verts: List[Point3f32[.WORLD]]) -> AABB[.WORLD]:

@@ -323,16 +323,15 @@ def enqueue_radix_passes[
         block_dim=256,
     )
     var db_keys = DoubleBuffer(keys, keys_alternate)
-    # Payload buffers have different origins. Their launch pointers use one
-    # fixed type while the borrowed buffers remain alive through this sequence.
-    var current_values = Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]]()
-    var alternate_values = Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]]()
+    # Track payload pointers with the same pass swaps as keys, then construct
+    # fresh Optional launch arguments from that state for each dispatch.
+    var db_values = Optional[
+        DoubleBuffer[MutAnyOrigin, MutAnyOrigin, vals_dtype]
+    ]()
     comptime if HAVE_PAYLOAD:
-        current_values = Optional(
-            vals_current.unsafe_value().unsafe_origin_cast[MutAnyOrigin]()
-        )
-        alternate_values = Optional(
-            vals_alternate.unsafe_value().unsafe_origin_cast[MutAnyOrigin]()
+        db_values = DoubleBuffer(
+            vals_current.unsafe_value().unsafe_origin_cast[MutAnyOrigin](),
+            vals_alternate.unsafe_value().unsafe_origin_cast[MutAnyOrigin](),
         )
     comptime for pass_idx in range(NUM_PASSES):
         ctx.enqueue_function[
@@ -341,8 +340,12 @@ def enqueue_radix_passes[
         ](
             db_keys.current,
             db_keys.alternate,
-            current_values,
-            alternate_values,
+            Optional(db_values.value().current) if HAVE_PAYLOAD else Optional[
+                Pointer[Scalar[vals_dtype], MutAnyOrigin]
+            ](),
+            Optional(db_values.value().alternate) if HAVE_PAYLOAD else Optional[
+                Pointer[Scalar[vals_dtype], MutAnyOrigin]
+            ](),
             pass_hist.unsafe_offset(
                 pass_idx * hist_blocks * 256 * HISTOGRAM_WORDS
             ),
@@ -354,4 +357,4 @@ def enqueue_radix_passes[
         )
         db_keys.swap()
         comptime if HAVE_PAYLOAD:
-            current_values, alternate_values = alternate_values, current_values
+            db_values.value().swap()

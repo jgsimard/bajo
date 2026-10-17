@@ -1,4 +1,4 @@
-"""Build and closest-hit traversal comparison for Bajo versus NexusBVH."""
+"""Build and closest-hit traversal parameter sweep for Bajo's GPU BVHs."""
 
 from std.math import ceildiv, max, round
 from std.sys import argv, has_accelerator
@@ -204,7 +204,7 @@ def _run_cwbvh8_case[
             t"{ns_to_ms(rebuild_values[len(rebuild_values) - 1])}"
         )
 
-        # Match Nexus's fresh-build scope: include allocation and geometry bounds.
+        # Measure fresh builds including allocation and geometry bounds.
         for _ in range(BENCH_REPEATS):
             var start = perf_counter_ns()
             var fresh = create_cwbvh8_bench_arena[
@@ -412,7 +412,7 @@ def main() raises:
     var args = argv()
     if len(args) > 2:
         raise (
-            "usage: bench_gpu_nexus_bajo "
+            "usage: bench_gpu_bvh_sweep "
             "[hploc-cwbvh8-m1|hploc-cwbvh8-m1-indexed|"
             "hploc-cwbvh8-m1-staged|hploc-cwbvh8-m1-frontier-slots|"
             "hploc-cwbvh8-m1-mt4|hploc-cwbvh8-m1-mt8]"

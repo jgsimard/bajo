@@ -11,6 +11,4 @@ for root in tools bench test; do
   fi
 done
 
-rm -f -- bench/sort/bench_cub_radix bench/bvh/bench_tinybvh
-
 echo "Removed Bajo build and interpreter caches."

@@ -9,7 +9,6 @@ OUTPUT_FILENAME = "gpu_sort_benchmark_plot.png"
 
 DEFAULT_CSV_FILES = [
     "gpu_sort_benchmark_results.csv",
-    "cub_sort_benchmark_results.csv",
 ]
 
 # Ordered list. Lines are plotted only if present in the CSV.
@@ -203,7 +202,7 @@ def plot_results(csv_files=None):
         )
 
     plt.title(
-        "GPU Sort Throughput: Bajo/Mojo vs CUB on RTX 5060 Ti",
+        "GPU Sort Throughput",
         fontsize=16,
         fontweight="bold",
         pad=20,

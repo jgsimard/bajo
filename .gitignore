@@ -33,10 +33,6 @@ rtiaw
 /sources/
 /external/
 
-# Generated native binaries
-/bench/sort/bench_cub_radix
-/bench/bvh/bench_tinybvh
-
 # Generated benchmark data
 /bench/results/
 /bench/sort/cub_sort_benchmark_results.csv

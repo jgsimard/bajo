@@ -41,7 +41,7 @@ test_gpu = { depends-on = [
   "test_python_gpu",
 ] }
 
-test_python_host = "bash scripts/run_tests.sh test/bvh/test_bvh_cpu_report.py test/viewer/test_viewer_extensions.py test/viewer/test_viewer_cpu.py"
+test_python_host = "bash scripts/run_tests.sh test/viewer/test_viewer_extensions.py test/viewer/test_viewer_cpu.py"
 test_python_gpu = { cmd = "python test/viewer/test_viewer_gpu.py", env = { BAJO_TEST_GPU = "1" } }
 
 ############
@@ -50,8 +50,7 @@ test_python_gpu = { cmd = "python test/viewer/test_viewer_gpu.py", env = { BAJO_
 
 # sort
 bench_sort_mojo = { cmd = "bash -lc 'cd bench/sort && mojo run -I ../.. bench_gpu_sort.mojo'" }
-bench_sort_cub = { cmd = "bash -lc 'cd bench/sort && make run-radix'" }
-plot_sort = { cmd = "bash -lc 'cd bench/sort && python plot_gpu_sort.py gpu_sort_benchmark_results.csv cub_sort_benchmark_results.csv'" }
+plot_sort = { cmd = "bash -lc 'cd bench/sort && python plot_gpu_sort.py gpu_sort_benchmark_results.csv'" }
 
 
 # parsers: whole-file loading, not individual implementation stages
@@ -70,10 +69,6 @@ bench_bvh_cpu_packets = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_packets.mojo"
 bench_bvh_cpu_instances = { cmd = "mojo -I . bench/bvh/bench_cpu_bvh_instances.mojo", depends-on = ["download_assets"] }
 bench_bvh_cpu_blas_set = "mojo -I . bench/bvh/bench_cpu_blas_set_build.mojo"
 bench_bvh_cpu_spatial_groups = "mojo -I . bench/bvh/bench_cpu_spatial_groups.mojo"
-bench_bvh_cpu_embree = { cmd = "bash -lc 'g++ -O3 -march=native -DNDEBUG -std=c++20 bench/bvh/bench_embree_cpu.cpp -lembree4 -o /tmp/bajo_bench_embree_cpu && /tmp/bajo_bench_embree_cpu assets/dragon/dragon.obj'", depends-on = ["download_assets"] }
-bench_bvh_cpu_tinybvh = { cmd = "bash bench/bvh/bench_tinybvh.sh ./assets/dragon/dragon.obj", depends-on = ["download_assets"] }
-bench_bvh_cpu_compare = { cmd = "bash bench/bvh/bench_bvh_cpu_compare.sh", depends-on = ["download_assets"] }
-bench_bvh_cpu_report = { cmd = "python bench/bvh/bench_bvh_cpu_report.py", depends-on = ["download_assets"] }
 
 
 # bvh gpu
@@ -81,7 +76,7 @@ bench_bvh_gpu = {cmd = "mojo -I . bench/bvh/bench_gpu_bounds_bvh.mojo",  depends
 bench_bvh_gpu_spatial_bounds_updates = "mojo -I . bench/bvh/bench_gpu_spatial_bounds_updates.mojo"
 bench_bvh_gpu_tlas = { cmd = "mojo -I . bench/bvh/bench_gpu_tlas.mojo",  depends-on = ["download_assets"] }
 bench_bvh_gpu_blas_tlas_build = { cmd = "mojo -I . --target-accelerator sm_120 bench/bvh/bench_gpu_blas_tlas_build.mojo", depends-on = ["download_assets"] }
-bench_bvh_gpu_nexus_compare = { cmd = "python bench/bvh/bench_gpu_nexus_compare.py", depends-on = ["download_assets"] }
+bench_bvh_gpu_sweep = { cmd = "mojo -I . bench/bvh/bench_gpu_bvh_sweep.mojo", depends-on = ["download_assets"] }
 
 # ray tracing cpu: scalar, native SIMD and parallel SIMD
 bench_rt_cpu = "mojo -I . bench/rt/bench_cpu_rt.mojo"

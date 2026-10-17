@@ -147,25 +147,22 @@ pixi run mojo -I . bench/parser/bench_loaders.mojo png path/to/image.png
 Available loaders are `obj`, `ply`, `png`, `exr` and `pbrt`; `bench_obj` and
 `bench_ply` provide shortcuts using downloaded assets.
 
-Common tasks (larger comparisons are opt-in):
+Common tasks (larger benchmarks are opt-in):
 
 ```bash
 pixi run bench_smoke
 pixi run bench_bvh_smoke
-pixi run bench_bvh_cpu_report
-pixi run bench_bvh_gpu_nexus_compare
+pixi run bench_bvh_cpu_dragon
+pixi run bench_bvh_gpu_sweep
 pixi run bench_rt_cpu
 pixi run bench_rt_gpu
 pixi run bench_rt_cpu_gpu
 pixi run bench_sort_mojo
 ```
 
-GPU benchmarks require a supported accelerator. The CPU comparison report also
-uses Embree 4 and TinyBVH; the Embree task requires Embree 4 headers and
-`libembree4`. The report commands generate their output under `bench/results/`;
-these generated files are ignored by Git. The CPU BVH report defaults to
-`bench/results/bvh_cpu/`, and the NexusBVH comparison defaults to
-`bench/results/bvh_gpu_nexus/comparison.md`.
+GPU benchmarks require a supported accelerator. The benchmarks in this repository
+exercise Bajo's Mojo implementations. Generated results under `bench/results/`
+are ignored by Git.
 
 ## Repository layout
 

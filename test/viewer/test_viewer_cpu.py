@@ -58,6 +58,9 @@ class CpuExtensionTests(unittest.TestCase):
                 self.assertTrue((pixels > 0).any())
                 return pixels
             before = render(normals)
+            ao = loader.load(0, 4, 0, 0)
+            self.assertIs(ao.preparation, normals.preparation)
+            render(ao)
             saved = before.copy()
             path = loader.load(0, 0, 0, 0)
             self.assertIs(path.preparation, normals.preparation)

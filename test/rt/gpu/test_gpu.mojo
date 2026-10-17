@@ -16,7 +16,6 @@ from bajo.core.random import Sampler
 from bajo.rt.cpu import (
     CpuScene,
     CpuSchedulerMode,
-    render_depth_first,
     render_wavefront,
 )
 from bajo.rt.gpu import (
@@ -532,8 +531,8 @@ def test_gpu_coated_diffuse_and_bump_match_cpu() raises:
     # than requiring bit-near identity for every stochastic path.
     assert_pixels_close(gpu.pixels, cpu.pixels, atol=5.0e-3)
 
-    var cpu_normals = render_depth_first[
-        .NORMALS, 1, 1, CpuSchedulerMode.RUNTIME_DEFAULT, 4, 8
+    var cpu_normals = render_wavefront[
+        .NORMALS, 1, 1, False, CpuSchedulerMode.RUNTIME_DEFAULT, 4, 8
     ](settings, camera, world)
     var gpu_normals = render_gpu_configured[
         kind=.SPHERES,
@@ -685,8 +684,8 @@ def test_gpu_textured_instance_matches_cpu_uvs_and_normals() raises:
     var gpu = render_gpu[.PATH](settings, camera, world.scene_data())
     assert_pixels_close(gpu.pixels, cpu.pixels)
 
-    var cpu_normals = render_depth_first[
-        .NORMALS, 1, 1, CpuSchedulerMode.RUNTIME_DEFAULT, 4, 8
+    var cpu_normals = render_wavefront[
+        .NORMALS, 1, 1, False, CpuSchedulerMode.RUNTIME_DEFAULT, 4, 8
     ](settings, camera, world)
     var gpu_normals = render_gpu[.NORMALS](settings, camera, world.scene_data())
     assert_pixels_close(gpu_normals.pixels, cpu_normals.pixels)
@@ -728,8 +727,8 @@ def test_gpu_ao_matches_unoccluded_cpu_reference() raises:
     var settings = RenderSettings(1, 1, 1, UInt64(509))
     var world = _triangle_world()
     var camera = _camera()
-    var cpu = render_depth_first[
-        .AO, 1, 1, CpuSchedulerMode.RUNTIME_DEFAULT, 4, 8
+    var cpu = render_wavefront[
+        .AO, 1, 1, False, CpuSchedulerMode.RUNTIME_DEFAULT, 4, 8
     ](settings, camera, world)
     var gpu = render_gpu[.AO](settings, camera, world.scene_data())
     assert_vec_equal(gpu.pixels[0], cpu.pixels[0], atol=1.0e-5)

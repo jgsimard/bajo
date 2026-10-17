@@ -1,4 +1,4 @@
-"""Depth-first CPU render timings and deterministic output checksums."""
+"""Wavefront CPU render timings and deterministic output checksums."""
 
 from std.math import round
 from std.time import perf_counter_ns
@@ -9,7 +9,7 @@ from bajo.rt import (
     Camera,
     RenderSettings,
     CpuScene,
-    render_depth_first,
+    render_wavefront,
 )
 from examples.rtiaw import make_weekend_world
 from bajo.benchmark.cpu_harness import (
@@ -37,7 +37,7 @@ def time_render[
     settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
 ) raises -> TimingResult:
     # Warm all compiled code and renderer-owned allocations before measuring.
-    return benchmark_cpu_render[render_depth_first[integrator]](
+    return benchmark_cpu_render[render_wavefront[integrator]](
         settings, camera, world, TIMING_REPEATS
     )
 

@@ -4,7 +4,6 @@ from .cpu import (
     CpuScene,
     CpuSchedulerMode,
     evaluate_bsdf,
-    render_depth_first,
     render_wavefront,
     render_wavefront_configured,
     sample_bsdf,

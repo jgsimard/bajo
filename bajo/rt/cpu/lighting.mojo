@@ -21,7 +21,6 @@ from bajo.rt.common import (
     equal_area_square_to_sphere,
 )
 from bajo.rt.lighting import (
-    _direct_light_scale,
     _draw_alias_column,
     _emissive_hit_light_pdf,
     _emissive_hit_weight_from_pdf,
@@ -31,14 +30,10 @@ from bajo.rt.lighting import (
     _sample_sphere_light_surface,
     _sample_triangle_light_surface,
 )
-from bajo.rt.rays import spawn_surface_ray
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.render_types import Color
-from bajo.rt.media import medium_transmittance
 from bajo.rt.material_types import (
     Integrator,
-    SurfaceId,
-    SurfaceStore,
     Emissive,
     PRIMITIVE_INDEX_BITS,
     SURFACE_INDEX_MASK,
@@ -48,7 +43,6 @@ from bajo.rt.shading_types import (
     SurfaceHit,
 )
 from .scene import CpuScene
-from .bsdf import evaluate_bsdf
 
 
 @fieldwise_init
@@ -355,63 +349,3 @@ def _sample_direct_light_candidate[
         geometry.shadow_t_max, result.shadow_t_max
     )
     return result^
-
-
-def _sample_direct_light[
-    world_bvh_width: SIMDLength,
-    instance_bvh_width: SIMDLength,
-](
-    world: CpuScene[world_bvh_width, instance_bvh_width],
-    point: ShadingPoint[1],
-    mut rng: Rng[1],
-) -> _DirectLightSample[1]:
-    """Sample one visible world-space light without evaluating the BSDF."""
-    var light = _sample_direct_light_candidate(world, point, rng)
-    if not light.valid:
-        return light^
-    var shadow_ray = spawn_surface_ray(
-        point.p, light.direction, light.shadow_t_max
-    )
-    if world.occluded(shadow_ray):
-        return _DirectLightSample[1].make_empty()
-    return light^
-
-
-def sample_direct_lighting[
-    integrator: Integrator,
-    world_bvh_width: SIMDLength,
-    instance_bvh_width: SIMDLength,
-](
-    surface: SurfaceId[1],
-    world: CpuScene[world_bvh_width, instance_bvh_width],
-    incoming_ray: Rayf32[.WORLD],
-    point: ShadingPoint[1],
-    mut rng: Rng[1],
-    medium_id: UInt32 = 0,
-    estimator_seed: UInt32 = 0,
-) -> Color:
-    """Sample direct illumination and apply the scalar reference BSDF."""
-    comptime assert Integrator.uses_direct_lighting[integrator]
-    var light = _sample_direct_light(world, point, rng)
-    if not light.valid:
-        return Color(0.0)
-    if medium_id != 0:
-        light.emission *= medium_transmittance(
-            world.scene_data().media().absorption[Int(medium_id)],
-            light.shadow_t_max,
-        )
-    var evaluation = evaluate_bsdf(
-        surface,
-        world.scene_data().surfaces(),
-        incoming_ray,
-        point,
-        light.direction,
-        estimator_seed,
-    )
-    var scale = _direct_light_scale[integrator, 1](
-        light.surface_cosine,
-        light.light_pdf,
-        evaluation.pdf,
-        light.valid,
-    )
-    return evaluation.value * light.emission * scale

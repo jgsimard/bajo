@@ -22,7 +22,7 @@ from bajo.rt.wavefront_queue import PacketPathQueue, PacketShadeQueue
 
 
 from .primary import _initialize_path_packets_range
-from .packet import _trace_path_packets
+from .packet import _trace_packets
 
 
 comptime CPU_WAVEFRONT_SERIAL_CHUNK_PATHS = 8192
@@ -36,7 +36,7 @@ def _whole_pixel_chunk_paths(samples_per_pixel: Int, target_paths: Int) -> Int:
     )
 
 
-struct _PacketQueueArena[length: SIMDLength]:
+struct _PacketQueueArena[length: SIMDLength, integrator: Integrator]:
     var active_paths: PacketPathQueue[Self.length]
     var next_paths: PacketPathQueue[Self.length]
     var lambertian: PacketShadeQueue[Self.length]
@@ -48,18 +48,21 @@ struct _PacketQueueArena[length: SIMDLength]:
         # Two path buffers ping-pong between bounces. Material queues reserve
         # their worst-case size once so appends never grow storage mid-bounce.
         self.active_paths = PacketPathQueue[Self.length](capacity)
-        self.next_paths = PacketPathQueue[Self.length](capacity)
+        var shade_capacity = capacity if Integrator.is_path_tracing[
+            Self.integrator
+        ] else 0
+        self.next_paths = PacketPathQueue[Self.length](shade_capacity)
         self.lambertian = PacketShadeQueue[Self.length](
-            capacity if len(surfaces.lambertians) > 0 else 0
+            shade_capacity if len(surfaces.lambertians) > 0 else 0
         )
         self.metal = PacketShadeQueue[Self.length](
-            capacity if len(surfaces.metals) > 0 else 0
+            shade_capacity if len(surfaces.metals) > 0 else 0
         )
         self.dielectric = PacketShadeQueue[Self.length](
-            capacity if len(surfaces.dielectrics) > 0 else 0
+            shade_capacity if len(surfaces.dielectrics) > 0 else 0
         )
         self.coated_diffuse = PacketShadeQueue[Self.length](
-            capacity if len(surfaces.coated_diffuses) > 0 else 0
+            shade_capacity if len(surfaces.coated_diffuses) > 0 else 0
         )
 
 
@@ -78,12 +81,12 @@ def _trace_packet_range[
     pixels: MutSpan[Color, _],
     path_begin: Int,
     path_end: Int,
-    mut queues: _PacketQueueArena[length],
+    mut queues: _PacketQueueArena[length, integrator],
 ):
     _initialize_path_packets_range[length](
         queues.active_paths, settings, sampling, camera, path_begin, path_end
     )
-    _trace_path_packets[
+    _trace_packets[
         length,
         integrator,
         world_bvh_width,
@@ -121,7 +124,11 @@ def render_wavefront_configured[
 ) raises -> RenderResult:
     """Render with compile-time packet, chunk, and CPU scheduling choices."""
     comptime assert CHUNK_PATHS > 0, "wavefront chunk size must be positive"
-    comptime assert Integrator.is_path_tracing[integrator]
+    comptime assert (
+        Integrator.is_path_tracing[integrator]
+        or integrator == .NORMALS
+        or integrator == .AO
+    )
     comptime if PARALLEL:
         comptime assert CpuSchedulerMode.is_valid[
             scheduler_mode
@@ -159,7 +166,7 @@ def render_wavefront_configured[
             )
             if chunk_idx >= chunk_count:
                 return
-            var queues = _PacketQueueArena[length](
+            var queues = _PacketQueueArena[length, integrator](
                 arena_capacity, world.scene_data().surfaces()
             )
             while chunk_idx < chunk_count:
@@ -194,7 +201,7 @@ def render_wavefront_configured[
             parallelize(worker, worker_count, worker_count)
 
     else:
-        var queues = _PacketQueueArena[length](
+        var queues = _PacketQueueArena[length, integrator](
             arena_capacity, world.scene_data().surfaces()
         )
         var path_begin = 0

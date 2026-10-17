@@ -52,7 +52,6 @@ from bajo.rt import (
     SurfaceStore,
     CpuScene,
     evaluate_bsdf,
-    render_depth_first,
     render_wavefront,
     sample_bsdf,
 )
@@ -1170,7 +1169,7 @@ def test_render_settings_and_tiny_render() raises:
         90.0,
     )
 
-    var result = render_depth_first[.PATH](settings, camera, world)
+    var result = render_wavefront[.PATH](settings, camera, world)
     assert_equal(len(result.pixels), 8)
     assert_equal(result.timings.pixel_count, 8)
     assert_equal(result.timings.sample_count, 16)
@@ -1179,10 +1178,8 @@ def test_render_settings_and_tiny_render() raises:
     for p in result.pixels:
         assert_true(p.x >= 0.0 and p.y >= 0.0 and p.z >= 0.0)
 
-    var one_pixel_tiles = render_depth_first[.PATH, 1, 1](
-        settings, camera, world
-    )
-    assert_pixels_close(one_pixel_tiles.pixels, result.pixels)
+    var one_path_chunks = render_wavefront[.PATH, 1, 1](settings, camera, world)
+    assert_pixels_close(one_path_chunks.pixels, result.pixels)
 
     # Renderer packet length and both acceleration widths are independent.
     var packet_result = render_wavefront[.PATH, 4, 16, False](
@@ -1209,7 +1206,7 @@ def test_render_can_select_normal_integrator_at_compile_time() raises:
         90.0,
     )
 
-    var result = render_depth_first[.NORMALS](settings, camera, world)
+    var result = render_wavefront[.NORMALS](settings, camera, world)
     assert_equal(len(result.pixels), 1)
     assert_true(result.pixels[0].z >= result.pixels[0].x)
 
@@ -1232,7 +1229,7 @@ def test_render_can_select_ao_integrator_at_compile_time() raises:
         90.0,
     )
 
-    var result = render_depth_first[.AO](settings, camera, world)
+    var result = render_wavefront[.AO](settings, camera, world)
     assert_equal(len(result.pixels), 1)
     assert_true(
         result.pixels[0].x >= 0.0
@@ -1359,23 +1356,15 @@ def test_direct_light_integrators_render_cornell() raises:
         assert_true(light.weight > 0.0)
     comptime for integrator in [Integrator.NEE, Integrator.MIS]:
         var result = render_wavefront[integrator](settings, camera, world)
-        var depth_first = render_depth_first[integrator](
-            settings, camera, world
-        )
         var packet1 = render_wavefront[integrator, 1, 14, False](
             settings, camera, world
         )
         var total = Float32(0.0)
-        var depth_first_total = Float32(0.0)
         for i, pixel in enumerate(result.pixels):
             assert_true(pixel.x >= 0.0 and pixel.y >= 0.0 and pixel.z >= 0.0)
             total += pixel.x + pixel.y + pixel.z
             assert_vec_equal(packet1.pixels[i], pixel)
-        for pixel in depth_first.pixels:
-            assert_true(pixel.x >= 0.0 and pixel.y >= 0.0 and pixel.z >= 0.0)
-            depth_first_total += pixel.x + pixel.y + pixel.z
         assert_true(total > 0.0)
-        assert_true(depth_first_total > 0.0)
         comptime for width in [4, 8, 16]:
             var packet = render_wavefront[integrator, width, 14, False](
                 settings, camera, world

@@ -8,9 +8,7 @@ from std.sys.defines import get_defined_int
 from std.time import perf_counter_ns
 from bajo.bvh.cpu import CpuTraversalMode
 from bajo.core.utils import ns_to_ms
-from bajo.rt.render_types import RenderResult
 from bajo.rt.material_types import Integrator
-from bajo.rt.cpu.depth_first import render_depth_first
 from bajo.rt.cpu.wavefront import render_wavefront_configured
 from bajo.rt.cpu.scheduler_mode import CpuSchedulerMode
 from bajo.rt.gpu.prepared_renderer import GpuRtPreparedRenderer
@@ -40,24 +38,20 @@ def _render_cpu_state[
     )
     var settings = _settings(config)
     var camera = _camera(config)
-    var result: RenderResult
     var render_t0 = perf_counter_ns()
-    comptime if Integrator.is_path_tracing[integrator]:
-        result = render_wavefront_configured[
-            CPU_VIEWER_TRAVERSAL_MODE,
-            integrator,
-            16,
-            1024,
-            True,
-            CpuSchedulerMode.TASK_PARTITIONS,
-            16,
-            16,
-            16,
-            8,
-            4,
-        ](settings, camera, ptr[].world)
-    else:
-        result = render_depth_first[integrator](settings, camera, ptr[].world)
+    var result = render_wavefront_configured[
+        CPU_VIEWER_TRAVERSAL_MODE,
+        integrator,
+        16,
+        1024,
+        True,
+        CpuSchedulerMode.TASK_PARTITIONS,
+        16,
+        16,
+        16,
+        8,
+        4,
+    ](settings, camera, ptr[].world)
     var render_ns = Int(perf_counter_ns() - render_t0)
     var frame = _linear_frame(
         settings.image_width, settings.image_height, result.pixels

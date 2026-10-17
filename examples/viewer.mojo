@@ -19,7 +19,6 @@ from bajo.rt import (
     SceneData,
     CpuScene,
     CpuSchedulerMode,
-    render_depth_first,
     render_gpu,
     render_wavefront,
     render_wavefront_configured,
@@ -302,29 +301,19 @@ def _render_frame[
             sample_sequence_length,
         )
         var t0 = perf_counter_ns()
-        var t1: Int
-        comptime if Integrator.is_path_tracing[integrator]:
-            var result = render_wavefront_configured[
-                traversal_mode,
-                integrator,
-                16,
-                1024,
-                True,
-                CpuSchedulerMode.TASK_PARTITIONS,
-                world_bvh_width,
-                instance_bvh_width,
-                *adaptive_packet_sizes,
-            ](settings, camera, world)
-            t1 = perf_counter_ns()
-            _write_viewer_frame(
-                output, width, height, result.pixels, linear_output
-            )
-        else:
-            var result = render_depth_first[integrator](settings, camera, world)
-            t1 = perf_counter_ns()
-            _write_viewer_frame(
-                output, width, height, result.pixels, linear_output
-            )
+        var result = render_wavefront_configured[
+            traversal_mode,
+            integrator,
+            16,
+            1024,
+            True,
+            CpuSchedulerMode.TASK_PARTITIONS,
+            world_bvh_width,
+            instance_bvh_width,
+            *adaptive_packet_sizes,
+        ](settings, camera, world)
+        var t1 = perf_counter_ns()
+        _write_viewer_frame(output, width, height, result.pixels, linear_output)
         return ViewerRenderStats(
             ns_to_ms(Int(t1 - t0)),
             _viewer_bvh_stats[

@@ -49,7 +49,7 @@ from bajo.rt.common import (
     path_stage_seed,
 )
 from bajo.rt.lighting import _direct_light_scale
-from bajo.rt.rays import spawn_surface_ray
+from bajo.rt.rays import make_ao_ray, spawn_surface_ray
 from bajo.rt.shading import (
     dielectric_geometry,
     _evaluate_coated_diffuse,
@@ -442,7 +442,7 @@ def _shade_material_packets[
         )
 
 
-def _trace_path_packets[
+def _trace_packets[
     length: SIMDLength,
     integrator: Integrator,
     world_bvh_width: SIMDLength,
@@ -461,8 +461,10 @@ def _trace_path_packets[
     mut dielectric_queue: PacketShadeQueue[length],
     mut coated_diffuse_queue: PacketShadeQueue[length],
 ):
-    comptime assert Integrator.is_path_tracing[integrator]
-    for bounce in range(settings.max_depth):
+    var bounce_count = settings.max_depth if Integrator.is_path_tracing[
+        integrator
+    ] else 1
+    for bounce in range(bounce_count):
         if len(active_paths) == 0:
             break
         lambertian_queue.clear()
@@ -491,33 +493,34 @@ def _trace_path_packets[
             var surface_hits = world.trace_surface_configured[
                 length, traversal_mode, *adaptive_packet_sizes
             ](ray_packet, valid_lanes)
-            var mixed = (
-                surface_hits.hit
-                & valid_lanes
-                & (surface_hits.surface.value >> SURFACE_INDEX_BITS).eq(
-                    MaterialKind.MIX.value
+            comptime if Integrator.is_path_tracing[integrator]:
+                var mixed = (
+                    surface_hits.hit
+                    & valid_lanes
+                    & (surface_hits.surface.value >> SURFACE_INDEX_BITS).eq(
+                        MaterialKind.MIX.value
+                    )
                 )
-            )
-            if mixed.reduce_or():
-                var material_rng = path_stage_rng(
-                    sampling,
-                    packet.path_ids,
-                    wavefront_rng_material_stage(UInt32(bounce)),
-                )
-                var mix_random = material_rng.f32()
-                for lane in range(lane_count):
-                    if mixed[lane]:
-                        surface_hits.surface.value[lane] = (
-                            world.scene_data()
-                            .surfaces()
-                            .resolve_mix(
-                                surface_hits.surface.get(lane),
-                                mix_random[lane],
-                                surface_hits.uv_u[lane],
-                                surface_hits.uv_v[lane],
+                if mixed.reduce_or():
+                    var material_rng = path_stage_rng(
+                        sampling,
+                        packet.path_ids,
+                        wavefront_rng_material_stage(UInt32(bounce)),
+                    )
+                    var mix_random = material_rng.f32()
+                    for lane in range(lane_count):
+                        if mixed[lane]:
+                            surface_hits.surface.value[lane] = (
+                                world.scene_data()
+                                .surfaces()
+                                .resolve_mix(
+                                    surface_hits.surface.get(lane),
+                                    mix_random[lane],
+                                    surface_hits.uv_u[lane],
+                                    surface_hits.uv_v[lane],
+                                )
+                                .value[0]
                             )
-                            .value[0]
-                        )
             surface_hits.normal = (
                 world.scene_data()
                 .surfaces()
@@ -529,188 +532,239 @@ def _trace_path_packets[
                     surface_hits.hit & valid_lanes,
                 )
             )
-            if (valid_lanes & packet.medium_ids.ne(0)).reduce_or():
-                var distance = surface_hits.hit.select(
-                    surface_hits.t, packet.t_max
-                ) * sqrt(dot(ray_packet.d, ray_packet.d))
-                var attenuation = (
-                    world.scene_data()
-                    .media()
-                    .transmittance(packet.medium_ids, distance, valid_lanes)
-                )
-                packet.tx *= attenuation.x
-                packet.ty *= attenuation.y
-                packet.tz *= attenuation.z
-            for lane in range(lane_count):
-                var ray = Rayf32[.WORLD](
-                    Point3f32[.WORLD](
-                        packet.ox[lane], packet.oy[lane], packet.oz[lane]
-                    ),
-                    Vec3f32[.WORLD](
-                        packet.dx[lane], packet.dy[lane], packet.dz[lane]
-                    ),
-                    packet.t_min[lane],
-                    packet.t_max[lane],
-                )
-                var hit = surface_hits.get(lane)
-                if hit.hit:
-                    var pixel_idx = (
-                        Int(packet.path_ids[lane]) / settings.samples_per_pixel
-                    )
-                    if hit.surface.kind() == .EMISSIVE:
-                        var emission_weight = _emissive_hit_weight[integrator](
-                            world,
-                            ray,
-                            hit,
-                            bounce,
-                            packet.bsdf_pdfs[lane],
-                            packet.deltas[lane],
-                        )
-                        pixels[pixel_idx] += (
-                            Color(
-                                packet.tx[lane],
-                                packet.ty[lane],
-                                packet.tz[lane],
-                            )
-                            * world.scene_data()
-                            .surfaces()
-                            .emitted_radiance(
-                                hit.surface,
-                                hit.front_face,
-                            )
-                            * emission_weight
-                        )
-                        continue
-
-                else:
-                    misses[lane] = True
-
-            # Gather ray/throughput rows once, after per-lane attenuation;
-            # append one compact tile per material, preserving lane order.
-            var shade = ShadePacket[length]()
-            shade.set_paths(packet)
-            shade.set_hits(surface_hits)
-            var valid_shade = surface_hits.hit & valid_lanes
-            var kinds = surface_hits.surface.value >> SURFACE_INDEX_BITS
-            lambertian_queue.append_packet_masked(
-                shade,
-                kinds.eq(MaterialKind.LAMBERTIAN.value) & valid_shade,
-                lane_count,
-            )
-            metal_queue.append_packet_masked(
-                shade,
-                kinds.eq(MaterialKind.METAL.value) & valid_shade,
-                lane_count,
-            )
-            dielectric_queue.append_packet_masked(
-                shade,
-                kinds.eq(MaterialKind.DIELECTRIC.value) & valid_shade,
-                lane_count,
-            )
-            coated_diffuse_queue.append_packet_masked(
-                shade,
-                kinds.eq(MaterialKind.COATED_DIFFUSE.value) & valid_shade,
-                lane_count,
-            )
-
-            comptime if Integrator.uses_direct_lighting[integrator]:
-                direct_lights.point = ShadingPoint[length].from_hit(
-                    ray_packet, surface_hits
-                )
-                direct_lights.surface_kinds = kinds
-                direct_lights.surface_indices = surface_hits.surface.value & (
-                    (UInt32(1) << SURFACE_INDEX_BITS) - UInt32(1)
-                )
-                var light_rng = path_stage_rng(
-                    sampling,
-                    packet.path_ids,
-                    wavefront_rng_light_stage(UInt32(bounce)),
-                )
-                direct_lights.sample = _sample_direct_light_candidate(
-                    world,
-                    direct_lights.point,
-                    light_rng,
-                    valid_shade & kinds.ne(MaterialKind.EMISSIVE.value),
-                )
-                if (
-                    direct_lights.sample.valid & packet.medium_ids.ne(0)
-                ).reduce_or():
+            comptime if Integrator.is_path_tracing[integrator]:
+                if (valid_lanes & packet.medium_ids.ne(0)).reduce_or():
+                    var distance = surface_hits.hit.select(
+                        surface_hits.t, packet.t_max
+                    ) * sqrt(dot(ray_packet.d, ray_packet.d))
                     var attenuation = (
                         world.scene_data()
                         .media()
-                        .transmittance(
-                            packet.medium_ids,
-                            direct_lights.sample.shadow_t_max,
-                            direct_lights.sample.valid,
-                        )
+                        .transmittance(packet.medium_ids, distance, valid_lanes)
                     )
-                    direct_lights.sample.emission *= attenuation
-                var shadow_rays = spawn_surface_ray(
-                    direct_lights.point.p,
-                    direct_lights.sample.direction,
-                    direct_lights.sample.shadow_t_max,
+                    packet.tx *= attenuation.x
+                    packet.ty *= attenuation.y
+                    packet.tz *= attenuation.z
+                for lane in range(lane_count):
+                    var ray = Rayf32[.WORLD](
+                        Point3f32[.WORLD](
+                            packet.ox[lane], packet.oy[lane], packet.oz[lane]
+                        ),
+                        Vec3f32[.WORLD](
+                            packet.dx[lane], packet.dy[lane], packet.dz[lane]
+                        ),
+                        packet.t_min[lane],
+                        packet.t_max[lane],
+                    )
+                    var hit = surface_hits.get(lane)
+                    if hit.hit:
+                        var pixel_idx = (
+                            Int(packet.path_ids[lane])
+                            / settings.samples_per_pixel
+                        )
+                        if hit.surface.kind() == .EMISSIVE:
+                            var emission_weight = _emissive_hit_weight[
+                                integrator
+                            ](
+                                world,
+                                ray,
+                                hit,
+                                bounce,
+                                packet.bsdf_pdfs[lane],
+                                packet.deltas[lane],
+                            )
+                            pixels[pixel_idx] += (
+                                Color(
+                                    packet.tx[lane],
+                                    packet.ty[lane],
+                                    packet.tz[lane],
+                                )
+                                * world.scene_data()
+                                .surfaces()
+                                .emitted_radiance(
+                                    hit.surface,
+                                    hit.front_face,
+                                )
+                                * emission_weight
+                            )
+                            continue
+
+                    else:
+                        misses[lane] = True
+
+                # Gather ray/throughput rows once, after per-lane attenuation;
+                # append one compact tile per material, preserving lane order.
+                var shade = ShadePacket[length]()
+                shade.set_paths(packet)
+                shade.set_hits(surface_hits)
+                var valid_shade = surface_hits.hit & valid_lanes
+                var kinds = surface_hits.surface.value >> SURFACE_INDEX_BITS
+                lambertian_queue.append_packet_masked(
+                    shade,
+                    kinds.eq(MaterialKind.LAMBERTIAN.value) & valid_shade,
+                    lane_count,
                 )
-                direct_lights.sample.valid &= ~world.occluded(
-                    shadow_rays, direct_lights.sample.valid
+                metal_queue.append_packet_masked(
+                    shade,
+                    kinds.eq(MaterialKind.METAL.value) & valid_shade,
+                    lane_count,
                 )
-                _accumulate_direct_light_packet[integrator, length](
+                dielectric_queue.append_packet_masked(
+                    shade,
+                    kinds.eq(MaterialKind.DIELECTRIC.value) & valid_shade,
+                    lane_count,
+                )
+                coated_diffuse_queue.append_packet_masked(
+                    shade,
+                    kinds.eq(MaterialKind.COATED_DIFFUSE.value) & valid_shade,
+                    lane_count,
+                )
+
+                comptime if Integrator.uses_direct_lighting[integrator]:
+                    direct_lights.point = ShadingPoint[length].from_hit(
+                        ray_packet, surface_hits
+                    )
+                    direct_lights.surface_kinds = kinds
+                    direct_lights.surface_indices = (
+                        surface_hits.surface.value
+                        & ((UInt32(1) << SURFACE_INDEX_BITS) - UInt32(1))
+                    )
+                    var light_rng = path_stage_rng(
+                        sampling,
+                        packet.path_ids,
+                        wavefront_rng_light_stage(UInt32(bounce)),
+                    )
+                    direct_lights.sample = _sample_direct_light_candidate(
+                        world,
+                        direct_lights.point,
+                        light_rng,
+                        valid_shade & kinds.ne(MaterialKind.EMISSIVE.value),
+                    )
+                    if (
+                        direct_lights.sample.valid & packet.medium_ids.ne(0)
+                    ).reduce_or():
+                        var attenuation = (
+                            world.scene_data()
+                            .media()
+                            .transmittance(
+                                packet.medium_ids,
+                                direct_lights.sample.shadow_t_max,
+                                direct_lights.sample.valid,
+                            )
+                        )
+                        direct_lights.sample.emission *= attenuation
+                    var shadow_rays = spawn_surface_ray(
+                        direct_lights.point.p,
+                        direct_lights.sample.direction,
+                        direct_lights.sample.shadow_t_max,
+                    )
+                    direct_lights.sample.valid &= ~world.occluded(
+                        shadow_rays, direct_lights.sample.valid
+                    )
+                    _accumulate_direct_light_packet[integrator, length](
+                        pixels,
+                        packet,
+                        direct_lights,
+                        lane_count,
+                        world.scene_data().surfaces(),
+                        world.coated_materials(),
+                        settings.samples_per_pixel,
+                        sampling,
+                        wavefront_rng_stage(UInt32(bounce)),
+                    )
+                _accumulate_environment_packet[
+                    length,
+                    integrator,
+                    world_bvh_width,
+                    instance_bvh_width,
+                ](
                     pixels,
                     packet,
-                    direct_lights,
                     lane_count,
-                    world.scene_data().surfaces(),
-                    world.coated_materials(),
+                    misses,
                     settings.samples_per_pixel,
-                    sampling,
-                    wavefront_rng_stage(UInt32(bounce)),
+                    world.scene_data().environment(),
+                    world.scene_data().surfaces(),
+                    world,
+                    bounce,
                 )
-            _accumulate_environment_packet[
-                length,
-                integrator,
-                world_bvh_width,
-                instance_bvh_width,
-            ](
-                pixels,
-                packet,
-                lane_count,
-                misses,
-                settings.samples_per_pixel,
-                world.scene_data().environment(),
-                world.scene_data().surfaces(),
-                world,
-                bounce,
-            )
+            else:
+                var color = Vec3[.float32, .WORLD, length](0.0)
+                comptime if integrator == .NORMALS:
+                    color = Vec3.select(
+                        surface_hits.hit,
+                        (
+                            surface_hits.normal
+                            + Vec3[.float32, .WORLD, length](1.0)
+                        )
+                        * 0.5,
+                        color,
+                    )
+                else:
+                    comptime assert integrator == .AO
+                    color = environment_radiance(
+                        world.scene_data().environment(),
+                        world.scene_data().surfaces(),
+                        ray_packet.d,
+                    )
+                    var hits = surface_hits.hit & valid_lanes
+                    if hits.reduce_or():
+                        var rng = path_stage_rng(
+                            sampling, packet.path_ids, UInt32(1)
+                        )
+                        var ao_ray = make_ao_ray(
+                            ray_packet.at(surface_hits.t),
+                            surface_hits.normal,
+                            rng,
+                        )
+                        var blocked = world.occluded(ao_ray, hits)
+                        var ao_value = blocked.select(Float32(0.08), 1.0)
+                        color = Vec3.select(
+                            hits,
+                            Vec3[.float32, .WORLD, length](
+                                ao_value, ao_value, ao_value
+                            ),
+                            color,
+                        )
+                for lane in range(lane_count):
+                    var pixel_idx = (
+                        Int(packet.path_ids[lane]) // settings.samples_per_pixel
+                    )
+                    pixels[pixel_idx] += Color(
+                        color.x[lane], color.y[lane], color.z[lane]
+                    )
 
-        _shade_material_packets[.LAMBERTIAN, length](
-            next_paths,
-            lambertian_queue,
-            world.scene_data().surfaces(),
-            world.coated_materials(),
-            sampling,
-            UInt32(bounce + 1),
-        )
-        _shade_material_packets[.METAL, length](
-            next_paths,
-            metal_queue,
-            world.scene_data().surfaces(),
-            world.coated_materials(),
-            sampling,
-            UInt32(bounce + 1),
-        )
-        _shade_material_packets[.DIELECTRIC, length](
-            next_paths,
-            dielectric_queue,
-            world.scene_data().surfaces(),
-            world.coated_materials(),
-            sampling,
-            UInt32(bounce + 1),
-        )
-        _shade_material_packets[.COATED_DIFFUSE, length](
-            next_paths,
-            coated_diffuse_queue,
-            world.scene_data().surfaces(),
-            world.coated_materials(),
-            sampling,
-            UInt32(bounce + 1),
-        )
-        swap(active_paths, next_paths)
+        comptime if Integrator.is_path_tracing[integrator]:
+            _shade_material_packets[.LAMBERTIAN, length](
+                next_paths,
+                lambertian_queue,
+                world.scene_data().surfaces(),
+                world.coated_materials(),
+                sampling,
+                UInt32(bounce + 1),
+            )
+            _shade_material_packets[.METAL, length](
+                next_paths,
+                metal_queue,
+                world.scene_data().surfaces(),
+                world.coated_materials(),
+                sampling,
+                UInt32(bounce + 1),
+            )
+            _shade_material_packets[.DIELECTRIC, length](
+                next_paths,
+                dielectric_queue,
+                world.scene_data().surfaces(),
+                world.coated_materials(),
+                sampling,
+                UInt32(bounce + 1),
+            )
+            _shade_material_packets[.COATED_DIFFUSE, length](
+                next_paths,
+                coated_diffuse_queue,
+                world.scene_data().surfaces(),
+                world.coated_materials(),
+                sampling,
+                UInt32(bounce + 1),
+            )
+            swap(active_paths, next_paths)

@@ -1,4 +1,4 @@
-"""Compare CPU renderer architectures on the full RTIAW example workload."""
+"""Compare CPU packet widths and scheduling on the full RTIAW example workload."""
 
 from std.math import round
 from std.sys.arg import argv
@@ -9,7 +9,6 @@ from bajo.rt import (
     RenderResult,
     RenderSettings,
     CpuScene,
-    render_depth_first,
 )
 from bajo.rt.cpu import render_wavefront
 from bajo.rt.cpu.wavefront import (
@@ -32,14 +31,14 @@ comptime MAX_DEPTH = 64
 comptime RNG_SEED = UInt64(1234)
 comptime REPEATS = 9
 
-comptime MODE_DEPTH_FIRST = 0
+comptime MODE_WAVEFRONT_SCALAR = 0
 comptime MODE_WAVEFRONT_SERIAL = 1
 comptime MODE_WAVEFRONT_PARALLEL = 2
 
 
 # Mode, chunk size, and output label in forward sampling order.
 comptime CASES = (
-    (MODE_DEPTH_FIRST, 0, "parallel depth-first 16x16"),
+    (MODE_WAVEFRONT_SCALAR, 0, "serial packet1 wavefront 8K"),
     (MODE_WAVEFRONT_SERIAL, 0, "serial packet16 wavefront 8K"),
     (MODE_WAVEFRONT_PARALLEL, 512, "parallel packet16 wavefront 512"),
     (MODE_WAVEFRONT_PARALLEL, 1024, "parallel packet16 wavefront 1K"),
@@ -55,7 +54,9 @@ def _render_mode[
 ) raises -> RenderResult:
     comptime match MODE:
         case 0:
-            return render_depth_first[.PATH](settings, camera, world)
+            return render_wavefront[
+                .PATH, 1, CPU_WAVEFRONT_SERIAL_CHUNK_PATHS, False
+            ](settings, camera, world)
         case 1:
             return render_wavefront[
                 .PATH,
@@ -88,7 +89,7 @@ def _print(label: String, timing: CpuRenderTiming):
 
 def _run[full_sweep: Bool]() raises:
     comptime case_count = len(CASES) if full_sweep else 3
-    print("Ray Tracing in One Weekend CPU architecture benchmark")
+    print("Ray Tracing in One Weekend CPU packet and scheduling benchmark")
     print(
         t"{WIDTH}x{HEIGHT} x {SPP} spp, depth {MAX_DEPTH}; interleaved median"
         t" of {REPEATS}"

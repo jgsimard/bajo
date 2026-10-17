@@ -19,7 +19,6 @@ from bajo.rt import (
     CpuScene,
     SurfaceStore,
     Color,
-    render_depth_first,
     render_wavefront,
 )
 from bajo.rt.cpu.bsdf import evaluate_bsdf, sample_bsdf
@@ -217,21 +216,19 @@ Shape "sphere"
     var settings = scene.settings.copy()
     var camera = scene.camera
     var world = CpuScene[4, 4](scene^.take_data())
-    var depth = render_depth_first[
-        .MIS, world_bvh_width=4, instance_bvh_width=4
-    ](settings, camera, world)
+    var scalar = render_wavefront[.MIS, 1, 8192, False](settings, camera, world)
     var packet = render_wavefront[.MIS, 4](settings, camera, world)
     var energy = Float32(0.0)
-    for i in range(len(depth.pixels)):
+    for i in range(len(scalar.pixels)):
         assert_true(packet.pixels[i].is_finite()[0])
         assert_almost_equal(
-            packet.pixels[i].x[0], depth.pixels[i].x[0], atol=1.0e-5
+            packet.pixels[i].x[0], scalar.pixels[i].x[0], atol=1.0e-5
         )
         assert_almost_equal(
-            packet.pixels[i].y[0], depth.pixels[i].y[0], atol=1.0e-5
+            packet.pixels[i].y[0], scalar.pixels[i].y[0], atol=1.0e-5
         )
         assert_almost_equal(
-            packet.pixels[i].z[0], depth.pixels[i].z[0], atol=1.0e-5
+            packet.pixels[i].z[0], scalar.pixels[i].z[0], atol=1.0e-5
         )
         energy += packet.pixels[i].x[0]
     assert_true(energy > 0.0)

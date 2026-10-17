@@ -59,7 +59,7 @@ measured regression or by a concrete simulation use case.
 
 ### Ray tracing and rendering
 
-- ✅ CPU depth-first and wavefront renderers
+- ✅ CPU wavefront renderer
 - ✅ GPU wavefront path tracing
 - ✅ PATH, NEE, MIS, AO, and normal-rendering modes
 - ✅ Sphere, triangle, mixed, and instanced scenes

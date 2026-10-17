@@ -11,7 +11,7 @@ from std.testing import (
 from bajo.bvh import Camera
 from bajo.core import Point3f32, Vec3f32, dot
 from bajo.core.random import Sampler
-from bajo.rt import CpuScene, render_depth_first, render_wavefront
+from bajo.rt import CpuScene, render_wavefront
 from bajo.rt.render_types import Color, RenderSettings
 from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.media import SceneMedia, medium_transmittance, transmitted_medium
@@ -62,7 +62,7 @@ def test_beer_lambert_and_boundary_selection() raises:
     assert_true(dot(sampled.direction, Vec3f32[.WORLD](0, 0, 1)) > 0)
 
 
-def test_absorbing_sphere_packet_compaction_and_depth_first() raises:
+def test_absorbing_sphere_packet_compaction_and_scalar() raises:
     var builder = SceneBuilder()
     builder.set_environment(.uniform(Color(1)))
     var surface = builder.add_dielectric(1)
@@ -78,7 +78,9 @@ def test_absorbing_sphere_packet_compaction_and_depth_first() raises:
         0.01,
     )
     var settings = RenderSettings(3, 2, 17, 2026, 8, .HALTON)
-    var scalar = render_depth_first[.PATH](settings, camera, world)
+    var scalar = render_wavefront[.PATH, 1, 8192, False](
+        settings, camera, world
+    )
     var packet = render_wavefront[.PATH, 4](settings, camera, world)
     var expected = medium_transmittance(Color(0.01, 0.2, 0.5), 2)
     for i in range(len(scalar.pixels)):

@@ -15,7 +15,7 @@ from bajo.rt import (
     RenderSettings,
     CpuScene,
 )
-from bajo.rt.cpu import render_depth_first, render_wavefront
+from bajo.rt.cpu import render_wavefront
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.config import GpuRtBvhFormat, GPU_RT_BVH_WIDE4
@@ -71,15 +71,12 @@ def _render_cpu[
 ](
     settings: RenderSettings, camera: Camera, world: CpuScene[16, 16]
 ) raises -> RenderResult:
-    comptime if integrator == .AO:
-        return render_depth_first[integrator](settings, camera, world)
-    else:
-        return render_wavefront[
-            integrator,
-            CPU_PACKET_WIDTH,
-            CPU_CHUNK_PATHS,
-            True,
-        ](settings, camera, world)
+    return render_wavefront[
+        integrator,
+        CPU_PACKET_WIDTH,
+        CPU_CHUNK_PATHS,
+        True,
+    ](settings, camera, world)
 
 
 def _bench_cpu[
@@ -226,7 +223,7 @@ def main() raises:
     )
     print(
         t"CPU: packet{CPU_PACKET_WIDTH}, {CPU_CHUNK_PATHS}-path parallel"
-        t" chunks; AO uses tiled depth-first"
+        t" chunks for all integrators"
     )
     print(
         "GPU device time ends with device-resident pixels; host-output also "

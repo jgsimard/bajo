@@ -14,7 +14,7 @@ from bajo.rt import (
     SceneBuilder,
     SurfaceId,
     CpuScene,
-    render_depth_first,
+    render_wavefront,
     write_ppm_from_colors,
 )
 
@@ -409,7 +409,7 @@ def main() raises:
 
     var render_t0 = perf_counter_ns()
     settings.max_depth = MAX_DEPTH
-    var result = render_depth_first[INTEGRATOR](settings, camera, world)
+    var result = render_wavefront[INTEGRATOR](settings, camera, world)
     var render_t1 = perf_counter_ns()
 
     write_ppm_from_colors(

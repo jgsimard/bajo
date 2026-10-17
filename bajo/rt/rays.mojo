@@ -52,11 +52,13 @@ def spawn_surface_ray[
 
 
 @always_inline
-def make_ao_ray(
-    point: Point3[.float32, .WORLD, 1],
-    normal: Vec3[.float32, .WORLD, 1],
-    mut rng: Rng[1],
-) -> Ray[.float32, .WORLD, 1]:
+def make_ao_ray[
+    length: SIMDLength = 1
+](
+    point: Point3[.float32, .WORLD, length],
+    normal: Vec3[.float32, .WORLD, length],
+    mut rng: Rng[length],
+) -> Ray[.float32, .WORLD, length]:
     """Sample the shared finite-distance ambient-occlusion query."""
-    var direction = normalize(random_on_hemisphere[.WORLD](rng, normal))
+    var direction = normalize(random_on_hemisphere[.WORLD, length](rng, normal))
     return spawn_surface_ray(point, direction, RT_AO_DISTANCE)

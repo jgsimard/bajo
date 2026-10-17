@@ -1,17 +1,42 @@
 """Image output shared by renderer backends and examples."""
 
+from std.algorithm import vectorize
 from std.math import sqrt
+from std.sys import simd_width_of
+from std.sys.info import size_of
 from bajo.rt.render_types import Color
 
 
-def linear_to_gamma(x: Float32) -> Float32:
-    if x <= 0.0:
-        return 0.0
-    return sqrt(x)
+@always_inline
+def linear_to_gamma[
+    length: SIMDLength = 1
+](x: SIMD[.float32, length]) -> SIMD[.float32, length]:
+    return sqrt(x.le(0.0).select(Float32(0.0), x))
 
 
-def color_to_byte(x: Float32) -> UInt8:
-    return UInt8((256.0 * linear_to_gamma(x).clamp(0.0, 0.999)))
+@always_inline
+def color_to_byte[
+    length: SIMDLength = 1
+](x: SIMD[.float32, length]) -> SIMD[.uint8, length]:
+    return (256.0 * linear_to_gamma(x).clamp(0.0, 0.999)).cast[.uint8]()
+
+
+def _encode_ppm[
+    width: SIMDLength = simd_width_of[Float32]()
+](pixels: ImmSpan[Color, _]) -> List[UInt8]:
+    var count = len(pixels) * 3
+    var bytes = List[UInt8]()
+    bytes.resize(unsafe_uninit_length=count)
+    var source = pixels.unsafe_ptr().unsafe_bitcast[Float32]()
+    var dest = bytes.unsafe_ptr()
+
+    def encode[lanes: Int](first: Int) {imm}:
+        dest.unsafe_store(
+            first, color_to_byte(source.unsafe_load[width=lanes](first))
+        )
+
+    vectorize[width](count, encode)
+    return bytes^
 
 
 def write_ppm_from_colors(
@@ -22,14 +47,5 @@ def write_ppm_from_colors(
 ) raises:
     with open(path, "w") as f:
         f.write(t"P6\n{width} {height}\n255\n")
-
-        var bytes = List[UInt8](length=width * height * 3, fill=0)
-        var out_i = 0
-
-        for p in pixels:
-            bytes[out_i + 0] = color_to_byte(p.x)
-            bytes[out_i + 1] = color_to_byte(p.y)
-            bytes[out_i + 2] = color_to_byte(p.z)
-            out_i += 3
-
+        var bytes = _encode_ppm(pixels)
         f.write_bytes(bytes)

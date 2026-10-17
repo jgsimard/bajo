@@ -40,7 +40,7 @@ def _sample_gpu_image_texture(
     var height = Int(
         texture_descs[unsafe_offset=desc_base + GpuTextureDescLayout.HEIGHT]
     )
-    var base = pixel_offset + image_pixel_offset(width, height, u, v)
+    var base = pixel_offset + Int(image_pixel_offset(width, height, u, v))
     return Color(texture_pixels.unsafe_offset(base))
 
 

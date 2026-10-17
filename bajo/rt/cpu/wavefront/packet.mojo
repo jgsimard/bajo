@@ -111,17 +111,8 @@ struct _MaterialParameters[length: SIMDLength]:
         surfaces: SurfaceStore,
         coated_fields: Span[Float32, _],
         surface_index: UInt32,
-        u: Float32,
-        v: Float32,
         lane: Int,
     ):
-        comptime if kind != .DIELECTRIC:
-            var sampled = surfaces.sample_albedo(
-                SurfaceId(kind, surface_index), u, v
-            )
-            self.albedo.x[lane] = sampled.x
-            self.albedo.y[lane] = sampled.y
-            self.albedo.z[lane] = sampled.z
         comptime match kind:
             case .METAL:
                 ref material = surfaces.metals[Int(surface_index)]
@@ -132,11 +123,6 @@ struct _MaterialParameters[length: SIMDLength]:
                 )
                 self.coated.set_lane(
                     lane, load_coated_parameters(records, surface_index)
-                )
-                self.coated.conductor_roughness[
-                    lane
-                ] = surfaces.sample_conductor_roughness(
-                    SurfaceId(kind, surface_index), u, v
                 )
             case .DIELECTRIC:
                 self.parameter[lane] = surfaces.dielectrics[
@@ -168,7 +154,16 @@ def _accumulate_direct_light_packet[
         paths.dx, paths.dy, paths.dz
     )
     var material = _MaterialParameters[length]()
-    var estimator_seeds = SIMD[.uint32, length](0)
+    var estimator_seeds = path_stage_seed(sampling, paths.path_ids, stage)
+    var surface = SurfaceId[length](
+        (lights.surface_kinds << SURFACE_INDEX_BITS) | lights.surface_indices
+    )
+    material.albedo = surfaces.sample_albedo(
+        surface, lights.point.uv_u, lights.point.uv_v, lights.sample.valid
+    )
+    var coated_active = lights.sample.valid & lights.surface_kinds.eq(
+        MaterialKind.COATED_DIFFUSE.value
+    )
     for lane in range(lane_count):
         if lights.sample.valid[lane]:
             var kind = MaterialKind(lights.surface_kinds[lane])
@@ -182,14 +177,14 @@ def _accumulate_direct_light_packet[
                         surfaces,
                         coated_fields,
                         lights.surface_indices[lane],
-                        lights.point.uv_u[lane],
-                        lights.point.uv_v[lane],
                         lane,
                     )
-            if kind == .COATED_DIFFUSE:
-                estimator_seeds[lane] = path_stage_seed(
-                    sampling, paths.path_ids[lane], stage
-                )
+    if coated_active.reduce_or():
+        material.coated.conductor_roughness = (
+            surfaces.sample_conductor_roughness(
+                surface, lights.point.uv_u, lights.point.uv_v, coated_active
+            )
+        )
 
     var lambertian = _evaluate_material[.LAMBERTIAN, length](
         ray_direction,
@@ -261,7 +256,7 @@ def _sample_bsdf_values[
     )
     var normal = Vec3[.float32, .WORLD, length](batch.nx, batch.ny, batch.nz)
     var material = _MaterialParameters[length]()
-    var estimator_seeds = SIMD[.uint32, length](0)
+    var estimator_seeds = path_stage_seed(sampling, batch.path_ids, stage)
     var random_u = SIMD[.float32, length](0.0)
     var random_v = SIMD[.float32, length](0.0)
     var active = SIMD[.bool, length](fill=False)
@@ -286,55 +281,46 @@ def _sample_bsdf_values[
                 ref source = surfaces.coated_diffuses[Int(ids[0])]
                 texture_albedo = source.texture_index != NO_TEXTURE
                 texture_roughness = source.roughness_texture_index != NO_TEXTURE
-    for lane in range(lane_count):
-        comptime if MATERIAL_KIND == .COATED_DIFFUSE:
-            estimator_seeds[lane] = path_stage_seed(
-                sampling, batch.path_ids[lane], stage
+    var surface = SurfaceId[length](
+        (SIMD[.uint32, length](MATERIAL_KIND.value) << SURFACE_INDEX_BITS)
+        | batch.surface_indices
+    )
+    comptime if MATERIAL_KIND != .DIELECTRIC:
+        if texture_albedo or MATERIAL_KIND != .COATED_DIFFUSE:
+            material.albedo = surfaces.sample_albedo(
+                surface, batch.uv_u, batch.uv_v, active
             )
-        comptime if MATERIAL_KIND == .COATED_DIFFUSE:
-            var surface = SurfaceId(MATERIAL_KIND, batch.surface_indices[lane])
-            if texture_albedo:
-                var color = surfaces.sample_albedo(
-                    surface, batch.uv_u[lane], batch.uv_v[lane]
+    comptime if MATERIAL_KIND == .COATED_DIFFUSE:
+        if texture_roughness:
+            material.coated.conductor_roughness = (
+                surfaces.sample_conductor_roughness(
+                    surface, batch.uv_u, batch.uv_v, active
                 )
-                material.albedo.x[lane] = color.x
-                material.albedo.y[lane] = color.y
-                material.albedo.z[lane] = color.z
-            if texture_roughness:
-                material.coated.conductor_roughness[
-                    lane
-                ] = surfaces.sample_conductor_roughness(
-                    surface, batch.uv_u[lane], batch.uv_v[lane]
-                )
-        else:
+            )
+    else:
+        for lane in range(lane_count):
             material.gather_lane[MATERIAL_KIND](
                 surfaces,
                 coated_fields,
                 batch.surface_indices[lane],
-                batch.uv_u[lane],
-                batch.uv_v[lane],
                 lane,
             )
-        comptime if MATERIAL_KIND != .DIELECTRIC:
-            var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
-            comptime if MATERIAL_KIND == .METAL:
-                if material.parameter[lane] > 1.0e-4:
-                    random_u[lane] = rng.f32()
-                    random_v[lane] = rng.f32()
-            else:
-                random_u[lane] = rng.f32()
-                random_v[lane] = rng.f32()
-
+    var rng = path_stage_rng(sampling, batch.path_ids, stage)
     comptime if MATERIAL_KIND == .DIELECTRIC:
         var ri = batch.front_faces.select(
             Float32(1.0) / material.parameter, material.parameter
         )
         var geometry = dielectric_geometry(ray_direction, normal, ri)
-        var cannot_refract = geometry[2].gt(1.0)
-        for lane in range(lane_count):
-            if not cannot_refract[lane]:
-                var rng = path_stage_rng(sampling, batch.path_ids[lane], stage)
-                random_u[lane] = rng.f32()
+        var eligible = active & geometry[2].le(1.0)
+        if eligible.reduce_or():
+            random_u = eligible.select(rng.f32(), 0.0)
+    else:
+        var eligible = active
+        comptime if MATERIAL_KIND == .METAL:
+            eligible &= material.parameter.gt(1.0e-4)
+        if eligible.reduce_or():
+            random_u = eligible.select(rng.f32(), 0.0)
+            random_v = eligible.select(rng.f32(), 0.0)
 
     var sampled: BsdfSample[length]
     comptime if MATERIAL_KIND == .COATED_DIFFUSE:
@@ -497,6 +483,44 @@ def _trace_path_packets[
             var surface_hits = world.trace_surface_configured[
                 length, traversal_mode, *adaptive_packet_sizes
             ](ray_packet, valid_lanes)
+            var mixed = (
+                surface_hits.hit
+                & valid_lanes
+                & (surface_hits.surface.value >> SURFACE_INDEX_BITS).eq(
+                    MaterialKind.MIX.value
+                )
+            )
+            if mixed.reduce_or():
+                var material_rng = path_stage_rng(
+                    sampling,
+                    packet.path_ids,
+                    wavefront_rng_material_stage(UInt32(bounce)),
+                )
+                var mix_random = material_rng.f32()
+                for lane in range(lane_count):
+                    if mixed[lane]:
+                        surface_hits.surface.value[lane] = (
+                            world.scene_data()
+                            .surfaces()
+                            .resolve_mix(
+                                surface_hits.surface.get(lane),
+                                mix_random[lane],
+                                surface_hits.uv_u[lane],
+                                surface_hits.uv_v[lane],
+                            )
+                            .value[0]
+                        )
+            surface_hits.normal = (
+                world.scene_data()
+                .surfaces()
+                .shading_normal(
+                    surface_hits.surface,
+                    surface_hits.normal,
+                    surface_hits.uv_u,
+                    surface_hits.uv_v,
+                    surface_hits.hit & valid_lanes,
+                )
+            )
             for lane in range(lane_count):
                 var ray = Rayf32[.WORLD](
                     Point3f32[.WORLD](
@@ -522,29 +546,6 @@ def _trace_path_packets[
                     packet.ty[lane] *= attenuation.y
                     packet.tz[lane] *= attenuation.z
                 if hit.hit:
-                    if hit.surface.kind() == .MIX:
-                        var material_rng = path_stage_rng(
-                            sampling,
-                            packet.path_ids[lane],
-                            wavefront_rng_material_stage(UInt32(bounce)),
-                        )
-                        hit.surface = (
-                            world.scene_data()
-                            .surfaces()
-                            .resolve_mix(
-                                hit.surface,
-                                material_rng.f32(),
-                                hit.uv_u,
-                                hit.uv_v,
-                            )
-                        )
-                    hit.normal = (
-                        world.scene_data()
-                        .surfaces()
-                        .shading_normal(
-                            hit.surface, hit.normal, hit.uv_u, hit.uv_v
-                        )
-                    )
                     var pixel_idx = (
                         Int(packet.path_ids[lane]) / settings.samples_per_pixel
                     )
@@ -573,73 +574,6 @@ def _trace_path_packets[
                         )
                         continue
 
-                    comptime if Integrator.uses_direct_lighting[integrator]:
-                        var point = ShadingPoint.from_hit(ray, hit)
-                        var light_rng = path_stage_rng(
-                            sampling,
-                            packet.path_ids[lane],
-                            wavefront_rng_light_stage(UInt32(bounce)),
-                        )
-                        var direct = _sample_direct_light_candidate(
-                            world, point, light_rng
-                        )
-                        if direct.valid and medium_id != 0:
-                            direct.emission *= medium_transmittance(
-                                world.scene_data()
-                                .media()
-                                .absorption[medium_id],
-                                direct.shadow_t_max,
-                            )
-                        direct_lights.point.normal.x[lane] = hit.normal.x
-                        direct_lights.point.normal.y[lane] = hit.normal.y
-                        direct_lights.point.normal.z[lane] = hit.normal.z
-                        direct_lights.point.uv_u[lane] = hit.uv_u
-                        direct_lights.point.uv_v[lane] = hit.uv_v
-                        direct_lights.surface_kinds[
-                            lane
-                        ] = hit.surface.kind().value
-                        direct_lights.surface_indices[
-                            lane
-                        ] = hit.surface.index()
-                        if direct.valid:
-                            direct_lights.sample.valid[lane] = True
-                            direct_lights.point.p.x[lane] = point.p.x
-                            direct_lights.point.p.y[lane] = point.p.y
-                            direct_lights.point.p.z[lane] = point.p.z
-                            direct_lights.sample.direction.x[
-                                lane
-                            ] = direct.direction.x
-                            direct_lights.sample.direction.y[
-                                lane
-                            ] = direct.direction.y
-                            direct_lights.sample.direction.z[
-                                lane
-                            ] = direct.direction.z
-                            direct_lights.sample.emission.x[
-                                lane
-                            ] = direct.emission.x
-                            direct_lights.sample.emission.y[
-                                lane
-                            ] = direct.emission.y
-                            direct_lights.sample.emission.z[
-                                lane
-                            ] = direct.emission.z
-                            direct_lights.sample.surface_cosine[
-                                lane
-                            ] = direct.surface_cosine
-                            direct_lights.sample.light_pdf[
-                                lane
-                            ] = direct.light_pdf
-                            direct_lights.sample.shadow_t_max[
-                                lane
-                            ] = direct.shadow_t_max
-
-                    # Retain only the values changed by mix/bump handling;
-                    # the remaining hit fields transfer as SIMD rows below.
-                    surface_hits.surface.value[lane] = hit.surface.value[0]
-                    surface_hits.normal.x[lane] = hit.normal.x
-                    surface_hits.normal.y[lane] = hit.normal.y
-                    surface_hits.normal.z[lane] = hit.normal.z
                 else:
                     misses[lane] = True
 
@@ -672,6 +606,47 @@ def _trace_path_packets[
             )
 
             comptime if Integrator.uses_direct_lighting[integrator]:
+                direct_lights.point = ShadingPoint[length].from_hit(
+                    ray_packet, surface_hits
+                )
+                direct_lights.surface_kinds = kinds
+                direct_lights.surface_indices = surface_hits.surface.value & (
+                    (UInt32(1) << SURFACE_INDEX_BITS) - UInt32(1)
+                )
+                var light_rng = path_stage_rng(
+                    sampling,
+                    packet.path_ids,
+                    wavefront_rng_light_stage(UInt32(bounce)),
+                )
+                direct_lights.sample = _sample_direct_light_candidate(
+                    world,
+                    direct_lights.point,
+                    light_rng,
+                    valid_shade & kinds.ne(MaterialKind.EMISSIVE.value),
+                )
+                if (
+                    direct_lights.sample.valid & packet.medium_ids.ne(0)
+                ).reduce_or():
+                    for lane in range(lane_count):
+                        if (
+                            direct_lights.sample.valid[lane]
+                            and packet.medium_ids[lane] != 0
+                        ):
+                            var attenuation = medium_transmittance(
+                                world.scene_data()
+                                .media()
+                                .absorption[Int(packet.medium_ids[lane])],
+                                direct_lights.sample.shadow_t_max[lane],
+                            )
+                            direct_lights.sample.emission.x[
+                                lane
+                            ] *= attenuation.x
+                            direct_lights.sample.emission.y[
+                                lane
+                            ] *= attenuation.y
+                            direct_lights.sample.emission.z[
+                                lane
+                            ] *= attenuation.z
                 var shadow_rays = spawn_surface_ray(
                     direct_lights.point.p,
                     direct_lights.sample.direction,

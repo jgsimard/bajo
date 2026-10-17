@@ -104,9 +104,9 @@ struct GpuRtSceneView(Copyable, DevicePassable):
     var light_count: Int32
     var total_light_weight: Float32
     var environment_weight: Float32
-    var environment_cdf_total: Float32
-    var environment_cdf: Pointer[Float32, ImmUntrackedOrigin]
-    var environment_cdf_count: Int32
+    var environment_alias_probabilities: Pointer[Float32, ImmUntrackedOrigin]
+    var environment_alias_indices: Pointer[UInt32, ImmUntrackedOrigin]
+    var environment_alias_count: Int32
     var environment_kind: UInt32
     var environment_texture_index: UInt32
     var environment_scale_x: Float32

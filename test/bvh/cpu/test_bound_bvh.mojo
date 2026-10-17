@@ -123,7 +123,7 @@ def test_extract_lane_all_cpu_bvh_widths() raises:
         _test_extract_lane[width]()
 
 
-def _rng_f32(mut rng: Rng, lo: Float32, hi: Float32) -> Float32:
+def _rng_f32(mut rng: Rng[1], lo: Float32, hi: Float32) -> Float32:
     return lo + (hi - lo) * rng.f32()
 
 

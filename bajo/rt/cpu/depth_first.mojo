@@ -212,7 +212,7 @@ def _trace_ao[
 ](
     world: CpuScene[world_bvh_width, instance_bvh_width],
     ray: Rayf32[.WORLD],
-    mut rng: Rng,
+    mut rng: Rng[1],
 ) -> Color:
     var hit = world.trace_surface(ray)
     if not hit.hit:

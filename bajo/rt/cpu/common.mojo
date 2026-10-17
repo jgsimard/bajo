@@ -12,7 +12,7 @@ def _make_primary_ray(
     camera: Camera,
     px: Int,
     py: Int,
-    mut rng: Rng,
+    mut rng: Rng[1],
 ) -> Rayf32[.WORLD]:
     var lens = random_in_unit_disk[.WORLD](rng)
     return make_camera_ray_from_samples(

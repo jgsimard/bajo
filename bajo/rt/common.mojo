@@ -26,9 +26,9 @@ comptime RUSSIAN_ROULETTE_MAX_SURVIVAL = Float32(0.95)
 
 
 @fieldwise_init
-struct RussianRouletteResult(Copyable, Writable):
-    var survived: Bool
-    var throughput: Color
+struct RussianRouletteResult[length: SIMDLength = 1](Copyable, Writable):
+    var survived: SIMD[.bool, Self.length]
+    var throughput: Vec3[.float32, .WORLD, Self.length]
 
 
 @always_inline
@@ -149,18 +149,12 @@ def environment_radiance[
         + transform.m22[0] * direction.z,
     )
     var uv = equal_area_sphere_to_square(light_direction)
-    var result = Vec3[.float32, .WORLD, length](0.0)
-    for lane in range(length):
-        var sampled = (
-            surfaces.image_textures[
-                Int(environment.texture_index)
-            ].sample_environment(uv.u[lane], uv.v[lane])
-            * environment.scale
-        )
-        result.x[lane] = sampled.x[0]
-        result.y[lane] = sampled.y[0]
-        result.z[lane] = sampled.z[0]
-    return result
+    var sampled = surfaces.image_textures[
+        Int(environment.texture_index)
+    ].sample_environment(uv.u, uv.v)
+    return sampled * Vec3[.float32, .WORLD, length](
+        environment.scale.x, environment.scale.y, environment.scale.z
+    )
 
 
 @always_inline
@@ -204,19 +198,11 @@ def environment_pdf_from_radiance[
         return 0.0
     if environment.kind != .IMAGE:
         return environment_weight / (4.0 * pi * total_light_weight)
-    var result = SIMD[.float32, length](0.0)
-    for lane in range(length):
-        result[lane] = (
-            _light_importance(
-                Color(emission.x[lane], emission.y[lane], emission.z[lane])
-            )
-            / total_light_weight
-        )
-    return result
+    return _light_importance(emission) / total_light_weight
 
 
 @always_inline
-def path_stage_rng(seed: UInt64, path_id: UInt32, stage: UInt32) -> Rng:
+def path_stage_rng(seed: UInt64, path_id: UInt32, stage: UInt32) -> Rng[1]:
     """Create the deterministic Philox stream owned by one path stage."""
     return path_stage_rng(
         SamplingConfig(seed, Sampler.INDEPENDENT.value, 1, 0, 1, 1),
@@ -226,9 +212,11 @@ def path_stage_rng(seed: UInt64, path_id: UInt32, stage: UInt32) -> Rng:
 
 
 @always_inline
-def path_stage_rng(
-    sampling: SamplingConfig, path_id: UInt32, stage: UInt32
-) -> Rng:
+def path_stage_rng[
+    length: SIMDLength = 1
+](
+    sampling: SamplingConfig, path_id: SIMD[.uint32, length], stage: UInt32
+) -> Rng[length]:
     """Create a batch-invariant stream for one pixel sample and path stage."""
     var batch_spp = sampling.samples_per_pixel
     var pixel_id = path_id / batch_spp
@@ -239,17 +227,17 @@ def path_stage_rng(
             var canonical_path_id = (
                 pixel_id * sampling.sequence_length + sample_index
             )
-            return Rng(
+            return Rng[length](
                 seed=sampling.seed,
                 id=wavefront_rng_subsequence(canonical_path_id, stage),
             )
         case .HALTON | .R2 | .OWEN_SOBOL | .SZ | .STBN:
             pass
-    return Rng(
+    return Rng[length](
         seed=sampling.seed,
         id=wavefront_rng_subsequence(pixel_id, stage),
         sampler=sampler,
-        sample_index=UInt64(sample_index),
+        sample_index=sample_index.cast[.uint64](),
         pixel_id=pixel_id,
         image_width=sampling.image_width,
         stage=stage,
@@ -257,9 +245,11 @@ def path_stage_rng(
 
 
 @always_inline
-def path_stage_seed(
-    sampling: SamplingConfig, path_id: UInt32, stage: UInt32
-) -> UInt32:
+def path_stage_seed[
+    length: SIMDLength = 1
+](
+    sampling: SamplingConfig, path_id: SIMD[.uint32, length], stage: UInt32
+) -> SIMD[.uint32, length]:
     """Hash an integer pixel/sample/stage identity for internal estimators.
 
     Absolute sample indices preserve sample-batch and queue-chunk invariance.
@@ -272,9 +262,9 @@ def path_stage_seed(
     )
     var seed = _mix32(UInt32(sampling.seed))
     seed = _mix32(seed ^ UInt32(sampling.seed >> UInt64(32)))
-    seed = _mix32(seed ^ pixel_id)
-    seed = _mix32(seed ^ sample_index)
-    return _mix32(seed ^ stage)
+    var path_seed = _mix32(seed ^ pixel_id)
+    path_seed = _mix32(path_seed ^ sample_index)
+    return _mix32(path_seed ^ stage)
 
 
 @always_inline
@@ -283,7 +273,7 @@ def russian_roulette(
     path_id: UInt32,
     depth: UInt32,
     throughput: Color,
-) -> RussianRouletteResult:
+) -> RussianRouletteResult[1]:
     """Unbiased continuation using a stream separate from BSDF sampling."""
     return russian_roulette(
         SamplingConfig(seed, Sampler.INDEPENDENT.value, 1, 0, 1, 1),
@@ -294,28 +284,31 @@ def russian_roulette(
 
 
 @always_inline
-def russian_roulette(
+def russian_roulette[
+    length: SIMDLength = 1
+](
     sampling: SamplingConfig,
-    path_id: UInt32,
+    path_id: SIMD[.uint32, length],
     depth: UInt32,
-    throughput: Color,
-) -> RussianRouletteResult:
+    throughput: Vec3[.float32, .WORLD, length],
+) -> RussianRouletteResult[length]:
     """Batch-invariant continuation using the configured sample sequence."""
     if depth < RUSSIAN_ROULETTE_START_DEPTH:
-        return RussianRouletteResult(True, throughput)
-
+        return RussianRouletteResult[length](
+            SIMD[.bool, length](fill=True), throughput
+        )
     var maximum = max(throughput.x, max(throughput.y, throughput.z))
-    if maximum <= 0.0:
-        return RussianRouletteResult(False, throughput)
+    var eligible = maximum.gt(0.0)
     var survival = min(
         max(maximum, RUSSIAN_ROULETTE_MIN_SURVIVAL),
         RUSSIAN_ROULETTE_MAX_SURVIVAL,
     )
+    if not eligible.reduce_or():
+        return RussianRouletteResult[length](eligible, throughput)
     var rng = path_stage_rng(
-        sampling,
-        path_id,
-        wavefront_rng_roulette_stage(depth - UInt32(1)),
+        sampling, path_id, wavefront_rng_roulette_stage(depth - UInt32(1))
     )
-    if rng.f32() >= survival:
-        return RussianRouletteResult(False, throughput)
-    return RussianRouletteResult(True, throughput / survival)
+    var survived = eligible & rng.f32().lt(survival)
+    return RussianRouletteResult[length](
+        survived, throughput / survived.select(survival, 1.0)
+    )

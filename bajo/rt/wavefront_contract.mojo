@@ -112,9 +112,11 @@ def wavefront_plane_index(plane: Int, capacity: Int, idx: Int) -> Int:
 
 
 @always_inline
-def wavefront_rng_subsequence(path_id: UInt32, rng_stage: UInt32) -> UInt64:
+def wavefront_rng_subsequence[
+    length: SIMDLength = 1
+](path_id: SIMD[.uint32, length], rng_stage: UInt32) -> SIMD[.uint64, length]:
     """Schedule-independent Philox subsequence owned by one path and stage."""
-    return (UInt64(path_id) << UInt64(32)) | UInt64(rng_stage)
+    return (path_id.cast[.uint64]() << UInt64(32)) | UInt64(rng_stage)
 
 
 @always_inline

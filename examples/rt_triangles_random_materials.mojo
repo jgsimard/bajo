@@ -76,7 +76,7 @@ def _make_centered_transform(
     return transform^
 
 
-def _random_surface(mut builder: SceneBuilder, mut rng: Rng) -> SurfaceId[1]:
+def _random_surface(mut builder: SceneBuilder, mut rng: Rng[1]) -> SurfaceId[1]:
     var choose = rng.f32()
     if choose < 0.58:
         var albedo = rng.vec3f32[.WORLD](0.15, 0.95) * rng.vec3f32[.WORLD](
@@ -135,8 +135,8 @@ def _append_mesh_instance(
     bounds: _BoundsL,
     instance_idx: Int,
     copy_idx: Int,
-    mut scene_rng: Rng,
-    mut material_rng: Rng,
+    mut scene_rng: Rng[1],
+    mut material_rng: Rng[1],
 ):
     comptime TARGET_WORLD_EXTENT = Float32(0.82)
     var x = _mesh_x(instance_idx)

@@ -136,9 +136,9 @@ def test_environment_distribution_tracks_texel_importance() raises:
         )
     )
     var scene = builder^.finish()
-    assert_equal(len(scene.environment_cdf()), 2)
-    assert_almost_equal(scene.environment_cdf()[0], 1.0 / 3.0)
-    assert_almost_equal(scene.environment_cdf_total(), 4.0 / 3.0)
+    assert_equal(len(scene.environment_alias_probabilities()), 2)
+    assert_almost_equal(scene.environment_alias_probabilities()[0], 0.5)
+    assert_equal(scene.environment_alias_indices()[0], UInt32(1))
     assert_almost_equal(scene.environment_weight(), 8.0 * pi / 3.0)
     assert_almost_equal(scene.total_light_weight(), scene.environment_weight())
 

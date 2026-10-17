@@ -55,7 +55,7 @@ def spawn_surface_ray[
 def make_ao_ray(
     point: Point3[.float32, .WORLD, 1],
     normal: Vec3[.float32, .WORLD, 1],
-    mut rng: Rng,
+    mut rng: Rng[1],
 ) -> Ray[.float32, .WORLD, 1]:
     """Sample the shared finite-distance ambient-occlusion query."""
     var direction = normalize(random_on_hemisphere[.WORLD](rng, normal))

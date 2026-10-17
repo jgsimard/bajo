@@ -1,9 +1,8 @@
 from std.bit import bit_reverse
 from std.builtin.globals import global_constant
 from std.math import cos, floor, pi, sin, sqrt, cbrt
-from std.random import Random
 
-from bajo.core import Vec3f32, dot, Frame
+from bajo.core import Vec3, dot, Frame
 
 
 struct Sampler(EnumLike, Equatable, TrivialRegisterPassable, Writable):
@@ -76,7 +75,9 @@ struct Sampler(EnumLike, Equatable, TrivialRegisterPassable, Writable):
 
 
 @always_inline
-def _mix32(value: UInt32) -> UInt32:
+def _mix32[
+    length: SIMDLength = 1
+](value: SIMD[.uint32, length]) -> SIMD[.uint32, length]:
     var bits = value
     bits ^= bits >> UInt32(16)
     bits *= UInt32(0x7FEB352D)
@@ -87,7 +88,11 @@ def _mix32(value: UInt32) -> UInt32:
 
 
 @always_inline
-def _owen_scramble(value: UInt32, seed: UInt32) -> UInt32:
+def _owen_scramble[
+    length: SIMDLength = 1
+](value: SIMD[.uint32, length], seed: SIMD[.uint32, length]) -> SIMD[
+    .uint32, length
+]:
     """Burley's fixed-cost hash-based Owen tree permutation."""
     var bits = bit_reverse(value)
     bits ^= bits * UInt32(0x3D20ADEA)
@@ -99,24 +104,31 @@ def _owen_scramble(value: UInt32, seed: UInt32) -> UInt32:
 
 
 @always_inline
-def _u32_to_unit_float(value: UInt32) -> Float32:
+def _u32_to_unit_float[
+    length: SIMDLength = 1
+](value: SIMD[.uint32, length]) -> SIMD[.float32, length]:
     # Taking the high 24 bits gives every Float32 result an exact [0, 1) value.
-    return Float32(value >> UInt32(8)) * Float32(5.960464477539063e-8)
+    return (value >> UInt32(8)).cast[.float32]() * Float32(5.960464477539063e-8)
 
 
 @always_inline
-def _sobol_bits(index: UInt32, dimension: Int) -> UInt32:
+def _sobol_bits[
+    length: SIMDLength = 1
+](index: SIMD[.uint32, length], dimension: Int) -> SIMD[.uint32, length]:
     """First four Joe-Kuo Sobol dimensions, generated without lookup tables."""
     var dim = dimension % 4
-    var result = UInt32(0)
+    var result = SIMD[.uint32, length](0)
     if dim == 0:
         return bit_reverse(index)
 
     if dim == 1:
         var direction = UInt32(0x80000000)
         comptime for bit in range(32):
-            if (index & (UInt32(1) << UInt32(bit))) != 0:
-                result ^= direction
+            result ^= (
+                (index & (UInt32(1) << UInt32(bit)))
+                .ne(0)
+                .select(direction, UInt32(0))
+            )
             direction ^= direction >> UInt32(1)
         return result
 
@@ -132,8 +144,11 @@ def _sobol_bits(index: UInt32, dimension: Int) -> UInt32:
                 direction = previous_2 ^ (previous_2 >> UInt32(2)) ^ previous_1
                 previous_2 = previous_1
                 previous_1 = direction
-            if (index & (UInt32(1) << UInt32(bit))) != 0:
-                result ^= direction
+            result ^= (
+                (index & (UInt32(1) << UInt32(bit)))
+                .ne(0)
+                .select(direction, UInt32(0))
+            )
         return result
 
     # Primitive polynomial x^3 + x + 1, initial values (1, 3, 1).
@@ -151,13 +166,18 @@ def _sobol_bits(index: UInt32, dimension: Int) -> UInt32:
             previous_3 = previous_2
             previous_2 = previous_1
             previous_1 = direction
-        if (index & (UInt32(1) << UInt32(bit))) != 0:
-            result ^= direction
+        result ^= (
+            (index & (UInt32(1) << UInt32(bit)))
+            .ne(0)
+            .select(direction, UInt32(0))
+        )
     return result
 
 
 @always_inline
-def _gf4_multiply(a: UInt32, b: UInt32) -> UInt32:
+def _gf4_multiply[
+    length: SIMDLength = 1
+](a: SIMD[.uint32, length], b: SIMD[.uint32, length]) -> SIMD[.uint32, length]:
     """Multiply two polynomial-basis GF(4) elements, x^2 = x + 1."""
     var a0 = a & UInt32(1)
     var a1 = (a >> UInt32(1)) & UInt32(1)
@@ -170,22 +190,24 @@ def _gf4_multiply(a: UInt32, b: UInt32) -> UInt32:
 
 
 @always_inline
-def _sz_bits(index: UInt32, dimension: Int) -> UInt32:
+def _sz_bits[
+    length: SIMDLength = 1
+](index: SIMD[.uint32, length], dimension: Int) -> SIMD[.uint32, length]:
     """Four-dimensional binary SZ (0, 4)-sequence from GF(4) Pascal nets."""
     var dim = dimension % 4
     var symbol = UInt32(dim)
     # The finite-field alphabet is {0, 1, x, x + 1}.
-    var result = UInt32(0)
+    var result = SIMD[.uint32, length](0)
     for column in range(16):
         var input_digit = (index >> UInt32(2 * column)) & UInt32(3)
-        if input_digit == 0:
+        if input_digit.eq(0).reduce_and():
             continue
         var block = UInt32(1)
         for offset in range(column + 1):
             var row = column - offset
             # Lucas' theorem: C(column, row) is odd iff row is a bit subset.
             if (row & column) == row and block != 0:
-                var output_digit = _gf4_multiply(block, input_digit)
+                var output_digit = _gf4_multiply[length](block, input_digit)
                 result ^= (output_digit & UInt32(1)) << UInt32(31 - 2 * row)
                 result ^= ((output_digit >> UInt32(1)) & UInt32(1)) << UInt32(
                     30 - 2 * row
@@ -195,22 +217,24 @@ def _sz_bits(index: UInt32, dimension: Int) -> UInt32:
 
 
 @always_inline
-def _stbn(
-    sample_index: UInt64,
+def _stbn[
+    length: SIMDLength = 1
+](
+    sample_index: SIMD[.uint64, length],
     dimension: Int,
-    pixel_id: UInt32,
+    pixel_id: SIMD[.uint32, length],
     image_width: UInt32,
     stage: UInt32,
     seed: UInt32,
-) -> Float32:
+) -> SIMD[.float32, length]:
     """Compact procedural space-time sampler for interactive accumulation."""
     var width = max(image_width, UInt32(1))
     var dim = dimension % 4
     var x = pixel_id % width + UInt32(17 * dim)
     var y = pixel_id / width + UInt32(29 * dim)
     # Interleaved-gradient spatial ordering has strong local stratification.
-    var spatial = Float32(0.06711056) * Float32(x)
-    spatial += Float32(0.00583715) * Float32(y)
+    var spatial = Float32(0.06711056) * x.cast[.float32]()
+    spatial += Float32(0.00583715) * y.cast[.float32]()
     spatial -= floor(spatial)
     spatial *= Float32(52.9829189)
     spatial -= floor(spatial)
@@ -229,20 +253,22 @@ def _stbn(
         _mix32(stage ^ seed ^ UInt32(0x9E3779B9))
     )
     var value = spatial + stage_shift
-    value += Float32(sample_index) * temporal_step
+    value += sample_index.cast[.float32]() * temporal_step
     return value - floor(value)
 
 
 @always_inline
-def _radical_inverse(index: UInt64, base: UInt64) -> Float32:
-    var value = Float32(0.0)
+def _radical_inverse[
+    length: SIMDLength = 1
+](index: SIMD[.uint64, length], base: UInt64) -> SIMD[.float32, length]:
+    var value = SIMD[.float32, length](0.0)
     var inverse = 1.0 / Float32(base)
-    if index < base:
-        return Float32(index) * inverse
+    if index.lt(base).reduce_and():
+        return index.cast[.float32]() * inverse
     var factor = inverse
     var digits = index
-    while digits > 0:
-        value += Float32(digits % base) * factor
+    while digits.ne(0).reduce_or():
+        value += (digits % base).cast[.float32]() * factor
         digits /= base
         factor *= inverse
     return value
@@ -346,13 +372,17 @@ comptime _HALTON_PRIMES: Array[UInt32, 1024] = [
 
 
 @always_inline
-def _halton(index: UInt64, dimension: Int) -> Float32:
+def _halton[
+    length: SIMDLength = 1
+](index: SIMD[.uint64, length], dimension: Int) -> SIMD[.float32, length]:
     ref primes = global_constant[_HALTON_PRIMES]()
     return _radical_inverse(index + UInt64(1), UInt64(primes[dimension % 1024]))
 
 
 @always_inline
-def _r2(index: UInt64, dimension: Int) -> Float32:
+def _r2[
+    length: SIMDLength = 1
+](index: SIMD[.uint64, length], dimension: Int) -> SIMD[.float32, length]:
     # Irrational additive recurrences for the renderer's short staged vectors.
     var alpha = Float32(0.7548776662466927)
     var dim = dimension % 4
@@ -365,35 +395,44 @@ def _r2(index: UInt64, dimension: Int) -> Float32:
             alpha = Float32(0.2451223337533073)
         case _:
             pass
-    var value = Float32(index + UInt64(1)) * alpha
+    var value = (index + UInt64(1)).cast[.float32]() * alpha
     return value - floor(value)
 
 
-struct Rng:
-    var _rng: Random[10]
-    var _buffer: SIMD[.float32, 4]
+struct Rng[length: SIMDLength = 1]:
+    """Philox4x32-10 and sample sequences, one independent stream per lane."""
+
+    var _counter: Array[SIMD[.uint32, Self.length], 4]
+    var _key: SIMD[.uint32, 2]
+    var _buffer: Array[SIMD[.float32, Self.length], 4]
     var _consumed: Int
     var _sampler: Sampler
-    var _sample_index: UInt64
+    var _sample_index: SIMD[.uint64, Self.length]
     var _dimension: Int
-    var _scramble_seed: UInt32
+    var _scramble_seed: SIMD[.uint32, Self.length]
     var _global_seed: UInt32
-    var _pixel_id: UInt32
+    var _pixel_id: SIMD[.uint32, Self.length]
     var _image_width: UInt32
     var _stage: UInt32
 
     def __init__(
         out self,
         seed: UInt64,
-        id: UInt64,
+        id: SIMD[.uint64, Self.length],
         sampler: Sampler = .INDEPENDENT,
-        sample_index: UInt64 = 0,
-        pixel_id: UInt32 = 0,
+        sample_index: SIMD[.uint64, Self.length] = 0,
+        pixel_id: SIMD[.uint32, Self.length] = 0,
         image_width: UInt32 = 1,
         stage: UInt32 = 0,
     ):
-        self._rng = Random[10](seed=seed, subsequence=id)
-        self._buffer = self._rng.step_uniform()
+        self._counter = [
+            0,
+            0,
+            id.cast[.uint32](),
+            (id >> UInt64(32)).cast[.uint32](),
+        ]
+        self._key = SIMD[.uint32, 2](UInt32(seed), UInt32(seed >> UInt64(32)))
+        self._buffer = Array[SIMD[.float32, Self.length], 4](uninitialized=True)
         self._consumed = 0
         self._sampler = sampler
         self._sample_index = sample_index
@@ -401,19 +440,47 @@ struct Rng:
         self._scramble_seed = _mix32(
             UInt32(seed)
             ^ UInt32(seed >> UInt64(32))
-            ^ UInt32(id)
-            ^ UInt32(id >> UInt64(32))
+            ^ id.cast[.uint32]()
+            ^ (id >> UInt64(32)).cast[.uint32]()
         )
         self._global_seed = _mix32(UInt32(seed) ^ UInt32(seed >> UInt64(32)))
         self._pixel_id = pixel_id
         self._image_width = image_width
         self._stage = stage
+        self._buffer = self._step_uniform()
 
+    @always_inline
+    def _step_uniform(mut self) -> Array[SIMD[.float32, Self.length], 4]:
+        var words = self._counter.copy()
+        var key = self._key
+        comptime for round in range(10):
+            var a = words[0].cast[.uint64]() * UInt64(0xD2511F53)
+            var b = words[2].cast[.uint64]() * UInt64(0xCD9E8D57)
+            words = [
+                (b >> UInt64(32)).cast[.uint32]() ^ words[1] ^ key[0],
+                b.cast[.uint32](),
+                (a >> UInt64(32)).cast[.uint32]() ^ words[3] ^ key[1],
+                a.cast[.uint32](),
+            ]
+            key += SIMD[.uint32, 2](0x9E3779B9, 0xBB67AE85)
+        self._counter[0] += UInt32(1)
+        var carry = self._counter[0].eq(0)
+        comptime for word in range(1, 4):
+            self._counter[word] += carry.cast[.uint32]()
+            carry &= self._counter[word].eq(0)
+        var result = Array[SIMD[.float32, Self.length], 4](uninitialized=True)
+        comptime for word in range(4):
+            result[word] = (words[word] & UInt32(0x7FFFFFFF)).cast[
+                .float32
+            ]() * Float32(4.6566127342e-10)
+        return result^
+
+    @always_inline
     def f32(
         mut self, lower_bound: Float32 = 0, upper_bound: Float32 = 1
-    ) -> Float32:
+    ) -> SIMD[.float32, Self.length]:
         if self._consumed >= 4:
-            self._buffer = self._rng.step_uniform()
+            self._buffer = self._step_uniform()
             self._consumed = 0
         var shift = self._buffer[self._consumed]
         self._consumed += 1
@@ -450,10 +517,12 @@ struct Rng:
                     ^ UInt32(self._dimension) * UInt32(0x9E3779B9)
                 )
                 var bits = _sobol_bits(
-                    UInt32(self._sample_index), self._dimension
+                    self._sample_index.cast[.uint32](), self._dimension
                 )
                 if self._sampler == .SZ:
-                    bits = _sz_bits(UInt32(self._sample_index), self._dimension)
+                    bits = _sz_bits(
+                        self._sample_index.cast[.uint32](), self._dimension
+                    )
                 val = _u32_to_unit_float(_owen_scramble(bits, scramble))
             case .STBN:
                 val = _stbn(
@@ -469,42 +538,59 @@ struct Rng:
 
     def vec3f32[
         frame: Frame
-    ](mut self, lower_bound: Float32 = 0, upper_bound: Float32 = 1) -> Vec3f32[
-        frame
+    ](mut self, lower_bound: Float32 = 0, upper_bound: Float32 = 1) -> Vec3[
+        .float32, frame, Self.length
     ]:
         var scale = upper_bound - lower_bound
         var r0 = self.f32() * scale + lower_bound
         var r1 = self.f32() * scale + lower_bound
         var r2 = self.f32() * scale + lower_bound
-        return Vec3f32[frame](r0, r1, r2)
+        return Vec3[.float32, frame, Self.length](r0, r1, r2)
 
 
-def random_unit_vector[frame: Frame](mut rng: Rng) -> Vec3f32[frame]:
+def random_unit_vector[
+    frame: Frame, length: SIMDLength = 1
+](mut rng: Rng[length]) -> Vec3[.float32, frame, length]:
     var u = rng.f32()
     var v = rng.f32()
+    return unit_vector_from_samples[frame, length](u, v)
+
+
+@always_inline
+def unit_vector_from_samples[
+    frame: Frame, length: SIMDLength = 1
+](u: SIMD[.float32, length], v: SIMD[.float32, length]) -> Vec3[
+    .float32, frame, length
+]:
     var theta = 2.0 * pi * u
     var z = 1.0 - 2.0 * v
     var r = sqrt(1.0 - z * z)
-    return Vec3f32[frame](r * cos(theta), r * sin(theta), z)
+    return Vec3[.float32, frame, length](r * cos(theta), r * sin(theta), z)
 
 
 def random_on_hemisphere[
-    frame: Frame
-](mut rng: Rng, normal: Vec3f32[frame]) -> Vec3f32[frame]:
-    var on_unit_sphere = random_unit_vector[frame](rng)
+    frame: Frame, length: SIMDLength = 1
+](mut rng: Rng[length], normal: Vec3[.float32, frame, length]) -> Vec3[
+    .float32, frame, length
+]:
+    var on_unit_sphere = random_unit_vector[frame, length](rng)
     var sign = dot(on_unit_sphere, normal).lt(0.0).select(Float32(-1.0), 1.0)
     return sign * on_unit_sphere
 
 
-def random_in_unit_disk[frame: Frame](mut rng: Rng) -> Vec3f32[frame]:
+def random_in_unit_disk[
+    frame: Frame, length: SIMDLength = 1
+](mut rng: Rng[length]) -> Vec3[.float32, frame, length]:
     var u = rng.f32()
     var v = rng.f32()
     var theta = 2.0 * pi * u
     var r = sqrt(v)
-    return Vec3f32[frame](r * cos(theta), r * sin(theta), 0.0)
+    return Vec3[.float32, frame, length](r * cos(theta), r * sin(theta), 0.0)
 
 
-def random_in_unit_sphere[frame: Frame](mut rng: Rng) -> Vec3f32[frame]:
+def random_in_unit_sphere[
+    frame: Frame, length: SIMDLength = 1
+](mut rng: Rng[length]) -> Vec3[.float32, frame, length]:
     var u = rng.f32()
     var r = cbrt(u)
-    return random_unit_vector[frame](rng) * r
+    return random_unit_vector[frame, length](rng) * r

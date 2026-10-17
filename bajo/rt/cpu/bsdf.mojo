@@ -117,7 +117,7 @@ def sample_bsdf(
     surfaces: SurfaceStore,
     ray: Rayf32[.WORLD],
     hit: ShadingPoint[1],
-    mut rng: Rng,
+    mut rng: Rng[1],
     estimator_seed: UInt32 = 0,
 ) -> BsdfSample[1]:
     match surface.kind():

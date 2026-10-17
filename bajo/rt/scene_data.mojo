@@ -7,7 +7,12 @@ from bajo.core import AABB, Affine3f32, Point3f32
 from bajo.bvh import Instance, Sphere
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.geometry import triangle_area, triangle_is_valid
-from bajo.rt.lighting_types import LightRecord, LightStore, _light_importance
+from bajo.rt.lighting_types import (
+    LightRecord,
+    LightStore,
+    _light_importance,
+    _build_alias_distribution,
+)
 from bajo.rt.material_types import (
     NO_TEXTURE,
     Environment,
@@ -251,8 +256,8 @@ struct SceneData:
     var _media: SceneMedia
     var _environment: Environment
     var _environment_weight: Float32
-    var _environment_cdf_total: Float32
-    var _environment_cdf: List[Float32]
+    var _environment_alias_probabilities: List[Float32]
+    var _environment_alias_indices: List[UInt32]
 
     def __init__(
         out self,
@@ -283,8 +288,8 @@ struct SceneData:
         self._media = media^
         self._environment = environment.copy()
         self._environment_weight = 0.0
-        self._environment_cdf_total = 0.0
-        self._environment_cdf = List[Float32]()
+        self._environment_alias_probabilities = List[Float32]()
+        self._environment_alias_indices = List[UInt32]()
         self._validate()
         self._build_environment_distribution()
         self._build_light_store()
@@ -350,13 +355,15 @@ struct SceneData:
     def environment_weight(self) -> Float32:
         return self._environment_weight
 
-    def environment_cdf_total(self) -> Float32:
-        return self._environment_cdf_total
-
-    def environment_cdf(
+    def environment_alias_probabilities(
         self,
-    ) -> ref[self._environment_cdf] List[Float32]:
-        return self._environment_cdf
+    ) -> ref[self._environment_alias_probabilities] List[Float32]:
+        return self._environment_alias_probabilities
+
+    def environment_alias_indices(
+        self,
+    ) -> ref[self._environment_alias_indices] List[UInt32]:
+        return self._environment_alias_indices
 
     def total_light_weight(self) -> Float32:
         return self._lights.total_weight + self._environment_weight
@@ -619,22 +626,35 @@ struct SceneData:
                     Int(self._environment.texture_index)
                 ]
                 var count = texture.width * texture.height
-                self._environment_cdf = List[Float32](length=count, fill=0.0)
-                var total = Float32(0.0)
+                if count > Int(UInt32.MAX):
+                    raise Error(
+                        "environment importance table exceeds UInt32 indexing"
+                    )
+                var weights = List[Float32](length=count, fill=0.0)
+                var total = Float64(0.0)
                 for pixel_idx in range(count):
-                    var base = 3 * pixel_idx
-                    total += _light_importance(
-                        Color.load(texture.pixels, base)
+                    var importance = _light_importance(
+                        Color.load(texture.pixels, 3 * pixel_idx)
                         * self._environment.scale
                     )
-                    self._environment_cdf[pixel_idx] = total
-                if not isfinite(total):
+                    weights[pixel_idx] = importance
+                    total += Float64(importance)
+                if not isfinite(total) or not isfinite(Float32(total)):
                     raise Error(
                         "environment importance integral must be finite"
                     )
-                self._environment_cdf_total = total
+                _build_alias_distribution(
+                    Span(weights),
+                    total,
+                    self._environment_alias_probabilities,
+                    self._environment_alias_indices,
+                )
                 if total > 0.0:
-                    self._environment_weight = 4.0 * pi * total / Float32(count)
+                    self._environment_weight = Float32(
+                        4.0 * Float64(pi) * total / Float64(count)
+                    )
+                if not isfinite(self._environment_weight):
+                    raise Error("environment light weight must be finite")
                 return
             case .PROCEDURAL:
                 # The procedural sky is linear in direction.y, whose sphere-wide

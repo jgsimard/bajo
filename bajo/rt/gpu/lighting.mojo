@@ -72,9 +72,9 @@ struct GpuRtLights:
     var count: Int
     var total_weight: Float32
     var environment_weight: Float32
-    var environment_cdf_total: Float32
-    var environment_cdf: DeviceBuffer[.float32]
-    var environment_cdf_count: Int
+    var environment_alias_probabilities: DeviceBuffer[.float32]
+    var environment_alias_indices: DeviceBuffer[.uint32]
+    var environment_alias_count: Int
     var uniform_sampling_kind: PrimitiveKind
 
     def __init__(
@@ -130,9 +130,17 @@ struct GpuRtLights:
         self.count = len(world.lights().records)
         self.total_weight = world.total_light_weight()
         self.environment_weight = world.environment_weight()
-        self.environment_cdf_total = world.environment_cdf_total()
-        self.environment_cdf_count = len(world.environment_cdf())
-        self.environment_cdf = _upload_nonempty(ctx, world.environment_cdf())
+        self.environment_alias_count = len(
+            world.environment_alias_probabilities()
+        )
+        if self.environment_alias_count > Int(Int32.MAX):
+            raise Error("GPU environment table exceeds Int32 indexing")
+        self.environment_alias_probabilities = _upload_nonempty(
+            ctx, world.environment_alias_probabilities()
+        )
+        self.environment_alias_indices = _upload_nonempty(
+            ctx, world.environment_alias_indices()
+        )
         self.uniform_sampling_kind = (
             uniform_kind if homogeneous
             and self.environment_weight <= 0.0 else PrimitiveKind.UNKNOWN
@@ -209,24 +217,24 @@ def _sample_direct_light_candidate[
         scene.environment_weight / scene.total_light_weight
     )
     var light_id = UInt32(Int(scene.light_count))
-    var emission = Color(0.0)
-    var geometry = _DirectLightGeometrySample(
-        False, Vec3f32[.WORLD](0.0), 0.0, 0.0, 0.0
-    )
+    var emission: Color
+    var geometry: _DirectLightGeometrySample[1]
     if selection_u < environment_probability:
         var selected_pixel = 0
         var local_direction: Vec3f32[.LOCAL]
-        if Int(scene.environment_cdf_count) > 0:
-            var target = rng.f32() * scene.environment_cdf_total
-            var first = 0
-            var end = Int(scene.environment_cdf_count)
-            while first < end:
-                var middle = first + (end - first) / 2
-                if target < scene.environment_cdf[unsafe_offset=middle]:
-                    end = middle
-                else:
-                    first = middle + 1
-            selected_pixel = min(first, Int(scene.environment_cdf_count) - 1)
+        if Int(scene.environment_alias_count) > 0:
+            var draw = _draw_alias_column(
+                rng.f32(), Int(scene.environment_alias_count)
+            )
+            selected_pixel = Int(
+                _resolve_alias_draw(
+                    draw,
+                    scene.environment_alias_probabilities[
+                        unsafe_offset=draw.column
+                    ],
+                    scene.environment_alias_indices[unsafe_offset=draw.column],
+                )
+            )
             var desc_base = GpuTextureDescLayout.STRIDE * Int(
                 scene.environment_texture_index
             )
@@ -315,11 +323,13 @@ def _sample_direct_light_candidate[
             draw, alias_probability, packed_column >> UInt32(4)
         )
         light_id = UInt32(selected_idx)
-        var base = Int(scene.light_count) + selected_idx * GPU_RT_LIGHT_STRIDE
+        var base = (
+            Int(scene.light_count) + Int(selected_idx) * GPU_RT_LIGHT_STRIDE
+        )
         var p0 = Point3f32[.WORLD](
             scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT_P0_X)
         )
-        var surface_sample: _LightSurfaceSample
+        var surface_sample: _LightSurfaceSample[1]
         comptime match light_kind:
             case .SPHERE:
                 var radius = scene.light_fields[

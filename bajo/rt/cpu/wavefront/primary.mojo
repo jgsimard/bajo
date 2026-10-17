@@ -1,5 +1,6 @@
 """Packet primary-path generation."""
 
+from std.math import iota
 from bajo.core.random import random_in_unit_disk
 from bajo.bvh import Camera
 from bajo.rt.render_types import (
@@ -27,25 +28,18 @@ def _initialize_path_packets_range[
     var height = Float32(settings.image_height)
     for packet_begin in range(path_begin, path_end, length):
         var lane_count = min(length, path_end - packet_begin)
-        var px = SIMD[.float32, length](0.0)
-        var py = SIMD[.float32, length](0.0)
-        var pixel_u = SIMD[.float32, length](0.0)
-        var pixel_v = SIMD[.float32, length](0.0)
-        var lens_u = SIMD[.float32, length](0.0)
-        var lens_v = SIMD[.float32, length](0.0)
         var packet = PathPacket[length]()
-        for lane in range(lane_count):
-            var path_idx = packet_begin + lane
-            var pixel_idx = path_idx / settings.samples_per_pixel
-            px[lane] = Float32(pixel_idx % settings.image_width)
-            py[lane] = Float32(pixel_idx / settings.image_width)
-            var rng = path_stage_rng(sampling, UInt32(path_idx), UInt32(0))
-            var lens = random_in_unit_disk[.WORLD](rng)
-            lens_u[lane] = lens.x
-            lens_v[lane] = lens.y
-            pixel_u[lane] = rng.f32()
-            pixel_v[lane] = rng.f32()
-            packet.path_ids[lane] = UInt32(path_idx)
+        var ids = iota[.uint32, length]() + UInt32(packet_begin)
+        var pixel_ids = ids / UInt32(settings.samples_per_pixel)
+        var px = (pixel_ids % UInt32(settings.image_width)).cast[.float32]()
+        var py = (pixel_ids / UInt32(settings.image_width)).cast[.float32]()
+        var rng = path_stage_rng(sampling, ids, UInt32(0))
+        var lens = random_in_unit_disk[.WORLD, length](rng)
+        var lens_u = lens.x
+        var lens_v = lens.y
+        var pixel_u = rng.f32()
+        var pixel_v = rng.f32()
+        packet.path_ids = ids
 
         var ray = make_camera_ray_from_samples[length](
             camera,

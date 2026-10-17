@@ -2,16 +2,11 @@
 
 from bajo.core import Point3, Vec3, dot
 from bajo.rt.common import (
-    path_stage_rng,
     russian_roulette,
-    RUSSIAN_ROULETTE_START_DEPTH,
-    RUSSIAN_ROULETTE_MIN_SURVIVAL,
-    RUSSIAN_ROULETTE_MAX_SURVIVAL,
 )
-from bajo.rt.render_types import SamplingConfig, Color
+from bajo.rt.render_types import SamplingConfig
 from bajo.rt.shading_types import BsdfSample
 from bajo.rt.path_values import PathContinuation
-from bajo.rt.wavefront_contract import wavefront_rng_roulette_stage
 
 
 @fieldwise_init
@@ -54,40 +49,10 @@ def finish_continuation[
 ) -> ContinuationBatch[length]:
     var weight = throughput * sampled.weight
     var survived = active & sampled.ok
-    comptime if length == 1:
-        if survived[0]:
-            var roulette = russian_roulette(
-                sampling,
-                path_ids[0],
-                depth,
-                Color(weight.x[0], weight.y[0], weight.z[0]),
-            )
-            survived = roulette.survived
-            weight = Vec3[.float32, .WORLD, length](
-                roulette.throughput.x[0],
-                roulette.throughput.y[0],
-                roulette.throughput.z[0],
-            )
-    else:
-        if depth >= RUSSIAN_ROULETTE_START_DEPTH:
-            var maximum = max(weight.x, max(weight.y, weight.z))
-            var survival = min(
-                max(maximum, RUSSIAN_ROULETTE_MIN_SURVIVAL),
-                RUSSIAN_ROULETTE_MAX_SURVIVAL,
-            )
-            var eligible = survived & maximum.gt(0.0)
-            var random = SIMD[.float32, length](1.0)
-            for lane in range(Int(length)):
-                if eligible[lane]:
-                    var rng = path_stage_rng(
-                        sampling,
-                        path_ids[lane],
-                        wavefront_rng_roulette_stage(depth - UInt32(1)),
-                    )
-                    random[lane] = rng.f32()
-            survived = eligible & random.lt(survival)
-            var divisor = survived.select(survival, 1.0)
-            weight = weight / divisor
+    if survived.reduce_or():
+        var roulette = russian_roulette(sampling, path_ids, depth, weight)
+        survived &= roulette.survived
+        weight = roulette.throughput
     return ContinuationBatch[length](
         PathContinuation[length](
             path_ids,

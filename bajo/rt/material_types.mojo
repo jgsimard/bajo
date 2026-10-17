@@ -8,7 +8,7 @@ from bajo.rt.texture_math import (
 )
 from std.utils.numerics import isfinite
 
-from bajo.core import Affine3f32, Vec3f32
+from bajo.core import Affine3f32, Vec3, Vec3f32
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.render_types import Color
 
@@ -27,25 +27,49 @@ struct ImageTexture:
         self.height = height
         self.pixels = pixels^
 
-    def sample(self, u: Float32, v: Float32) -> Color:
-        # PBRT repeats UV image maps. PNG scanlines are top-to-bottom while
-        # PBRT's texture coordinate origin is at the lower left.
+    @always_inline
+    def sample[
+        length: SIMDLength = 1
+    ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> Vec3[
+        .float32, .WORLD, length
+    ]:
         var base = image_pixel_offset(self.width, self.height, u, v)
-        return Color.load(self.pixels, base)
+        var pixels = self.pixels.unsafe_ptr()
+        return Vec3[.float32, .WORLD, length](
+            pixels.unsafe_gather(base),
+            pixels.unsafe_gather(base + 1),
+            pixels.unsafe_gather(base + 2),
+        )
 
-    def sample_scalar(self, u: Float32, v: Float32) -> Float32:
-        var color = self.sample(u, v)
-        return texture_luminance(color)
+    @always_inline
+    def sample_luminance[
+        length: SIMDLength = 1
+    ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> SIMD[
+        .float32, length
+    ]:
+        return texture_luminance(self.sample(u, v))
 
-    def sample_environment(self, u: Float32, v: Float32) -> Color:
+    @always_inline
+    def sample_environment[
+        length: SIMDLength = 1
+    ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> Vec3[
+        .float32, .WORLD, length
+    ]:
         """Nearest lookup in PBRT's top-to-bottom equal-area image domain."""
-        var x = min(max(Int(u * Float32(self.width)), 0), self.width - 1)
-        var y = min(max(Int(v * Float32(self.height)), 0), self.height - 1)
-        var base = 3 * (y * self.width + x)
-        return Color(
-            max(self.pixels[base], 0.0),
-            max(self.pixels[base + 1], 0.0),
-            max(self.pixels[base + 2], 0.0),
+        var x = min(
+            max((u * Float32(self.width)).cast[.int64](), 0),
+            SIMD[.int64, length](self.width - 1),
+        )
+        var y = min(
+            max((v * Float32(self.height)).cast[.int64](), 0),
+            SIMD[.int64, length](self.height - 1),
+        )
+        var base = 3 * (y * SIMD[.int64, length](self.width) + x)
+        var pixels = self.pixels.unsafe_ptr()
+        return Vec3[.float32, .WORLD, length](
+            max(pixels.unsafe_gather(base), 0.0),
+            max(pixels.unsafe_gather(base + 1), 0.0),
+            max(pixels.unsafe_gather(base + 2), 0.0),
         )
 
 
@@ -639,11 +663,50 @@ struct SurfaceStore:
         self.mix_uv_scales.append(v_scale)
         return SurfaceId(.MIX, index)
 
+    @always_inline
+    def _albedo_metadata(self, surface: SurfaceId[1]) -> Tuple[Color, UInt32]:
+        match surface.kind():
+            case .LAMBERTIAN:
+                ref material = self.lambertians[Int(surface.index())]
+                return material.albedo, material.texture_index
+            case .METAL:
+                ref material = self.metals[Int(surface.index())]
+                return material.albedo, material.texture_index
+            case .COATED_DIFFUSE:
+                ref material = self.coated_diffuses[Int(surface.index())]
+                return material.albedo, material.texture_index
+            case _:
+                return Color(0.0), NO_TEXTURE
+
+    @always_inline
+    def _displacement_metadata(
+        self, surface: SurfaceId[1]
+    ) -> Tuple[UInt32, Float32, Float32, Float32]:
+        match surface.kind():
+            case .COATED_DIFFUSE:
+                ref material = self.coated_diffuses[Int(surface.index())]
+                return (
+                    material.displacement_texture_index,
+                    material.displacement_scale,
+                    material.displacement_u_scale,
+                    material.displacement_v_scale,
+                )
+            case .DIELECTRIC:
+                ref material = self.dielectrics[Int(surface.index())]
+                return (
+                    material.displacement_texture_index,
+                    material.displacement_scale,
+                    material.displacement_u_scale,
+                    material.displacement_v_scale,
+                )
+            case _:
+                return NO_TEXTURE, Float32(0.0), Float32(1.0), Float32(1.0)
+
     def sample_mix_amount(self, index: Int, u: Float32, v: Float32) -> Float32:
         var amount = self.mix_amounts[index]
         var texture_index = self.mix_texture_indices[index]
         if texture_index != NO_TEXTURE:
-            amount *= self.image_textures[Int(texture_index)].sample_scalar(
+            amount *= self.image_textures[Int(texture_index)].sample_luminance(
                 u * self.mix_uv_scales[2 * index],
                 v * self.mix_uv_scales[2 * index + 1],
             )
@@ -670,21 +733,42 @@ struct SurfaceStore:
                 random = (random - amount) / (1.0 - amount)
         return selected^
 
-    def sample_conductor_roughness(
-        self, surface: SurfaceId[1], u: Float32, v: Float32
-    ) -> Float32:
-        ref material = self.coated_diffuses[Int(surface.index())]
-        if material.roughness_texture_index == NO_TEXTURE:
-            return material.conductor_roughness
-        var roughness = (
-            material.roughness_scale
-            * self.image_textures[
-                Int(material.roughness_texture_index)
-            ].sample_scalar(
-                u * material.roughness_u_scale, v * material.roughness_v_scale
+    def sample_conductor_roughness[
+        length: SIMDLength = 1
+    ](
+        self,
+        surface: SurfaceId[length],
+        u: SIMD[.float32, length],
+        v: SIMD[.float32, length],
+        active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+    ) -> SIMD[.float32, length]:
+        var roughness = SIMD[.float32, length](0.0)
+        var textures = SIMD[.uint32, length](NO_TEXTURE)
+        var scale = SIMD[.float32, length](1.0)
+        var us = scale
+        var vs = scale
+        var remap = SIMD[.bool, length](fill=False)
+        comptime for lane in range(Int(length)):
+            if active[lane]:
+                ref material = self.coated_diffuses[
+                    Int(surface.get(lane).index())
+                ]
+                roughness[lane] = material.conductor_roughness
+                textures[lane] = material.roughness_texture_index
+                scale[lane] = material.roughness_scale
+                us[lane] = material.roughness_u_scale
+                vs[lane] = material.roughness_v_scale
+                remap[lane] = material.remap_roughness
+        if not textures.ne(NO_TEXTURE).reduce_or():
+            return roughness
+        var mapped = (
+            scale
+            * texture_luminance(
+                self.sample_image_textures(textures, u * us, v * vs)
             )
         ).clamp(0.0, 1.0)
-        return sqrt(roughness) if material.remap_roughness else roughness
+        mapped = remap.select(sqrt(mapped), mapped)
+        return textures.ne(NO_TEXTURE).select(mapped, roughness)
 
     def emitted_radiance(
         self, surface: SurfaceId[1], front_face: Bool
@@ -698,101 +782,140 @@ struct SurfaceStore:
         self.image_textures.append(texture^)
         return index
 
-    def sample_albedo(
-        self, surface: SurfaceId[1], u: Float32, v: Float32
-    ) -> Color:
-        match surface.kind():
-            case .LAMBERTIAN:
-                ref material = self.lambertians[Int(surface.index())]
-                if material.texture_index != NO_TEXTURE:
-                    var value = material.albedo * self.image_textures[
-                        Int(material.texture_index)
-                    ].sample(u, v)
-                    return Color(
-                        value.x.clamp(0.0, 1.0),
-                        value.y.clamp(0.0, 1.0),
-                        value.z.clamp(0.0, 1.0),
-                    )
-                return material.albedo
-            case .METAL:
-                ref material = self.metals[Int(surface.index())]
-                if material.texture_index != NO_TEXTURE:
-                    var value = material.albedo * self.image_textures[
-                        Int(material.texture_index)
-                    ].sample(u, v)
-                    return Color(
-                        value.x.clamp(0.0, 1.0),
-                        value.y.clamp(0.0, 1.0),
-                        value.z.clamp(0.0, 1.0),
-                    )
-                return material.albedo
-            case .COATED_DIFFUSE:
-                ref material = self.coated_diffuses[Int(surface.index())]
-                if material.texture_index != NO_TEXTURE:
-                    var value = material.albedo * self.image_textures[
-                        Int(material.texture_index)
-                    ].sample(u, v)
-                    return Color(
-                        value.x.clamp(0.0, 1.0),
-                        value.y.clamp(0.0, 1.0),
-                        value.z.clamp(0.0, 1.0),
-                    )
-                return material.albedo
-            case _:
-                return Color(0.0)
-
-    def shading_normal(
+    @always_inline
+    def sample_image_textures[
+        length: SIMDLength
+    ](
         self,
-        surface: SurfaceId[1],
-        normal: Vec3f32[.WORLD],
-        u: Float32,
-        v: Float32,
-    ) -> Vec3f32[.WORLD]:
-        var texture_index: UInt32
-        var scale: Float32
-        var u_scale: Float32
-        var v_scale: Float32
-        match surface.kind():
-            case .COATED_DIFFUSE:
-                ref material = self.coated_diffuses[Int(surface.index())]
-                texture_index = material.displacement_texture_index
-                scale = material.displacement_scale
-                u_scale = material.displacement_u_scale
-                v_scale = material.displacement_v_scale
-            case .DIELECTRIC:
-                ref material = self.dielectrics[Int(surface.index())]
-                texture_index = material.displacement_texture_index
-                scale = material.displacement_scale
-                u_scale = material.displacement_u_scale
-                v_scale = material.displacement_v_scale
-            case _:
-                return normal
-        if texture_index == NO_TEXTURE or scale == 0.0:
+        indices: SIMD[.uint32, length],
+        u: SIMD[.float32, length],
+        v: SIMD[.float32, length],
+    ) -> Vec3[.float32, .WORLD, length]:
+        """Use native gathers for a shared map and lane-local reads otherwise.
+
+        Both paths use ImageTexture.sample at the appropriate width. Work
+        stays linear with distinct images; missing maps contribute identity.
+        """
+        var result = Vec3[.float32, .WORLD, length](1.0)
+        var mapped = indices.ne(NO_TEXTURE)
+        if not mapped.reduce_or():
+            return result
+        var first = 0
+        while not mapped[first]:
+            first += 1
+        var safe_u = mapped.select(u, 0.0)
+        var safe_v = mapped.select(v, 0.0)
+        if (~mapped | indices.eq(indices[first])).reduce_and():
+            var sampled = self.image_textures[Int(indices[first])].sample(
+                safe_u, safe_v
+            )
+            return Vec3.select(mapped, sampled, result)
+        comptime for lane in range(Int(length)):
+            if mapped[lane]:
+                var sampled = self.image_textures[Int(indices[lane])].sample(
+                    safe_u[lane], safe_v[lane]
+                )
+                result.x[lane] = sampled.x
+                result.y[lane] = sampled.y
+                result.z[lane] = sampled.z
+        return result
+
+    def sample_albedo[
+        length: SIMDLength = 1
+    ](
+        self,
+        surface: SurfaceId[length],
+        u: SIMD[.float32, length],
+        v: SIMD[.float32, length],
+        active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+    ) -> Vec3[.float32, .WORLD, length]:
+        var albedo = Vec3[.float32, .WORLD, length](0.0)
+        var textures = SIMD[.uint32, length](NO_TEXTURE)
+        comptime for lane in range(Int(length)):
+            if active[lane]:
+                var value = SurfaceId.from_raw(surface.value[lane])
+                var metadata = self._albedo_metadata(value)
+                albedo.x[lane] = metadata[0].x
+                albedo.y[lane] = metadata[0].y
+                albedo.z[lane] = metadata[0].z
+                textures[lane] = metadata[1]
+        if not textures.ne(NO_TEXTURE).reduce_or():
+            return albedo
+        var value = albedo * self.sample_image_textures(textures, u, v)
+        var textured = textures.ne(NO_TEXTURE)
+        return Vec3[.float32, .WORLD, length](
+            textured.select(value.x.clamp(0.0, 1.0), albedo.x),
+            textured.select(value.y.clamp(0.0, 1.0), albedo.y),
+            textured.select(value.z.clamp(0.0, 1.0), albedo.z),
+        )
+
+    def shading_normal[
+        length: SIMDLength = 1
+    ](
+        self,
+        surface: SurfaceId[length],
+        normal: Vec3[.float32, .WORLD, length],
+        u: SIMD[.float32, length],
+        v: SIMD[.float32, length],
+        active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+    ) -> Vec3[.float32, .WORLD, length]:
+        var textures = SIMD[.uint32, length](NO_TEXTURE)
+        var scale = SIMD[.float32, length](0.0)
+        var u_scale = SIMD[.float32, length](1.0)
+        var v_scale = SIMD[.float32, length](1.0)
+        var widths = SIMD[.float32, length](1.0)
+        var heights = SIMD[.float32, length](1.0)
+        comptime for lane in range(Int(length)):
+            if active[lane]:
+                var value = SurfaceId.from_raw(surface.value[lane])
+                var metadata = self._displacement_metadata(value)
+                if metadata[0] != NO_TEXTURE and metadata[1] != 0.0:
+                    textures[lane] = metadata[0]
+                    scale[lane] = metadata[1]
+                    u_scale[lane] = metadata[2]
+                    v_scale[lane] = metadata[3]
+                    ref texture = self.image_textures[Int(textures[lane])]
+                    widths[lane] = Float32(texture.width)
+                    heights[lane] = Float32(texture.height)
+        var mapped = textures.ne(NO_TEXTURE)
+        if not mapped.reduce_or():
             return normal
-        ref texture = self.image_textures[Int(texture_index)]
-        var texture_u = u * u_scale
-        var texture_v = v * v_scale
-        var du = Float32(0.5) / Float32(texture.width)
-        var dv = Float32(0.5) / Float32(texture.height)
+        var tu = u * u_scale
+        var tv = v * v_scale
+        var du = Float32(0.5) / widths
+        var dv = Float32(0.5) / heights
         var slope_u = (
             (
-                texture.sample_scalar(texture_u + du, texture_v)
-                - texture.sample_scalar(texture_u - du, texture_v)
+                texture_luminance(
+                    self.sample_image_textures(textures, tu + du, tv)
+                )
+                - texture_luminance(
+                    self.sample_image_textures(textures, tu - du, tv)
+                )
             )
-            * Float32(texture.width)
+            * widths
             * u_scale
             * scale
         )
         var slope_v = (
             (
-                texture.sample_scalar(texture_u, texture_v + dv)
-                - texture.sample_scalar(texture_u, texture_v - dv)
+                texture_luminance(
+                    self.sample_image_textures(textures, tu, tv + dv)
+                )
+                - texture_luminance(
+                    self.sample_image_textures(textures, tu, tv - dv)
+                )
             )
-            * Float32(texture.height)
+            * heights
             * v_scale
             * scale
         )
-        return bump_normal(normal, slope_u, slope_v)
+        var bumped = bump_normal(normal, slope_u, slope_v)
+        return Vec3[.float32, .WORLD, length](
+            mapped.select(bumped.x, normal.x),
+            mapped.select(bumped.y, normal.y),
+            mapped.select(bumped.z, normal.z),
+        )
 
     def add_lambertian(
         mut self, albedo: Color, texture_index: UInt32 = NO_TEXTURE

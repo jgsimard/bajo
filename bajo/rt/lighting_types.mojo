@@ -1,8 +1,7 @@
 """Scene light records and sampling distributions."""
 
-from bajo.core import Point3f32
+from bajo.core import Point3f32, Vec3
 from bajo.rt.material_types import PrimitiveId, SurfaceId
-from bajo.rt.render_types import Color
 
 
 struct LightRecord(Copyable, Writable):
@@ -83,45 +82,60 @@ struct LightStore:
 
     def build_alias_table(mut self):
         """Build a reusable Walker-Vose power distribution in linear time."""
-        var count = len(self.records)
-        self.alias_probabilities = List[Float32](length=count, fill=1.0)
-        self.alias_indices = List[UInt32](length=count, fill=UInt32(0))
-        if count == 0 or self.total_weight <= 0.0:
-            return
-
-        var scaled = List[Float32](length=count, fill=0.0)
-        var small = List[Int](capacity=count)
-        var large = List[Int](capacity=count)
-        for i in range(count):
-            self.alias_indices[i] = UInt32(i)
-            scaled[i] = (
-                self.records[i].weight * Float32(count) / self.total_weight
-            )
-            if scaled[i] < 1.0:
-                small.append(i)
-            else:
-                large.append(i)
-
-        while len(small) > 0 and len(large) > 0:
-            var small_idx = small.pop()
-            var large_idx = large.pop()
-            self.alias_probabilities[small_idx] = scaled[small_idx]
-            self.alias_indices[small_idx] = UInt32(large_idx)
-            scaled[large_idx] = scaled[large_idx] + scaled[small_idx] - 1.0
-            if scaled[large_idx] < 1.0:
-                small.append(large_idx)
-            else:
-                large.append(large_idx)
-
-        while len(small) > 0:
-            var idx = small.pop()
-            self.alias_probabilities[idx] = 1.0
-            self.alias_indices[idx] = UInt32(idx)
-        while len(large) > 0:
-            var idx = large.pop()
-            self.alias_probabilities[idx] = 1.0
-            self.alias_indices[idx] = UInt32(idx)
+        var weights = List[Float32](capacity=len(self.records))
+        for record in self.records:
+            weights.append(record.weight)
+        _build_alias_distribution(
+            Span(weights),
+            Float64(self.total_weight),
+            self.alias_probabilities,
+            self.alias_indices,
+        )
 
 
-def _light_importance(radiance: Color) -> Float32:
+def _build_alias_distribution(
+    weights: Span[Float32, _],
+    total: Float64,
+    mut probabilities: List[Float32],
+    mut indices: List[UInt32],
+):
+    """Shared Walker-Vose construction for finite emitters and image lights.
+
+    Float64 workspace avoids overflow during normalization and cancellation
+    while balancing columns. Zero-total distributions stay empty.
+    """
+    var count = len(weights)
+    probabilities = List[Float32]()
+    indices = List[UInt32]()
+    if count == 0 or total <= 0.0:
+        return
+    probabilities = List[Float32](length=count, fill=1.0)
+    indices = List[UInt32](length=count, fill=UInt32(0))
+    var scaled = List[Float64](length=count, fill=0.0)
+    var small = List[Int](capacity=count)
+    var large = List[Int](capacity=count)
+    for i in range(count):
+        indices[i] = UInt32(i)
+        scaled[i] = Float64(weights[i]) / total * Float64(count)
+        if scaled[i] < 1.0:
+            small.append(i)
+        else:
+            large.append(i)
+    while len(small) > 0 and len(large) > 0:
+        var small_idx = small.pop()
+        var large_idx = large.pop()
+        probabilities[small_idx] = Float32(scaled[small_idx]).clamp(0.0, 1.0)
+        indices[small_idx] = UInt32(large_idx)
+        scaled[large_idx] = scaled[large_idx] + scaled[small_idx] - 1.0
+        if scaled[large_idx] < 1.0:
+            small.append(large_idx)
+        else:
+            large.append(large_idx)
+    # Unpaired columns already have probability one and alias themselves.
+
+
+@always_inline
+def _light_importance[
+    length: SIMDLength = 1
+](radiance: Vec3[.float32, .WORLD, length]) -> SIMD[.float32, length]:
     return max((radiance.x + radiance.y + radiance.z) / 3.0, 0.0)

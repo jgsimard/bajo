@@ -1,6 +1,8 @@
 """Width-generic packet CPU wavefront kernels."""
 
 from std.math import sqrt
+from std.memory import Pointer
+from std.sys.info import size_of
 from bajo.rt.material_parameters import CoatedParameters
 from bajo.rt.material_storage import (
     coated_column_tile,
@@ -9,7 +11,6 @@ from bajo.rt.material_storage import (
     CoatedDiffuseLayout,
 )
 from bajo.rt.continuation import finish_continuation, continuation_medium
-from bajo.rt.media import medium_transmittance
 
 from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
 from bajo.core import (
@@ -30,6 +31,8 @@ from bajo.rt.material_types import (
     NO_TEXTURE,
     Environment,
     MaterialKind,
+    Metal,
+    Dielectric,
     Integrator,
     SurfaceId,
     SurfaceStore,
@@ -104,32 +107,46 @@ struct _MaterialParameters[length: SIMDLength]:
         self.coated = CoatedParameters[Self.length]()
 
     @always_inline
-    def gather_lane[
+    def gather[
         kind: MaterialKind
     ](
         mut self,
         surfaces: SurfaceStore,
-        coated_fields: Span[Float32, _],
-        surface_index: UInt32,
-        lane: Int,
+        indices: SIMD[.uint32, Self.length],
+        active: SIMD[.bool, Self.length],
     ):
-        comptime match kind:
-            case .METAL:
-                ref material = surfaces.metals[Int(surface_index)]
-                self.parameter[lane] = material.fuzz
-            case .COATED_DIFFUSE:
-                var records = coated_column_tile(
-                    coated_fields.unsafe_ptr(), len(surfaces.coated_diffuses)
+        comptime if kind == .METAL or kind == .DIELECTRIC:
+            if not active.reduce_or():
+                return
+            # Borrow the actual field address and use the record's ABI stride;
+            # no hard-coded offsets or second prepared copy of the materials.
+            comptime if kind == .METAL:
+                self._gather_parameter(
+                    Pointer(to=surfaces.metals[0].fuzz),
+                    size_of[Metal]() // size_of[Float32](),
+                    indices,
+                    active,
                 )
-                self.coated.set_lane(
-                    lane, load_coated_parameters(records, surface_index)
+            else:
+                self._gather_parameter(
+                    Pointer(to=surfaces.dielectrics[0].refraction_index),
+                    size_of[Dielectric]() // size_of[Float32](),
+                    indices,
+                    active,
                 )
-            case .DIELECTRIC:
-                self.parameter[lane] = surfaces.dielectrics[
-                    Int(surface_index)
-                ].refraction_index
-            case _:
-                pass
+
+    @always_inline
+    def _gather_parameter[
+        origin: ImmOrigin
+    ](
+        mut self,
+        fields: Pointer[Float32, origin],
+        stride: Int,
+        indices: SIMD[.uint32, Self.length],
+        active: SIMD[.bool, Self.length],
+    ):
+        var offsets = active.select(indices, 0).cast[.int]() * stride
+        self.parameter = active.select(fields.unsafe_gather(offsets), 1.0)
 
 
 @always_inline
@@ -164,22 +181,19 @@ def _accumulate_direct_light_packet[
     var coated_active = lights.sample.valid & lights.surface_kinds.eq(
         MaterialKind.COATED_DIFFUSE.value
     )
-    for lane in range(lane_count):
-        if lights.sample.valid[lane]:
-            var kind = MaterialKind(lights.surface_kinds[lane])
-            comptime for material_kind in [
-                MaterialKind.LAMBERTIAN,
-                MaterialKind.METAL,
-                MaterialKind.COATED_DIFFUSE,
-            ]:
-                if kind == material_kind:
-                    material.gather_lane[material_kind](
-                        surfaces,
-                        coated_fields,
-                        lights.surface_indices[lane],
-                        lane,
-                    )
+    material.gather[.METAL](
+        surfaces,
+        lights.surface_indices,
+        lights.sample.valid & lights.surface_kinds.eq(MaterialKind.METAL.value),
+    )
     if coated_active.reduce_or():
+        var records = coated_column_tile(
+            coated_fields.unsafe_ptr(), len(surfaces.coated_diffuses)
+        )
+        var ids = coated_active.select(lights.surface_indices, 0)
+        material.coated = load_coated_parameters(
+            records, ids, ids.eq(ids[0]).reduce_and()
+        )
         material.coated.conductor_roughness = (
             surfaces.sample_conductor_roughness(
                 surface, lights.point.uv_u, lights.point.uv_v, coated_active
@@ -298,13 +312,7 @@ def _sample_bsdf_values[
                 )
             )
     else:
-        for lane in range(lane_count):
-            material.gather_lane[MATERIAL_KIND](
-                surfaces,
-                coated_fields,
-                batch.surface_indices[lane],
-                lane,
-            )
+        material.gather[MATERIAL_KIND](surfaces, batch.surface_indices, active)
     var rng = path_stage_rng(sampling, batch.path_ids, stage)
     comptime if MATERIAL_KIND == .DIELECTRIC:
         var ri = batch.front_faces.select(
@@ -521,6 +529,18 @@ def _trace_path_packets[
                     surface_hits.hit & valid_lanes,
                 )
             )
+            if (valid_lanes & packet.medium_ids.ne(0)).reduce_or():
+                var distance = surface_hits.hit.select(
+                    surface_hits.t, packet.t_max
+                ) * sqrt(dot(ray_packet.d, ray_packet.d))
+                var attenuation = (
+                    world.scene_data()
+                    .media()
+                    .transmittance(packet.medium_ids, distance, valid_lanes)
+                )
+                packet.tx *= attenuation.x
+                packet.ty *= attenuation.y
+                packet.tz *= attenuation.z
             for lane in range(lane_count):
                 var ray = Rayf32[.WORLD](
                     Point3f32[.WORLD](
@@ -533,18 +553,6 @@ def _trace_path_packets[
                     packet.t_max[lane],
                 )
                 var hit = surface_hits.get(lane)
-                var medium_id = Int(packet.medium_ids[lane])
-                if medium_id != 0:
-                    var distance = (hit.t if hit.hit else ray.t_max) * sqrt(
-                        dot(ray.d, ray.d)
-                    )
-                    var attenuation = medium_transmittance(
-                        world.scene_data().media().absorption[medium_id],
-                        distance,
-                    )
-                    packet.tx[lane] *= attenuation.x
-                    packet.ty[lane] *= attenuation.y
-                    packet.tz[lane] *= attenuation.z
                 if hit.hit:
                     var pixel_idx = (
                         Int(packet.path_ids[lane]) / settings.samples_per_pixel
@@ -627,26 +635,16 @@ def _trace_path_packets[
                 if (
                     direct_lights.sample.valid & packet.medium_ids.ne(0)
                 ).reduce_or():
-                    for lane in range(lane_count):
-                        if (
-                            direct_lights.sample.valid[lane]
-                            and packet.medium_ids[lane] != 0
-                        ):
-                            var attenuation = medium_transmittance(
-                                world.scene_data()
-                                .media()
-                                .absorption[Int(packet.medium_ids[lane])],
-                                direct_lights.sample.shadow_t_max[lane],
-                            )
-                            direct_lights.sample.emission.x[
-                                lane
-                            ] *= attenuation.x
-                            direct_lights.sample.emission.y[
-                                lane
-                            ] *= attenuation.y
-                            direct_lights.sample.emission.z[
-                                lane
-                            ] *= attenuation.z
+                    var attenuation = (
+                        world.scene_data()
+                        .media()
+                        .transmittance(
+                            packet.medium_ids,
+                            direct_lights.sample.shadow_t_max,
+                            direct_lights.sample.valid,
+                        )
+                    )
+                    direct_lights.sample.emission *= attenuation
                 var shadow_rays = spawn_surface_ray(
                     direct_lights.point.p,
                     direct_lights.sample.direction,

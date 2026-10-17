@@ -369,6 +369,20 @@ def _trace_bounds_bvh_impl[
                 break
 
     else:
+        # A sparse packet can hand off a leaf as well as an internal node.
+        # Process that tagged reference before indexing the node span.
+        if is_leaf_ref(initial_ref):
+            if leaf_fn(
+                ray,
+                leaf_O,
+                leaf_D,
+                ray_a,
+                ray_inv_a,
+                decode_ref_index(initial_ref),
+                hit,
+            ):
+                return Hit[frame].shadow_hit()
+            return hit
         # ANY_HIT : leaf-first behavior
         var stack = Array[UInt32, CPU_STACK_SIZE](uninitialized=True)
         var n_idx = initial_ref
@@ -715,7 +729,7 @@ def trace_bounds_bvh_from_ref[
     initial_hit: Hit[frame],
     ref leaf_fn: LeafFn,
 ) -> Hit[frame]:
-    """Continue traversal at one tagged internal subtree reference."""
+    """Continue traversal at a tagged subtree or leaf reference."""
 
     var zero = SIMD[.float32, leaf_width](0.0)
     var zero_rcp = Vec3[.float32, frame, bounds_width](0.0)

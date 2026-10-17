@@ -34,6 +34,8 @@ def gpu_rt_spatial_order_rays_kernel[
 ](scene: GpuRtSceneView, queues: GpuRtTraceQueueView):
     var capacity = Int(queues.capacity)
     var active = Int(queues.counters[unsafe_offset=WAVE_COUNTER.ACTIVE])
+    if active == 0:
+        return
     var paths = gpu_rt_path_tile(queues.src_path_fields, capacity)
     var scratch = GpuRtQueueOrderScratch.from_queues(queues)
     var low, high = gpu_rt_order_bounds[
@@ -87,18 +89,18 @@ def enqueue_gpu_rt_spatial_order[
 ) raises:
     if not gpu_rt_spatial_order_enabled(Int(queues.capacity), bounce):
         return
-    ctx.enqueue_function[gpu_rt_queue_order_init_kernel[512]](
-        queues, grid_dim=1, block_dim=512
-    )
+    ctx.enqueue_function[
+        gpu_rt_queue_order_init_kernel[512, WAVE_COUNTER.ACTIVE]
+    ](queues, grid_dim=1, block_dim=512)
     var blocks = min(ceildiv(Int(queues.capacity), 256), 1024)
     ctx.enqueue_function[
         gpu_rt_spatial_order_rays_kernel[
             kind, sphere_format, triangle_format, tlas_format, False
         ]
     ](scene, queues, grid_dim=blocks, block_dim=256)
-    ctx.enqueue_function[gpu_rt_queue_order_scan_kernel[512]](
-        queues, grid_dim=1, block_dim=512
-    )
+    ctx.enqueue_function[
+        gpu_rt_queue_order_scan_kernel[512, WAVE_COUNTER.ACTIVE]
+    ](queues, grid_dim=1, block_dim=512)
     ctx.enqueue_function[
         gpu_rt_spatial_order_rays_kernel[
             kind, sphere_format, triangle_format, tlas_format, True

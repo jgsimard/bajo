@@ -20,6 +20,8 @@ def gpu_rt_material_order_rays_kernel[
     scatter: Bool
 ](queues: GpuRtTraceQueueView, coated_count: Int32):
     var active = Int(queues.counters[unsafe_offset=WAVE_COUNTER.SHADE])
+    if active == 0:
+        return
     var scratch = GpuRtQueueOrderScratch.from_queues(queues)
     var idx = global_idx.x
     var lane = lane_id()
@@ -50,16 +52,16 @@ def gpu_rt_material_order_enabled(
 def enqueue_gpu_rt_material_order(
     ctx: DeviceContext, queues: GpuRtTraceQueueView, coated_count: Int
 ) raises:
-    ctx.enqueue_function[gpu_rt_queue_order_init_kernel[64]](
-        queues, grid_dim=1, block_dim=64
-    )
+    ctx.enqueue_function[
+        gpu_rt_queue_order_init_kernel[64, WAVE_COUNTER.SHADE]
+    ](queues, grid_dim=1, block_dim=64)
     var blocks = min(ceildiv(Int(queues.capacity), 256), 1024)
     ctx.enqueue_function[gpu_rt_material_order_rays_kernel[False]](
         queues, Int32(coated_count), grid_dim=blocks, block_dim=256
     )
-    ctx.enqueue_function[gpu_rt_queue_order_scan_kernel[64]](
-        queues, grid_dim=1, block_dim=64
-    )
+    ctx.enqueue_function[
+        gpu_rt_queue_order_scan_kernel[64, WAVE_COUNTER.SHADE]
+    ](queues, grid_dim=1, block_dim=64)
     ctx.enqueue_function[gpu_rt_material_order_rays_kernel[True]](
         queues, Int32(coated_count), grid_dim=blocks, block_dim=256
     )

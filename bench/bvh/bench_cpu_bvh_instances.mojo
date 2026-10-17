@@ -57,16 +57,18 @@ def _median_ns(values: List[Int]) -> Int:
 
 def make_instances(
     bounds: AABB[.LOCAL],
+    instance_x: Int = INSTANCE_X,
+    instance_y: Int = INSTANCE_Y,
 ) -> Tuple[List[Instance], AABB[.WORLD]]:
-    var instances = List[Instance](capacity=INSTANCE_COUNT)
+    var instances = List[Instance](capacity=instance_x * instance_y)
     var world_bounds = AABB[.WORLD].invalid()
     var extent = bounds.extent()
     var spacing_x = max(extent.x, Float32(1.0e-6)) * 1.25
     var spacing_y = max(extent.y, Float32(1.0e-6)) * 1.25
-    for y in range(INSTANCE_Y):
-        for x in range(INSTANCE_X):
-            var tx = (Float32(x) - Float32(INSTANCE_X - 1) * 0.5) * spacing_x
-            var ty = (Float32(y) - Float32(INSTANCE_Y - 1) * 0.5) * spacing_y
+    for y in range(instance_y):
+        for x in range(instance_x):
+            var tx = (Float32(x) - Float32(instance_x - 1) * 0.5) * spacing_x
+            var ty = (Float32(y) - Float32(instance_y - 1) * 0.5) * spacing_y
             var transform = Affine3f32[.LOCAL, .WORLD].from_translation(
                 Vec3f32[.WORLD](tx, ty, 0.0)
             )
@@ -490,9 +492,11 @@ def benchmark_method[
 def benchmark_scene(
     case_name: String,
     vertices: List[Point3f32[.LOCAL]],
+    instance_x: Int = INSTANCE_X,
+    instance_y: Int = INSTANCE_Y,
 ) raises:
     var bounds = compute_bounds(vertices)
-    var scene = make_instances(bounds)
+    var scene = make_instances(bounds, instance_x, instance_y)
     var instances = scene[0].copy()
     var camera = make_camera_rays_and_params(
         scene[1], RAY_WIDTH, RAY_HEIGHT, 1, FOV_SCALE
@@ -632,6 +636,7 @@ def run_benchmark() raises:
     print(t"Timing batches: {TRAVERSAL_BATCHES}")
     var dragon = pack_obj_triangles[.LOCAL](OBJ_PATH)
     benchmark_scene("Instanced Dragon", dragon)
+    benchmark_scene("Single Dragon", dragon, 1, 1)
     benchmark_scene("Instanced triangle", make_single_triangle())
     benchmark_flattened_scene()
 

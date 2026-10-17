@@ -1,17 +1,30 @@
 """Runtime absorption media and geometry-owned medium boundaries."""
 
 from std.math import exp
+from std.sys.info import size_of
+from std.utils.numerics import max_finite
+from bajo.core import Vec3
 from bajo.rt.render_types import Color
 
 
 @always_inline
-def medium_transmittance(sigma_a: Color, distance: Float32) -> Color:
-    # Zero absorption remains transparent even for an infinite segment.
-    return Color(
-        1.0 if sigma_a.x == 0.0 else exp(-sigma_a.x * distance),
-        1.0 if sigma_a.y == 0.0 else exp(-sigma_a.y * distance),
-        1.0 if sigma_a.z == 0.0 else exp(-sigma_a.z * distance),
-    )
+def medium_transmittance[
+    length: SIMDLength = 1
+](
+    sigma_a: Vec3[.float32, .WORLD, length],
+    distance: SIMD[.float32, length],
+) -> Vec3[.float32, .WORLD, length]:
+    # Mask the distance before multiplication: zero absorption is transparent
+    # even for infinite segments, without forming 0 * infinity.
+    var result = Vec3[.float32, .WORLD, length](0.0)
+    comptime for axis in range(3):
+        var depth = sigma_a[axis] * sigma_a[axis].ne(0.0).select(distance, 0.0)
+        # SIMD exp may clamp its argument; preserve exact zero for an
+        # infinitely absorbing segment (including overflowed optical depth).
+        result[axis] = depth.gt(max_finite[.float32]()).select(
+            Float32(0.0), exp(-depth)
+        )
+    return result
 
 
 @always_inline
@@ -32,6 +45,30 @@ struct SceneMedia:
         self.spheres = List[UInt32]()
         self.triangles = List[UInt32]()
         self.instances = List[UInt32]()
+
+    @always_inline
+    def transmittance[
+        length: SIMDLength
+    ](
+        self,
+        ids: SIMD[.uint32, length],
+        distance: SIMD[.float32, length],
+        active: SIMD[.bool, length],
+    ) -> Vec3[.float32, .WORLD, length]:
+        var absorbing = active & ids.ne(0)
+        if not absorbing.reduce_or():
+            return Vec3[.float32, .WORLD, length](1.0)
+        # Color is three adjacent scalar channels. Inactive IDs may be invalid;
+        # vacuum row zero is always available in a validated scene.
+        comptime assert size_of[Color]() == 3 * size_of[Float32]()
+        var base = absorbing.select(ids, 0).cast[.int64]() * 3
+        var fields = self.absorption.unsafe_ptr().unsafe_bitcast[Float32]()
+        var sigma = Vec3[.float32, .WORLD, length](
+            fields.unsafe_gather(base),
+            fields.unsafe_gather(base + 1),
+            fields.unsafe_gather(base + 2),
+        )
+        return medium_transmittance(sigma, absorbing.select(distance, 0.0))
 
     def add(mut self, sigma_a: Color) raises -> UInt32:
         if (

@@ -42,9 +42,13 @@ def _spread2(n: Int) -> Int:
     return (n & 1) | ((n & 2) << 2)
 
 
-def _assert_queue_order[mode: Int](coated_count: Int = 63) raises:
+def _assert_queue_order[
+    mode: Int, skip_empty: Bool = False
+](coated_count: Int = 63) raises:
     comptime capacity = 1057
     comptime bins = 512 if mode == 0 else 64
+    comptime counter = WAVE_COUNTER.ACTIVE if mode == 0 else WAVE_COUNTER.SHADE if mode == 1 else WAVE_COUNTER.SHADOW
+    comptime guarded_counter = counter if skip_empty else -1
     var world = _textured_instance_world[True]()
     with DeviceContext() as ctx:
         var scene = prepare_gpu_scene[kind=.INSTANCES](ctx, world.scene_data())
@@ -123,7 +127,7 @@ def _assert_queue_order[mode: Int](coated_count: Int = 63) raises:
             arena.path_b.path_ids,
             arena.path_b.fields,
         )
-        for active in [1057, 33, 1024, 1, 999, 31, 32, 0]:
+        for active in [1057, 0, 33, 1024, 1023, 1025, 1, 999, 31, 32, 0]:
             with arena.shadow.fields.map_to_host() as data:
                 for i in range(len(data)):
                     data[i] = -123.0
@@ -140,15 +144,15 @@ def _assert_queue_order[mode: Int](coated_count: Int = 63) raises:
             with arena.counters.map_to_host() as counters:
                 counters[WAVE_COUNTER.SHADE] = UInt32(active)
                 counters[WAVE_COUNTER.SHADOW] = UInt32(active)
-            ctx.enqueue_function[gpu_rt_queue_order_init_kernel[bins]](
-                queues, grid_dim=1, block_dim=bins
-            )
+            ctx.enqueue_function[
+                gpu_rt_queue_order_init_kernel[bins, guarded_counter]
+            ](queues, grid_dim=1, block_dim=bins)
             # A single block deliberately exercises multiple grid-stride steps.
             comptime for scatter in [False, True]:
                 comptime if scatter:
-                    ctx.enqueue_function[gpu_rt_queue_order_scan_kernel[bins]](
-                        queues, grid_dim=1, block_dim=bins
-                    )
+                    ctx.enqueue_function[
+                        gpu_rt_queue_order_scan_kernel[bins, guarded_counter]
+                    ](queues, grid_dim=1, block_dim=bins)
                 comptime if mode == 0:
                     ctx.enqueue_function[
                         gpu_rt_spatial_order_rays_kernel[
@@ -168,6 +172,24 @@ def _assert_queue_order[mode: Int](coated_count: Int = 63) raises:
                         gpu_rt_light_order_rays_kernel[scatter]
                     ](queues, grid_dim=1, block_dim=256)
             ctx.synchronize()
+            comptime if skip_empty:
+                if active == 0:
+                    # Empty production queues leave scratch storage untouched.
+                    with arena.shadow.fields.map_to_host() as data:
+                        for slot in range(capacity):
+                            assert_equal(
+                                data[
+                                    WaveShadowFloatAbi.T_MIN * capacity + slot
+                                ],
+                                Float32(-123.0),
+                            )
+                    with arena.path_b.fields.map_to_host() as data:
+                        for slot in range(bins):
+                            assert_equal(
+                                data[WavePathFloatAbi.T_MIN * capacity + slot],
+                                Float32(-123.0),
+                            )
+                    continue
             var seen = List[Bool](length=active, fill=False)
             var last_key = UInt32(0)
             with arena.shadow.fields.map_to_host() as data:
@@ -214,6 +236,12 @@ def _assert_queue_order[mode: Int](coated_count: Int = 63) raises:
                             data[plane * capacity + slot], Float32(-123.0)
                         )
 
+        # The scene view borrows a raw pointer. Retain its buffer owner through
+        # the final queue use, including the first run's kernel compilation.
+        with nodes.map_to_host() as data:
+            assert_equal(data[0], Float32(0.0))
+            assert_equal(data[6], Float32(4.0))
+
 
 def test_gpu_spatial_order_preserves_partial_warps_and_queue_reuse() raises:
     _assert_queue_order[0]()
@@ -226,6 +254,12 @@ def test_gpu_material_order_handles_noncoatings_and_all_63_materials() raises:
 
 def test_gpu_light_order_preserves_metadata_and_shadow_payloads() raises:
     _assert_queue_order[2]()
+
+
+def test_gpu_order_skips_empty_queues_and_reuses_nonempty_queues() raises:
+    _assert_queue_order[0, True]()
+    _assert_queue_order[1, True](2)
+    _assert_queue_order[2, True]()
 
 
 def _assert_ordered_render[integrator: Integrator]() raises:

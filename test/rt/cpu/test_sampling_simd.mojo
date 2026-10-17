@@ -209,7 +209,7 @@ def _direct_lights[length: SIMDLength](image_environment: Bool) raises:
         Point3f32[.WORLD](-3, 4, -3),
         Point3f32[.WORLD](3, 4, -3),
         Point3f32[.WORLD](0, 4, 3),
-        emitter,
+        builder.add_emissive(Color(0.5, 4, 2)),
     )
     if image_environment:
         var texture = builder.surfaces.add_image_texture(

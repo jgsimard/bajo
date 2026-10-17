@@ -1,5 +1,8 @@
 """CPU-prepared scene ownership and traversal."""
 
+from std.bit import count_trailing_zeros
+from std.memory import pack_bits
+
 from bajo.bvh.constants import EMPTY_LANE, PrimitiveKind, f32_max
 from bajo.bvh import Sphere
 from bajo.bvh.cpu import (
@@ -18,6 +21,7 @@ from bajo.bvh.cpu import (
 from bajo.bvh.types import Hit
 from bajo.core import (
     Affine3f32,
+    Affine3,
     Frame,
     GeoKind,
     Point3,
@@ -44,50 +48,125 @@ from bajo.rt.material_storage import pack_coated_materials
 
 
 @always_inline
-def _triangle_instance_shading(
+def _triangle_instance_shading[
+    length: SIMDLength = 1
+](
     data: SceneData,
-    instance_idx: Int,
-    triangle_idx: Int,
-    hit_u: Float32,
-    hit_v: Float32,
-    geometric_normal: Vec3f32[.WORLD],
-) -> Tuple[Vec3f32[.WORLD], Float32, Float32]:
+    instance_idx: SIMD[.uint32, length],
+    triangle_idx: SIMD[.uint32, length],
+    hit_u: SIMD[.float32, length],
+    hit_v: SIMD[.float32, length],
+    geometric_normal: Vec3[.float32, .WORLD, length],
+    active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+) -> Tuple[
+    Vec3[.float32, .WORLD, length],
+    SIMD[.float32, length],
+    SIMD[.float32, length],
+]:
+    """Interpolate attributes across rays, sharing the scalar width-one math."""
     var outward_normal = geometric_normal
-    ref instance = data.triangle_instances()[instance_idx]
+    var texture_u = SIMD[.float32, length](0.0)
+    var texture_v = SIMD[.float32, length](0.0)
+    if not active.reduce_or():
+        return (outward_normal, texture_u, texture_v)
+    var first = 0
+    comptime if length > 1:
+        var bits = UInt64(pack_bits(active))
+        first = Int(count_trailing_zeros(bits))
+        # Coherent packets share attribute buffers and one inverse transform.
+        # Mixed instances stay linear and reuse this same kernel at width one.
+        if (
+            bits.is_power_of_two()
+            or not (~active | instance_idx.eq(instance_idx[first])).reduce_and()
+        ):
+            for lane in range(Int(length)):
+                if active[lane]:
+                    var shading = _triangle_instance_shading(
+                        data,
+                        instance_idx[lane],
+                        triangle_idx[lane],
+                        hit_u[lane],
+                        hit_v[lane],
+                        Vec3f32[.WORLD](
+                            geometric_normal.x[lane],
+                            geometric_normal.y[lane],
+                            geometric_normal.z[lane],
+                        ),
+                    )
+                    outward_normal.x[lane] = shading[0].x
+                    outward_normal.y[lane] = shading[0].y
+                    outward_normal.z[lane] = shading[0].z
+                    texture_u[lane] = shading[1]
+                    texture_v[lane] = shading[2]
+            return (outward_normal, texture_u, texture_v)
+    ref instance = data.triangle_instances()[Int(instance_idx[first])]
     var mesh_idx = Int(instance.blas_idx)
     var b0 = Float32(1.0) - hit_u - hit_v
-    var b1 = hit_u
-    var b2 = hit_v
+    # Inactive lanes may contain miss sentinels, never valid gather indices.
+    var triangles = active.select(triangle_idx, UInt32(0)).cast[.int64]()
     ref normals = data.triangle_mesh_normals()[mesh_idx]
     if len(normals) != 0:
-        var base = 9 * triangle_idx
-        var n0 = Vec3f32[.LOCAL].load(normals, base)
-        var n1 = Vec3f32[.LOCAL].load(normals, base + 3)
-        var n2 = Vec3f32[.LOCAL].load(normals, base + 6)
-        var local_normal = (b0 * n0 + b1 * n1 + b2 * n2).unsafe_convert[
+        var base = 9 * triangles
+        var ptr = normals.unsafe_ptr()
+        var n0 = Vec3[.float32, .LOCAL, length](
+            ptr.unsafe_gather(base),
+            ptr.unsafe_gather(base + 1),
+            ptr.unsafe_gather(base + 2),
+        )
+        var n1 = Vec3[.float32, .LOCAL, length](
+            ptr.unsafe_gather(base + 3),
+            ptr.unsafe_gather(base + 4),
+            ptr.unsafe_gather(base + 5),
+        )
+        var n2 = Vec3[.float32, .LOCAL, length](
+            ptr.unsafe_gather(base + 6),
+            ptr.unsafe_gather(base + 7),
+            ptr.unsafe_gather(base + 8),
+        )
+        var local_normal = (b0 * n0 + hit_u * n1 + hit_v * n2).unsafe_convert[
             new_kind=GeoKind.NORMAL
         ]()
-        outward_normal = (
-            Affine3f32[.LOCAL, .WORLD]
-            .normal_from_inverse(local_normal, instance.inv_transform)
+        ref inverse = instance.inv_transform
+        var wide_inverse = Affine3[.float32, .WORLD, .LOCAL, length](
+            inverse.m00,
+            inverse.m01,
+            inverse.m02,
+            0.0,
+            inverse.m10,
+            inverse.m11,
+            inverse.m12,
+            0.0,
+            inverse.m20,
+            inverse.m21,
+            inverse.m22,
+            0.0,
+        )
+        var transformed = (
+            Affine3[.float32, .LOCAL, .WORLD, length]
+            .normal_from_inverse(local_normal, wide_inverse)
             .unsafe_convert[new_kind=GeoKind.VECTOR]()
         )
-        if dot(outward_normal, geometric_normal) < 0.0:
-            outward_normal = -outward_normal
-    var texture_u = Float32(0.0)
-    var texture_v = Float32(0.0)
+        transformed = Vec3.select(
+            dot(transformed, geometric_normal).lt(0.0),
+            -transformed,
+            transformed,
+        )
+        outward_normal = Vec3.select(active, transformed, outward_normal)
     ref texcoords = data.triangle_mesh_texcoords()[mesh_idx]
     if len(texcoords) != 0:
-        var base = 6 * triangle_idx
-        texture_u = (
-            b0 * texcoords[base]
-            + b1 * texcoords[base + 2]
-            + b2 * texcoords[base + 4]
+        var base = 6 * triangles
+        var ptr = texcoords.unsafe_ptr()
+        texture_u = active.select(
+            b0 * ptr.unsafe_gather(base)
+            + hit_u * ptr.unsafe_gather(base + 2)
+            + hit_v * ptr.unsafe_gather(base + 4),
+            0.0,
         )
-        texture_v = (
-            b0 * texcoords[base + 1]
-            + b1 * texcoords[base + 3]
-            + b2 * texcoords[base + 5]
+        texture_v = active.select(
+            b0 * ptr.unsafe_gather(base + 1)
+            + hit_u * ptr.unsafe_gather(base + 3)
+            + hit_v * ptr.unsafe_gather(base + 5),
+            0.0,
         )
     return (outward_normal, texture_u, texture_v)
 
@@ -142,11 +221,20 @@ struct CpuScene[
     ]
     var _scene: SceneData
     var _coated_materials: List[Float32]
+    var _has_instance_attributes: Bool
 
     def __init__[
         build_method: CpuBvhBuildMethod = .SAH
     ](out self, var scene: SceneData):
         self._scene = scene^
+        self._has_instance_attributes = False
+        for mesh in range(len(self._scene.triangle_meshes())):
+            if (
+                len(self._scene.triangle_mesh_normals()[mesh]) != 0
+                or len(self._scene.triangle_mesh_texcoords()[mesh]) != 0
+            ):
+                self._has_instance_attributes = True
+                break
         self._coated_materials = pack_coated_materials[True](
             self._scene.surfaces()
         )
@@ -523,34 +611,30 @@ struct CpuScene[
             var instance_mask = instance_hits.is_hit()
             instance_mask &= instance_hits.t.lt(result.t)
             var surface_values = SIMD[.uint32, length](0)
-            var texture_u = SIMD[.float32, length](0.0)
-            var texture_v = SIMD[.float32, length](0.0)
             var instance_normal = instance_hits.normal.unsafe_convert[
                 new_kind=GeoKind.VECTOR
             ]()
+            var texture_u = SIMD[.float32, length](0.0)
+            var texture_v = SIMD[.float32, length](0.0)
+            if self._has_instance_attributes:
+                var shading = _triangle_instance_shading(
+                    self._scene,
+                    instance_hits.inst,
+                    instance_hits.prim,
+                    instance_hits.u,
+                    instance_hits.v,
+                    instance_normal,
+                    instance_mask,
+                )
+                instance_normal = shading[0]
+                texture_u = shading[1]
+                texture_v = shading[2]
             for lane in range(length):
                 if instance_mask[lane]:
                     var instance_idx = Int(instance_hits.inst[lane])
                     result.medium_boundary[lane] = SceneMedia.boundary(
                         self._scene.media().instances, instance_idx
                     )
-                    var shading = _triangle_instance_shading(
-                        self._scene,
-                        instance_idx,
-                        Int(instance_hits.prim[lane]),
-                        instance_hits.u[lane],
-                        instance_hits.v[lane],
-                        Vec3f32[.WORLD](
-                            instance_hits.normal.x[lane],
-                            instance_hits.normal.y[lane],
-                            instance_hits.normal.z[lane],
-                        ),
-                    )
-                    texture_u[lane] = shading[1]
-                    texture_v[lane] = shading[2]
-                    instance_normal.x[lane] = shading[0].x
-                    instance_normal.y[lane] = shading[0].y
-                    instance_normal.z[lane] = shading[0].z
                     surface_values[
                         lane
                     ] = self._scene.triangle_instance_surfaces()[
@@ -670,8 +754,8 @@ struct CpuScene[
         )
         var shading = _triangle_instance_shading(
             self._scene,
-            instance_idx,
-            Int(bvh_hit.prim),
+            UInt32(instance_idx),
+            bvh_hit.prim,
             bvh_hit.u,
             bvh_hit.v,
             bvh_hit.normal.unsafe_convert[new_kind=GeoKind.VECTOR](),

@@ -1,6 +1,8 @@
 """Owning indexed mesh for shared CPU/GPU spatial queries."""
 
 from std.memory import unsafe_memcpy
+from std.sys.info import size_of
+from .policy import BUILD_WIDTH
 from bajo.core import AABB, Frame, Point3f32, Vec3f32
 from bajo.bvh.constants import EMPTY_LANE
 from .bounds import SpatialBoundsBvh
@@ -8,6 +10,39 @@ from .query import BoundsQueryView
 from .mesh_query import MeshQueryView
 from .winding import WindingLayout
 from .adjacency import build_adjacency, refresh_adjacency
+
+
+def _validate_mesh_vectors[
+    T: TrivialRegisterPassable, message: StaticString
+](values: ImmSpan[T, _],) raises:
+    comptime assert size_of[T]() == 3 * size_of[Float32]()
+    # Inspect exponent bits across contiguous coordinates. This treats all
+    # finite values, including subnormals and signed zero, identically.
+    var bits = values.unsafe_ptr().unsafe_bitcast[UInt32]()
+    var count = len(values) * 3
+    var end = count // BUILD_WIDTH * BUILD_WIDTH
+    for first in range(0, end, BUILD_WIDTH):
+        var packet = bits.unsafe_load[width=BUILD_WIDTH](first)
+        if (packet & UInt32(0x7F800000)).eq(UInt32(0x7F800000)).reduce_or():
+            raise Error(message)
+    for first in range(end, count):
+        if bits.unsafe_load(first) & UInt32(0x7F800000) == UInt32(0x7F800000):
+            raise Error(message)
+
+
+def _copy_mesh_vectors[
+    T: TrivialRegisterPassable
+](destination: MutSpan[Float32, _], values: ImmSpan[T, _],):
+    comptime assert size_of[T]() == 3 * size_of[Float32]()
+    debug_assert["safe", _use_compiler_assume=True](
+        len(destination) == len(values) * 3
+    )
+    if len(values) > 0:
+        unsafe_memcpy(
+            dest=destination.unsafe_ptr(),
+            src=values.unsafe_ptr().unsafe_bitcast[Float32](),
+            count=len(values) * 3,
+        )
 
 
 struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
@@ -80,27 +115,17 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
             raise Error("Mesh indices must contain three vertex IDs per face")
         if len(velocities) != 0 and len(velocities) != len(points):
             raise Error("Mesh velocity count must match vertex count")
-        for point in points:
-            if not point.is_finite()[0]:
-                raise Error("Mesh vertices must be finite")
-        for velocity in velocities:
-            if not velocity.is_finite()[0]:
-                raise Error("Mesh velocities must be finite")
+        _validate_mesh_vectors[_, "Mesh vertices must be finite"](points)
+        _validate_mesh_vectors[_, "Mesh velocities must be finite"](velocities)
         for index in indices:
             if Int(index) >= len(points):
                 raise Error("Mesh vertex index is out of range")
         self.points = List[Float32](length=len(points) * 3, fill=0.0)
         self.velocities = List[Float32](length=len(points) * 3, fill=0.0)
         self.indices = List[UInt32](length=len(indices), fill=0)
-        var positions = self.points.unsafe_ptr()
-        var speeds = self.velocities.unsafe_ptr()
-        for i in range(len(points)):
-            comptime for axis in range(3):
-                positions.unsafe_store(i * 3 + axis, points[i][axis])
+        _copy_mesh_vectors(self.points, points)
         if len(velocities) > 0:
-            for i in range(len(velocities)):
-                comptime for axis in range(3):
-                    speeds.unsafe_store(i * 3 + axis, velocities[i][axis])
+            _copy_mesh_vectors(self.velocities, velocities)
         if len(indices) > 0:
             unsafe_memcpy(
                 dest=self.indices.unsafe_ptr(),
@@ -289,19 +314,11 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
     ) raises:
         if len(points) * 3 != len(self.points):
             raise Error("Mesh update requires unchanged vertex count")
-        for point in points:
-            if not point.is_finite()[0]:
-                raise Error("Mesh vertices must be finite")
-
-    def _store_points(mut self, points: ImmSpan[Point3f32[Self.frame], _]):
-        for i in range(len(points)):
-            self.points[i * 3] = points[i].x
-            self.points[i * 3 + 1] = points[i].y
-            self.points[i * 3 + 2] = points[i].z
+        _validate_mesh_vectors[_, "Mesh vertices must be finite"](points)
 
     def refit(mut self, points: ImmSpan[Point3f32[Self.frame], _]) raises:
         self._validate_points(points)
-        self._store_points(points)
+        _copy_mesh_vectors(self.points, points)
         self._pack_triangles[True]()
         self.bvh._refit_nodes()
         self.winding.bvh._refit_nodes()
@@ -310,7 +327,7 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
         self._validate_points(points)
         self.bvh.rebuild(Self._face_bounds(points, self.indices))
         refresh_adjacency(self.bvh.nodes, self.adjacency)
-        self._store_points(points)
+        _copy_mesh_vectors(self.points, points)
         self._pack_triangles[True]()
         self.winding.bvh._refit_nodes()
 
@@ -320,13 +337,13 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
         """Replace velocities in place; an empty span resets them to zero."""
         if len(velocities) != 0 and len(velocities) * 3 != len(self.points):
             raise Error("Mesh velocity count must match vertex count")
-        for velocity in velocities:
-            if not velocity.is_finite()[0]:
-                raise Error("Mesh velocities must be finite")
-        for i in range(len(self.points) // 3):
-            var velocity = Vec3f32[Self.frame](0.0)
-            if len(velocities) > 0:
-                velocity = velocities[i]
-            self.velocities[i * 3] = velocity.x
-            self.velocities[i * 3 + 1] = velocity.y
-            self.velocities[i * 3 + 2] = velocity.z
+        _validate_mesh_vectors[_, "Mesh velocities must be finite"](velocities)
+        if len(velocities) > 0:
+            _copy_mesh_vectors(self.velocities, velocities)
+        else:
+            var values = self.velocities.unsafe_ptr()
+            var end = len(self.velocities) // BUILD_WIDTH * BUILD_WIDTH
+            for first in range(0, end, BUILD_WIDTH):
+                values.unsafe_store(first, SIMD[.float32, BUILD_WIDTH](0.0))
+            for first in range(end, len(self.velocities)):
+                values.unsafe_store(first, 0.0)

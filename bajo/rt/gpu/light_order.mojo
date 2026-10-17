@@ -17,6 +17,8 @@ from bajo.rt.gpu.views import GpuRtTraceQueueView
 
 def gpu_rt_light_order_rays_kernel[scatter: Bool](queues: GpuRtTraceQueueView):
     var active = Int(queues.counters[unsafe_offset=WAVE_COUNTER.SHADOW])
+    if active == 0:
+        return
     var scratch = GpuRtQueueOrderScratch.from_queues(queues)
     var idx = global_idx.x
     var lane = lane_id()
@@ -36,16 +38,16 @@ def enqueue_gpu_rt_light_order(
 ) raises:
     if not gpu_rt_queue_order_enabled(Int(queues.capacity), bounce):
         return
-    ctx.enqueue_function[gpu_rt_queue_order_init_kernel[64]](
-        queues, grid_dim=1, block_dim=64
-    )
+    ctx.enqueue_function[
+        gpu_rt_queue_order_init_kernel[64, WAVE_COUNTER.SHADOW]
+    ](queues, grid_dim=1, block_dim=64)
     var blocks = min(ceildiv(Int(queues.capacity), 256), 1024)
     ctx.enqueue_function[gpu_rt_light_order_rays_kernel[False]](
         queues, grid_dim=blocks, block_dim=256
     )
-    ctx.enqueue_function[gpu_rt_queue_order_scan_kernel[64]](
-        queues, grid_dim=1, block_dim=64
-    )
+    ctx.enqueue_function[
+        gpu_rt_queue_order_scan_kernel[64, WAVE_COUNTER.SHADOW]
+    ](queues, grid_dim=1, block_dim=64)
     ctx.enqueue_function[gpu_rt_light_order_rays_kernel[True]](
         queues, grid_dim=blocks, block_dim=256
     )

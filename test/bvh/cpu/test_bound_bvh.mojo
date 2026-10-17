@@ -29,6 +29,7 @@ from bajo.core.random import Rng
 from bajo.bvh.constants import (
     EMPTY_LANE,
     PrimitiveKind,
+    TraceMode,
     SPHERE_LEAF_PACKED_STRIDE,
     CPU_TRI_LEAF_PACKED_STRIDE,
     WideNode,
@@ -39,6 +40,7 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsItem,
     BoundsBvh,
     WideLeafRange,
+    WideBvhNode,
 )
 from bajo.bvh.cpu.packet import (
     _coherent_packet_frustum,
@@ -47,6 +49,7 @@ from bajo.bvh.cpu.packet import (
 from bajo.bvh.tagged_ref import (
     decode_ref_index,
     is_leaf_ref,
+    encode_leaf_ref,
 )
 from bajo.bvh.cpu.builder.hploc import (
     _HplocClusterBounds,
@@ -70,9 +73,45 @@ from bajo.bvh.cpu import (
     trace_blas_set_packet_adaptive,
     trace_blas_set_packet_selected,
 )
-from bajo.bvh.cpu.trace import _extract_f32_lane, _extract_u32_lane
+from bajo.bvh.cpu.trace import (
+    _extract_f32_lane,
+    _extract_u32_lane,
+    trace_bounds_bvh_from_ref,
+)
 
 from test.bvh.fixtures import _brute_triangle_trace, _brute_sphere_trace
+
+
+def test_any_hit_continuation_accepts_tagged_leaf_references() raises:
+    var nodes = List[WideBvhNode[.WORLD, 4]]()
+    nodes.append(WideBvhNode[.WORLD, 4]())
+
+    def leaf_fn(
+        ray: Rayf32[.WORLD],
+        _origin: Point3[.float32, .WORLD, 4],
+        _direction: Vec3[.float32, .WORLD, 4],
+        _ray_a: SIMD[.float32, 4],
+        _ray_inv_a: SIMD[.float32, 4],
+        leaf_idx: UInt32,
+        mut _hit: Hit[.WORLD],
+    ) -> Bool:
+        return leaf_idx == 7 and ray.t_min <= 2.0 and ray.t_max >= 2.0
+
+    for leaf in range(7, 9):
+        for limit in range(1, 4):
+            var ray = Rayf32[.WORLD](
+                Point3W(0.0), Vec3W(0.0, 0.0, 1.0), 0.0, Float32(limit)
+            )
+            var hit = trace_bounds_bvh_from_ref[
+                frame=.WORLD, bounds_width=4, leaf_width=4, mode=.ANY_HIT
+            ](
+                Span(nodes),
+                ray,
+                encode_leaf_ref(UInt32(leaf)),
+                Hit[.WORLD].miss(ray.t_max),
+                leaf_fn,
+            )
+            assert_true(hit.is_occluded() == (leaf == 7 and limit >= 2))
 
 
 def test_shadow_hit_sentinel_distinguishes_bounded_miss() raises:

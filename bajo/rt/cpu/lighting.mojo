@@ -1,6 +1,9 @@
 """Emission and next-event estimation for CPU path integrators."""
 
 from std.math import pi
+from std.memory import Pointer
+from std.sys.info import size_of
+from bajo.rt.lighting_types import LightRecord
 from bajo.core import (
     Point3,
     Rayf32,
@@ -36,6 +39,9 @@ from bajo.rt.material_types import (
     Integrator,
     SurfaceId,
     SurfaceStore,
+    Emissive,
+    PRIMITIVE_INDEX_BITS,
+    SURFACE_INDEX_MASK,
 )
 from bajo.rt.shading_types import (
     ShadingPoint,
@@ -277,33 +283,49 @@ def _sample_direct_light_candidate[
         lights.alias_probabilities.unsafe_ptr().unsafe_gather(draw.column),
         lights.alias_indices.unsafe_ptr().unsafe_gather(draw.column),
     )
-    var p0 = Point3[.float32, .WORLD, length](0.0)
-    var p1 = p0
-    var p2 = p0
-    var radius = SIMD[.float32, length](0.0)
-    var emission = Vec3[.float32, .WORLD, length](0.0)
-    var spheres = SIMD[.bool, length](fill=False)
-    for lane in range(Int(length)):
-        if not finite_lanes[lane]:
-            continue
-        ref light = lights.records[Int(selected[lane])]
-        p0.x[lane] = light.p0.x
-        p0.y[lane] = light.p0.y
-        p0.z[lane] = light.p0.z
-        p1.x[lane] = light.p1.x
-        p1.y[lane] = light.p1.y
-        p1.z[lane] = light.p1.z
-        p2.x[lane] = light.p2.x
-        p2.y[lane] = light.p2.y
-        p2.z[lane] = light.p2.z
-        radius[lane] = light.radius
-        spheres[lane] = light.primitive.kind() == PrimitiveKind.SPHERE
-        var radiance = (
-            data.surfaces().emissives[Int(light.surface.index())].radiance
-        )
-        emission.x[lane] = radiance.x
-        emission.y[lane] = radiance.y
-        emission.z[lane] = radiance.z
+    # Read each field across records, using the field's actual address and
+    # the ABI record stride. Inactive lanes always reference record zero.
+    comptime stride = size_of[LightRecord]() // size_of[Float32]()
+    var offsets = finite_lanes.select(selected, 0).cast[.int64]() * SIMD[
+        .int64, length
+    ](stride)
+    var p0_fields = Pointer(to=lights.records[0].p0.x)
+    var p1_fields = Pointer(to=lights.records[0].p1.x)
+    var p2_fields = Pointer(to=lights.records[0].p2.x)
+    var p0 = Point3[.float32, .WORLD, length](
+        p0_fields.unsafe_gather(offsets),
+        p0_fields.unsafe_gather(offsets + 1),
+        p0_fields.unsafe_gather(offsets + 2),
+    )
+    var p1 = Point3[.float32, .WORLD, length](
+        p1_fields.unsafe_gather(offsets),
+        p1_fields.unsafe_gather(offsets + 1),
+        p1_fields.unsafe_gather(offsets + 2),
+    )
+    var p2 = Point3[.float32, .WORLD, length](
+        p2_fields.unsafe_gather(offsets),
+        p2_fields.unsafe_gather(offsets + 1),
+        p2_fields.unsafe_gather(offsets + 2),
+    )
+    var radius = Pointer(to=lights.records[0].radius).unsafe_gather(offsets)
+    var primitives = Pointer(
+        to=lights.records[0].primitive.value
+    ).unsafe_gather(offsets)
+    var spheres = (primitives >> PRIMITIVE_INDEX_BITS).eq(
+        PrimitiveKind.SPHERE.value
+    ) & finite_lanes
+    var surfaces = Pointer(to=lights.records[0].surface.value).unsafe_gather(
+        offsets
+    )
+    var radiance_offsets = (surfaces & SURFACE_INDEX_MASK).cast[
+        .int64
+    ]() * SIMD[.int64, length](size_of[Emissive]() // size_of[Float32]())
+    var radiance_fields = Pointer(to=data.surfaces().emissives[0].radiance.x)
+    var emission = Vec3[.float32, .WORLD, length](
+        radiance_fields.unsafe_gather(radiance_offsets),
+        radiance_fields.unsafe_gather(radiance_offsets + 1),
+        radiance_fields.unsafe_gather(radiance_offsets + 2),
+    )
     # Finite emitters and uniform environments share the two draws; image
     # environments use u for alias selection, v and jitter_v for pixel jitter.
     var surface_sample = _sample_triangle_light_surface(p0, p1, p2, u, v)

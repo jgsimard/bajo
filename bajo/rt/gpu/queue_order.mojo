@@ -53,13 +53,24 @@ def gpu_rt_queue_order_enabled(capacity: Int, bounce: UInt32) -> Bool:
     )
 
 
-def gpu_rt_queue_order_init_kernel[bin_count: Int](queues: GpuRtTraceQueueView):
+def gpu_rt_queue_order_init_kernel[
+    bin_count: Int, counter: Int = -1
+](queues: GpuRtTraceQueueView):
+    comptime if counter >= 0:
+        if queues.counters[unsafe_offset=counter] == 0:
+            return
     var idx = global_idx.x
     if idx < bin_count:
         GpuRtQueueOrderScratch.from_queues(queues).bins[unsafe_offset=idx] = 0
 
 
-def gpu_rt_queue_order_scan_kernel[bin_count: Int](queues: GpuRtTraceQueueView):
+def gpu_rt_queue_order_scan_kernel[
+    bin_count: Int, counter: Int = -1
+](queues: GpuRtTraceQueueView):
+    comptime if counter >= 0:
+        # Uniform across the whole block, before its prefix-sum barriers.
+        if queues.counters[unsafe_offset=counter] == 0:
+            return
     var idx = global_idx.x
     var scratch = GpuRtQueueOrderScratch.from_queues(queues)
     var count = UInt32(0)

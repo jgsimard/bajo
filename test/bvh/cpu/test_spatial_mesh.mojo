@@ -527,5 +527,65 @@ def test_normal_sign_without_adjacency_and_invalid_root() raises:
         )
 
 
+def test_mesh_vector_validation_batches_tails_and_atomicity() raises:
+    for count in [0, 1, 2, 3, 7, 8, 9, 15, 16, 17]:
+        var points = List[Point3f32[.WORLD]]()
+        var velocities = List[Vec3f32[.WORLD]]()
+        for i in range(count):
+            var x = bitcast[.float32](UInt32(0x80000000))
+            var y = bitcast[.float32](UInt32(1))
+            points.append(Point3f32[.WORLD](x, y, Float32(i)))
+            velocities.append(Vec3f32[.WORLD](x, y, Float32(i)))
+        var mesh = SpatialMesh(
+            points, List[UInt32](), cache_winding=False, cache_adjacency=False
+        )
+        mesh.refit(points)
+        mesh.set_velocities(velocities)
+        for i in range(count):
+            comptime for axis in range(3):
+                assert_equal(
+                    bitcast[.uint32](mesh.points[i * 3 + axis]),
+                    bitcast[.uint32](points[i][axis][0]),
+                )
+                assert_equal(
+                    bitcast[.uint32](mesh.velocities[i * 3 + axis]),
+                    bitcast[.uint32](velocities[i][axis][0]),
+                )
+        for i in range(count):
+            comptime for axis in range(3):
+                for bad in [
+                    UInt32(0x7F800000),
+                    UInt32(0xFF800000),
+                    UInt32(0x7FC00001),
+                ]:
+                    var previous = points[i][axis]
+                    points[i][axis] = bitcast[.float32](bad)
+                    var failed = False
+                    try:
+                        mesh.refit(points)
+                    except:
+                        failed = True
+                    assert_true(failed)
+                    assert_equal(
+                        bitcast[.uint32](mesh.points[i * 3 + axis]),
+                        bitcast[.uint32](previous[0]),
+                    )
+                    points[i][axis] = previous
+        if count > 0:
+            velocities[count - 1].z = bitcast[.float32](UInt32(0x7F800000))
+            var failed = False
+            try:
+                mesh.set_velocities(velocities)
+            except:
+                failed = True
+            assert_true(failed)
+            assert_equal(
+                mesh.velocities[(count - 1) * 3 + 2], Float32(count - 1)
+            )
+        mesh.set_velocities(List[Vec3f32[.WORLD]]())
+        for value in mesh.velocities:
+            assert_equal(bitcast[.uint32](value), UInt32(0))
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

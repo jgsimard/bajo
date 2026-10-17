@@ -2,12 +2,12 @@ from std.math import ceildiv, max, min
 from max.gpu import block_idx, global_idx, thread_idx
 from max.gpu.memory import AddressSpace
 from max.gpu.sync import barrier
-from std.memory import stack_allocation
+from std.memory import stack_allocation, bitcast
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.gpu.buffers import _device_span, upload_list
 from bajo.bvh.constants import WideNode
-from bajo.bvh.wide_meta import _wide_node_base, _wide_node_index
+from bajo.bvh.wide_meta import wide_node_tile
 from bajo.core import (
     AABB,
     AxisAlignedBoundingBox,
@@ -410,35 +410,22 @@ def _wide_node_store_child[
     bounds: AABB,
     meta: UInt32,
 ):
-    wide_nodes[
-        unsafe_offset=_wide_node_index[width](node_idx, WideNode.MIN_X, lane)
-    ] = bounds._min.x
-    wide_nodes[
-        unsafe_offset=_wide_node_index[width](node_idx, WideNode.MIN_Y, lane)
-    ] = bounds._min.y
-    wide_nodes[
-        unsafe_offset=_wide_node_index[width](node_idx, WideNode.MIN_Z, lane)
-    ] = bounds._min.z
-    wide_nodes[
-        unsafe_offset=_wide_node_index[width](node_idx, WideNode.MAX_X, lane)
-    ] = bounds._max.x
-    wide_nodes[
-        unsafe_offset=_wide_node_index[width](node_idx, WideNode.MAX_Y, lane)
-    ] = bounds._max.y
-    wide_nodes[
-        unsafe_offset=_wide_node_index[width](node_idx, WideNode.MAX_Z, lane)
-    ] = bounds._max.z
-    wide_nodes.unsafe_bitcast[UInt32]()[
-        unsafe_offset=_wide_node_index[width](node_idx, WideNode.META, lane)
-    ] = meta
+    var fields = wide_node_tile[width](wide_nodes, node_idx)
+    fields[WideNode.MIN_X, lane] = bounds._min.x
+    fields[WideNode.MIN_Y, lane] = bounds._min.y
+    fields[WideNode.MIN_Z, lane] = bounds._min.z
+    fields[WideNode.MAX_X, lane] = bounds._max.x
+    fields[WideNode.MAX_Y, lane] = bounds._max.y
+    fields[WideNode.MAX_Z, lane] = bounds._max.z
+    fields[WideNode.META, lane] = bitcast[.float32](meta)
 
 
 def _wide_node_load_meta[
     width: SIMDLength,
 ](wide_nodes: ImmPointer[Float32, _], node_idx: UInt32, lane: Int) -> UInt32:
-    return wide_nodes.unsafe_bitcast[UInt32]()[
-        unsafe_offset=_wide_node_index[width](node_idx, WideNode.META, lane)
-    ]
+    return bitcast[.uint32](
+        wide_node_tile[width](wide_nodes, node_idx)[WideNode.META, lane]
+    )
 
 
 struct WideNodeIntersection[width: SIMDLength](TrivialRegisterPassable):
@@ -467,29 +454,14 @@ def _intersect_wide_node_precomputed[
 ) -> WideNodeIntersection[width]:
     """Intersect a wide node with reciprocal direction cached per query."""
     var block = AxisAlignedBoundingBox[.float32, frame, width].invalid()
-    var base = _wide_node_base[width](node_idx)
-    comptime field_alignment = Int(width) * 4
-    block._min.x = wide_nodes.unsafe_load[
-        width=width, alignment=field_alignment
-    ](base + WideNode.MIN_X * width)
-    block._min.y = wide_nodes.unsafe_load[
-        width=width, alignment=field_alignment
-    ](base + WideNode.MIN_Y * width)
-    block._min.z = wide_nodes.unsafe_load[
-        width=width, alignment=field_alignment
-    ](base + WideNode.MIN_Z * width)
-    block._max.x = wide_nodes.unsafe_load[
-        width=width, alignment=field_alignment
-    ](base + WideNode.MAX_X * width)
-    block._max.y = wide_nodes.unsafe_load[
-        width=width, alignment=field_alignment
-    ](base + WideNode.MAX_Y * width)
-    block._max.z = wide_nodes.unsafe_load[
-        width=width, alignment=field_alignment
-    ](base + WideNode.MAX_Z * width)
-    var meta = wide_nodes.unsafe_bitcast[UInt32]().unsafe_load[
-        width=width, alignment=field_alignment
-    ](base + WideNode.META * width)
+    var fields = wide_node_tile[width](wide_nodes, node_idx)
+    block._min.x = fields.load[width=width]((WideNode.MIN_X, 0))
+    block._min.y = fields.load[width=width]((WideNode.MIN_Y, 0))
+    block._min.z = fields.load[width=width]((WideNode.MIN_Z, 0))
+    block._max.x = fields.load[width=width]((WideNode.MAX_X, 0))
+    block._max.y = fields.load[width=width]((WideNode.MAX_Y, 0))
+    block._max.z = fields.load[width=width]((WideNode.MAX_Z, 0))
+    var meta = bitcast[.uint32](fields.load[width=width]((WideNode.META, 0)))
 
     # GPU native min/max avoids compare/select pairs in each child slab.
     var t0 = (block._min - bounds_origin) * reciprocal_direction

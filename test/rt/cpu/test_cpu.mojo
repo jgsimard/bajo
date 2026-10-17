@@ -9,7 +9,7 @@ from std.testing import (
     assert_true,
     assert_false,
 )
-from std.sys import num_logical_cores
+from std.sys import num_logical_cores, simd_width_of
 from std.math import ceildiv
 from std.memory import bitcast
 from std.math import pi, sqrt
@@ -85,6 +85,7 @@ from bajo.rt.material_types import MaterialKind
 from bajo.rt.wavefront_contract import wavefront_rng_roulette_stage
 from bajo.rt.wavefront_queue import PathPacket, ShadePacket
 from bajo.rt.material_storage import pack_coated_materials
+from bajo.rt.film import FilmResponse
 from bajo.rt.cpu.wavefront.packet import (
     _DirectLightBatch,
     _accumulate_direct_light_packet,
@@ -1653,6 +1654,43 @@ def test_textured_coated_packet_scattering_matches_scalar() raises:
         assert_equal(packet.delta[lane], scalar.delta[0])
     assert_false(packet.ok[2])
     assert_false(packet.ok[3])
+
+
+def test_film_response_simd_rgb_and_tails() raises:
+    var film = FilmResponse(
+        0.81,
+        Color(0.7, 0.2, 0.1),
+        Color(-0.1, 1.1, 0.05),
+        Color(0.15, -0.2, 0.9),
+    )
+    comptime for width in [1, 4, simd_width_of[Float32]()]:
+        for count in [0, 1, width - 1, width, width + 1, 2 * width + 3]:
+            var pixels = List[Color](length=count + 2, fill=Color(-17.0))
+            for i in range(count):
+                pixels[i + 1] = Color(
+                    Float32(i % 7) / 3.0,
+                    -Float32(i % 11) / 5.0,
+                    Float32(i % 13) / 7.0,
+                )
+            var expected = pixels.copy()
+            for i in range(1, count + 1):
+                var color = expected[i] * 0.25
+                expected[i] = (
+                    Color(
+                        dot(film.red, color),
+                        dot(film.green, color),
+                        dot(film.blue, color),
+                    )
+                    * film.exposure
+                )
+            # Offset views exercise unaligned loads; sentinels catch tail writes.
+            film.apply_to[width](pixels[1 : count + 1], 0.25)
+            for i in range(count + 2):
+                comptime for channel in range(3):
+                    assert_equal(
+                        bitcast[.uint32](pixels[i][channel]),
+                        bitcast[.uint32](expected[i][channel]),
+                    )
 
 
 def main() raises:

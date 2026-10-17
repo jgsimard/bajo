@@ -1,7 +1,7 @@
 """CPU BLAS construction and packed-storage assembly."""
 
 from max.algorithm import parallelize
-from std.memory import unsafe_memcpy
+from std.memory import unsafe_memcpy, bitcast
 
 from bajo.bvh.constants import (
     EMPTY_LANE,
@@ -31,7 +31,7 @@ from bajo.bvh.types import (
     Sphere,
     SphereLeafBlock,
 )
-from bajo.bvh.wide_meta import _pack_wide_meta, _wide_node_base
+from bajo.bvh.wide_meta import _pack_wide_meta, wide_node_tile
 from bajo.core import (
     Frame,
     Point3f32,
@@ -52,25 +52,15 @@ def _store_wide_blas_node[
     node_f32_base: Int,
 ):
     """Serialize one wide node using primitive-specific leaf counts."""
-    var base = node_f32_base + _wide_node_base[width](node_idx)
-    nodes.unsafe_store[width=width](
-        base + WideNode.MIN_X * width, node.aabb._min.x
+    var fields = wide_node_tile[width](
+        nodes.unsafe_offset(node_f32_base), node_idx
     )
-    nodes.unsafe_store[width=width](
-        base + WideNode.MIN_Y * width, node.aabb._min.y
-    )
-    nodes.unsafe_store[width=width](
-        base + WideNode.MIN_Z * width, node.aabb._min.z
-    )
-    nodes.unsafe_store[width=width](
-        base + WideNode.MAX_X * width, node.aabb._max.x
-    )
-    nodes.unsafe_store[width=width](
-        base + WideNode.MAX_Y * width, node.aabb._max.y
-    )
-    nodes.unsafe_store[width=width](
-        base + WideNode.MAX_Z * width, node.aabb._max.z
-    )
+    fields.store[width=width]((WideNode.MIN_X, 0), node.aabb._min.x)
+    fields.store[width=width]((WideNode.MIN_Y, 0), node.aabb._min.y)
+    fields.store[width=width]((WideNode.MIN_Z, 0), node.aabb._min.z)
+    fields.store[width=width]((WideNode.MAX_X, 0), node.aabb._max.x)
+    fields.store[width=width]((WideNode.MAX_Y, 0), node.aabb._max.y)
+    fields.store[width=width]((WideNode.MAX_Z, 0), node.aabb._max.z)
     var packed_meta = SIMD[.uint32, width](EMPTY_LANE)
     comptime for lane in range(width):
         var data = node.data[lane]
@@ -81,8 +71,8 @@ def _store_wide_blas_node[
                 )
             else:
                 packed_meta[lane] = _pack_wide_meta(data, UInt32(0))
-    nodes.unsafe_bitcast[UInt32]().unsafe_store[width=width](
-        base + WideNode.META * width, packed_meta
+    fields.store[width=width](
+        (WideNode.META, 0), bitcast[.float32](packed_meta)
     )
 
 
@@ -477,16 +467,9 @@ def _pack_built_sphere_blas[
             node, leaf_counts, nodes, UInt32(node_idx), node_f32_base
         )
 
-    var leaves_u32 = leaves.unsafe_bitcast[UInt32]()
     for block_idx in range(len(bvh.leaf_blocks)):
-        ref block = bvh.leaf_blocks[block_idx]
-        var out = leaf_f32_base + block_idx * width * SPHERE_LEAF_PACKED_STRIDE
-        leaves.unsafe_store[width=width](out + 0 * width, block.center.x)
-        leaves.unsafe_store[width=width](out + 1 * width, block.center.y)
-        leaves.unsafe_store[width=width](out + 2 * width, block.center.z)
-        leaves.unsafe_store[width=width](out + 3 * width, block.radius)
-        leaves_u32.unsafe_store[width=width](
-            out + 4 * width, block.prim_indices
+        bvh.leaf_blocks[block_idx].store(
+            leaves.unsafe_offset(leaf_f32_base), UInt32(block_idx)
         )
 
     BlasDesc(

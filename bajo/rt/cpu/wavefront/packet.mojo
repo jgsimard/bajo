@@ -1,13 +1,12 @@
 """Width-generic packet CPU wavefront kernels."""
 
+from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from std.math import sqrt
 from std.memory import Pointer
 from std.sys.info import size_of
 from bajo.rt.material_parameters import CoatedParameters
 from bajo.rt.material_storage import (
-    coated_column_tile,
     load_coated_parameters,
-    load_material_rgb,
     CoatedDiffuseLayout,
 )
 from bajo.rt.continuation import finish_continuation, continuation_medium
@@ -187,7 +186,7 @@ def _accumulate_direct_light_packet[
         lights.sample.valid & lights.surface_kinds.eq(MaterialKind.METAL.value),
     )
     if coated_active.reduce_or():
-        var records = coated_column_tile(
+        var records = record_tile[.float32, CoatedDiffuseLayout.STRIDE, True](
             coated_fields.unsafe_ptr(), len(surfaces.coated_diffuses)
         )
         var ids = coated_active.select(lights.surface_indices, 0)
@@ -280,17 +279,17 @@ def _sample_bsdf_values[
         active[lane] = True
     comptime if MATERIAL_KIND == .COATED_DIFFUSE:
         if lane_count > 0:
-            var records = coated_column_tile(
-                coated_fields.unsafe_ptr(), len(surfaces.coated_diffuses)
-            )
+            var records = record_tile[
+                .float32, CoatedDiffuseLayout.STRIDE, True
+            ](coated_fields.unsafe_ptr(), len(surfaces.coated_diffuses))
             var ids = active.select(
                 batch.surface_indices, batch.surface_indices[0]
             )
             var uniform = ids.eq(ids[0]).reduce_and()
             material.coated = load_coated_parameters(records, ids, uniform)
-            material.albedo = load_material_rgb[CoatedDiffuseLayout.ALBEDO](
-                records, ids, uniform
-            )
+            material.albedo = gather_record_vec3[
+                .WORLD, CoatedDiffuseLayout.ALBEDO
+            ](records, ids, uniform)
             if uniform:
                 ref source = surfaces.coated_diffuses[Int(ids[0])]
                 texture_albedo = source.texture_index != NO_TEXTURE

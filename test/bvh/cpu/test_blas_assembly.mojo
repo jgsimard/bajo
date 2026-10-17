@@ -17,7 +17,7 @@ from bajo.bvh.cpu import (
     trace_blas_set,
 )
 from bajo.bvh.gpu.triangle_bvh import _flatten_triangle_sets
-from bajo.bvh.types import BlasDesc, Sphere
+from bajo.bvh.types import BlasDesc, Sphere, SphereLeafBlock, Hit
 from bajo.core import Point3f32, Rayf32, Vec3f32
 
 
@@ -256,6 +256,32 @@ def test_empty_borrowed_triangle_upload() raises:
     assert_equal(packed.segments.segment_count(), 1)
     assert_equal(packed.segments.item_count(), 0)
     assert_equal(len(packed.packed_vertices), 0)
+
+
+def test_packed_views_preserve_identifier_bits_and_record_boundaries() raises:
+    var words = SIMD[.uint32, 4](0, 0x80000000, 0x7FC01234, 0xFFFFFFFF)
+    var block = SphereLeafBlock[.WORLD, 4]()
+    block.center.x = 1.0
+    block.radius = 2.0
+    block.prim_indices = words
+    var leaves = List[Float32](length=3 * 5 * 4, fill=-17.0)
+    block.store(leaves.unsafe_ptr(), 1)
+    var loaded = SphereLeafBlock[.WORLD, 4].load(leaves.unsafe_ptr(), 1)
+    assert_equal(loaded.prim_indices, words)
+    assert_equal(loaded.center.x, block.center.x)
+    assert_equal(loaded.radius, block.radius)
+    assert_equal(leaves[19], Float32(-17.0))
+    assert_equal(leaves[40], Float32(-17.0))
+    var hits = List[Float32](length=3 * 8, fill=-17.0)
+    var hit = Hit[.WORLD].miss()
+    hit.prim = words[2]
+    hit.inst = words[3]
+    hit.store(hits, 1)
+    var restored = Hit[.WORLD].load(hits, 1)
+    assert_equal(restored.prim, hit.prim)
+    assert_equal(restored.inst, hit.inst)
+    assert_equal(hits[7], Float32(-17.0))
+    assert_equal(hits[16], Float32(-17.0))
 
 
 def main() raises:

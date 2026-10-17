@@ -1,5 +1,7 @@
 from std.bit import count_trailing_zeros
-from std.memory import pack_bits
+from std.memory import pack_bits, bitcast
+from layout import Idx
+from bajo.core.tensor_layout import field_tile
 from std.sys.intrinsics import prefetch
 
 from bajo.bvh.constants import (
@@ -80,23 +82,20 @@ def _load_packed_triangle_leaf[
     var block_base = (
         Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
     )
-    var block_ptr = leaves.unsafe_offset(block_base)
+    var fields = field_tile[.float32, CPU_TRI_LEAF_PACKED_STRIDE](
+        leaves.unsafe_offset(block_base), Idx[Int(leaf_width)]
+    )
     var block = TriangleLeafBlock[frame, leaf_width]()
-    block.v0.x = block_ptr.unsafe_load[width=leaf_width](0 * leaf_width)
-    block.v0.y = block_ptr.unsafe_load[width=leaf_width](1 * leaf_width)
-    block.v0.z = block_ptr.unsafe_load[width=leaf_width](2 * leaf_width)
+    comptime for axis in range(3):
+        block.v0[axis] = fields.load[width=leaf_width]((axis, 0))
+        block.e1[axis] = fields.load[width=leaf_width]((4 + axis, 0))
+        block.e2[axis] = fields.load[width=leaf_width]((7 + axis, 0))
     comptime if load_primitive_indices:
-        block.prim_indices = block_ptr.unsafe_bitcast[UInt32]().unsafe_load[
-            width=leaf_width
-        ](3 * leaf_width)
+        block.prim_indices = bitcast[.uint32](
+            fields.load[width=leaf_width]((3, 0))
+        )
     else:
         comptime assert leaf_width == 16
-    block.e1.x = block_ptr.unsafe_load[width=leaf_width](4 * leaf_width)
-    block.e1.y = block_ptr.unsafe_load[width=leaf_width](5 * leaf_width)
-    block.e1.z = block_ptr.unsafe_load[width=leaf_width](6 * leaf_width)
-    block.e2.x = block_ptr.unsafe_load[width=leaf_width](7 * leaf_width)
-    block.e2.y = block_ptr.unsafe_load[width=leaf_width](8 * leaf_width)
-    block.e2.z = block_ptr.unsafe_load[width=leaf_width](9 * leaf_width)
     return block^
 
 
@@ -651,18 +650,9 @@ def trace_blas_set[
         leaf_block_idx: UInt32,
         mut hit: Hit[frame],
     ) {imm} -> Bool:
-        var block_base = (
-            Int(leaf_block_idx) * SPHERE_LEAF_PACKED_STRIDE * leaf_width
+        var block = SphereLeafBlock[frame, leaf_width].load(
+            leaves, leaf_block_idx
         )
-        var block_ptr = leaves.unsafe_offset(block_base)
-        var block = SphereLeafBlock[frame, leaf_width]()
-        block.center.x = block_ptr.unsafe_load[width=leaf_width](0 * leaf_width)
-        block.center.y = block_ptr.unsafe_load[width=leaf_width](1 * leaf_width)
-        block.center.z = block_ptr.unsafe_load[width=leaf_width](2 * leaf_width)
-        block.radius = block_ptr.unsafe_load[width=leaf_width](3 * leaf_width)
-        block.prim_indices = block_ptr.unsafe_bitcast[UInt32]().unsafe_load[
-            width=leaf_width
-        ](4 * leaf_width)
         return _trace_sphere_leaf_block[frame, leaf_width, mode](
             ray, O, D, ray_a, ray_inv_a, block, hit
         )

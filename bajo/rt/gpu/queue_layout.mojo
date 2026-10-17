@@ -3,12 +3,9 @@
 Views borrow existing storage. Their layouts preserve the field-major queue
 ABI and record-major material ABI; constructing a view never copies records.
 """
-from bajo.rt.tensor_layout import (
-    RtFieldLayout,
-    RtFieldTile,
-    rt_field_tile,
-    RtRecordLayout,
-    RtRecordTile,
+from bajo.core.tensor_layout import (
+    FieldTile,
+    field_tile,
 )
 from bajo.rt.wavefront_contract import (
     WavePathFloatAbi,
@@ -31,8 +28,7 @@ comptime GPU_SHADE_TZ = GPU_SHADE_TY + 1
 comptime GPU_SHADE_PLANES = GPU_SHADE_TZ + 1
 
 
-comptime GpuRtFieldLayout[planes: Int] = RtFieldLayout[planes, Int]
-comptime GpuRtFieldTile[planes: Int, origin: Origin] = RtFieldTile[
+comptime GpuRtFieldTile[planes: Int, origin: Origin] = FieldTile[
     .float32, planes, Int, origin
 ]
 comptime GpuRtPathTile[origin: Origin] = GpuRtFieldTile[
@@ -54,31 +50,25 @@ comptime GpuRtRadianceTile[origin: Origin] = GpuRtFieldTile[
 def gpu_rt_path_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtPathTile[origin]:
-    return rt_field_tile[.float32, WavePathFloatAbi.PLANES](fields, capacity)
+    return field_tile[.float32, WavePathFloatAbi.PLANES](fields, capacity)
 
 
 @always_inline
 def gpu_rt_shade_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtShadeTile[origin]:
-    return rt_field_tile[.float32, GPU_SHADE_PLANES](fields, capacity)
+    return field_tile[.float32, GPU_SHADE_PLANES](fields, capacity)
 
 
 @always_inline
 def gpu_rt_shadow_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtShadowTile[origin]:
-    return rt_field_tile[.float32, WaveShadowFloatAbi.PLANES](fields, capacity)
+    return field_tile[.float32, WaveShadowFloatAbi.PLANES](fields, capacity)
 
 
 @always_inline
 def gpu_rt_radiance_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtRadianceTile[origin]:
-    return rt_field_tile[.float32, WaveSampleFloatAbi.PLANES](fields, capacity)
-
-
-comptime GpuRtRecordLayout[stride: Int] = RtRecordLayout[stride]
-comptime GpuRtRecordTile[stride: Int, origin: Origin] = RtRecordTile[
-    .float32, stride, origin
-]
+    return field_tile[.float32, WaveSampleFloatAbi.PLANES](fields, capacity)

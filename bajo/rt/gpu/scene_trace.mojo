@@ -26,7 +26,11 @@ from bajo.rt.common import (
     path_stage_rng,
     sky_color,
 )
-from bajo.rt.geometry import orient_surface_normal
+from bajo.rt.geometry import (
+    orient_surface_normal,
+    interpolate_triangle_attribute,
+)
+from bajo.core.tensor_layout import record_tile
 from bajo.rt.lighting import _emissive_hit_weight_from_pdf
 from bajo.rt.rays import make_ao_ray
 from bajo.rt.render_types import (
@@ -386,31 +390,50 @@ def _gpu_rt_scene_trace_path[
             ] if instance_idx < Int(scene.instance_media_count) else UInt32(0)
             var mesh_idx = Int(inst_blas_indices[unsafe_offset=instance_idx])
             var triangle_idx = Int(instance_hit.prim)
-            var b0 = Float32(1.0) - instance_hit.u - instance_hit.v
-            var b1 = instance_hit.u
-            var b2 = instance_hit.v
             var texcoord_offset = texcoord_offsets[unsafe_offset=mesh_idx]
             if texcoord_offset != UInt32.MAX:
-                var base = Int(texcoord_offset) + 6 * triangle_idx
-                uv_u = (
-                    b0 * vertex_texcoords[unsafe_offset=base]
-                    + b1 * vertex_texcoords[unsafe_offset=base + 2]
-                    + b2 * vertex_texcoords[unsafe_offset=base + 4]
+                var records = record_tile[.float32, 6](
+                    vertex_texcoords.unsafe_offset(Int(texcoord_offset)),
+                    triangle_idx + 1,
                 )
-                uv_v = (
-                    b0 * vertex_texcoords[unsafe_offset=base + 1]
-                    + b1 * vertex_texcoords[unsafe_offset=base + 3]
-                    + b2 * vertex_texcoords[unsafe_offset=base + 5]
+                uv_u = interpolate_triangle_attribute[2, 0](
+                    records,
+                    UInt32(triangle_idx),
+                    instance_hit.u,
+                    instance_hit.v,
+                )
+                uv_v = interpolate_triangle_attribute[2, 1](
+                    records,
+                    UInt32(triangle_idx),
+                    instance_hit.u,
+                    instance_hit.v,
                 )
             var normal_offset = normal_offsets[unsafe_offset=mesh_idx]
             if normal_offset != UInt32.MAX:
-                var base = Int(normal_offset) + 9 * triangle_idx
-                var n0 = Vec3f32[.LOCAL](vertex_normals.unsafe_offset(base))
-                var n1 = Vec3f32[.LOCAL](vertex_normals.unsafe_offset(base + 3))
-                var n2 = Vec3f32[.LOCAL](vertex_normals.unsafe_offset(base + 6))
-                var local_normal = (b0 * n0 + b1 * n1 + b2 * n2).unsafe_convert[
-                    new_kind=GeoKind.NORMAL
-                ]()
+                var records = record_tile[.float32, 9](
+                    vertex_normals.unsafe_offset(Int(normal_offset)),
+                    triangle_idx + 1,
+                )
+                var local_normal = Vec3f32[.LOCAL](
+                    interpolate_triangle_attribute[3, 0](
+                        records,
+                        UInt32(triangle_idx),
+                        instance_hit.u,
+                        instance_hit.v,
+                    ),
+                    interpolate_triangle_attribute[3, 1](
+                        records,
+                        UInt32(triangle_idx),
+                        instance_hit.u,
+                        instance_hit.v,
+                    ),
+                    interpolate_triangle_attribute[3, 2](
+                        records,
+                        UInt32(triangle_idx),
+                        instance_hit.u,
+                        instance_hit.v,
+                    ),
+                ).unsafe_convert[new_kind=GeoKind.NORMAL]()
                 var inverse_span = Span(
                     unsafe_ptr=inst_inv_transform,
                     length=Int(instance_count_i32) * Affine3f32.STRIDE,

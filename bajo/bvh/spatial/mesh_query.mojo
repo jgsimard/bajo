@@ -9,6 +9,8 @@ closed surface; open/nonmanifold surfaces do not define a universal inside.
 
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.sys.intrinsics import strided_load
+from layout import Idx
+from bajo.core.tensor_layout import field_tile
 from std.math import abs, sqrt, max, min, pi
 from std.memory import stack_allocation, bitcast
 from std.sys.info import is_gpu
@@ -1586,38 +1588,20 @@ struct MeshQueryView[
     ):
         var triangles = self.packed_triangles.unsafe_ptr()
         for block in range(begin, end):
-            var base = block * 9 * width
-            var a = Vec3[.float64, Self.frame, width](
-                triangles.unsafe_load[width=width](base).cast[.float64](),
-                triangles.unsafe_load[width=width](base + width).cast[
-                    .float64
-                ](),
-                triangles.unsafe_load[width=width](base + 2 * width).cast[
-                    .float64
-                ](),
+            var fields = field_tile[.float32, 9](
+                triangles.unsafe_offset(block * 9 * width), Idx[Int(width)]
             )
-            var b = Vec3[.float64, Self.frame, width](
-                triangles.unsafe_load[width=width](base + 3 * width).cast[
+            var a = Vec3[.float64, Self.frame, width](0.0)
+            var b = Vec3[.float64, Self.frame, width](0.0)
+            var c = Vec3[.float64, Self.frame, width](0.0)
+            comptime for axis in range(3):
+                a[axis] = fields.load[width=width]((axis, 0)).cast[.float64]()
+                b[axis] = fields.load[width=width]((axis + 3, 0)).cast[
                     .float64
-                ](),
-                triangles.unsafe_load[width=width](base + 4 * width).cast[
+                ]()
+                c[axis] = fields.load[width=width]((axis + 6, 0)).cast[
                     .float64
-                ](),
-                triangles.unsafe_load[width=width](base + 5 * width).cast[
-                    .float64
-                ](),
-            )
-            var c = Vec3[.float64, Self.frame, width](
-                triangles.unsafe_load[width=width](base + 6 * width).cast[
-                    .float64
-                ](),
-                triangles.unsafe_load[width=width](base + 7 * width).cast[
-                    .float64
-                ](),
-                triangles.unsafe_load[width=width](base + 8 * width).cast[
-                    .float64
-                ](),
-            )
+                ]()
             var adjusted = solid_angle(point, a, b, c) - compensation
             var updated = sum + adjusted
             compensation = (updated - sum) - adjusted

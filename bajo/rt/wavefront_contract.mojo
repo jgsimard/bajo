@@ -7,7 +7,7 @@ from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.rt.render_types import Color
 from bajo.rt.path_values import PathFloatField as WavePathFloatAbi, PathValues
 from bajo.rt.path_store import store_path_values
-from bajo.rt.tensor_layout import rt_field_tile
+from bajo.core.tensor_layout import field_tile
 from bajo.rt.rays import RT_RAY_T_MIN
 from bajo.bvh.constants import f32_max
 from bajo.rt.material_types import SurfaceId
@@ -387,9 +387,7 @@ def load_device_wave_path[
 ) -> DeviceWavePath:
     """Decode host/device planes, reconstructing fields absent from RT stages.
     """
-    var tile = rt_field_tile[.float32, WavePathFloatAbi.PLANES](
-        fields, capacity
-    )
+    var tile = field_tile[.float32, WavePathFloatAbi.PLANES](fields, capacity)
     var packed_id = path_ids[unsafe_offset=idx]
     var t_min = RT_RAY_T_MIN
     var t_max = f32_max
@@ -439,9 +437,7 @@ def store_device_wave_path(
     capacity: Int,
     idx: Int,
 ):
-    var tile = rt_field_tile[.float32, WavePathFloatAbi.PLANES](
-        fields, capacity
-    )
+    var tile = field_tile[.float32, WavePathFloatAbi.PLANES](fields, capacity)
     path_ids[unsafe_offset=idx] = (path.path_id & WAVE_PATH_ID_MASK) | (
         WAVE_PATH_DELTA_BIT if path.delta else UInt32(0)
     )
@@ -458,29 +454,14 @@ def load_device_wave_shade(
     idx: Int,
 ) -> DeviceWaveShade:
     var path_ref = path_refs[unsafe_offset=idx]
+    var tile = field_tile[.float32, WaveShadeFloatAbi.PLANES](fields, capacity)
     return DeviceWaveShade(
         path_ref & PATH_INDEX_MASK,
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadeFloatAbi.NX, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadeFloatAbi.NY, capacity, idx
-            )
-        ],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadeFloatAbi.NZ, capacity, idx
-            )
-        ],
+        tile[WaveShadeFloatAbi.NX, idx],
+        tile[WaveShadeFloatAbi.NY, idx],
+        tile[WaveShadeFloatAbi.NZ, idx],
         surface_values[unsafe_offset=idx],
-        fields[
-            unsafe_offset=wavefront_plane_index(
-                WaveShadeFloatAbi.T, capacity, idx
-            )
-        ],
+        tile[WaveShadeFloatAbi.T, idx],
         (path_ref & FRONT_FACE_BIT) != 0,
     )
 
@@ -499,18 +480,11 @@ def store_device_wave_shade(
         path_ref |= FRONT_FACE_BIT
     path_refs[unsafe_offset=idx] = path_ref
     surface_values[unsafe_offset=idx] = work.surface_value
-    fields[
-        unsafe_offset=wavefront_plane_index(WaveShadeFloatAbi.NX, capacity, idx)
-    ] = work.nx
-    fields[
-        unsafe_offset=wavefront_plane_index(WaveShadeFloatAbi.NY, capacity, idx)
-    ] = work.ny
-    fields[
-        unsafe_offset=wavefront_plane_index(WaveShadeFloatAbi.NZ, capacity, idx)
-    ] = work.nz
-    fields[
-        unsafe_offset=wavefront_plane_index(WaveShadeFloatAbi.T, capacity, idx)
-    ] = work.t
+    var tile = field_tile[.float32, WaveShadeFloatAbi.PLANES](fields, capacity)
+    tile[WaveShadeFloatAbi.NX, idx] = work.nx
+    tile[WaveShadeFloatAbi.NY, idx] = work.ny
+    tile[WaveShadeFloatAbi.NZ, idx] = work.nz
+    tile[WaveShadeFloatAbi.T, idx] = work.t
 
 
 struct PackedWavePathQueue(Sized):

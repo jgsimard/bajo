@@ -4,12 +4,14 @@ Logical coordinates are [material, field]. GPU records keep fields adjacent;
 CPU tables keep materials adjacent so SIMD lanes can gather one field.
 """
 
-from layout import TileTensor, TensorLayout, Coord, Idx
-from layout.tile_layout import col_major
-from bajo.rt.tensor_layout import RtRecordLayout, rt_record_tile
+from layout import TileTensor, TensorLayout
+from bajo.core.tensor_layout import (
+    record_tile,
+    gather_record_field,
+    gather_record_vec3,
+)
 from bajo.rt.material_parameters import CoatedParameters
 from bajo.rt.material_types import SurfaceStore, CoatedDiffuse
-from bajo.core import Vec3
 
 
 struct RgbMaterialLayout:
@@ -68,79 +70,6 @@ struct TextureDescLayout:
     comptime HEIGHT = 2
 
 
-comptime CoatedColumnLayout = type_of(
-    col_major(Coord(Int(0), Idx[CoatedDiffuseLayout.STRIDE]))
-)
-comptime CoatedColumnTile[origin: Origin] = TileTensor[
-    .float32, CoatedColumnLayout, origin
-]
-
-
-@always_inline
-def coated_column_tile[
-    mut: Bool, origin: Origin[mut=mut], //
-](data: Pointer[Float32, origin], count: Int) -> CoatedColumnTile[origin]:
-    return TileTensor(
-        Span(unsafe_ptr=data, length=count * CoatedDiffuseLayout.STRIDE),
-        col_major(Coord(count, Idx[CoatedDiffuseLayout.STRIDE])),
-    )
-
-
-@always_inline
-def _material_field[
-    mut: Bool,
-    origin: Origin[mut=mut],
-    Layout: TensorLayout,
-    //,
-    field: Int,
-    length: SIMDLength,
-](
-    records: TileTensor[.float32, Layout, origin],
-    ids: SIMD[.uint32, length],
-    uniform: Bool,
-) -> SIMD[.float32, length]:
-    comptime if length == 1:
-        return records[(Int(ids[0]), field)]
-    else:
-        if uniform:
-            return SIMD[.float32, length](records[(Int(ids[0]), field)])
-        comptime if Layout == CoatedColumnLayout or Layout == RtRecordLayout[
-            CoatedDiffuseLayout.STRIDE
-        ]:
-            # These two preparation layouts are affine. Generate offsets in
-            # SIMD directly; other layouts use their actual coordinate map.
-            var stride = Int(records.layout(Coord(1, 0)))
-            var offset = Int(records.layout(Coord(0, field)))
-            return records.ptr.unsafe_gather(ids.cast[.int]() * stride + offset)
-        else:
-            var offsets = SIMD[.int, length](0)
-            comptime for lane in range(Int(length)):
-                offsets[lane] = Int(
-                    records.layout(Coord(Int(ids[lane]), field))
-                )
-            return records.ptr.unsafe_gather(offsets)
-
-
-@always_inline
-def load_material_rgb[
-    mut: Bool,
-    origin: Origin[mut=mut],
-    Layout: TensorLayout,
-    //,
-    field: Int,
-    length: SIMDLength,
-](
-    records: TileTensor[.float32, Layout, origin],
-    ids: SIMD[.uint32, length],
-    uniform: Bool = False,
-) -> Vec3[.float32, .WORLD, length]:
-    return Vec3[.float32, .WORLD, length](
-        _material_field[field](records, ids, uniform),
-        _material_field[field + 1](records, ids, uniform),
-        _material_field[field + 2](records, ids, uniform),
-    )
-
-
 @always_inline
 def load_coated_parameters[
     mut: Bool,
@@ -159,22 +88,30 @@ def load_coated_parameters[
     sampling stays in each backend and replaces conductor roughness afterwards.
     """
     return CoatedParameters[length](
-        _material_field[CoatedDiffuseLayout.ROUGHNESS](records, ids, uniform),
-        _material_field[CoatedDiffuseLayout.ETA](records, ids, uniform),
-        _material_field[CoatedDiffuseLayout.THICKNESS](records, ids, uniform),
-        load_material_rgb[CoatedDiffuseLayout.LAYER_ALBEDO](
+        gather_record_field[CoatedDiffuseLayout.ROUGHNESS](
             records, ids, uniform
         ),
-        _material_field[CoatedDiffuseLayout.G](records, ids, uniform),
-        _material_field[CoatedDiffuseLayout.MAX_DEPTH](records, ids, uniform),
-        _material_field[CoatedDiffuseLayout.N_SAMPLES](records, ids, uniform),
-        load_material_rgb[CoatedDiffuseLayout.CONDUCTOR_ETA](
+        gather_record_field[CoatedDiffuseLayout.ETA](records, ids, uniform),
+        gather_record_field[CoatedDiffuseLayout.THICKNESS](
             records, ids, uniform
         ),
-        load_material_rgb[CoatedDiffuseLayout.CONDUCTOR_K](
+        gather_record_vec3[.WORLD, CoatedDiffuseLayout.LAYER_ALBEDO](
             records, ids, uniform
         ),
-        _material_field[CoatedDiffuseLayout.CONDUCTOR_ROUGHNESS](
+        gather_record_field[CoatedDiffuseLayout.G](records, ids, uniform),
+        gather_record_field[CoatedDiffuseLayout.MAX_DEPTH](
+            records, ids, uniform
+        ),
+        gather_record_field[CoatedDiffuseLayout.N_SAMPLES](
+            records, ids, uniform
+        ),
+        gather_record_vec3[.WORLD, CoatedDiffuseLayout.CONDUCTOR_ETA](
+            records, ids, uniform
+        ),
+        gather_record_vec3[.WORLD, CoatedDiffuseLayout.CONDUCTOR_K](
+            records, ids, uniform
+        ),
+        gather_record_field[CoatedDiffuseLayout.CONDUCTOR_ROUGHNESS](
             records, ids, uniform
         ),
     )
@@ -244,14 +181,9 @@ def pack_coated_materials[
 ](surfaces: SurfaceStore) -> List[Float32]:
     var count = len(surfaces.coated_diffuses)
     var out = List[Float32](length=count * CoatedDiffuseLayout.STRIDE, fill=0.0)
-    comptime if COLUMN_MAJOR:
-        var records = coated_column_tile(out.unsafe_ptr(), count)
-        for idx in range(count):
-            store_coated_material(records, idx, surfaces.coated_diffuses[idx])
-    else:
-        var records = rt_record_tile[.float32, CoatedDiffuseLayout.STRIDE](
-            out.unsafe_ptr(), count
-        )
-        for idx in range(count):
-            store_coated_material(records, idx, surfaces.coated_diffuses[idx])
+    var records = record_tile[
+        .float32, CoatedDiffuseLayout.STRIDE, COLUMN_MAJOR
+    ](out.unsafe_ptr(), count)
+    for idx in range(count):
+        store_coated_material(records, idx, surfaces.coated_diffuses[idx])
     return out^

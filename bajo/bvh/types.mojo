@@ -1,4 +1,7 @@
 from std.math import abs
+from std.memory import bitcast
+from layout import Idx
+from bajo.core.tensor_layout import field_tile, record_tile
 
 from bajo.core import (
     AABB,
@@ -10,7 +13,12 @@ from bajo.core import (
     Ray,
     Rayf32,
 )
-from bajo.bvh.constants import f32_max, EMPTY_LANE, PrimitiveKind
+from bajo.bvh.constants import (
+    f32_max,
+    EMPTY_LANE,
+    PrimitiveKind,
+    SPHERE_LEAF_PACKED_STRIDE,
+)
 from bajo.core.vec import Vec3, Point3, Normal3
 
 
@@ -73,19 +81,16 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
     def _store_unchecked(self, hits: MutSpan[Float32, _], idx: Int):
         """Store after the caller has validated the complete Hit block."""
         comptime assert Self.length == 1
-        var base = idx * Hit.STRIDE
-        var ptr = hits.unsafe_ptr()
-
-        ptr[unsafe_offset=base + Hit.U] = self.u[0]
-        ptr[unsafe_offset=base + Hit.V] = self.v[0]
-        ptr[unsafe_offset=base + Hit.NORMAL + 0] = self.normal.x[0]
-        ptr[unsafe_offset=base + Hit.NORMAL + 1] = self.normal.y[0]
-        ptr[unsafe_offset=base + Hit.NORMAL + 2] = self.normal.z[0]
-        ptr[unsafe_offset=base + Hit.T] = self.t[0]
-
-        var hits_u32 = ptr.unsafe_bitcast[UInt32]()
-        hits_u32[unsafe_offset=base + Hit.PrimitiveKind] = self.prim[0]
-        hits_u32[unsafe_offset=base + Hit.INST] = self.inst[0]
+        var records = record_tile[.float32, Self.STRIDE](
+            hits.unsafe_ptr(), len(hits) // Self.STRIDE
+        )
+        records[idx, Self.U] = self.u[0]
+        records[idx, Self.V] = self.v[0]
+        records[idx, Self.PrimitiveKind] = bitcast[.float32](self.prim[0])
+        records[idx, Self.INST] = bitcast[.float32](self.inst[0])
+        comptime for axis in range(3):
+            records[idx, Self.NORMAL + axis] = self.normal[axis][0]
+        records[idx, Self.T] = self.t[0]
 
     @staticmethod
     def load(hits: ImmSpan[Float32, _], idx: Int) -> Self:
@@ -94,19 +99,20 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
             idx >= 0 and idx < len(hits) / Self.STRIDE,
             "Hit load is outside the input span",
         )
-        var base = idx * Hit.STRIDE
-        var ptr = hits.unsafe_ptr()
-        var hits_u32 = ptr.unsafe_bitcast[UInt32]()
-
+        var records = record_tile[.float32, Self.STRIDE](
+            hits.unsafe_ptr(), len(hits) // Self.STRIDE
+        )
         return Self(
-            ptr[unsafe_offset=base + Hit.U],
-            ptr[unsafe_offset=base + Hit.V],
-            hits_u32[unsafe_offset=base + Hit.PrimitiveKind],
-            hits_u32[unsafe_offset=base + Hit.INST],
+            records[idx, Self.U],
+            records[idx, Self.V],
+            bitcast[.uint32](records[idx, Self.PrimitiveKind]),
+            bitcast[.uint32](records[idx, Self.INST]),
             Normal3[.float32, Self.frame, Self.length](
-                ptr.unsafe_offset(base + Hit.NORMAL)
+                records[idx, Self.NORMAL],
+                records[idx, Self.NORMAL + 1],
+                records[idx, Self.NORMAL + 2],
             ),
-            ptr[unsafe_offset=base + Hit.T],
+            records[idx, Self.T],
         )
 
 
@@ -138,6 +144,46 @@ struct SphereLeafBlock[frame: Frame, width: SIMDLength](Copyable):
         self.center = Point3[.float32, Self.frame, Self.width](0.0)
         self.radius = SIMD[.float32, Self.width](0.0)
         self.prim_indices = SIMD[.uint32, Self.width](EMPTY_LANE)
+
+    @staticmethod
+    @always_inline
+    def load[
+        load_primitive_indices: Bool = True
+    ](leaves: ImmPointer[Float32, _], block_idx: UInt32) -> Self:
+        var fields = field_tile[.float32, SPHERE_LEAF_PACKED_STRIDE](
+            leaves.unsafe_offset(
+                Int(block_idx) * SPHERE_LEAF_PACKED_STRIDE * Self.width
+            ),
+            Idx[Int(Self.width)],
+        )
+        var block = Self()
+        block.center = Point3[.float32, Self.frame, Self.width](
+            fields.load[width=Self.width]((0, 0)),
+            fields.load[width=Self.width]((1, 0)),
+            fields.load[width=Self.width]((2, 0)),
+        )
+        block.radius = fields.load[width=Self.width]((3, 0))
+        comptime if load_primitive_indices:
+            block.prim_indices = bitcast[.uint32](
+                fields.load[width=Self.width]((4, 0))
+            )
+        return block^
+
+    @always_inline
+    def store(self, leaves: MutPointer[Float32, _], block_idx: UInt32):
+        var fields = field_tile[.float32, SPHERE_LEAF_PACKED_STRIDE](
+            leaves.unsafe_offset(
+                Int(block_idx) * SPHERE_LEAF_PACKED_STRIDE * Self.width
+            ),
+            Idx[Int(Self.width)],
+        )
+        fields.store[width=Self.width]((0, 0), self.center.x)
+        fields.store[width=Self.width]((1, 0), self.center.y)
+        fields.store[width=Self.width]((2, 0), self.center.z)
+        fields.store[width=Self.width]((3, 0), self.radius)
+        fields.store[width=Self.width](
+            (4, 0), bitcast[.float32](self.prim_indices)
+        )
 
 
 @fieldwise_init
@@ -223,28 +269,28 @@ struct BlasDesc(TrivialRegisterPassable):
 
     @staticmethod
     def load(descs: ImmPointer[UInt32, _], blas_idx: UInt32) -> Self:
-        var base = BlasDescLayout.base(Int(blas_idx))
+        var records = record_tile[.uint32, BlasDescLayout.STRIDE](
+            descs, Int(blas_idx) + 1
+        )
         return Self(
-            descs[unsafe_offset=base + BlasDescLayout.NODE_F32_BASE],
-            descs[unsafe_offset=base + BlasDescLayout.LEAF_F32_BASE],
-            descs[unsafe_offset=base + BlasDescLayout.ROOT_IDX],
-            descs[unsafe_offset=base + BlasDescLayout.NODE_COUNT],
-            descs[unsafe_offset=base + BlasDescLayout.LEAF_BLOCK_COUNT],
-            descs[unsafe_offset=base + BlasDescLayout.PRIM_COUNT],
+            records[Int(blas_idx), BlasDescLayout.NODE_F32_BASE],
+            records[Int(blas_idx), BlasDescLayout.LEAF_F32_BASE],
+            records[Int(blas_idx), BlasDescLayout.ROOT_IDX],
+            records[Int(blas_idx), BlasDescLayout.NODE_COUNT],
+            records[Int(blas_idx), BlasDescLayout.LEAF_BLOCK_COUNT],
+            records[Int(blas_idx), BlasDescLayout.PRIM_COUNT],
         )
 
     @always_inline
     def store(self, descs: MutPointer[UInt32, _], blas_idx: Int):
-        var base = BlasDescLayout.base(blas_idx)
-        descs[
-            unsafe_offset=base + BlasDescLayout.NODE_F32_BASE
-        ] = self.node_f32_base
-        descs[
-            unsafe_offset=base + BlasDescLayout.LEAF_F32_BASE
-        ] = self.leaf_f32_base
-        descs[unsafe_offset=base + BlasDescLayout.ROOT_IDX] = self.root_idx
-        descs[unsafe_offset=base + BlasDescLayout.NODE_COUNT] = self.node_count
-        descs[
-            unsafe_offset=base + BlasDescLayout.LEAF_BLOCK_COUNT
+        var records = record_tile[.uint32, BlasDescLayout.STRIDE](
+            descs, blas_idx + 1
+        )
+        records[blas_idx, BlasDescLayout.NODE_F32_BASE] = self.node_f32_base
+        records[blas_idx, BlasDescLayout.LEAF_F32_BASE] = self.leaf_f32_base
+        records[blas_idx, BlasDescLayout.ROOT_IDX] = self.root_idx
+        records[blas_idx, BlasDescLayout.NODE_COUNT] = self.node_count
+        records[
+            blas_idx, BlasDescLayout.LEAF_BLOCK_COUNT
         ] = self.leaf_block_count
-        descs[unsafe_offset=base + BlasDescLayout.PRIM_COUNT] = self.prim_count
+        records[blas_idx, BlasDescLayout.PRIM_COUNT] = self.prim_count

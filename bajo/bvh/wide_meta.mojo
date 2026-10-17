@@ -1,4 +1,20 @@
 from bajo.bvh.constants import EMPTY_LANE, WideNode
+from layout import Idx
+from bajo.core.tensor_layout import FieldTile, field_tile
+
+
+@always_inline
+def wide_node_tile[
+    mut: Bool,
+    origin: Origin[mut=mut],
+    //,
+    width: SIMDLength,
+](nodes: Pointer[Float32, origin], node_idx: UInt32) -> FieldTile[
+    .float32, WideNode.CHILD_STRIDE, type_of(Idx[Int(width)]), origin
+]:
+    return field_tile[.float32, WideNode.CHILD_STRIDE](
+        nodes.unsafe_offset(_wide_node_base[width](node_idx)), Idx[Int(width)]
+    )
 
 
 # Six count bits represent internal nodes (count zero) and leaf packets through

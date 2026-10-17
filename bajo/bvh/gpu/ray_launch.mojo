@@ -5,6 +5,7 @@ from std.memory import bitcast
 
 from bajo.bvh.types import Hit
 from bajo.core import Frame, Point3f32, Rayf32, Vec3f32
+from bajo.core.tensor_layout import field_tile
 
 
 def validate_ray_launch(
@@ -25,19 +26,20 @@ def _load_packed_ray[
     frame: Frame,
 ](rays: ImmPointer[Float32, _], ray_count: Int, ray_idx: Int) -> Rayf32[frame]:
     # Field-major storage keeps each warp's scalar loads coalesced.
+    var fields = field_tile[.float32, Rayf32.STRIDE](rays, ray_count)
     return Rayf32[frame](
         Point3f32[frame](
-            rays[unsafe_offset=Rayf32.ORIGIN * ray_count + ray_idx],
-            rays[unsafe_offset=(Rayf32.ORIGIN + 1) * ray_count + ray_idx],
-            rays[unsafe_offset=(Rayf32.ORIGIN + 2) * ray_count + ray_idx],
+            fields[Rayf32.ORIGIN, ray_idx],
+            fields[Rayf32.ORIGIN + 1, ray_idx],
+            fields[Rayf32.ORIGIN + 2, ray_idx],
         ),
         Vec3f32[frame](
-            rays[unsafe_offset=Rayf32.DIRECTION * ray_count + ray_idx],
-            rays[unsafe_offset=(Rayf32.DIRECTION + 1) * ray_count + ray_idx],
-            rays[unsafe_offset=(Rayf32.DIRECTION + 2) * ray_count + ray_idx],
+            fields[Rayf32.DIRECTION, ray_idx],
+            fields[Rayf32.DIRECTION + 1, ray_idx],
+            fields[Rayf32.DIRECTION + 2, ray_idx],
         ),
-        rays[unsafe_offset=Rayf32.T_MIN * ray_count + ray_idx],
-        rays[unsafe_offset=Rayf32.T_MAX * ray_count + ray_idx],
+        fields[Rayf32.T_MIN, ray_idx],
+        fields[Rayf32.T_MAX, ray_idx],
     )
 
 

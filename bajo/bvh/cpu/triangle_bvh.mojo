@@ -1,7 +1,9 @@
 from max.algorithm import parallelize
 from std.atomic import Atomic, Ordering
 from std.bit import count_trailing_zeros
-from std.memory import pack_bits
+from std.memory import pack_bits, bitcast
+from layout import Idx
+from bajo.core.tensor_layout import field_tile
 from std.sys import size_of
 
 from bajo.core import (
@@ -690,18 +692,18 @@ struct _TriangleBuild[
             var first, count = _checked_typed_leaf_range[Self.leaf_width](
                 first_item, item_count, len(builder.item_indices)
             )
-            var out = block_idx * Self.leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
-            comptime for axis in range(3):
-                packed_leaves.unsafe_store[width=Self.leaf_width](
-                    out + axis * Self.leaf_width, 0.0
-                )
-            packed_leaves.unsafe_bitcast[UInt32]().unsafe_store[
-                width=Self.leaf_width
-            ](out + 3 * Self.leaf_width, EMPTY_LANE)
-            comptime for plane in range(4, CPU_TRI_LEAF_PACKED_STRIDE):
-                packed_leaves.unsafe_store[width=Self.leaf_width](
-                    out + plane * Self.leaf_width, 0.0
-                )
+            var fields = field_tile[.float32, CPU_TRI_LEAF_PACKED_STRIDE](
+                packed_leaves.unsafe_offset(
+                    block_idx * Self.leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
+                ),
+                Idx[Int(Self.leaf_width)],
+            )
+            comptime for plane in range(CPU_TRI_LEAF_PACKED_STRIDE):
+                fields.store[width=Self.leaf_width]((plane, 0), 0.0)
+            fields.store[width=Self.leaf_width](
+                (3, 0),
+                bitcast[.float32](SIMD[.uint32, Self.leaf_width](EMPTY_LANE)),
+            )
             for k in range(count):
                 var item_ref = Int(builder.item_indices.unsafe_get(first + k))
                 var prim_idx = UInt32(item_ref)
@@ -709,19 +711,11 @@ struct _TriangleBuild[
                 ref p0 = vertices[base + 0]
                 ref p1 = vertices[base + 1]
                 ref p2 = vertices[base + 2]
-                packed_leaves.unsafe_bitcast[UInt32]()[
-                    unsafe_offset=out + 3 * Self.leaf_width + k
-                ] = prim_idx
+                fields[3, k] = bitcast[.float32](prim_idx)
                 comptime for axis in range(3):
-                    packed_leaves[
-                        unsafe_offset=out + axis * Self.leaf_width + k
-                    ] = p0[axis]
-                    packed_leaves[
-                        unsafe_offset=out + (4 + axis) * Self.leaf_width + k
-                    ] = (p1[axis] - p0[axis])
-                    packed_leaves[
-                        unsafe_offset=out + (7 + axis) * Self.leaf_width + k
-                    ] = (p2[axis] - p0[axis])
+                    fields[axis, k] = p0[axis]
+                    fields[4 + axis, k] = p1[axis] - p0[axis]
+                    fields[7 + axis, k] = p2[axis] - p0[axis]
             packed_counts[unsafe_offset=block_idx] = UInt32(count)
 
         var leaf_ranges = List[WideLeafRange]()

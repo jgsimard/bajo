@@ -6,10 +6,9 @@ from bajo.rt.material_types import SurfaceStore
 from bajo.rt.material_storage import (
     CoatedDiffuseLayout,
     pack_coated_materials,
-    coated_column_tile,
     load_coated_parameters,
 )
-from bajo.rt.tensor_layout import rt_record_tile
+from bajo.core.tensor_layout import record_tile
 
 from std.memory import bitcast
 from std.testing import TestSuite, assert_equal
@@ -248,10 +247,12 @@ def test_coated_material_tiles_keep_the_same_logical_fields() raises:
     var surfaces = _surfaces()
     var rows = pack_coated_materials[False](surfaces)
     var columns = pack_coated_materials[True](surfaces)
-    var gpu = rt_record_tile[.float32, CoatedDiffuseLayout.STRIDE](
+    var gpu = record_tile[.float32, CoatedDiffuseLayout.STRIDE](
         rows.unsafe_ptr(), 5
     )
-    var cpu = coated_column_tile(columns.unsafe_ptr(), 5)
+    var cpu = record_tile[.float32, CoatedDiffuseLayout.STRIDE, True](
+        columns.unsafe_ptr(), 5
+    )
     for material in range(5):
         for field in range(CoatedDiffuseLayout.STRIDE):
             assert_equal(cpu[(material, field)], gpu[(material, field)])
@@ -264,16 +265,18 @@ def _gathers[length: SIMDLength]() raises:
     var surfaces = _surfaces()
     var rows = pack_coated_materials[False](surfaces)
     var columns = pack_coated_materials[True](surfaces)
-    var gpu = rt_record_tile[.float32, CoatedDiffuseLayout.STRIDE](
+    var gpu = record_tile[.float32, CoatedDiffuseLayout.STRIDE](
         rows.unsafe_ptr(), 5
     )
-    var cpu = coated_column_tile(columns.unsafe_ptr(), 5)
+    var cpu = record_tile[.float32, CoatedDiffuseLayout.STRIDE, True](
+        columns.unsafe_ptr(), 5
+    )
     var ids = SIMD[.uint32, length](0)
     for lane in range(Int(length)):
         ids[lane] = UInt32((lane * 3 + 2) % 5)
     var vector = load_coated_parameters(cpu, ids)
-    # A fully static layout exercises the general coordinate-map decoder,
-    # independently of the two optimized preparation layouts.
+    # Static extents use the same affine field decoder as dynamic row and
+    # column views; they must retain the same logical record coordinates.
     var static_records = TileTensor(
         Span(rows), row_major(Coord(Idx[5], Idx[26]))
     )

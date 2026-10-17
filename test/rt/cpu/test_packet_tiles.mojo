@@ -8,7 +8,7 @@ from bajo.rt.continuation import finish_continuation, continuation_medium
 from bajo.rt.common import russian_roulette
 from bajo.rt.path_values import PathContinuation, PathFloatField
 from bajo.rt.path_store import store_path_values
-from bajo.rt.tensor_layout import rt_field_tile
+from bajo.core.tensor_layout import field_tile
 from bajo.rt.render_types import Color, RenderSettings, SamplingConfig
 from bajo.rt.wavefront_queue import (
     PathPacket,
@@ -287,10 +287,10 @@ def test_path_store_static_and_dynamic_extents_match() raises:
     var values = _values[16](20)
     var cpu = List[Float32](length=12 * 16, fill=-999.0)
     var gpu = List[Float32](length=12 * 16, fill=-999.0)
-    var a = rt_field_tile[.float32, 12](cpu.unsafe_ptr(), Int(16))
+    var a = field_tile[.float32, 12](cpu.unsafe_ptr(), Int(16))
     from layout import Idx
 
-    var b = rt_field_tile[.float32, 12](gpu.unsafe_ptr(), Idx[16])
+    var b = field_tile[.float32, 12](gpu.unsafe_ptr(), Idx[16])
     store_path_values(a, values, 0)
     store_path_values(b, values, 0)
     for i in range(len(cpu)):

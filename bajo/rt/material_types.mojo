@@ -2,13 +2,14 @@
 
 from std.math import sqrt
 from bajo.rt.texture_math import (
-    image_pixel_offset,
+    sample_image_texture,
     texture_luminance,
     bump_normal,
 )
 from std.utils.numerics import isfinite
 
 from bajo.core import Affine3f32, Vec3, Vec3f32
+from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.render_types import Color
 
@@ -33,12 +34,14 @@ struct ImageTexture:
     ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> Vec3[
         .float32, .WORLD, length
     ]:
-        var base = image_pixel_offset(self.width, self.height, u, v)
-        var pixels = self.pixels.unsafe_ptr()
-        return Vec3[.float32, .WORLD, length](
-            pixels.unsafe_gather(base),
-            pixels.unsafe_gather(base + 1),
-            pixels.unsafe_gather(base + 2),
+        return sample_image_texture(
+            record_tile[.float32, 3](
+                self.pixels.unsafe_ptr(), self.width * self.height
+            ),
+            self.width,
+            self.height,
+            u,
+            v,
         )
 
     @always_inline
@@ -64,12 +67,16 @@ struct ImageTexture:
             max((v * Float32(self.height)).cast[.int64](), 0),
             SIMD[.int64, length](self.height - 1),
         )
-        var base = 3 * (y * SIMD[.int64, length](self.width) + x)
-        var pixels = self.pixels.unsafe_ptr()
+        var pixels = record_tile[.float32, 3](
+            self.pixels.unsafe_ptr(), self.width * self.height
+        )
+        var value = gather_record_vec3(
+            pixels, y * SIMD[.int64, length](self.width) + x
+        )
         return Vec3[.float32, .WORLD, length](
-            max(pixels.unsafe_gather(base), 0.0),
-            max(pixels.unsafe_gather(base + 1), 0.0),
-            max(pixels.unsafe_gather(base + 2), 0.0),
+            max(value.x, 0.0),
+            max(value.y, 0.0),
+            max(value.z, 0.0),
         )
 
 

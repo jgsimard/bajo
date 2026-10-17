@@ -3,7 +3,7 @@
 from max.gpu import global_idx
 from std.math import ceildiv
 from bajo.rt.film import FilmResponse
-from bajo.rt.render_types import Color
+from bajo.core.tensor_layout import record_tile
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
@@ -292,8 +292,6 @@ def gpu_rt_apply_film_kernel(
 ):
     var index = global_idx.x
     if index < Int(count):
-        var base = 3 * index
-        var result = film.apply(Color(pixels.unsafe_offset(base)))
-        pixels[unsafe_offset=base] = result.x
-        pixels[unsafe_offset=base + 1] = result.y
-        pixels[unsafe_offset=base + 2] = result.z
+        film._apply_block[1](
+            record_tile[.float32, 3](pixels, Int(count)), index
+        )

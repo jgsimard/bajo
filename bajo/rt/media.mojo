@@ -4,6 +4,7 @@ from std.math import exp
 from std.sys.info import size_of
 from std.utils.numerics import max_finite
 from bajo.core import Vec3
+from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from bajo.rt.render_types import Color
 
 
@@ -61,13 +62,11 @@ struct SceneMedia:
         # Color is three adjacent scalar channels. Inactive IDs may be invalid;
         # vacuum row zero is always available in a validated scene.
         comptime assert size_of[Color]() == 3 * size_of[Float32]()
-        var base = absorbing.select(ids, 0).cast[.int64]() * 3
-        var fields = self.absorption.unsafe_ptr().unsafe_bitcast[Float32]()
-        var sigma = Vec3[.float32, .WORLD, length](
-            fields.unsafe_gather(base),
-            fields.unsafe_gather(base + 1),
-            fields.unsafe_gather(base + 2),
+        var fields = record_tile[.float32, 3](
+            self.absorption.unsafe_ptr().unsafe_bitcast[Float32](),
+            len(self.absorption),
         )
+        var sigma = gather_record_vec3(fields, absorbing.select(ids, 0))
         return medium_transmittance(sigma, absorbing.select(distance, 0.0))
 
     def add(mut self, sigma_a: Color) raises -> UInt32:

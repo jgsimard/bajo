@@ -2,10 +2,11 @@
 
 from std.math import abs, floor
 from bajo.core import Vec3, cross, normalize
+from bajo.core.tensor_layout import RecordTile, gather_record_vec3
 
 
 @always_inline
-def image_pixel_offset[
+def image_pixel_index[
     length: SIMDLength = 1
 ](
     width: Int,
@@ -24,7 +25,23 @@ def image_pixel_offset[
         ((Float32(1.0) - wrapped_v) * Float32(height)).cast[.int64](),
         SIMD[.int64, length](height - 1),
     )
-    return 3 * (y * SIMD[.int64, length](width) + x)
+    return y * SIMD[.int64, length](width) + x
+
+
+@always_inline
+def sample_image_texture[
+    mut: Bool,
+    origin: Origin[mut=mut],
+    //,
+    length: SIMDLength,
+](
+    pixels: RecordTile[.float32, 3, origin],
+    width: Int,
+    height: Int,
+    u: SIMD[.float32, length],
+    v: SIMD[.float32, length],
+) -> Vec3[.float32, .WORLD, length]:
+    return gather_record_vec3(pixels, image_pixel_index(width, height, u, v))
 
 
 @always_inline

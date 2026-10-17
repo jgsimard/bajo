@@ -2,7 +2,7 @@
 
 from layout import CoordLike
 from bajo.rt.path_values import PathFloatField, PathValues
-from bajo.rt.tensor_layout import RtFieldTile
+from bajo.core.tensor_layout import FieldTile
 
 
 @always_inline
@@ -15,7 +15,7 @@ def store_path_values[
     STORE_BOUNDS: Bool = True,
     STORE_PDF: Bool = True,
 ](
-    target: RtFieldTile[.float32, fields, Extent, origin],
+    target: FieldTile[.float32, fields, Extent, origin],
     values: Values,
     item: Int,
 ):

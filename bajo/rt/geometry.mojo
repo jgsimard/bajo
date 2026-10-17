@@ -4,6 +4,32 @@ from std.math import sqrt
 from std.utils.numerics import isfinite
 
 from bajo.core import Frame, Point3f32, Vec3, cross, dot, length2
+from bajo.core.tensor_layout import RecordTile, gather_record_field
+
+
+@always_inline
+def interpolate_triangle_attribute[
+    mut: Bool,
+    origin: Origin[mut=mut],
+    //,
+    components: Int,
+    component: Int,
+    index_dtype: DType,
+    length: SIMDLength,
+](
+    attributes: RecordTile[.float32, 3 * components, origin],
+    triangles: SIMD[index_dtype, length],
+    u: SIMD[.float32, length],
+    v: SIMD[.float32, length],
+) -> SIMD[.float32, length]:
+    """Interpolate one attribute component from triangle-ordered records."""
+    return (
+        (Float32(1.0) - u - v)
+        * gather_record_field[component](attributes, triangles)
+        + u * gather_record_field[components + component](attributes, triangles)
+        + v
+        * gather_record_field[2 * components + component](attributes, triangles)
+    )
 
 
 @fieldwise_init

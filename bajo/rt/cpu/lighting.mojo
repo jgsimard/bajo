@@ -3,6 +3,7 @@
 from std.math import pi
 from std.memory import Pointer
 from std.sys.info import size_of
+from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from bajo.rt.lighting_types import LightRecord
 from bajo.core import (
     Point3,
@@ -311,15 +312,12 @@ def _sample_direct_light_candidate[
     var surfaces = Pointer(to=lights.records[0].surface.value).unsafe_gather(
         offsets
     )
-    var radiance_offsets = (surfaces & SURFACE_INDEX_MASK).cast[
-        .int64
-    ]() * SIMD[.int64, length](size_of[Emissive]() // size_of[Float32]())
-    var radiance_fields = Pointer(to=data.surfaces().emissives[0].radiance.x)
-    var emission = Vec3[.float32, .WORLD, length](
-        radiance_fields.unsafe_gather(radiance_offsets),
-        radiance_fields.unsafe_gather(radiance_offsets + 1),
-        radiance_fields.unsafe_gather(radiance_offsets + 2),
+    comptime assert size_of[Emissive]() == 3 * size_of[Float32]()
+    var radiance = record_tile[.float32, 3](
+        Pointer(to=data.surfaces().emissives[0].radiance.x),
+        len(data.surfaces().emissives),
     )
+    var emission = gather_record_vec3(radiance, surfaces & SURFACE_INDEX_MASK)
     # Finite emitters and uniform environments share the two draws; image
     # environments use u for alias selection, v and jitter_v for pixel jitter.
     var surface_sample = _sample_triangle_light_surface(p0, p1, p2, u, v)

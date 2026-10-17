@@ -25,7 +25,7 @@ from bajo.core import (
 )
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
-from bajo.bvh.types import Hit, Sphere
+from bajo.bvh.types import Hit, Sphere, SphereLeafBlock
 from bajo.bvh.gpu.wide_layout import (
     GpuWideBoundsBvh,
     enqueue_compact_segmented_buffer,
@@ -384,17 +384,12 @@ def _intersect_sphere_leaf[
     var block_base = Int(leaf_block_idx) * SPHERE_LEAF_PACKED_STRIDE * width
     var leaf_spheres_u32 = leaf_spheres.unsafe_bitcast[UInt32]()
 
-    var center = Point3[.float32, frame, width](
-        leaf_spheres.unsafe_load[width=width](block_base + 0 * width),
-        leaf_spheres.unsafe_load[width=width](block_base + 1 * width),
-        leaf_spheres.unsafe_load[width=width](block_base + 2 * width),
+    var block = SphereLeafBlock[frame, width].load[width != 4](
+        leaf_spheres, leaf_block_idx
     )
-    var radius = leaf_spheres.unsafe_load[width=width](block_base + 3 * width)
-    var prim_indices = SIMD[.uint32, width](EMPTY_LANE)
-    comptime if width != 4:
-        prim_indices = leaf_spheres_u32.unsafe_load[width=width](
-            block_base + 4 * width
-        )
+    var center = block.center
+    var radius = block.radius
+    var prim_indices = block.prim_indices
     var O = ray.origin[width]()
     var D = ray.direction[width]()
 

@@ -32,7 +32,11 @@ from bajo.core import (
     Vec3f32,
     dot,
 )
-from bajo.rt.geometry import orient_surface_normal
+from bajo.rt.geometry import (
+    orient_surface_normal,
+    interpolate_triangle_attribute,
+)
+from bajo.core.tensor_layout import record_tile
 from bajo.rt.render_types import Color
 from bajo.rt.material_types import (
     PrimitiveId,
@@ -101,31 +105,24 @@ def _triangle_instance_shading[
             return (outward_normal, texture_u, texture_v)
     ref instance = data.triangle_instances()[Int(instance_idx[first])]
     var mesh_idx = Int(instance.blas_idx)
-    var b0 = Float32(1.0) - hit_u - hit_v
     # Inactive lanes may contain miss sentinels, never valid gather indices.
     var triangles = active.select(triangle_idx, UInt32(0)).cast[.int64]()
     ref normals = data.triangle_mesh_normals()[mesh_idx]
     if len(normals) != 0:
-        var base = 9 * triangles
-        var ptr = normals.unsafe_ptr()
-        var n0 = Vec3[.float32, .LOCAL, length](
-            ptr.unsafe_gather(base),
-            ptr.unsafe_gather(base + 1),
-            ptr.unsafe_gather(base + 2),
+        var records = record_tile[.float32, 9](
+            normals.unsafe_ptr(), len(normals) // 9
         )
-        var n1 = Vec3[.float32, .LOCAL, length](
-            ptr.unsafe_gather(base + 3),
-            ptr.unsafe_gather(base + 4),
-            ptr.unsafe_gather(base + 5),
-        )
-        var n2 = Vec3[.float32, .LOCAL, length](
-            ptr.unsafe_gather(base + 6),
-            ptr.unsafe_gather(base + 7),
-            ptr.unsafe_gather(base + 8),
-        )
-        var local_normal = (b0 * n0 + hit_u * n1 + hit_v * n2).unsafe_convert[
-            new_kind=GeoKind.NORMAL
-        ]()
+        var local_normal = Vec3[.float32, .LOCAL, length](
+            interpolate_triangle_attribute[3, 0](
+                records, triangles, hit_u, hit_v
+            ),
+            interpolate_triangle_attribute[3, 1](
+                records, triangles, hit_u, hit_v
+            ),
+            interpolate_triangle_attribute[3, 2](
+                records, triangles, hit_u, hit_v
+            ),
+        ).unsafe_convert[new_kind=GeoKind.NORMAL]()
         ref inverse = instance.inv_transform
         var wide_inverse = Affine3[.float32, .WORLD, .LOCAL, length](
             inverse.m00,
@@ -154,18 +151,19 @@ def _triangle_instance_shading[
         outward_normal = Vec3.select(active, transformed, outward_normal)
     ref texcoords = data.triangle_mesh_texcoords()[mesh_idx]
     if len(texcoords) != 0:
-        var base = 6 * triangles
-        var ptr = texcoords.unsafe_ptr()
+        var records = record_tile[.float32, 6](
+            texcoords.unsafe_ptr(), len(texcoords) // 6
+        )
         texture_u = active.select(
-            b0 * ptr.unsafe_gather(base)
-            + hit_u * ptr.unsafe_gather(base + 2)
-            + hit_v * ptr.unsafe_gather(base + 4),
+            interpolate_triangle_attribute[2, 0](
+                records, triangles, hit_u, hit_v
+            ),
             0.0,
         )
         texture_v = active.select(
-            b0 * ptr.unsafe_gather(base + 1)
-            + hit_u * ptr.unsafe_gather(base + 3)
-            + hit_v * ptr.unsafe_gather(base + 5),
+            interpolate_triangle_attribute[2, 1](
+                records, triangles, hit_u, hit_v
+            ),
             0.0,
         )
     return (outward_normal, texture_u, texture_v)

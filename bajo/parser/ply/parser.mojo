@@ -1,5 +1,6 @@
 """Parser for binary little-endian PLY polygon meshes."""
 
+from bajo.core.tensor_layout import record_tile
 from max.algorithm import parallelize
 from std.math import ceildiv
 from std.memory import bitcast, pack_bits
@@ -576,59 +577,50 @@ def _decode_common_vertices[
     ]()
     comptime normal_mask = _vertex_permutation[record_width, 3, 3, 2 * width]()
     comptime zero = SIMD[.float32, 2 * width](0)
-    var source = (
-        bytes.unsafe_ptr().unsafe_offset(data_offset).unsafe_bitcast[Float32]()
+    var source = record_tile[.float32, record_width](
+        bytes.unsafe_ptr().unsafe_offset(data_offset).unsafe_bitcast[Float32](),
+        len(positions) // 3,
+    )
+    var position_records = record_tile[.float32, 3](
+        positions.unsafe_ptr(), len(positions) // 3
+    )
+    var normal_records = record_tile[.float32, 3](
+        normals.unsafe_ptr(), len(normals) // 3
+    )
+    var uv_records = record_tile[.float32, 2](
+        texcoords.unsafe_ptr(), len(texcoords) // 2
     )
     var vertex = begin
     while (end - vertex) * record_width >= 2 * width and 3 * (
         end - vertex
     ) >= width:
-        var block = source.unsafe_offset(record_width * vertex).unsafe_load[
-            width=2 * width, alignment=1
-        ]()
+        var block = source.load[width=2 * width, alignment=1]((vertex, 0))
         var p = block.shuffle[position_mask](zero).slice[width]()
         var n = block.shuffle[normal_mask](zero).slice[width]()
         # Padded xyz lanes overlap subsequent vertices owned by this task.
         # The loop bounds keep full stores inside its range; the tail replaces
         # padding and copies all remaining values, including their exact bits.
-        positions.unsafe_ptr().unsafe_offset(3 * vertex).unsafe_store[
-            width=width
-        ](p)
-        normals.unsafe_ptr().unsafe_offset(3 * vertex).unsafe_store[
-            width=width
-        ](n)
+        position_records.store[width=width]((vertex, 0), p)
+        normal_records.store[width=width]((vertex, 0), n)
         comptime if record_width == 8:
             comptime uv_mask = _vertex_permutation[
                 record_width, 6, 2, 2 * width
             ]()
             var uv = block.shuffle[uv_mask](zero).slice[width // 2]()
-            texcoords.unsafe_ptr().unsafe_offset(2 * vertex).unsafe_store[
-                width=width // 2
-            ](uv)
+            uv_records.store[width=width // 2]((vertex, 0), uv)
         vertex += batch
     for index in range(vertex, end):
         comptime for lane in range(3):
-            positions.unsafe_ptr()[
-                unsafe_offset=3 * index + lane
-            ] = source.unsafe_offset(record_width * index + lane).unsafe_load[
-                alignment=1
-            ]()
-            normals.unsafe_ptr()[
-                unsafe_offset=3 * index + lane
-            ] = source.unsafe_offset(
-                record_width * index + 3 + lane
-            ).unsafe_load[
-                alignment=1
-            ]()
+            position_records[index, lane] = source.load[alignment=1](
+                (index, lane)
+            )
+            normal_records[index, lane] = source.load[alignment=1](
+                (index, 3 + lane)
+            )
         comptime if record_width == 8:
-            comptime for lane in range(2):
-                texcoords.unsafe_ptr()[
-                    unsafe_offset=2 * index + lane
-                ] = source.unsafe_offset(
-                    record_width * index + 6 + lane
-                ).unsafe_load[
-                    alignment=1
-                ]()
+            uv_records.store[width=2](
+                (index, 0), source.load[width=2, alignment=1]((index, 6))
+            )
 
 
 def _decode_vertices(

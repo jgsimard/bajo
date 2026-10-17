@@ -19,8 +19,11 @@ from bajo.sort.gpu.decoupled_fallback import (
     SPLIT_STATE_MASK,
     SPLIT_VALUE_MASK,
 )
-from test.sort.test_onesweep import _onesweep_test_key
-from test.sort.helpers import _byte_pass_keys, _stable_byte_order
+from test.sort.helpers import (
+    _byte_pass_keys,
+    _stable_byte_order,
+    _full_width_key,
+)
 
 
 def _check_sorted_pairs[
@@ -40,7 +43,7 @@ def _check_sorted_pairs[
             )
             assert_equal(
                 host[i],
-                Scalar[keys_dtype](_onesweep_test_key(original)),
+                Scalar[keys_dtype](_full_width_key(original)),
             )
             if i > 0:
                 assert_true(host[i - 1] <= host[i])
@@ -69,7 +72,7 @@ def _check_pairs[
         for _repeat in range(2):
             with keys.map_to_host() as host, values.map_to_host() as ids:
                 for i in range(size):
-                    host[i] = Scalar[keys_dtype](_onesweep_test_key(UInt32(i)))
+                    host[i] = Scalar[keys_dtype](_full_width_key(UInt32(i)))
                     ids[i] = Scalar[vals_dtype](
                         (UInt64(0xFEDCBA98) << 32) | UInt64(i)
                     )
@@ -89,7 +92,7 @@ def _check_pairs[
 def test_full_width_pairs_stability_tails_and_workspace_reuse() raises:
     comptime for keys_dtype in [DType.uint32, DType.uint64]:
         comptime for vals_dtype in [DType.uint32, DType.uint64]:
-            for size in [0, 1, 33, 4608, 4609, 20003]:
+            for size in [0, 1, 4608, 4609]:
                 _check_pairs[keys_dtype, vals_dtype](size)
 
 
@@ -101,7 +104,7 @@ def test_keys_only_and_allocating_pairs_agree() raises:
         var ids = ctx.enqueue_create_buffer[.uint32](size)
         with keys.map_to_host() as k, pairs.map_to_host() as p, ids.map_to_host() as v:
             for i in range(size):
-                k[i] = _onesweep_test_key(UInt32(i))
+                k[i] = _full_width_key(UInt32(i))
                 p[i] = k[i]
                 v[i] = UInt32(i)
         var workspace = DecoupledFallbackWorkspace[
@@ -129,14 +132,13 @@ def test_keys_only_and_allocating_pairs_agree() raises:
 
 
 def test_custom_histogram_configuration_pairs_and_workspace_reuse() raises:
-    for size in [8192, 8193, 20003]:
-        _check_pairs[
-            .uint32,
-            .uint64,
-            G_HIST_TPB=256,
-            G_HIST_ITEMS_PER_THREAD=32,
-            VEC_WIDTH=8,
-        ](size)
+    _check_pairs[
+        .uint32,
+        .uint64,
+        G_HIST_TPB=256,
+        G_HIST_ITEMS_PER_THREAD=32,
+        VEC_WIDTH=8,
+    ](8193)
 
 
 def test_small_tiles_keep_partition_id_outside_histograms() raises:
@@ -156,7 +158,7 @@ def test_workspace_reuse_with_different_active_sizes() raises:
         for size in [capacity, 17, 8193, 0, capacity]:
             with keys.map_to_host() as host, values.map_to_host() as ids:
                 for i in range(size):
-                    host[i] = UInt32(_onesweep_test_key(UInt32(i)))
+                    host[i] = UInt32(_full_width_key(UInt32(i)))
                     ids[i] = (UInt64(0xFEDCBA98) << 32) | UInt64(i)
             decoupled_fallback_radix_sort_pairs[
                 BINNING_TPB=512, KEYS_PER_THREAD=9

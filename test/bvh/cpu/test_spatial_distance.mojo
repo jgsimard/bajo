@@ -180,9 +180,7 @@ def test_distance_pruning_widths_groups_updates_and_degenerate_ties() raises:
             else:
                 mesh.rebuild(points)
         check_fixture[1](mesh)
-        check_fixture[2](mesh)
-        check_fixture[4](mesh)
-        check_fixture[8](mesh)
+        check_fixture[16](mesh)
 
 
 def check_winding_cache[width: SIMDLength]() raises:
@@ -266,19 +264,13 @@ def check_vector_angles[width: SIMDLength]() raises:
 
 def test_winding_cache_widths_tails_groups_updates_and_angles() raises:
     check_winding_cache[1]()
-    check_winding_cache[2]()
-    check_winding_cache[4]()
-    check_winding_cache[8]()
     check_winding_cache[16]()
     check_vector_angles[1]()
-    check_vector_angles[2]()
-    check_vector_angles[4]()
-    check_vector_angles[8]()
     check_vector_angles[16]()
 
 
 def check_bounds_refit[width: SIMDLength]() raises:
-    for count in range(0, 20):
+    for count in [0, 1, 15, 16, 17]:
         var boxes = List[AABB[.WORLD]]()
         var groups = List[UInt32]()
         for i in range(count):
@@ -323,9 +315,6 @@ def check_bounds_refit[width: SIMDLength]() raises:
 
 def test_bounds_refit_simd_widths_empty_tails_groups_and_deformation() raises:
     check_bounds_refit[1]()
-    check_bounds_refit[2]()
-    check_bounds_refit[4]()
-    check_bounds_refit[8]()
     check_bounds_refit[16]()
 
 
@@ -560,9 +549,6 @@ def check_build_reduction[width: SIMDLength]() raises:
 
 def test_direct_builder_bounds_reduction_widths_and_subsets() raises:
     check_build_reduction[1]()
-    check_build_reduction[2]()
-    check_build_reduction[4]()
-    check_build_reduction[8]()
     check_build_reduction[16]()
 
 

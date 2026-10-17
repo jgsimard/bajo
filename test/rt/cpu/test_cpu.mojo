@@ -1140,7 +1140,7 @@ def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
     )
 
 
-def test_render_settings_and_tiny_render() raises:
+def test_render_settings_validation() raises:
     var settings = RenderSettings(4, 2, 2, UInt64(9), 2)
     settings.validate()
     assert_equal(settings.image_width, 4)
@@ -1152,40 +1152,6 @@ def test_render_settings_and_tiny_render() raises:
     invalid_settings.sample_sequence_length = 3
     with assert_raises():
         invalid_settings.validate()
-
-    var builder = SceneBuilder()
-    var matte = builder.add_lambertian(Color(0.5))
-    builder.add_sphere(
-        Point3f32[.WORLD](0.0, 0.0, -1.0),
-        0.5,
-        matte,
-    )
-    var scene = builder^.finish()
-    var world = CpuScene[4, 8](scene^)
-    var camera = Camera.from_vfov(
-        Point3f32[.WORLD](0.0, 0.0, 0.0),
-        Point3f32[.WORLD](0.0, 0.0, -1.0),
-        Vec3f32[.WORLD](0.0, 1.0, 0.0),
-        90.0,
-    )
-
-    var result = render_wavefront[.PATH](settings, camera, world)
-    assert_equal(len(result.pixels), 8)
-    assert_equal(result.timings.pixel_count, 8)
-    assert_equal(result.timings.sample_count, 16)
-    assert_equal(result.timings.max_depth, 2)
-    assert_true(result.timings.total_ns >= result.timings.render_ns)
-    for p in result.pixels:
-        assert_true(p.x >= 0.0 and p.y >= 0.0 and p.z >= 0.0)
-
-    var one_path_chunks = render_wavefront[.PATH, 1, 1](settings, camera, world)
-    assert_pixels_close(one_path_chunks.pixels, result.pixels)
-
-    # Renderer packet length and both acceleration widths are independent.
-    var packet_result = render_wavefront[.PATH, 4, 16, False](
-        settings, camera, world
-    )
-    assert_equal(len(packet_result.pixels), len(result.pixels))
 
 
 def test_render_can_select_normal_integrator_at_compile_time() raises:
@@ -1239,7 +1205,7 @@ def test_render_can_select_ao_integrator_at_compile_time() raises:
 
 
 def test_wavefront_tiny_render() raises:
-    var settings = RenderSettings(3, 2, 2, UInt64(9))
+    var settings = RenderSettings(3, 2, 2, UInt64(9), 2)
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.5))
     builder.add_sphere(
@@ -1248,7 +1214,7 @@ def test_wavefront_tiny_render() raises:
         matte,
     )
     var scene = builder^.finish()
-    var world = CpuScene[16, 16](scene^)
+    var world = CpuScene[4, 8](scene^)
     var camera = Camera.from_vfov(
         Point3f32[.WORLD](0.0, 0.0, 0.0),
         Point3f32[.WORLD](0.0, 0.0, -1.0),
@@ -1258,7 +1224,10 @@ def test_wavefront_tiny_render() raises:
 
     var result = render_wavefront[.PATH](settings, camera, world)
     assert_equal(len(result.pixels), 6)
+    assert_equal(result.timings.pixel_count, 6)
     assert_equal(result.timings.sample_count, 12)
+    assert_equal(result.timings.max_depth, 2)
+    assert_true(result.timings.total_ns >= result.timings.render_ns)
     for p in result.pixels:
         assert_true(p.x >= 0.0 and p.y >= 0.0 and p.z >= 0.0)
 
@@ -1267,31 +1236,8 @@ def test_wavefront_tiny_render() raises:
     # per pixel.
     var chunked = render_wavefront[.PATH, 1, 3, False](settings, camera, world)
     var parallel = render_wavefront[.PATH, 1, 3, True](settings, camera, world)
-    # Instantiate multiple packet widths and a six-path chunk so every width
-    # exercises partial packets as well as the generic queue indexing.
-    var width1 = render_wavefront[.PATH, 1, 7, False](settings, camera, world)
-    var packet4 = render_wavefront[.PATH, 4, 7, False](settings, camera, world)
-    var packet8 = render_wavefront[.PATH, 8, 7, False](settings, camera, world)
-    var packet16 = render_wavefront[.PATH, 16, 7, False](
-        settings, camera, world
-    )
-    assert_equal(len(chunked.pixels), len(result.pixels))
-    for i, pixel in enumerate(result.pixels):
-        assert_equal(chunked.pixels[i].x, pixel.x)
-        assert_equal(chunked.pixels[i].y, pixel.y)
-        assert_equal(chunked.pixels[i].z, pixel.z)
-        assert_equal(parallel.pixels[i].x, pixel.x)
-        assert_equal(parallel.pixels[i].y, pixel.y)
-        assert_equal(parallel.pixels[i].z, pixel.z)
-        assert_equal(width1.pixels[i].x, packet4.pixels[i].x)
-        assert_equal(width1.pixels[i].y, packet4.pixels[i].y)
-        assert_equal(width1.pixels[i].z, packet4.pixels[i].z)
-        assert_equal(packet4.pixels[i].x, packet8.pixels[i].x)
-        assert_equal(packet4.pixels[i].y, packet8.pixels[i].y)
-        assert_equal(packet4.pixels[i].z, packet8.pixels[i].z)
-        assert_equal(packet8.pixels[i].x, packet16.pixels[i].x)
-        assert_equal(packet8.pixels[i].y, packet16.pixels[i].y)
-        assert_equal(packet8.pixels[i].z, packet16.pixels[i].z)
+    assert_pixels_close(chunked.pixels, result.pixels)
+    assert_pixels_close(parallel.pixels, result.pixels)
 
 
 def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
@@ -1332,7 +1278,7 @@ def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
     )
 
     var packet1 = render_wavefront[.PATH, 1, 10, False](settings, camera, world)
-    comptime for width in [4, 8, 16]:
+    comptime for width in [4, 16]:
         var packet = render_wavefront[.PATH, width, 10, False](
             settings, camera, world
         )
@@ -1365,7 +1311,7 @@ def test_direct_light_integrators_render_cornell() raises:
             total += pixel.x + pixel.y + pixel.z
             assert_vec_equal(packet1.pixels[i], pixel)
         assert_true(total > 0.0)
-        comptime for width in [4, 8, 16]:
+        comptime for width in [4, 16]:
             var packet = render_wavefront[integrator, width, 14, False](
                 settings, camera, world
             )

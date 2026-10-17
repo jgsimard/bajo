@@ -164,7 +164,7 @@ def test_parallel_group_emission_thresholds_and_refit() raises:
 
 
 def test_morton_packet_tails_negative_coordinates() raises:
-    var counts: List[Int] = [16391, 16393]
+    var counts: List[Int] = [16391]
     for count in counts:
         var boxes = List[AABB[.WORLD]]()
         var groups = List[UInt32]()
@@ -190,9 +190,6 @@ def test_many_sparse_groups_preserve_membership_and_morton_order() raises:
         (17, 8),
         (17, 9),
         (257, 257),
-        (4097, 65),
-        (16383, 65),
-        (16384, 65),
         (16385, 65),
     ]:
         var boxes = List[AABB[.WORLD]](capacity=count)

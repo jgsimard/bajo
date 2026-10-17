@@ -160,6 +160,13 @@ pixi run bench_rt_cpu_gpu
 pixi run bench_sort_mojo
 ```
 
+The GPU sort benchmark uses two input sizes and three timed repeats after
+warmup, with copies outside the timing. Pass explicit sizes for a larger sweep:
+
+```bash
+pixi run mojo -I . bench/sort/bench_gpu_sort.mojo 1000003 4000003
+```
+
 GPU benchmarks require a supported accelerator. The CPU comparison report also
 uses Embree 4 and TinyBVH; the Embree task requires Embree 4 headers and
 `libembree4`. The report commands generate their output under `bench/results/`;

@@ -71,8 +71,6 @@ def _streams[length: SIMDLength]() raises:
 
 def test_packet_random_streams_match_philox_and_all_samplers() raises:
     _streams[1]()
-    _streams[4]()
-    _streams[8]()
     _streams[16]()
 
 

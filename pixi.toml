@@ -34,7 +34,7 @@ test_host = { depends-on = [
   "test_python_host",
 ] }
 test_gpu = { depends-on = [
-  { task = "test", args = ["sort"] },
+  { task = "test", args = ["sort/gpu"] },
   { task = "test", args = ["bvh/gpu"] },
   { task = "test", args = ["rt/gpu"] },
   { task = "test", args = ["gpu"] },

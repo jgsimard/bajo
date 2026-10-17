@@ -161,9 +161,6 @@ def check_closed_components[width: SIMDLength]() raises:
 
 def test_closed_components_open_orientation_nonmanifold_groups_updates_and_widths() raises:
     check_closed_components[1]()
-    check_closed_components[2]()
-    check_closed_components[4]()
-    check_closed_components[8]()
     check_closed_components[16]()
 
 

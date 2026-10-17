@@ -26,3 +26,11 @@ def _stable_byte_order(keys: List[UInt32]) -> List[Int]:
         order[offsets[digit]] = i
         offsets[digit] += 1
     return order^
+
+
+def _full_width_key(index: UInt32) -> UInt64:
+    if index % UInt32(257) == 0:
+        return UInt64.MAX
+    return (UInt64(index % UInt32(11)) << UInt64(32)) | UInt64(
+        index * UInt32(37) % UInt32(257)
+    )

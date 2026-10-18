@@ -26,14 +26,13 @@ comptime RNG_SEED = UInt64(2026)
 
 def main() raises:
     var scene = read_pbrt(SCENE_PATH)
-    scene.settings = RenderSettings(
+    var settings = RenderSettings(
         IMAGE_WIDTH,
         IMAGE_HEIGHT,
         SAMPLES_PER_PIXEL,
         RNG_SEED,
         MAX_DEPTH,
     )
-    var settings = scene.settings.copy()
     var camera = scene.camera
     var world = CpuScene[16, 16](scene^.take_data())
     var result = render_wavefront[.MIS](settings, camera, world)
@@ -46,6 +45,6 @@ def main() raises:
     print(
         t"Killeroo: {IMAGE_WIDTH}x{IMAGE_HEIGHT}, {SAMPLES_PER_PIXEL} spp, "
         t"{len(world.scene_data().spheres())} sphere, "
-        t"{len(world.scene_data().triangle_vertices()) / 3} triangles"
+        t"{len(world.scene_data().triangle_vertices()) // 3} triangles"
     )
     print("wrote " + OUTPUT_PATH)

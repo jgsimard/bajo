@@ -1,5 +1,3 @@
-from std.time import perf_counter_ns
-
 from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.core import Vec3f32, length, Vec3W, Point3W, Point3
 from bajo.core.random import Rng
@@ -120,9 +118,7 @@ def main() raises:
         t" {len(world.scene_data().surfaces().lambertians) + len(world.scene_data().surfaces().metals) + len(world.scene_data().surfaces().dielectrics)}"
     )
 
-    var t0 = perf_counter_ns()
     var result = render_wavefront[INTEGRATOR](settings, camera, world)
-    var t1 = perf_counter_ns()
 
     write_ppm_from_colors(
         OUTPUT_PATH,
@@ -130,7 +126,6 @@ def main() raises:
         settings.image_height,
         result.pixels,
     )
-    print(t"render ms: {round(ns_to_ms(Int(t1 - t0)), 3)}")
     print(t"  total  : {round(ns_to_ms(result.timings.total_ns), 3)} ms")
     print(t"  init   : {round(ns_to_ms(result.timings.init_ns), 3)} ms")
     print(t"  kernel : {round(ns_to_ms(result.timings.render_ns), 3)} ms")

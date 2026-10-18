@@ -2,7 +2,6 @@ from bajo.viewer.common import _viewer_camera, _write_linear_frame
 from std.sys.arg import argv
 from std.sys import has_accelerator, simd_width_of
 from std.sys.defines import get_defined_int
-from std.time import perf_counter_ns
 
 from bajo.core import (
     Point3W,
@@ -20,7 +19,6 @@ from bajo.rt import (
     CpuScene,
     CpuSchedulerMode,
     render_gpu,
-    render_wavefront,
     render_wavefront_configured,
     write_ppm_from_colors,
 )
@@ -144,7 +142,7 @@ def _viewer_bvh_stats[
             result += "BLAS8/4 H-PLOC CWBVH8"
             result += " TLAS2/1 LBVH"
     result += " | S" + String(len(data.spheres()))
-    result += " T" + String(len(data.triangle_vertices()) / 3)
+    result += " T" + String(len(data.triangle_vertices()) // 3)
     result += " I" + String(len(data.triangle_instances()))
     return result
 
@@ -232,11 +230,11 @@ def _render_gpu_frame[
         sample_offset,
         sample_sequence_length,
     )
-    var t0 = perf_counter_ns()
     var result = render_gpu[integrator](settings, camera, data)
-    var t1 = perf_counter_ns()
     _write_viewer_frame(output, width, height, result.pixels, linear_output)
-    return ViewerRenderStats(ns_to_ms(Int(t1 - t0)), _viewer_bvh_stats[1](data))
+    return ViewerRenderStats(
+        ns_to_ms(result.timings.total_ns), _viewer_bvh_stats[1](data)
+    )
 
 
 def _render_frame[
@@ -300,7 +298,6 @@ def _render_frame[
             sample_offset,
             sample_sequence_length,
         )
-        var t0 = perf_counter_ns()
         var result = render_wavefront_configured[
             traversal_mode,
             integrator,
@@ -312,10 +309,9 @@ def _render_frame[
             instance_bvh_width,
             *adaptive_packet_sizes,
         ](settings, camera, world)
-        var t1 = perf_counter_ns()
         _write_viewer_frame(output, width, height, result.pixels, linear_output)
         return ViewerRenderStats(
-            ns_to_ms(Int(t1 - t0)),
+            ns_to_ms(result.timings.total_ns),
             _viewer_bvh_stats[
                 0,
                 world_bvh_width,
@@ -444,7 +440,7 @@ def _render_scene_for_policy[
     ](request)
 
 
-def _render_frame_for_config(
+def render_frame(
     output: String,
     width: Int,
     height: Int,
@@ -492,42 +488,6 @@ def _render_frame_for_config(
     comptime assert VIEWER_INTEGRATOR in [0, 1, 2, 3, 4]
     comptime integrator = integrators.get(VIEWER_INTEGRATOR).value()
     return _render_scene_for_policy[integrator](request)
-
-
-def render_frame(
-    output: String,
-    width: Int,
-    height: Int,
-    samples: Int,
-    max_depth: Int,
-    origin: Point3W,
-    yaw_degrees: Float32,
-    pitch_degrees: Float32,
-    vfov: Float32,
-    scene: Int,
-    scene_path: String,
-    sampler: Sampler = .INDEPENDENT,
-    sample_offset: Int = 0,
-    sample_sequence_length: Int = 0,
-    linear_output: Bool = False,
-) raises -> ViewerRenderStats:
-    return _render_frame_for_config(
-        output,
-        width,
-        height,
-        samples,
-        max_depth,
-        origin,
-        yaw_degrees,
-        pitch_degrees,
-        vfov,
-        scene,
-        scene_path,
-        sampler,
-        sample_offset,
-        sample_sequence_length,
-        linear_output,
-    )
 
 
 def main() raises:

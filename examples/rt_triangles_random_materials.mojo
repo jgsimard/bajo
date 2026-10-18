@@ -3,8 +3,12 @@ from std.time import perf_counter_ns
 
 from bajo.bvh import Camera, Instance
 from bajo.bvh.host_utils import compute_bounds
-from bajo.core import AABB, Affine3f32, Point3f32, Quat, Vec3f32
+from bajo.core import AABB, Point3f32, Quat, Vec3f32
 from bajo.core.random import Rng
+from examples.mesh_helpers import (
+    normalized_instance_scale,
+    bottom_centered_transform,
+)
 from bajo.core.utils import ns_to_ms
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.rt import (
@@ -19,13 +23,15 @@ from bajo.rt import (
 )
 
 
-comptime OBJ_PATH_0 = "./assets/bunny/bunny.obj"
-comptime OBJ_PATH_1 = "./assets/buddha/buddha.obj"
-comptime OBJ_PATH_2 = "./assets/dragon/dragon.obj"
-comptime OBJ_PATH_3 = "./assets/armadillo/armadillo.obj"
-comptime OBJ_PATH_4 = "./assets/lucy/lucy.obj"
-comptime OBJ_PATH_5 = "./assets/nefertiti/nefertiti.obj"
-comptime OBJ_PATH_6 = "./assets/igea/igea.obj"
+comptime OBJ_PATHS = (
+    "./assets/bunny/bunny.obj",
+    "./assets/armadillo/armadillo.obj",
+    "./assets/buddha/buddha.obj",
+    "./assets/nefertiti/nefertiti.obj",
+    "./assets/lucy/lucy.obj",
+    "./assets/dragon/dragon.obj",
+    "./assets/igea/igea.obj",
+)
 comptime OUTPUT_PATH = "rt_triangles_random_materials.ppm"
 comptime IMAGE_WIDTH = 960
 comptime IMAGE_HEIGHT = 540
@@ -33,47 +39,13 @@ comptime SAMPLES_PER_PIXEL = 50
 comptime MAX_DEPTH = 8
 comptime RNG_SEED = UInt64(2026)
 comptime INTEGRATOR = Integrator.PATH
-comptime MESH_COUNT = 7
+comptime MESH_COUNT = len(OBJ_PATHS)
 comptime COPY_COUNT = 3
-comptime TRIANGLE_SAMPLE_STRIDE = 1
-comptime _PointL = Point3f32[.LOCAL]
 comptime _PointW = Point3f32[.WORLD]
 comptime _VecL = Vec3f32[.LOCAL]
 comptime _VecW = Vec3f32[.WORLD]
 comptime _BoundsL = AABB[.LOCAL]
 comptime _BoundsW = AABB[.WORLD]
-comptime _Transform = Affine3f32[.LOCAL, .WORLD]
-
-
-def _normalized_instance_scale(
-    bounds: _BoundsL,
-    target_extent: Float32,
-    variation: Float32,
-) -> _VecL:
-    var extent = bounds.extent()
-    var local_extent = max(max(extent.x, extent.y), extent.z)
-    if local_extent < Float32(1.0e-6):
-        local_extent = Float32(1.0)
-
-    return _VecL(target_extent / local_extent * variation)
-
-
-def _make_centered_transform(
-    bounds: _BoundsL,
-    rotation: Quat,
-    scale: _VecL,
-    bottom_center: _VecW,
-) -> _Transform:
-    var transform = _Transform.from_rotation_scale_translation(
-        rotation, scale, _VecW(0.0)
-    )
-    var c = bounds.centroid()
-    var local_anchor = _VecL(c.x, bounds._min.y, c.z)
-    var anchor_delta = transform.vector(local_anchor)
-    transform.tx = bottom_center.x - anchor_delta.x
-    transform.ty = bottom_center.y - anchor_delta.y
-    transform.tz = bottom_center.z - anchor_delta.z
-    return transform^
 
 
 def _random_surface(mut builder: SceneBuilder, mut rng: Rng[1]) -> SurfaceId[1]:
@@ -93,40 +65,30 @@ def _random_surface(mut builder: SceneBuilder, mut rng: Rng[1]) -> SurfaceId[1]:
     return builder.add_dielectric(ior)
 
 
-def _random_ground_surface(mut builder: SceneBuilder) -> SurfaceId[1]:
-    return builder.add_lambertian(Color(0.42, 0.45, 0.40))
-
-
 def _mesh_x(instance_idx: Int) -> Float32:
-    if instance_idx == 0:
-        return -2.85
-    elif instance_idx == 1:
-        return -0.95
-    elif instance_idx == 2:
-        return 0.95
-    elif instance_idx == 3:
-        return 2.85
-    elif instance_idx == 4:
-        return -1.85
-    elif instance_idx == 5:
-        return 0.0
-    return 1.85
+    var positions: Array[Float32, 7] = [
+        -2.85,
+        -0.95,
+        0.95,
+        2.85,
+        -1.85,
+        0.0,
+        1.85,
+    ]
+    return positions[instance_idx]
 
 
 def _mesh_z(instance_idx: Int) -> Float32:
-    if instance_idx == 0:
-        return -0.25
-    elif instance_idx == 1:
-        return -0.20
-    elif instance_idx == 2:
-        return -0.20
-    elif instance_idx == 3:
-        return -0.25
-    elif instance_idx == 4:
-        return 1.25
-    elif instance_idx == 5:
-        return 1.35
-    return 1.25
+    var positions: Array[Float32, 7] = [
+        -0.25,
+        -0.20,
+        -0.20,
+        -0.25,
+        1.25,
+        1.35,
+        1.25,
+    ]
+    return positions[instance_idx]
 
 
 def _append_mesh_instance(
@@ -146,10 +108,10 @@ def _append_mesh_instance(
     var variation = Float32(0.95) + Float32(
         (instance_idx + copy_idx) % 4
     ) * Float32(0.035)
-    var scale = _normalized_instance_scale(
+    var scale = normalized_instance_scale(
         bounds, TARGET_WORLD_EXTENT, variation
     )
-    var transform = _make_centered_transform(
+    var transform = bottom_centered_transform(
         bounds, rotation, scale, _VecW(x, 0.0, z)
     )
     var surface = _random_surface(builder, material_rng)
@@ -189,7 +151,7 @@ def _append_ground(
     var x1 = bounds._max.x + pad
     var z0 = bounds._min.z - pad
     var z1 = bounds._max.z + pad
-    var ground = _random_ground_surface(builder)
+    var ground = builder.add_lambertian(Color(0.42, 0.45, 0.40))
 
     builder.add_quad(
         _PointW(x0, y, z0),
@@ -221,7 +183,7 @@ def _make_camera(bounds: _BoundsW) -> Camera:
     )
 
 
-def _instance_bounds(instances: List[Instance]) -> _BoundsW:
+def _instance_bounds(instances: ImmSpan[Instance, _]) -> _BoundsW:
     var bounds = _BoundsW.invalid()
     for inst in instances:
         bounds.grow(inst.bounds)
@@ -229,10 +191,10 @@ def _instance_bounds(instances: List[Instance]) -> _BoundsW:
 
 
 def _triangle_count(world: CpuScene[16, 16]) -> Int:
-    var total = len(world.scene_data().triangle_vertices()) / 3
+    var total = len(world.scene_data().triangle_vertices()) // 3
     for inst in world.scene_data().triangle_instances():
         total += (
-            len(world.scene_data().triangle_meshes()[Int(inst.blas_idx)]) / 3
+            len(world.scene_data().triangle_meshes()[Int(inst.blas_idx)]) // 3
         )
     return total
 
@@ -259,109 +221,30 @@ def make_triangle_world() raises -> CpuScene[16, 16]:
     var scene_rng = Rng(seed=99, id=17)
     var material_rng = Rng(seed=RNG_SEED, id=0)
 
-    var mesh0 = pack_obj_triangles(OBJ_PATH_0)
-    var mesh1 = pack_obj_triangles(OBJ_PATH_1)
-    var mesh2 = pack_obj_triangles(OBJ_PATH_2)
-    var mesh3 = pack_obj_triangles(OBJ_PATH_3)
-    var mesh4 = pack_obj_triangles(OBJ_PATH_4)
-    var mesh5 = pack_obj_triangles(OBJ_PATH_5)
-    var mesh6 = pack_obj_triangles(OBJ_PATH_6)
-
-    var bounds0 = compute_bounds(mesh0)
-    var bounds1 = compute_bounds(mesh1)
-    var bounds2 = compute_bounds(mesh2)
-    var bounds3 = compute_bounds(mesh3)
-    var bounds4 = compute_bounds(mesh4)
-    var bounds5 = compute_bounds(mesh5)
-    var bounds6 = compute_bounds(mesh6)
-
     var builder = SceneBuilder()
-    _ = builder.add_owned_triangle_mesh(
-        mesh0^, List[Float32](), List[Float32]()
-    )
-    _ = builder.add_owned_triangle_mesh(
-        mesh3^, List[Float32](), List[Float32]()
-    )
-    _ = builder.add_owned_triangle_mesh(
-        mesh1^, List[Float32](), List[Float32]()
-    )
-    _ = builder.add_owned_triangle_mesh(
-        mesh5^, List[Float32](), List[Float32]()
-    )
-    _ = builder.add_owned_triangle_mesh(
-        mesh4^, List[Float32](), List[Float32]()
-    )
-    _ = builder.add_owned_triangle_mesh(
-        mesh2^, List[Float32](), List[Float32]()
-    )
-    _ = builder.add_owned_triangle_mesh(
-        mesh6^, List[Float32](), List[Float32]()
-    )
+    var mesh_bounds = List[_BoundsL](capacity=MESH_COUNT)
+    try:
+        comptime for mesh in range(MESH_COUNT):
+            var vertices = pack_obj_triangles(OBJ_PATHS[mesh])
+            mesh_bounds.append(compute_bounds(vertices))
+            _ = builder.add_owned_triangle_mesh(
+                vertices^, List[Float32](), List[Float32]()
+            )
+    except e:
+        builder^.abort()
+        raise e
 
     for copy_idx in range(COPY_COUNT):
-        _append_mesh_instance(
-            builder,
-            UInt32(0),
-            bounds0,
-            0,
-            copy_idx,
-            scene_rng,
-            material_rng,
-        )
-        _append_mesh_instance(
-            builder,
-            UInt32(1),
-            bounds3,
-            1,
-            copy_idx,
-            scene_rng,
-            material_rng,
-        )
-        _append_mesh_instance(
-            builder,
-            UInt32(2),
-            bounds1,
-            2,
-            copy_idx,
-            scene_rng,
-            material_rng,
-        )
-        _append_mesh_instance(
-            builder,
-            UInt32(3),
-            bounds5,
-            3,
-            copy_idx,
-            scene_rng,
-            material_rng,
-        )
-        _append_mesh_instance(
-            builder,
-            UInt32(4),
-            bounds4,
-            4,
-            copy_idx,
-            scene_rng,
-            material_rng,
-        )
-        _append_mesh_instance(
-            builder,
-            UInt32(5),
-            bounds2,
-            5,
-            copy_idx,
-            scene_rng,
-            material_rng,
-        )
-        _append_mesh_instance(
-            builder,
-            UInt32(6),
-            bounds6,
-            6,
-            copy_idx,
-            scene_rng,
-            material_rng,
-        )
+        for mesh in range(MESH_COUNT):
+            _append_mesh_instance(
+                builder,
+                UInt32(mesh),
+                mesh_bounds[mesh],
+                mesh,
+                copy_idx,
+                scene_rng,
+                material_rng,
+            )
 
     var scene_bounds = _instance_bounds(builder.triangle_instances)
     _append_hero_glass_triangle(builder, scene_bounds)
@@ -373,22 +256,17 @@ def make_triangle_world() raises -> CpuScene[16, 16]:
 
 def main() raises:
     print("Triangle mesh RT scene, random materials")
-    print(t"OBJ 0: {OBJ_PATH_0}")
-    print(t"OBJ 1: {OBJ_PATH_1}")
-    print(t"OBJ 2: {OBJ_PATH_2}")
-    print(t"OBJ 3: {OBJ_PATH_3}")
-    print(t"OBJ 4: {OBJ_PATH_4}")
-    print(t"OBJ 5: {OBJ_PATH_5}")
-    print(t"OBJ 6: {OBJ_PATH_6}")
+    comptime for mesh in range(MESH_COUNT):
+        print(t"OBJ {mesh}: {OBJ_PATHS[mesh]}")
     print(t"image: {IMAGE_WIDTH}x{IMAGE_HEIGHT}")
     print(t"samples: {SAMPLES_PER_PIXEL} | depth: {MAX_DEPTH}")
-    print(t"triangle sample stride: {TRIANGLE_SAMPLE_STRIDE}")
 
     var settings = RenderSettings(
         IMAGE_WIDTH,
         IMAGE_HEIGHT,
         SAMPLES_PER_PIXEL,
         RNG_SEED,
+        MAX_DEPTH,
     )
 
     var build_t0 = perf_counter_ns()
@@ -407,10 +285,7 @@ def main() raises:
     print(t"build ms: {round(ns_to_ms(Int(build_t1 - build_t0)), 3)}")
     print(t"primary hits: {_count_primary_hits(settings, camera, world)}")
 
-    var render_t0 = perf_counter_ns()
-    settings.max_depth = MAX_DEPTH
     var result = render_wavefront[INTEGRATOR](settings, camera, world)
-    var render_t1 = perf_counter_ns()
 
     write_ppm_from_colors(
         OUTPUT_PATH,
@@ -418,7 +293,6 @@ def main() raises:
         settings.image_height,
         result.pixels,
     )
-    print(t"render ms: {round(ns_to_ms(Int(render_t1 - render_t0)), 3)}")
     print(t"  total  : {round(ns_to_ms(result.timings.total_ns), 3)} ms")
     print(t"  init   : {round(ns_to_ms(result.timings.init_ns), 3)} ms")
     print(t"  kernel : {round(ns_to_ms(result.timings.render_ns), 3)} ms")

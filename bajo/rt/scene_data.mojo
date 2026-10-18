@@ -133,6 +133,63 @@ struct SceneBuilder(
         self.add_triangle(a, b, c, surface)
         self.add_triangle(a, c, d, surface)
 
+    def add_box(
+        mut self,
+        minimum: Point3f32[.WORLD],
+        maximum: Point3f32[.WORLD],
+        surface: SurfaceId[1],
+    ):
+        """Append an outward-wound box as six quads, in face order."""
+        var x0 = minimum.x
+        var y0 = minimum.y
+        var z0 = minimum.z
+        var x1 = maximum.x
+        var y1 = maximum.y
+        var z1 = maximum.z
+
+        self.add_quad(
+            Point3f32[.WORLD](x0, y0, z0),
+            Point3f32[.WORLD](x1, y0, z0),
+            Point3f32[.WORLD](x1, y0, z1),
+            Point3f32[.WORLD](x0, y0, z1),
+            surface,
+        )
+        self.add_quad(
+            Point3f32[.WORLD](x0, y1, z1),
+            Point3f32[.WORLD](x1, y1, z1),
+            Point3f32[.WORLD](x1, y1, z0),
+            Point3f32[.WORLD](x0, y1, z0),
+            surface,
+        )
+        self.add_quad(
+            Point3f32[.WORLD](x0, y0, z1),
+            Point3f32[.WORLD](x1, y0, z1),
+            Point3f32[.WORLD](x1, y1, z1),
+            Point3f32[.WORLD](x0, y1, z1),
+            surface,
+        )
+        self.add_quad(
+            Point3f32[.WORLD](x1, y0, z0),
+            Point3f32[.WORLD](x0, y0, z0),
+            Point3f32[.WORLD](x0, y1, z0),
+            Point3f32[.WORLD](x1, y1, z0),
+            surface,
+        )
+        self.add_quad(
+            Point3f32[.WORLD](x0, y0, z0),
+            Point3f32[.WORLD](x0, y0, z1),
+            Point3f32[.WORLD](x0, y1, z1),
+            Point3f32[.WORLD](x0, y1, z0),
+            surface,
+        )
+        self.add_quad(
+            Point3f32[.WORLD](x1, y0, z1),
+            Point3f32[.WORLD](x1, y0, z0),
+            Point3f32[.WORLD](x1, y1, z0),
+            Point3f32[.WORLD](x1, y1, z1),
+            surface,
+        )
+
     def add_triangle_mesh(
         mut self,
         vertices: ImmSpan[Point3f32[.WORLD], _],

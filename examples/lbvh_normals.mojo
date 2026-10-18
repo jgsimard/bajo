@@ -11,7 +11,6 @@ from std.time import perf_counter_ns
 from bajo.core import (
     AABB,
     Quat,
-    Affine3f32,
     Vec3f32,
     Point3f32,
 )
@@ -29,6 +28,10 @@ from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.bvh.constants import MISS_PRIM
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core.random import Rng
+from examples.mesh_helpers import (
+    normalized_instance_scale,
+    bottom_centered_transform,
+)
 from bajo.rt.image_output import write_ppm_from_colors
 from bajo.rt.render_types import Color
 
@@ -55,37 +58,6 @@ comptime BLAS_MAX_LEAF_SIZE_GPU = 1
 comptime TLAS_BUILD_METHOD_GPU = GpuBvhBuildMethod.LBVH
 comptime TLAS_WIDTH_GPU = 2
 comptime TLAS_LEAF_WIDTH_GPU = 1
-
-
-def _normalized_instance_scale(
-    bounds: AABB[.LOCAL],
-    target_extent: Float32,
-    variation: Float32,
-) -> Vec3f32[.LOCAL]:
-    var extent = bounds.extent()
-    var local_extent = max(max(extent.x, extent.y), extent.z)
-    if local_extent < Float32(1.0e-6):
-        local_extent = Float32(1.0)
-
-    return Vec3f32[.LOCAL](target_extent / local_extent * variation)
-
-
-def _make_centered_transform(
-    bounds: AABB[.LOCAL],
-    rotation: Quat,
-    scale: Vec3f32[.LOCAL],
-    bottom_center: Vec3f32[.WORLD],
-) -> Affine3f32[.LOCAL, .WORLD]:
-    var transform = Affine3f32[.LOCAL, .WORLD].from_rotation_scale(
-        rotation, scale
-    )
-    var c = bounds.centroid()
-    var local_anchor = Vec3f32[.LOCAL](c.x, bounds._min.y, c.z)
-    var anchor_delta = transform.vector(local_anchor)
-    transform.tx = bottom_center.x - anchor_delta.x
-    transform.ty = bottom_center.y - anchor_delta.y
-    transform.tz = bottom_center.z - anchor_delta.z
-    return transform^
 
 
 def _make_instances(
@@ -121,7 +93,7 @@ def _make_instances(
                 )
                 var variation = Float32(1.0) + Float32(idx % 3) * Float32(0.025)
                 var scale = (
-                    _normalized_instance_scale(
+                    normalized_instance_scale(
                         bounds, TARGET_WORLD_EXTENT, variation
                     )
                     * 1.5
@@ -129,7 +101,7 @@ def _make_instances(
                 var bottom_center = Vec3f32[.WORLD](
                     cell_x + local_x, 0.0, cell_z
                 )
-                var transform = _make_centered_transform(
+                var transform = bottom_centered_transform(
                     bounds, rotation, scale, bottom_center
                 )
                 instances.append(

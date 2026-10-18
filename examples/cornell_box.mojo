@@ -1,7 +1,6 @@
 """Render a Cornell box with plain path tracing and next-event estimation."""
 
 from std.math import round
-from std.time import perf_counter_ns
 
 from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.core import Point3W, Vec3W
@@ -11,7 +10,6 @@ from bajo.rt import (
     Color,
     RenderSettings,
     SceneBuilder,
-    SurfaceId,
     CpuScene,
     render_wavefront,
     write_ppm_from_colors,
@@ -26,63 +24,6 @@ comptime RNG_SEED = UInt64(2026)
 comptime PATH_OUTPUT = "cornell_path.ppm"
 comptime NEE_OUTPUT = "cornell_nee.ppm"
 comptime MIS_OUTPUT = "cornell_mis.ppm"
-
-
-def _add_box(
-    mut builder: SceneBuilder,
-    minimum: Point3W,
-    maximum: Point3W,
-    surface: SurfaceId[1],
-):
-    var x0 = minimum.x
-    var y0 = minimum.y
-    var z0 = minimum.z
-    var x1 = maximum.x
-    var y1 = maximum.y
-    var z1 = maximum.z
-
-    builder.add_quad(
-        Point3W(x0, y0, z0),
-        Point3W(x1, y0, z0),
-        Point3W(x1, y0, z1),
-        Point3W(x0, y0, z1),
-        surface,
-    )
-    builder.add_quad(
-        Point3W(x0, y1, z1),
-        Point3W(x1, y1, z1),
-        Point3W(x1, y1, z0),
-        Point3W(x0, y1, z0),
-        surface,
-    )
-    builder.add_quad(
-        Point3W(x0, y0, z1),
-        Point3W(x1, y0, z1),
-        Point3W(x1, y1, z1),
-        Point3W(x0, y1, z1),
-        surface,
-    )
-    builder.add_quad(
-        Point3W(x1, y0, z0),
-        Point3W(x0, y0, z0),
-        Point3W(x0, y1, z0),
-        Point3W(x1, y1, z0),
-        surface,
-    )
-    builder.add_quad(
-        Point3W(x0, y0, z0),
-        Point3W(x0, y0, z1),
-        Point3W(x0, y1, z1),
-        Point3W(x0, y1, z0),
-        surface,
-    )
-    builder.add_quad(
-        Point3W(x1, y0, z1),
-        Point3W(x1, y0, z0),
-        Point3W(x1, y1, z0),
-        Point3W(x1, y1, z1),
-        surface,
-    )
 
 
 def make_cornell_world[
@@ -142,14 +83,12 @@ def make_cornell_world[
         light,
     )
 
-    _add_box(
-        builder,
+    builder.add_box(
         Point3W(-0.72, 0.0, -1.55),
         Point3W(-0.12, 1.15, -0.85),
         white,
     )
-    _add_box(
-        builder,
+    builder.add_box(
         Point3W(0.18, 0.0, -1.15),
         Point3W(0.72, 0.62, -0.48),
         white,
@@ -179,34 +118,30 @@ def main() raises:
     )
     var world = make_cornell_world()
 
-    var path_t0 = perf_counter_ns()
     var path_result = render_wavefront[.PATH](settings, camera, world)
-    var path_t1 = perf_counter_ns()
     write_ppm_from_colors(
         PATH_OUTPUT, IMAGE_WIDTH, IMAGE_HEIGHT, path_result.pixels
     )
 
-    var nee_t0 = perf_counter_ns()
     var nee_result = render_wavefront[.NEE](settings, camera, world)
-    var nee_t1 = perf_counter_ns()
     write_ppm_from_colors(
         NEE_OUTPUT, IMAGE_WIDTH, IMAGE_HEIGHT, nee_result.pixels
     )
 
-    var mis_t0 = perf_counter_ns()
     var mis_result = render_wavefront[.MIS](settings, camera, world)
-    var mis_t1 = perf_counter_ns()
     write_ppm_from_colors(
         MIS_OUTPUT, IMAGE_WIDTH, IMAGE_HEIGHT, mis_result.pixels
     )
 
     print(
-        t"path: {round(ns_to_ms(Int(path_t1 - path_t0)), 3)} ms ->"
+        t"path: {round(ns_to_ms(path_result.timings.total_ns), 3)} ms ->"
         t" {PATH_OUTPUT}"
     )
     print(
-        t"NEE : {round(ns_to_ms(Int(nee_t1 - nee_t0)), 3)} ms -> {NEE_OUTPUT}"
+        t"NEE : {round(ns_to_ms(nee_result.timings.total_ns), 3)} ms ->"
+        t" {NEE_OUTPUT}"
     )
     print(
-        t"MIS : {round(ns_to_ms(Int(mis_t1 - mis_t0)), 3)} ms -> {MIS_OUTPUT}"
+        t"MIS : {round(ns_to_ms(mis_result.timings.total_ns), 3)} ms ->"
+        t" {MIS_OUTPUT}"
     )

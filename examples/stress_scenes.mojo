@@ -10,62 +10,6 @@ from bajo.rt import (
 )
 
 
-def _add_box(
-    mut builder: SceneBuilder,
-    minimum: Point3W,
-    maximum: Point3W,
-    surface: SurfaceId[1],
-):
-    var x0 = minimum.x
-    var y0 = minimum.y
-    var z0 = minimum.z
-    var x1 = maximum.x
-    var y1 = maximum.y
-    var z1 = maximum.z
-    builder.add_quad(
-        Point3W(x0, y0, z0),
-        Point3W(x1, y0, z0),
-        Point3W(x1, y0, z1),
-        Point3W(x0, y0, z1),
-        surface,
-    )
-    builder.add_quad(
-        Point3W(x0, y1, z1),
-        Point3W(x1, y1, z1),
-        Point3W(x1, y1, z0),
-        Point3W(x0, y1, z0),
-        surface,
-    )
-    builder.add_quad(
-        Point3W(x0, y0, z1),
-        Point3W(x1, y0, z1),
-        Point3W(x1, y1, z1),
-        Point3W(x0, y1, z1),
-        surface,
-    )
-    builder.add_quad(
-        Point3W(x1, y0, z0),
-        Point3W(x0, y0, z0),
-        Point3W(x0, y1, z0),
-        Point3W(x1, y1, z0),
-        surface,
-    )
-    builder.add_quad(
-        Point3W(x0, y0, z0),
-        Point3W(x0, y0, z1),
-        Point3W(x0, y1, z1),
-        Point3W(x0, y1, z0),
-        surface,
-    )
-    builder.add_quad(
-        Point3W(x1, y0, z1),
-        Point3W(x1, y0, z0),
-        Point3W(x1, y1, z0),
-        Point3W(x1, y1, z1),
-        surface,
-    )
-
-
 def _add_room(
     mut builder: SceneBuilder,
     half_width: Float32,
@@ -218,14 +162,12 @@ def make_indirect_hall_world[
 
     # These slabs form an alternating labyrinth. The back emitters have no
     # direct line of sight to most of the foreground visible to the camera.
-    _add_box(builder, Point3W(-5.0, 0.0, -2.9), Point3W(1.45, 4.55, -2.5), blue)
-    _add_box(builder, Point3W(-1.45, 0.0, -6.8), Point3W(5.0, 4.55, -6.4), red)
-    _add_box(
-        builder, Point3W(-5.0, 0.0, -10.7), Point3W(1.45, 4.55, -10.3), green
+    builder.add_box(Point3W(-5.0, 0.0, -2.9), Point3W(1.45, 4.55, -2.5), blue)
+    builder.add_box(Point3W(-1.45, 0.0, -6.8), Point3W(5.0, 4.55, -6.4), red)
+    builder.add_box(
+        Point3W(-5.0, 0.0, -10.7), Point3W(1.45, 4.55, -10.3), green
     )
-    _add_box(
-        builder, Point3W(-1.45, 0.0, -14.6), Point3W(5.0, 4.55, -14.2), blue
-    )
+    builder.add_box(Point3W(-1.45, 0.0, -14.6), Point3W(5.0, 4.55, -14.2), blue)
 
     for row in range(4):
         var z = -1.0 - 3.9 * Float32(row)
@@ -313,8 +255,8 @@ def make_specular_transport_world[
             )
 
     # Black blockers make the transmitted and reflected light paths obvious.
-    _add_box(builder, Point3W(-0.5, 0.0, -2.5), Point3W(0.5, 2.3, -2.1), dark)
-    _add_box(builder, Point3W(-4.7, 0.0, -8.9), Point3W(-3.2, 2.8, -8.5), dark)
+    builder.add_box(Point3W(-0.5, 0.0, -2.5), Point3W(0.5, 2.3, -2.1), dark)
+    builder.add_box(Point3W(-4.7, 0.0, -8.9), Point3W(-3.2, 2.8, -8.5), dark)
 
     var scene = builder^.finish()
     return CpuScene[world_bvh_width, instance_bvh_width].__init__[build_method](

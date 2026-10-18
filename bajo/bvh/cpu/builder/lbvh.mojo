@@ -79,8 +79,7 @@ def _radix_sort_morton_pass_parallel[
 ):
     def histogram_worker(task_idx: Int) {imm}:
         var counts_base = task_idx * 256
-        for bucket in range(256):
-            counts[counts_base + bucket] = 0
+        counts[counts_base : counts_base + 256].fill(0)
 
         var first = len(src) * task_idx // worker_count
         var end = len(src) * (task_idx + 1) // worker_count
@@ -153,8 +152,7 @@ def _radix_sort_morton_storage_pass[
 ):
     def histogram_worker(task_idx: Int) {imm, mut counts}:
         var counts_base = task_idx * 256
-        for bucket in range(256):
-            counts.unsafe_get(counts_base + bucket) = 0
+        Span(counts)[counts_base : counts_base + 256].fill(0)
         var first = count * task_idx // worker_count
         var end = count * (task_idx + 1) // worker_count
         for i in range(first, end):

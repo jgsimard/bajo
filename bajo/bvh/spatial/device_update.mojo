@@ -17,7 +17,7 @@ from std.memory import stack_allocation, bitcast
 from std.atomic import Atomic, Ordering
 from std.bit import log2_floor, pop_count
 from std.sys.info import is_nvidia_gpu
-from std.math import min, max
+from std.math import min, max, ceildiv
 from std.utils.numerics import isfinite
 from bajo.bvh.constants import EMPTY_LANE
 
@@ -43,7 +43,7 @@ def refit_forest[
     # Each lane first merges complete subtrees in its contiguous node slice.
     # Reverse preorder makes children ready before their parent. No lane reads
     # another slice until the barrier; only slice-crossing ancestors remain.
-    var chunk = (count + block_size - 1) // block_size
+    var chunk = ceildiv(count, block_size)
     # Tiny slices do not amortize the extra merge pass and barrier.
     var sliced = count > block_size * 4
     var begin = min(lane * chunk, count) if sliced else lane

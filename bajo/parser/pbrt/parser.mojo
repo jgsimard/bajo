@@ -269,10 +269,7 @@ struct _Parameters[origin: ImmOrigin]:
     def string_or_empty(
         self, declaration: ImmStringSpan
     ) -> StringSpan[Self.origin]:
-        var value = self.string(declaration)
-        if value:
-            return value.value()
-        return StringSpan[Self.origin]()
+        return self.string(declaration).or_else(StringSpan[Self.origin]())
 
     def f32(
         self, declaration: ImmStringSpan, default: Float32

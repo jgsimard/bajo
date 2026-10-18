@@ -309,12 +309,10 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
         output: Int,
         shared_pairs: ImmSpan[MortonItem, _],
     ) -> Int:
-        var count = 0
         # Validated snapshot labels and canonical item IDs bound every load.
         # The first scan counts precisely the records selected by the second.
+        var count = self.groups.count(group)
         var labels = self.groups.unsafe_ptr()
-        for i in range(len(self.groups)):
-            count += Int(labels.unsafe_load(i) == group)
         var pairs = List[MortonItem](unsafe_uninit_length=count)
         var cursor = 0
         for i in range(len(shared_pairs)):

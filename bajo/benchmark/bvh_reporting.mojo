@@ -23,10 +23,7 @@ struct GpuBenchResult(Copyable, Writable):
         return Int(self.hit_count) - Int(self.reference_hit_count)
 
     def rel_hit_diff(self) -> Float64:
-        var hit_diff = self.hit_diff()
-        var abs_hit_diff = hit_diff
-        if abs_hit_diff < 0:
-            abs_hit_diff = 0 - abs_hit_diff
+        var abs_hit_diff = abs(self.hit_diff())
 
         if self.reference_hit_count > 0:
             return Float64(abs_hit_diff) / Float64(self.reference_hit_count)
@@ -50,10 +47,8 @@ struct GpuBenchResult(Copyable, Writable):
         if reference_magnitude > 1.0:
             relative_checksum_diff /= reference_magnitude
 
-        var hit_diff = Int(self.hit_count) - Int(self.reference_hit_count)
-        var abs_hit_diff = hit_diff
-        if abs_hit_diff < 0:
-            abs_hit_diff = 0 - abs_hit_diff
+        var hit_diff = self.hit_diff()
+        var abs_hit_diff = abs(hit_diff)
 
         var hit_rel_diff = Float64(0.0)
         if self.reference_hit_count > 0:

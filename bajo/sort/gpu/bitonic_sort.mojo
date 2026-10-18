@@ -9,7 +9,7 @@ from max.gpu import barrier
 from max.gpu.host import DeviceContext, DeviceBuffer
 from max.gpu.memory import AddressSpace
 from max.gpu.primitives import warp
-from std.math import iota
+from std.math import iota, ceildiv
 from std.memory import stack_allocation
 from .validation import validate_bitonic_size, require_sort_capacity
 
@@ -259,7 +259,7 @@ def bitonic_sort_pairs[
     )
     comptime assert ITEMS_PER_THREAD > 0 and ITEMS_PER_THREAD.is_power_of_two()
     comptime PART_SIZE = THREADS_PER_BLOCK * ITEMS_PER_THREAD
-    var blocks = (size + PART_SIZE - 1) / PART_SIZE
+    var blocks = ceildiv(size, PART_SIZE)
 
     # Phase 1: sort chunks of size PART_SIZE
     comptime shared_block_kernel = bitonic_sort_shared[
@@ -341,7 +341,7 @@ def naive_bitonic_sort_pairs[
 
     # 1 thread maps to 1 pair
     var total_pairs = size / 2
-    var blocks = (total_pairs + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK
+    var blocks = ceildiv(total_pairs, THREADS_PER_BLOCK)
 
     var k = 2
     while k <= size:

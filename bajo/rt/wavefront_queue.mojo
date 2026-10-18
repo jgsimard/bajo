@@ -1,6 +1,7 @@
 """Packet queues and host/device wavefront boundary records."""
 
 from std.collections import Array
+from std.math import ceildiv
 from std.memory import pack_bits
 from std.sys.intrinsics import llvm_intrinsic
 from layout import Coord
@@ -157,7 +158,7 @@ struct PacketPathQueue[length: SIMDLength](Sized):
 
     def __init__(out self, capacity: Int):
         self.packets = List[PathPacket[Self.length]](
-            capacity=(capacity + Self.length - 1) / Self.length
+            capacity=ceildiv(capacity, Int(Self.length))
         )
         self.count = 0
 
@@ -455,7 +456,7 @@ struct PacketShadeQueue[length: SIMDLength](Sized):
 
     def __init__(out self, capacity: Int):
         self.packets = List[ShadePacket[Self.length]](
-            capacity=(capacity + Self.length - 1) / Self.length
+            capacity=ceildiv(capacity, Int(Self.length))
         )
         self.count = 0
 

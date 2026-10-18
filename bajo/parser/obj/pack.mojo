@@ -32,8 +32,7 @@ def _pack_obj_triangles_serial[
     frame: Frame = .LOCAL
 ](mesh: ObjMesh) -> List[Point3f32[frame]]:
     var counts = _triangle_counts(mesh, 0, len(mesh.face_vertices))
-    var out = List[Point3f32[frame]]()
-    out.resize(unsafe_uninit_length=counts[1])
+    var out = List[Point3f32[frame]](unsafe_uninit_length=counts[1])
     _pack_range[frame](mesh, Span(out), 0, len(mesh.face_vertices), 0)
     return out^
 
@@ -80,8 +79,9 @@ def _pack_obj_triangles_parallel[
         return _pack_obj_triangles_serial[frame](mesh)
     var chunks = _triangle_chunks(mesh, workers, faces_per_task)
     ref last = chunks[len(chunks) - 1]
-    var output = List[Point3f32[frame]]()
-    output.resize(unsafe_uninit_length=last.output_offset + last.output_count)
+    var output = List[Point3f32[frame]](
+        unsafe_uninit_length=last.output_offset + last.output_count
+    )
     if len(output) == 0:
         return output^
 

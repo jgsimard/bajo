@@ -105,14 +105,16 @@ def _pack_ply_mesh(
         raise Error("PBRT plymesh must contain at least one triangle")
     if len(mesh.indices) % 3:
         raise Error("PBRT plymesh requires complete index triples")
-    var vertices = List[Point3f32[.LOCAL]]()
-    var normals = List[Float32]()
-    var texcoords = List[Float32]()
-    vertices.resize(unsafe_uninit_length=len(mesh.indices))
-    if mesh.has_normals():
-        normals.resize(unsafe_uninit_length=3 * len(mesh.indices))
-    if mesh.has_texcoords():
-        texcoords.resize(unsafe_uninit_length=2 * len(mesh.indices))
+    var vertices = List[Point3f32[.LOCAL]](
+        unsafe_uninit_length=len(mesh.indices)
+    )
+    var normals = List[Float32](
+        unsafe_uninit_length=3 * len(mesh.indices) if mesh.has_normals() else 0
+    )
+    var texcoords = List[Float32](
+        unsafe_uninit_length=2
+        * len(mesh.indices) if mesh.has_texcoords() else 0
+    )
     var tasks = min(
         max(1, workers) * 4,
         max(1, ceildiv(mesh.triangle_count(), max(1, triangles_per_task))),

@@ -92,14 +92,10 @@ struct _WideCollapseDp:
         # Every reachable DP state is assigned bottom-up before it is read.
         # Avoid clearing the much larger full state arrays on every build.
         var state_count = node_count * width
-        self.costs = List[Float32](capacity=state_count)
-        self.costs.resize(unsafe_uninit_length=state_count)
-        self.splits = List[UInt8](capacity=state_count)
-        self.splits.resize(unsafe_uninit_length=state_count)
-        self.best_slots = List[UInt8](capacity=node_count)
-        self.best_slots.resize(unsafe_uninit_length=node_count)
-        self.max_slots = List[UInt8](capacity=node_count)
-        self.max_slots.resize(unsafe_uninit_length=node_count)
+        self.costs = List[Float32](unsafe_uninit_length=state_count)
+        self.splits = List[UInt8](unsafe_uninit_length=state_count)
+        self.best_slots = List[UInt8](unsafe_uninit_length=node_count)
+        self.max_slots = List[UInt8](unsafe_uninit_length=node_count)
 
 
 struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
@@ -439,7 +435,9 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         # A wide internal node always consumes at least one binary internal
         # node, so the binary internal count is a tight safe upper bound.
         var max_wide_nodes = max(1, (Int(bvh.nodes_used) - 1) // 2)
-        self.nodes.resize(unsafe_uninit_length=max_wide_nodes)
+        self.nodes = List[WideBvhNode[Self.frame, Self.width]](
+            unsafe_uninit_length=max_wide_nodes
+        )
         var frontier = frontier_fn(0)
         var pool = frontier[0].copy()
         var p_size = frontier[1]

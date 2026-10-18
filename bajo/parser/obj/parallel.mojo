@@ -579,13 +579,13 @@ def _parse_obj_bulk[
     mesh.positions.resize(unsafe_uninit_length=3 * (positions + 1))
     mesh.texcoords.resize(unsafe_uninit_length=2 * (texcoords + 1))
     mesh.normals.resize(unsafe_uninit_length=3 * (normals + 1))
-    mesh.indices.resize(unsafe_uninit_length=indices)
-    mesh.face_vertices.resize(unsafe_uninit_length=faces)
-    mesh.face_materials.resize(unsafe_uninit_length=faces)
+    mesh.indices = List[ObjIndex](unsafe_uninit_length=indices)
+    mesh.face_vertices = List[Int](unsafe_uninit_length=faces)
+    mesh.face_materials = List[Int](unsafe_uninit_length=faces)
     if colors:
         mesh.colors = List[Float32](length=3 * (positions + 1), fill=1.0)
     if lines:
-        mesh.face_lines.resize(unsafe_uninit_length=faces)
+        mesh.face_lines = List[UInt8](unsafe_uninit_length=faces)
     var failed = List[UInt8](length=task_count, fill=0)
 
     def decode_worker(task: Int) {text, chunks, mut mesh, mut failed}:

@@ -347,8 +347,7 @@ def _partition_items_by_bin_parallel[
     """Parallel out-of-place partition for a large top-level SAH range."""
     # Each worker fills its disjoint chunk from both ends. Reverse the right
     # reads during scatter to retain the original stable partition order.
-    var scratch = List[UInt32](capacity=count)
-    scratch.resize(unsafe_uninit_length=count)
+    var scratch = List[UInt32](unsafe_uninit_length=count)
     var left_counts = [Int(0) for _ in range(worker_count)]
     var right_counts = [Int(0) for _ in range(worker_count)]
     var partials = [

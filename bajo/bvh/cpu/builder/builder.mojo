@@ -82,8 +82,9 @@ struct BinaryBoundsBvh[
 
         comptime if Self.method == .HPLOC or Self.method == .LBVH:
             # Emission writes every index from the sorted Morton pairs.
-            self.item_indices = List[UInt32](capacity=Int(self.item_count))
-            self.item_indices.resize(unsafe_uninit_length=Int(self.item_count))
+            self.item_indices = List[UInt32](
+                unsafe_uninit_length=Int(self.item_count)
+            )
         else:
             self.item_indices = [i for i in range(self.item_count)]
 
@@ -223,12 +224,10 @@ struct BinaryBoundsBvh[
                 Int(self.item_count / PARALLEL_TOP_DOWN_DONATE_MIN_ITEMS) * 4
                 + PARALLEL_FRONTIER_CAPACITY,
             )
-            var work_nodes = List[UInt32](capacity=queue_capacity)
+            var work_nodes = List[UInt32](unsafe_uninit_length=queue_capacity)
             var work_centroid_bounds = List[AABB[Self.frame]](
-                capacity=queue_capacity
+                unsafe_uninit_length=queue_capacity
             )
-            work_nodes.resize(unsafe_uninit_length=queue_capacity)
-            work_centroid_bounds.resize(unsafe_uninit_length=queue_capacity)
             for task_idx in range(task_count):
                 work_nodes[task_idx] = frontier_nodes[task_idx]
                 work_centroid_bounds[task_idx] = frontier_centroid_bounds[

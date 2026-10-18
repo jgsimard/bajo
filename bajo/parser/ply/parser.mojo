@@ -966,15 +966,19 @@ def _parse_ply_bulk_from_header(
 ) raises -> PlyMesh:
     var chunks = _face_chunks(bytes, header)
     var mesh = PlyMesh()
-    mesh.positions.resize(unsafe_uninit_length=header.vertex_count * 3)
+    mesh.positions = List[Float32](unsafe_uninit_length=header.vertex_count * 3)
     if header.has_normals:
-        mesh.normals.resize(unsafe_uninit_length=header.vertex_count * 3)
+        mesh.normals = List[Float32](
+            unsafe_uninit_length=header.vertex_count * 3
+        )
     if header.has_texcoords:
-        mesh.texcoords.resize(unsafe_uninit_length=header.vertex_count * 2)
+        mesh.texcoords = List[Float32](
+            unsafe_uninit_length=header.vertex_count * 2
+        )
     _decode_vertices(bytes, header, mesh, workers)
     if len(chunks):
         ref last = chunks[len(chunks) - 1]
-        mesh.indices.resize(
+        mesh.indices = List[UInt32](
             unsafe_uninit_length=last.output_offset + last.output_count
         )
     var failed = List[UInt8](length=len(chunks), fill=0)

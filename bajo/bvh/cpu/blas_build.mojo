@@ -221,8 +221,7 @@ def _build_single_triangle_blas[
     var exact_node_count = (
         len(bvh.tree.nodes) * node_width * WideNode.CHILD_STRIDE
     )
-    var nodes = List[Float32](capacity=exact_node_count)
-    nodes.resize(unsafe_uninit_length=exact_node_count)
+    var nodes = List[Float32](unsafe_uninit_length=exact_node_count)
     var unused_leaf = List[Float32]()
     _pack_built_triangle_blas[
         frame,
@@ -384,10 +383,8 @@ def build_cpu_triangle_blas_set[
     var descs = List[UInt32](
         length=len(vertex_sets) * BlasDescLayout.STRIDE, fill=0
     )
-    var nodes = List[Float32](capacity=layout.node_f32_count)
-    var leaves = List[Float32](capacity=layout.leaf_f32_count)
-    nodes.resize(unsafe_uninit_length=layout.node_f32_count)
-    leaves.resize(unsafe_uninit_length=layout.leaf_f32_count)
+    var nodes = List[Float32](unsafe_uninit_length=layout.node_f32_count)
+    var leaves = List[Float32](unsafe_uninit_length=layout.leaf_f32_count)
     var descs_ptr = descs.unsafe_ptr()
     var nodes_ptr = nodes.unsafe_ptr()
     var leaves_span = Span(leaves)
@@ -525,10 +522,8 @@ def _build_single_sphere_blas[
     var exact_leaf_count = (
         len(bvh.leaf_blocks) * width * SPHERE_LEAF_PACKED_STRIDE
     )
-    var nodes = List[Float32](capacity=exact_node_count)
-    var leaves = List[Float32](capacity=exact_leaf_count)
-    nodes.resize(unsafe_uninit_length=exact_node_count)
-    leaves.resize(unsafe_uninit_length=exact_leaf_count)
+    var nodes = List[Float32](unsafe_uninit_length=exact_node_count)
+    var leaves = List[Float32](unsafe_uninit_length=exact_leaf_count)
     _pack_built_sphere_blas[frame, width](
         bvh,
         descs.unsafe_ptr(),
@@ -588,10 +583,8 @@ def build_cpu_sphere_blas_set[
     var descs = List[UInt32](
         length=len(sphere_sets) * BlasDescLayout.STRIDE, fill=0
     )
-    var nodes = List[Float32](capacity=layout.node_f32_count)
-    var leaves = List[Float32](capacity=layout.leaf_f32_count)
-    nodes.resize(unsafe_uninit_length=layout.node_f32_count)
-    leaves.resize(unsafe_uninit_length=layout.leaf_f32_count)
+    var nodes = List[Float32](unsafe_uninit_length=layout.node_f32_count)
+    var leaves = List[Float32](unsafe_uninit_length=layout.leaf_f32_count)
     var descs_ptr = descs.unsafe_ptr()
     var nodes_ptr = nodes.unsafe_ptr()
     var leaves_ptr = leaves.unsafe_ptr()

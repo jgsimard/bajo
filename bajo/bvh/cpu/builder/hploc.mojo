@@ -803,8 +803,7 @@ def _finish_hploc_topology[
     var stats = HplocStats(0, 0, 0, 0, 0, 0)
     nodes.resize(unsafe_uninit_length=leaf_count * 2 - 1)
     var next_node: List[UInt32] = [UInt32(leaf_count)]
-    var cluster_indices = List[UInt32](capacity=leaf_count)
-    cluster_indices.resize(unsafe_uninit_length=leaf_count)
+    var cluster_indices = List[UInt32](unsafe_uninit_length=leaf_count)
     var root_count: Int
     comptime if build_metadata:
         root_count = _build_hploc_range[frame, True, False](
@@ -841,8 +840,7 @@ def _finish_hploc_topology[
                     PARALLEL_HPLOC_FRONTIER_DEPTH,
                     frontier,
                 )
-            var frontier_counts = List[Int](capacity=len(frontier))
-            frontier_counts.resize(unsafe_uninit_length=len(frontier))
+            var frontier_counts = List[Int](unsafe_uninit_length=len(frontier))
 
             def worker(
                 task_idx: Int,
@@ -1175,9 +1173,8 @@ def _build_hploc[
         var topology_nodes = List[HplocNode[frame]](
             capacity=microleaf_count * 2 - 1
         )
-        var guide_pairs = List[MortonItem](capacity=microleaf_count)
         topology_nodes.resize(unsafe_uninit_length=microleaf_count)
-        guide_pairs.resize(unsafe_uninit_length=microleaf_count)
+        var guide_pairs = List[MortonItem](unsafe_uninit_length=microleaf_count)
 
         def init_microleaf(
             microleaf_idx: Int,

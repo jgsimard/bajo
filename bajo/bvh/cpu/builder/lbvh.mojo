@@ -61,8 +61,7 @@ def _radix_sort_morton_pass[
 
 
 def _radix_sort_morton_pairs(pairs: MutSpan[MortonItem, _]):
-    var scratch = List[MortonItem](capacity=len(pairs))
-    scratch.resize(unsafe_uninit_length=len(pairs))
+    var scratch = List[MortonItem](unsafe_uninit_length=len(pairs))
     _radix_sort_morton_pass[0](pairs, scratch)
     _radix_sort_morton_pass[8](scratch, pairs)
     _radix_sort_morton_pass[16](pairs, scratch)
@@ -122,8 +121,7 @@ def _radix_sort_morton_pass_parallel[
 def _radix_sort_morton_pairs_parallel(
     pairs: MutSpan[MortonItem, _], worker_count: Int
 ):
-    var scratch = List[MortonItem](capacity=len(pairs))
-    scratch.resize(unsafe_uninit_length=len(pairs))
+    var scratch = List[MortonItem](unsafe_uninit_length=len(pairs))
     var counts = [UInt32(0) for _ in range(worker_count * 256)]
     var offsets = [Int(0) for _ in range(worker_count * 256)]
     _radix_sort_morton_pass_parallel[0](
@@ -345,10 +343,10 @@ def _sorted_morton_pairs[
         and num_logical_cores() >= PARALLEL_RADIX_LBVH_MIN_LOGICAL_CORES
     )
     var storage_count = item_count * (2 if use_inline_scratch else 1)
-    var pairs = List[MortonItem](capacity=storage_count)
+    var pairs: List[MortonItem]
     var use_parallel_build = builder.item_count >= PARALLEL_LBVH_MIN_ITEMS
     if use_parallel_build:
-        pairs.resize(unsafe_uninit_length=storage_count)
+        pairs = List[MortonItem](unsafe_uninit_length=storage_count)
         var worker_count = _worker_count(item_count)
 
         def morton_worker(task_idx: Int) {imm, mut pairs}:
@@ -362,6 +360,7 @@ def _sorted_morton_pairs[
 
         parallelize(morton_worker, worker_count, worker_count)
     else:
+        pairs = List[MortonItem](capacity=storage_count)
         for i, item in enumerate(builder.items):
             var centroid = item.centroid
             var c = (centroid - centroid_bounds._min) * inv

@@ -38,8 +38,7 @@ def _linearize_srgb_u8[
 ](encoded: List[UInt8]) -> List[Float32]:
     """Convert exact u8 sRGB values with threaded native-width SIMD gathers."""
     var table = _srgb_u8_table()
-    var pixels = List[Float32]()
-    pixels.resize(unsafe_uninit_length=len(encoded))
+    var pixels = List[Float32](unsafe_uninit_length=len(encoded))
     var vector_end = len(encoded) - len(encoded) % _SRGB_SIMD_WIDTH
     var vector_count = vector_end // _SRGB_SIMD_WIDTH
     comptime assert channels_per_task >= _SRGB_SIMD_WIDTH
@@ -88,9 +87,8 @@ def _linearize_png_rows(
     raw: List[UInt8], width: Int, height: Int
 ) -> List[Float32]:
     var table = _srgb_u8_table()
-    var pixels = List[Float32]()
     var row_bytes = width * 3
-    pixels.resize(unsafe_uninit_length=row_bytes * height)
+    var pixels = List[Float32](unsafe_uninit_length=row_bytes * height)
     var tasks = max(1, ceildiv(row_bytes * height, _SRGB_CHANNELS_PER_TASK))
 
     def convert(task: Int) {imm, mut pixels}:
@@ -193,13 +191,11 @@ def _try_parse_png_simd(
     if not ended:
         raise Error("PNG is missing its end chunk")
 
-    var raw = List[UInt8]()
     var decoded_size = stride * height
-    raw.resize(unsafe_uninit_length=decoded_size + 1)
+    var raw = List[UInt8](unsafe_uninit_length=decoded_size + 1)
     raw[decoded_size] = 0  # Padding for the final overlapping SIMD pixel load.
     if len(ranges) > 1:
-        var compressed = List[UInt8]()
-        compressed.resize(unsafe_uninit_length=compressed_size)
+        var compressed = List[UInt8](unsafe_uninit_length=compressed_size)
         var write = 0
         for chunk in ranges:
             var count = chunk[1] - chunk[0]
@@ -243,8 +239,7 @@ def _parse_png_libpng[
         raise Error("PNG dimensions must be positive")
 
     words[unsafe_offset=5] = UInt32(2)  # PNG_FORMAT_RGB
-    var encoded = List[UInt8]()
-    encoded.resize(unsafe_uninit_length=width * height * 3)
+    var encoded = List[UInt8](unsafe_uninit_length=width * height * 3)
     # With a null background libpng composites alpha onto the existing output
     # buffer. Supply black explicitly instead of reading uninitialized bytes.
     var background = List[UInt8](length=3, fill=0)

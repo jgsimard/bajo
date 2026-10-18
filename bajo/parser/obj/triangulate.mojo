@@ -104,8 +104,7 @@ def _triangulate_range(
 
 def _triangulated_indices_serial(mesh: ObjMesh) -> List[ObjIndex]:
     var counts = _triangle_counts(mesh, 0, len(mesh.face_vertices))
-    var output = List[ObjIndex]()
-    output.resize(unsafe_uninit_length=counts[1])
+    var output = List[ObjIndex](unsafe_uninit_length=counts[1])
     _triangulate_range(mesh, Span(output), 0, len(mesh.face_vertices), 0)
     return output^
 
@@ -117,8 +116,9 @@ def _triangulated_indices_parallel(
         return _triangulated_indices_serial(mesh)
     var chunks = _triangle_chunks(mesh, workers, faces_per_task)
     ref last = chunks[len(chunks) - 1]
-    var output = List[ObjIndex]()
-    output.resize(unsafe_uninit_length=last.output_offset + last.output_count)
+    var output = List[ObjIndex](
+        unsafe_uninit_length=last.output_offset + last.output_count
+    )
     if len(output) == 0:
         return output^
 

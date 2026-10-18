@@ -294,8 +294,7 @@ def _undo_zip_interleave_into(
 
 
 def _undo_zip_interleave(encoded: ImmSpan[UInt8, _]) -> List[UInt8]:
-    var decoded = List[UInt8]()
-    decoded.resize(unsafe_uninit_length=len(encoded))
+    var decoded = List[UInt8](unsafe_uninit_length=len(encoded))
     _undo_zip_interleave_into(encoded, decoded)
     return decoded^
 
@@ -613,9 +612,10 @@ def _parse_exr_bulk(
     if rgb != 7:
         raise Error("OpenEXR environment requires R, G, and B channels")
     var chunks = _plan_chunks(bytes, header)
-    var pixels = List[Float32]()
     # Every row and RGB channel is covered before uninitialized output is used.
-    pixels.resize(unsafe_uninit_length=3 * header.width() * header.height())
+    var pixels = List[Float32](
+        unsafe_uninit_length=3 * header.width() * header.height()
+    )
     var tasks = min(max(1, workers) * 2, len(chunks))
     var failed = List[UInt8](length=tasks, fill=0)
 
@@ -645,10 +645,8 @@ def _parse_exr_bulk(
                 var scratch_size = 0
                 for i in range(begin, end):
                     scratch_size = max(scratch_size, chunks[i].decoded_size)
-                var predicted = List[UInt8]()
-                var decoded = List[UInt8]()
-                predicted.resize(unsafe_uninit_length=scratch_size)
-                decoded.resize(unsafe_uninit_length=scratch_size)
+                var predicted = List[UInt8](unsafe_uninit_length=scratch_size)
+                var decoded = List[UInt8](unsafe_uninit_length=scratch_size)
                 for i in range(begin, end):
                     ref chunk = chunks[i]
                     var data = Span(decoded)[: chunk.decoded_size]

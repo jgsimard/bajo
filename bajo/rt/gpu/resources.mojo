@@ -308,8 +308,7 @@ def download_gpu_pixels(
     with target.arena.counters.map_to_host() as counters:
         if counters[WAVE_COUNTER.STATUS] != WAVE_STATUS.OK:
             raise "GPU RT wavefront queue overflow"
-    var pixels = List[Color](capacity=target.pixel_count)
-    pixels.resize(unsafe_uninit_length=target.pixel_count)
+    var pixels = List[Color](unsafe_uninit_length=target.pixel_count)
     with target.pixels.map_to_host() as mapped:
         for pixel_idx in range(target.pixel_count):
             pixels[pixel_idx] = Color(

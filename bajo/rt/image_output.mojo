@@ -25,8 +25,7 @@ def _encode_ppm[
     width: SIMDLength = simd_width_of[Float32]()
 ](pixels: ImmSpan[Color, _]) -> List[UInt8]:
     var count = len(pixels) * 3
-    var bytes = List[UInt8]()
-    bytes.resize(unsafe_uninit_length=count)
+    var bytes = List[UInt8](unsafe_uninit_length=count)
     var source = pixels.unsafe_ptr().unsafe_bitcast[Float32]()
     var dest = bytes.unsafe_ptr()
 

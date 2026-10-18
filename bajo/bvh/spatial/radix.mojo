@@ -28,7 +28,6 @@ def sort_morton30(pairs: MutSpan[MortonItem, _]):
     Counts and prefix sums bound each scatter offset by the destination length.
     Other CPU builders retain their general 32-bit sorting implementation.
     """
-    var scratch = List[MortonItem](capacity=len(pairs))
-    scratch.resize(unsafe_uninit_length=len(pairs))
+    var scratch = List[MortonItem](unsafe_uninit_length=len(pairs))
     _pass15[0](pairs, scratch)
     _pass15[15](scratch, pairs)

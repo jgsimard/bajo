@@ -158,14 +158,12 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
         var node_count = 2 * item_count - 1 if item_count > 0 else 0
         if len(groups) > 0:
             node_count += 2 * item_count - len(self.group_ids)
-        self.bounds.reserve(6 * node_count)
-        self.nodes.reserve(2 * node_count)
+        self.bounds = List[Float32](unsafe_uninit_length=6 * node_count)
+        self.nodes = List[UInt32](unsafe_uninit_length=2 * node_count)
         self.group_roots.reserve(len(self.group_ids))
         var items = List[BoundsItem[Self.frame]](capacity=item_count)
         for i in range(item_count):
             items.append(BoundsItem(self.item_bounds[i], UInt32(i)))
-        self.bounds.resize(unsafe_uninit_length=6 * node_count)
-        self.nodes.resize(unsafe_uninit_length=2 * node_count)
         if precise:
             self._build_all_trees[True](items, group_index)
         else:
@@ -263,8 +261,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
         # order needs no further label lookups or per-group input scans.
         var group_count = len(self.group_ids)
         var offsets = List[Int](length=group_count + 1, fill=0)
-        var slots = List[UInt32](capacity=len(items))
-        slots.resize(unsafe_uninit_length=len(items))
+        var slots = List[UInt32](unsafe_uninit_length=len(items))
         for item in range(len(items)):
             var slot = group_index.get(self.groups[item], -1)
             debug_assert["safe", _use_compiler_assume=True](
@@ -278,8 +275,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
         var cursors = offsets.copy()
         var next_node = output
         if len(shared_pairs) > 0:
-            var pairs = List[MortonItem](capacity=len(items))
-            pairs.resize(unsafe_uninit_length=len(items))
+            var pairs = List[MortonItem](unsafe_uninit_length=len(items))
             for pair in shared_pairs:
                 var slot = Int(slots.unsafe_get(Int(pair.item_idx)))
                 pairs.unsafe_get(cursors[slot]) = pair
@@ -294,8 +290,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
                     next_node,
                 )
         else:
-            var order = List[UInt32](capacity=len(items))
-            order.resize(unsafe_uninit_length=len(items))
+            var order = List[UInt32](unsafe_uninit_length=len(items))
             for item in range(len(items)):
                 var slot = Int(slots.unsafe_get(item))
                 order.unsafe_get(cursors[slot]) = UInt32(item)
@@ -325,8 +320,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
         var labels = self.groups.unsafe_ptr()
         for i in range(len(self.groups)):
             count += Int(labels.unsafe_load(i) == group)
-        var pairs = List[MortonItem](capacity=count)
-        pairs.resize(unsafe_uninit_length=count)
+        var pairs = List[MortonItem](unsafe_uninit_length=count)
         var cursor = 0
         for i in range(len(shared_pairs)):
             var pair = shared_pairs.unsafe_get(i)
@@ -361,7 +355,6 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
             var box = self._range_bounds[BUILD_WIDTH, precise](
                 items, order, 0, len(order)
             )
-            var pairs = List[MortonItem](capacity=len(order))
             var shared_extent = Float64(0.0)
             comptime for axis in range(3):
                 shared_extent = max(
@@ -371,7 +364,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
             # Keep scalar Float64 normalization and stable codes, batching
             # independent items into SIMD lanes. The tail never reads padding.
             comptime width = 8
-            pairs.resize(unsafe_uninit_length=len(order))
+            var pairs = List[MortonItem](unsafe_uninit_length=len(order))
             var batch_end = len(order) // width * width
             for first in range(0, batch_end, width):
                 var normalized = Array[SIMD[.float32, width], 3](

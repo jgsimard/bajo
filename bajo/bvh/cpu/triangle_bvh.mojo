@@ -593,7 +593,7 @@ struct _TriangleBuild[
         self.packed_leaf_counts = List[UInt32]()
         var tri_count = self.tri_count
 
-        var items = List[BoundsItem[Self.frame]](capacity=tri_count)
+        var items: List[BoundsItem[Self.frame]]
         var root_bounds = AABB[Self.frame].invalid()
         var centroid_bounds = AABB[Self.frame].invalid()
 
@@ -611,18 +611,18 @@ struct _TriangleBuild[
                 items.append(item)
 
         if tri_count >= PARALLEL_TRIANGLE_BUILD_MIN_ITEMS:
-            items.resize(unsafe_uninit_length=tri_count)
+            items = List[BoundsItem[Self.frame]](unsafe_uninit_length=tri_count)
             var worker_count = _worker_count(tri_count)
             var root_partials = List[AABB[Self.frame]]()
             var centroid_partials = List[AABB[Self.frame]]()
             comptime if CpuBvhBuildTraits[method].needs_root_bounds:
-                root_partials = List[AABB[Self.frame]](capacity=worker_count)
-                root_partials.resize(unsafe_uninit_length=worker_count)
+                root_partials = List[AABB[Self.frame]](
+                    unsafe_uninit_length=worker_count
+                )
             comptime if CpuBvhBuildTraits[method].needs_centroid_bounds:
                 centroid_partials = List[AABB[Self.frame]](
-                    capacity=worker_count
+                    unsafe_uninit_length=worker_count
                 )
-                centroid_partials.resize(unsafe_uninit_length=worker_count)
 
             def item_chunk_worker(
                 task_idx: Int,
@@ -650,6 +650,7 @@ struct _TriangleBuild[
                 comptime if CpuBvhBuildTraits[method].needs_centroid_bounds:
                     centroid_bounds.grow(centroid_partials[worker_idx])
         else:
+            items = List[BoundsItem[Self.frame]](capacity=tri_count)
             append_items(items, root_bounds, centroid_bounds)
 
         comptime resolved_microleaf_size = _TriangleBuildTuning[
@@ -674,10 +675,8 @@ struct _TriangleBuild[
         var packed_size = (
             task_count * Self.leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
         )
-        var packed_leaf_blocks = List[Float32](capacity=packed_size)
-        packed_leaf_blocks.resize(unsafe_uninit_length=packed_size)
-        var packed_leaf_counts = List[UInt32](capacity=task_count)
-        packed_leaf_counts.resize(unsafe_uninit_length=task_count)
+        var packed_leaf_blocks = List[Float32](unsafe_uninit_length=packed_size)
+        var packed_leaf_counts = List[UInt32](unsafe_uninit_length=task_count)
         var packed_leaves_ptr = packed_leaf_blocks.unsafe_ptr()
         var packed_counts_ptr = packed_leaf_counts.unsafe_ptr()
 
@@ -757,9 +756,8 @@ struct _TriangleBuild[
                     # Avoid rescanning every node before the parallel collapse.
                     var binary_leaf_count = (Int(builder.nodes_used) + 1) // 2
                     leaf_ranges = List[WideLeafRange](
-                        capacity=binary_leaf_count
+                        unsafe_uninit_length=binary_leaf_count
                     )
-                    leaf_ranges.resize(unsafe_uninit_length=binary_leaf_count)
                     var next_leaf = [UInt32(0)]
 
                     @always_inline

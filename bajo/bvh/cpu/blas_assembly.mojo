@@ -39,10 +39,8 @@ def _assemble_exact_blases[
     )
 
     var descs = List[UInt32](length=len(built) * BlasDescLayout.STRIDE, fill=0)
-    var nodes = List[Float32](capacity=node_count)
-    var leaves = List[Float32](capacity=leaf_count)
-    nodes.resize(unsafe_uninit_length=node_count)
-    leaves.resize(unsafe_uninit_length=leaf_count)
+    var nodes = List[Float32](unsafe_uninit_length=node_count)
+    var leaves = List[Float32](unsafe_uninit_length=leaf_count)
     var node_base = 0
     var leaf_base = 0
     for blas_idx in range(len(built)):
@@ -115,8 +113,6 @@ def _finish_blas_workspace[
 ) -> CpuBlasSet[kind, node_width, leaf_width]:
     """Compact completed conservative storage once and transfer ownership."""
     var blas_count = len(descs) / BlasDescLayout.STRIDE
-    var compact_nodes = List[Float32]()
-    var compact_leaves = List[Float32]()
     var exact_node_count = 0
     var exact_leaf_count = 0
     for blas_idx in range(blas_count):
@@ -124,8 +120,8 @@ def _finish_blas_workspace[
         exact_node_count += Int(desc.node_count) * node_f32_stride
         exact_leaf_count += Int(desc.leaf_block_count) * leaf_f32_stride
 
-    compact_nodes.resize(unsafe_uninit_length=exact_node_count)
-    compact_leaves.resize(unsafe_uninit_length=exact_leaf_count)
+    var compact_nodes = List[Float32](unsafe_uninit_length=exact_node_count)
+    var compact_leaves = List[Float32](unsafe_uninit_length=exact_leaf_count)
     var node_out = 0
     var leaf_out = 0
     for blas_idx in range(blas_count):

@@ -113,12 +113,9 @@ struct WindingLayout[frame: Frame, width: SIMDLength](Copyable):
         # four slots per face stays at most 75% full, including open meshes.
         var capacity = next_power_of_two(count * 4)
         var mask = UInt64(capacity - 1)
-        var keys = List[UInt64](capacity=capacity)
-        keys.resize(unsafe_uninit_length=capacity)
-        var edge_faces = List[UInt32](capacity=capacity)
-        edge_faces.resize(unsafe_uninit_length=capacity)
-        var balances = List[Int](capacity=capacity)
-        balances.resize(unsafe_uninit_length=capacity)
+        var keys = List[UInt64](unsafe_uninit_length=capacity)
+        var edge_faces = List[UInt32](unsafe_uninit_length=capacity)
+        var balances = List[Int](unsafe_uninit_length=capacity)
         var counts = List[UInt32](length=capacity, fill=0)
         var occupied = List[Int](capacity=count * 3 // 2)
         for face in range(count):

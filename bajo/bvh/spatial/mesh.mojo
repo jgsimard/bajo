@@ -229,8 +229,7 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
     ) -> List[AABB[Self.frame]]:
         # Construction already validated all immutable input vertex indexes.
         var count = len(indices) // 3
-        var boxes = List[AABB[Self.frame]](capacity=count)
-        boxes.resize(unsafe_uninit_length=count)
+        var boxes = List[AABB[Self.frame]](unsafe_uninit_length=count)
         for face in range(count):
             var box = AABB[Self.frame].invalid()
             comptime for corner in range(3):

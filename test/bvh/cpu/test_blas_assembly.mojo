@@ -15,10 +15,12 @@ from bajo.bvh.cpu import (
     build_cpu_triangle_blas_set,
     build_cpu_sphere_blas_set,
     trace_blas_set,
+    trace_blas_set_packet,
+    trace_blas_set_packet_any_hit,
 )
 from bajo.bvh.gpu.triangle_bvh import _flatten_triangle_sets
 from bajo.bvh.types import BlasDesc, Sphere, SphereLeafBlock, Hit
-from bajo.core import Point3f32, Rayf32, Vec3f32
+from bajo.core import Point3, Point3f32, Ray, Rayf32, Vec3, Vec3f32
 
 
 def _assert_segments[
@@ -282,6 +284,65 @@ def test_packed_views_preserve_identifier_bits_and_record_boundaries() raises:
     assert_equal(restored.inst, hit.inst)
     assert_equal(hits[7], Float32(-17.0))
     assert_equal(hits[16], Float32(-17.0))
+
+
+def _segment_packet_rays() -> Ray[.float32, .LOCAL, 4]:
+    return Ray[.float32, .LOCAL, 4](
+        Point3[.float32, .LOCAL, 4](
+            SIMD[.float32, 4](0.0, 10000.0, 10002.0, 0.0), 0.0, 0.0
+        ),
+        Vec3[.float32, .LOCAL, 4](0.0, 0.0, 1.0),
+    )
+
+
+def _assert_packet_segment_hits(
+    idx: Int, hits: Hit[.LOCAL, 4], occluded: SIMD[.bool, 4], distance: Float32
+) raises:
+    comptime for lane in range(4):
+        var expected = (idx == 0 and lane == 0) or (
+            idx == 2 and (lane == 1 or lane == 2)
+        )
+        assert_equal(Bool(hits.is_hit()[lane]), expected)
+        assert_equal(Bool(occluded[lane]), expected)
+        if expected:
+            assert_equal(hits.prim[lane], UInt32(1 if lane == 2 else 0))
+            assert_equal(hits.t[lane], distance)
+
+
+def test_triangle_packets_preserve_segment_offsets_and_empty_segments() raises:
+    var meshes: List[List[Point3f32[.LOCAL]]] = [
+        _mesh(1, 0.0),
+        [],
+        _mesh(8, 10000.0),
+        [],
+    ]
+    var blases = build_cpu_triangle_blas_set[4, 2](meshes)
+    var rays = _segment_packet_rays()
+    var valid = SIMD[.bool, 4](True, True, True, False)
+    for idx in range(4):
+        var hits = trace_blas_set_packet(blases, UInt32(idx), rays, valid)
+        var occluded = trace_blas_set_packet_any_hit(
+            blases, UInt32(idx), rays, valid
+        )
+        _assert_packet_segment_hits(idx, hits, occluded, 2.0)
+
+
+def test_sphere_packets_preserve_segment_offsets_and_empty_segments() raises:
+    var sets: List[List[Sphere[.LOCAL]]] = [
+        _spheres(1, 0.0),
+        [],
+        _spheres(8, 10000.0),
+        [],
+    ]
+    var blases = build_cpu_sphere_blas_set[4](sets)
+    var rays = _segment_packet_rays()
+    var valid = SIMD[.bool, 4](True, True, True, False)
+    for idx in range(4):
+        var hits = trace_blas_set_packet(blases, UInt32(idx), rays, valid)
+        var occluded = trace_blas_set_packet_any_hit(
+            blases, UInt32(idx), rays, valid
+        )
+        _assert_packet_segment_hits(idx, hits, occluded, 1.5)
 
 
 def main() raises:

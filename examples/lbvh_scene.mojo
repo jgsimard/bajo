@@ -2,7 +2,6 @@
 
 from std.math import cos, sin
 
-from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.bvh.host_utils import compute_bounds
 from bajo.core import (
     AABB,
@@ -21,7 +20,7 @@ from bajo.rt import (
     Camera,
     Color,
     SceneBuilder,
-    CpuScene,
+    SceneData,
 )
 
 
@@ -57,11 +56,7 @@ def make_lbvh_camera() -> Camera:
     )
 
 
-def make_lbvh_world[
-    world_bvh_width: SIMDLength = 16,
-    instance_bvh_width: SIMDLength = 16,
-    build_method: CpuBvhBuildMethod = .SAH,
-]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
+def make_lbvh_scene() raises -> SceneData:
     var builder = SceneBuilder()
     var bunny_surface = builder.add_lambertian(Color(0.72, 0.34, 0.12))
     var buddha_surface = builder.add_lambertian(Color(0.18, 0.42, 0.78))
@@ -146,7 +141,4 @@ def make_lbvh_world[
                     mesh_surfaces[mesh_idx],
                 )
 
-    var scene = builder^.finish()
-    return CpuScene[world_bvh_width, instance_bvh_width].__init__[build_method](
-        scene^
-    )
+    return builder^.finish()

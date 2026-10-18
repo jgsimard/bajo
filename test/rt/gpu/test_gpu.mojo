@@ -45,11 +45,11 @@ from bajo.rt.scene_data import (
     SceneBuilder,
     SceneData,
 )
-from examples.cornell_box import make_cornell_world
+from examples.cornell_box import make_cornell_scene
 from examples.stress_scenes import (
-    make_indirect_hall_world,
-    make_many_lights_world,
-    make_specular_transport_world,
+    make_indirect_hall_scene,
+    make_many_lights_scene,
+    make_specular_transport_scene,
 )
 
 
@@ -736,7 +736,7 @@ def test_gpu_ao_matches_unoccluded_cpu_reference() raises:
 
 def _test_gpu_direct_light_matches_cpu[integrator: Integrator]() raises:
     var settings = RenderSettings(3, 3, 2, UInt64(601))
-    var world = make_cornell_world()
+    var world = CpuScene[16, 16](make_cornell_scene())
     var camera = _cornell_camera()
     var cpu = render_wavefront[integrator, 1, 64, False](
         settings, camera, world
@@ -866,7 +866,7 @@ def _assert_nonzero_result(result: RenderResult) raises:
 def test_gpu_viewer_renders_all_procedural_stress_scenes() raises:
     var settings = RenderSettings(8, 5, 1, UInt64(2026), 6, .OWEN_SOBOL)
 
-    var many_lights = make_many_lights_world()
+    var many_lights = make_many_lights_scene()
     var many_camera = Camera.from_vfov(
         Point3W(0.0, 4.3, 11.0),
         Point3W(0.0, 1.8, -2.0),
@@ -874,9 +874,9 @@ def test_gpu_viewer_renders_all_procedural_stress_scenes() raises:
         52.0,
         18.0,
     )
-    var many = render_gpu[.MIS](settings, many_camera, many_lights.scene_data())
+    var many = render_gpu[.MIS](settings, many_camera, many_lights)
 
-    var indirect_hall = make_indirect_hall_world()
+    var indirect_hall = make_indirect_hall_scene()
     var indirect_camera = Camera.from_vfov(
         Point3W(0.0, 2.2, 8.0),
         Point3W(0.0, 1.8, -5.0),
@@ -884,11 +884,9 @@ def test_gpu_viewer_renders_all_procedural_stress_scenes() raises:
         55.0,
         22.0,
     )
-    var indirect = render_gpu[.MIS](
-        settings, indirect_camera, indirect_hall.scene_data()
-    )
+    var indirect = render_gpu[.MIS](settings, indirect_camera, indirect_hall)
 
-    var specular = make_specular_transport_world()
+    var specular = make_specular_transport_scene()
     var specular_camera = Camera.from_vfov(
         Point3W(0.0, 2.7, 9.5),
         Point3W(0.0, 1.4, -4.5),
@@ -896,9 +894,7 @@ def test_gpu_viewer_renders_all_procedural_stress_scenes() raises:
         48.0,
         20.0,
     )
-    var difficult = render_gpu[.MIS](
-        settings, specular_camera, specular.scene_data()
-    )
+    var difficult = render_gpu[.MIS](settings, specular_camera, specular)
 
     _assert_nonzero_result(many)
     _assert_nonzero_result(indirect)

@@ -9,7 +9,7 @@ from std.sys.defines import get_defined_int
 from std.time import perf_counter_ns
 from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.core.utils import ns_to_ms
-from bajo.parser.pbrt import read_pbrt, read_pbrt_camera
+from bajo.parser.pbrt import read_pbrt_camera
 from bajo.rt.cpu.scene import CpuScene
 from bajo.rt.render_types import RenderSettings
 from bajo.rt.scene_data import SceneData
@@ -23,7 +23,6 @@ from bajo.viewer.common import (
 )
 from examples.viewer import (
     _viewer_bvh_stats,
-    _make_viewer_world,
     load_viewer_scene_data,
 )
 
@@ -105,15 +104,15 @@ def create_cpu_state(config: PythonObject) raises -> PythonObject:
     var build_t0: Int
     if scene == 8 or scene == 9:
         var parse_t0 = perf_counter_ns()
-        var parsed = read_pbrt(scene_path)
+        var data = load_viewer_scene_data(scene, scene_path)
         parse_ms = ns_to_ms(Int(perf_counter_ns() - parse_t0))
         build_t0 = perf_counter_ns()
-        world = CpuScene[16, 16].__init__[CPU_VIEWER_BUILD_METHOD](
-            parsed^.take_data()
-        )
+        world = CpuScene[16, 16].__init__[CPU_VIEWER_BUILD_METHOD](data^)
     else:
         build_t0 = perf_counter_ns()
-        world = _make_viewer_world[16, 16, CPU_VIEWER_BUILD_METHOD](scene)
+        world = CpuScene[16, 16].__init__[CPU_VIEWER_BUILD_METHOD](
+            load_viewer_scene_data(scene, scene_path)
+        )
     var bvh_stats = _viewer_bvh_stats[
         0,
         16,

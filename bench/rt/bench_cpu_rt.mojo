@@ -19,8 +19,8 @@ from bajo.core import Point3W, Vec3W
 from bajo.core.utils import ns_to_ms
 from bajo.parser.number import parse_int_f32
 from bajo.rt import Camera, CpuScene, RenderSettings, render_wavefront
-from examples.cornell_box import make_cornell_world
-from examples.rtiaw import make_weekend_world
+from examples.cornell_box import make_cornell_scene
+from examples.rtiaw import make_weekend_scene
 
 
 def benchmark[
@@ -73,7 +73,7 @@ def main() raises:
     var world: CpuScene[16, 16]
     match name:
         case "cornell":
-            world = make_cornell_world()
+            world = CpuScene[16, 16](make_cornell_scene())
             camera = Camera.from_vfov(
                 Point3W(0.0, 1.0, 3.2),
                 Point3W(0.0, 1.0, -1.0),
@@ -82,7 +82,7 @@ def main() raises:
                 4.2,
             )
         case "weekend":
-            world = make_weekend_world()
+            world = CpuScene[16, 16](make_weekend_scene())
         case "mixed":
             world = make_mixed_triangle_world()
             camera = mixed_triangle_camera(world)

@@ -1,4 +1,3 @@
-from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.core import Vec3f32, length, Vec3W, Point3W, Point3
 from bajo.core.random import Rng
 from bajo.core.utils import ns_to_ms
@@ -8,6 +7,7 @@ from bajo.rt import (
     Integrator,
     RenderSettings,
     SceneBuilder,
+    SceneData,
     CpuScene,
     render_wavefront,
     write_ppm_from_colors,
@@ -23,11 +23,7 @@ comptime RNG_SEED = UInt64(1234)
 comptime INTEGRATOR = Integrator.PATH
 
 
-def make_weekend_world[
-    world_bvh_width: SIMDLength = 16,
-    instance_bvh_width: SIMDLength = 16,
-    build_method: CpuBvhBuildMethod = .SAH,
-]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
+def make_weekend_scene() raises -> SceneData:
     var rng = Rng(seed=42, id=7)
     var builder = SceneBuilder()
 
@@ -82,10 +78,7 @@ def make_weekend_world[
         metal,
     )
 
-    var scene = builder^.finish()
-    return CpuScene[world_bvh_width, instance_bvh_width].__init__[build_method](
-        scene^
-    )
+    return builder^.finish()
 
 
 def main() raises:
@@ -102,7 +95,7 @@ def main() raises:
         t"samples: {SAMPLES_PER_PIXEL} | depth: {MAX_DEPTH}"
     )
 
-    var world = make_weekend_world()
+    var world = CpuScene[16, 16](make_weekend_scene())
     var camera = Camera.from_vfov(
         Point3W(13.0, 2.0, 3.0),
         Point3W(0.0, 0.0, 0.0),

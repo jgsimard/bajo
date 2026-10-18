@@ -226,15 +226,9 @@ def trace_blas_set[
     var desc = BlasDesc.load(blases.descs.unsafe_ptr(), blas_idx)
     if desc.prim_count == 0:
         return Hit[frame].miss(ray.t_max)
-    var nodes_ptr = (
-        blases.nodes.unsafe_ptr()
-        .unsafe_offset(Int(desc.node_f32_base))
-        .unsafe_bitcast[WideBvhNode[frame, node_width]]()
-    )
-    var nodes = Span(unsafe_ptr=nodes_ptr, length=Int(desc.node_count))
-    var leaves = blases.leaves.unsafe_ptr().unsafe_offset(
-        Int(desc.leaf_f32_base)
-    )
+    var view = blases._view[frame](desc)
+    var nodes = view.nodes
+    var leaves = view.leaves
     comptime if mode == .CLOSEST_HIT:
         return _trace_packed_triangle_from_ref[frame, node_width, leaf_width](
             nodes,
@@ -280,15 +274,9 @@ def _trace_blas_desc_precomputed_rcp[
 ) -> Hit[frame]:
     """Trace a resolved nonempty BLAS without recomputing reciprocals."""
 
-    var nodes_ptr = (
-        blases.nodes.unsafe_ptr()
-        .unsafe_offset(Int(desc.node_f32_base))
-        .unsafe_bitcast[WideBvhNode[frame, node_width]]()
-    )
-    var nodes = Span(unsafe_ptr=nodes_ptr, length=Int(desc.node_count))
-    var leaves = blases.leaves.unsafe_ptr().unsafe_offset(
-        Int(desc.leaf_f32_base)
-    )
+    var view = blases._view[frame](desc)
+    var nodes = view.nodes
+    var leaves = view.leaves
 
     @always_inline
     def leaf_fn(
@@ -373,15 +361,9 @@ def _trace_blas_set_packet_policy[
     var desc = BlasDesc.load(blases.descs.unsafe_ptr(), blas_idx)
     if desc.prim_count == 0:
         return Hit[frame, length].miss(rays.t_max)
-    var nodes_ptr = (
-        blases.nodes.unsafe_ptr()
-        .unsafe_offset(Int(desc.node_f32_base))
-        .unsafe_bitcast[WideBvhNode[frame, node_width]]()
-    )
-    var nodes = Span(unsafe_ptr=nodes_ptr, length=Int(desc.node_count))
-    var leaves = blases.leaves.unsafe_ptr().unsafe_offset(
-        Int(desc.leaf_f32_base)
-    )
+    var view = blases._view[frame](desc)
+    var nodes = view.nodes
+    var leaves = view.leaves
 
     @always_inline
     def leaf_fn(
@@ -630,15 +612,9 @@ def trace_blas_set[
     var desc = BlasDesc.load(blases.descs.unsafe_ptr(), blas_idx)
     if desc.prim_count == 0:
         return Hit[frame].miss(ray.t_max)
-    var nodes_ptr = (
-        blases.nodes.unsafe_ptr()
-        .unsafe_offset(Int(desc.node_f32_base))
-        .unsafe_bitcast[WideBvhNode[frame, node_width]]()
-    )
-    var nodes = Span(unsafe_ptr=nodes_ptr, length=Int(desc.node_count))
-    var leaves = blases.leaves.unsafe_ptr().unsafe_offset(
-        Int(desc.leaf_f32_base)
-    )
+    var view = blases._view[frame](desc)
+    var nodes = view.nodes
+    var leaves = view.leaves
 
     @always_inline
     def leaf_fn(
@@ -683,15 +659,9 @@ def _trace_sphere_blas_set_packet_policy[
     var desc = BlasDesc.load(blases.descs.unsafe_ptr(), blas_idx)
     if desc.prim_count == 0:
         return Hit[frame, length].miss(rays.t_max)
-    var nodes_ptr = (
-        blases.nodes.unsafe_ptr()
-        .unsafe_offset(Int(desc.node_f32_base))
-        .unsafe_bitcast[WideBvhNode[frame, node_width]]()
-    )
-    var nodes = Span(unsafe_ptr=nodes_ptr, length=Int(desc.node_count))
-    var leaves = blases.leaves.unsafe_ptr().unsafe_offset(
-        Int(desc.leaf_f32_base)
-    )
+    var view = blases._view[frame](desc)
+    var nodes = view.nodes
+    var leaves = view.leaves
     var hit = Hit[frame, length].miss(rays.t_max)
     var ray_a = dot(rays.d, rays.d)
     var ray_inv_a = 1.0 / ray_a

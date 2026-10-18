@@ -2,7 +2,6 @@
 
 from std.math import round
 
-from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.core import Point3W, Vec3W
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
@@ -10,6 +9,7 @@ from bajo.rt import (
     Color,
     RenderSettings,
     SceneBuilder,
+    SceneData,
     CpuScene,
     render_wavefront,
     write_ppm_from_colors,
@@ -26,11 +26,7 @@ comptime NEE_OUTPUT = "cornell_nee.ppm"
 comptime MIS_OUTPUT = "cornell_mis.ppm"
 
 
-def make_cornell_world[
-    world_bvh_width: SIMDLength = 16,
-    instance_bvh_width: SIMDLength = 16,
-    build_method: CpuBvhBuildMethod = .SAH,
-]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
+def make_cornell_scene() raises -> SceneData:
     var builder = SceneBuilder()
     var white = builder.add_lambertian(Color(0.73, 0.73, 0.73))
     var red = builder.add_lambertian(Color(0.65, 0.05, 0.05))
@@ -94,10 +90,7 @@ def make_cornell_world[
         white,
     )
 
-    var scene = builder^.finish()
-    return CpuScene[world_bvh_width, instance_bvh_width].__init__[build_method](
-        scene^
-    )
+    return builder^.finish()
 
 
 def main() raises:
@@ -116,7 +109,7 @@ def main() raises:
         28.0,
         4.2,
     )
-    var world = make_cornell_world()
+    var world = CpuScene[16, 16](make_cornell_scene())
 
     var path_result = render_wavefront[.PATH](settings, camera, world)
     write_ppm_from_colors(

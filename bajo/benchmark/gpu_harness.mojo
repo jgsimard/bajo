@@ -13,7 +13,7 @@ from bajo.rt import (
     Integrator,
     RenderSettings,
     SceneBuilder,
-    CpuScene,
+    SceneData,
 )
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
@@ -54,7 +54,7 @@ def gpu_rt_camera() -> Camera:
     )
 
 
-def make_many_light_world() raises -> CpuScene[16, 16]:
+def make_many_light_scene() raises -> SceneData:
     """Diffuse receiver plus 64 emissive triangles for selection scaling."""
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.7, 0.7, 0.7))
@@ -80,8 +80,7 @@ def make_many_light_world() raises -> CpuScene[16, 16]:
                 light,
             )
 
-    var scene = builder^.finish()
-    return CpuScene[16, 16](scene^)
+    return builder^.finish()
 
 
 def gpu_rt_checksum(pixels: List[Color]) -> Float64:

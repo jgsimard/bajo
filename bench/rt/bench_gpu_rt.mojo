@@ -8,7 +8,7 @@ from max.gpu.host import DeviceContext
 
 from bajo.core import Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
-from bajo.rt import Camera, CpuScene, Integrator, RenderSettings
+from bajo.rt import Camera, SceneData, Integrator, RenderSettings
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind, GPU_RT_BVH_WIDE4
 from bajo.rt.gpu.scene import prepare_gpu_scene
 from bajo.benchmark.gpu_harness import (
@@ -20,18 +20,18 @@ from bajo.benchmark.gpu_harness import (
     SAMPLES_PER_PIXEL,
     bench_gpu_integrator,
     gpu_rt_camera,
-    make_many_light_world,
+    make_many_light_scene,
     print_gpu_rt_result,
 )
-from examples.cornell_box import make_cornell_world
-from examples.mis_showcase import make_mis_showcase_world
+from examples.cornell_box import make_cornell_scene
+from examples.mis_showcase import make_mis_showcase_scene
 
 
 def _benchmark[
     kind: GpuRtSceneKind
 ](
     mut ctx: DeviceContext,
-    world: CpuScene[16, 16],
+    world: SceneData,
     camera: Camera,
     settings: RenderSettings,
 ) raises:
@@ -41,9 +41,7 @@ def _benchmark[
     )
     var sample_count = IMAGE_WIDTH * IMAGE_HEIGHT * SAMPLES_PER_PIXEL
     var scene_t0 = perf_counter_ns()
-    var gpu_world = prepare_gpu_scene[kind, sphere_format](
-        ctx, world.scene_data()
-    )
+    var gpu_world = prepare_gpu_scene[kind, sphere_format](ctx, world)
     ctx.synchronize()
     var scene_ns = Int(perf_counter_ns() - scene_t0)
     var target_t0 = perf_counter_ns()
@@ -66,10 +64,10 @@ def _benchmark[
         print_gpu_rt_result(cases[i][1], result, sample_count)
 
     comptime if kind == .TRIANGLES:
-        var many_light_world = make_many_light_world()
+        var many_light_world = make_many_light_scene()
         var many_scene_t0 = perf_counter_ns()
         var many_gpu_world = prepare_gpu_scene[.TRIANGLES](
-            ctx, many_light_world.scene_data()
+            ctx, many_light_world
         )
         ctx.synchronize()
         var many_scene_ns = Int(perf_counter_ns() - many_scene_t0)
@@ -108,8 +106,8 @@ def main() raises:
                 31.0,
                 8.10,
             )
-            var world = make_mis_showcase_world()
+            var world = make_mis_showcase_scene()
             _benchmark[.SPHERES_TRIANGLES](ctx, world, camera, settings)
         else:
-            var world = make_cornell_world()
+            var world = make_cornell_scene()
             _benchmark[.TRIANGLES](ctx, world, gpu_rt_camera(), settings)

@@ -2,7 +2,6 @@
 
 from std.math import round
 
-from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.core import Point3W, Vec3W
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (
@@ -10,6 +9,7 @@ from bajo.rt import (
     Color,
     RenderSettings,
     SceneBuilder,
+    SceneData,
     CpuScene,
     render_wavefront,
     write_ppm_from_colors,
@@ -27,11 +27,7 @@ comptime MIS_OUTPUT = "mis_showcase_mis.ppm"
 comptime COMPARISON_OUTPUT = "mis_showcase_comparison.ppm"
 
 
-def make_mis_showcase_world[
-    world_bvh_width: SIMDLength = 16,
-    instance_bvh_width: SIMDLength = 16,
-    build_method: CpuBvhBuildMethod = .SAH,
-]() raises -> CpuScene[world_bvh_width, instance_bvh_width]:
+def make_mis_showcase_scene() raises -> SceneData:
     var builder = SceneBuilder()
     var room = builder.add_lambertian(Color(0.48, 0.48, 0.48))
     var rough = builder.add_metal(Color(0.64), 0.50)
@@ -127,10 +123,7 @@ def make_mis_showcase_world[
         polished,
     )
 
-    var scene = builder^.finish()
-    return CpuScene[world_bvh_width, instance_bvh_width].__init__[build_method](
-        scene^
-    )
+    return builder^.finish()
 
 
 def _write_comparison(
@@ -169,7 +162,7 @@ def main() raises:
         31.0,
         8.10,
     )
-    var world = make_mis_showcase_world()
+    var world = CpuScene[16, 16](make_mis_showcase_scene())
 
     var path_result = render_wavefront[.PATH](settings, camera, world)
     write_ppm_from_colors(

@@ -22,15 +22,15 @@ from bajo.rt import (
     render_wavefront_configured,
     write_ppm_from_colors,
 )
-from examples.rtiaw import make_weekend_world
-from examples.cornell_box import make_cornell_world
-from examples.mis_showcase import make_mis_showcase_world
-from examples.lbvh_scene import make_lbvh_world
-from examples.emissive_instances import make_emissive_instance_world
+from examples.rtiaw import make_weekend_scene
+from examples.cornell_box import make_cornell_scene
+from examples.mis_showcase import make_mis_showcase_scene
+from examples.lbvh_scene import make_lbvh_scene
+from examples.emissive_instances import make_emissive_instance_scene
 from examples.stress_scenes import (
-    make_indirect_hall_world,
-    make_many_lights_world,
-    make_specular_transport_world,
+    make_indirect_hall_scene,
+    make_many_lights_scene,
+    make_specular_transport_scene,
 )
 from bajo.parser.pbrt import read_pbrt
 
@@ -147,55 +147,30 @@ def _viewer_bvh_stats[
     return result
 
 
-def _make_viewer_world[
-    world_bvh_width: SIMDLength,
-    instance_bvh_width: SIMDLength,
-    build_method: CpuBvhBuildMethod,
-](scene: Int) raises -> CpuScene[world_bvh_width, instance_bvh_width]:
-    if scene == 0:
-        return make_weekend_world[
-            world_bvh_width, instance_bvh_width, build_method
-        ]()
-    elif scene == 1:
-        return make_cornell_world[
-            world_bvh_width, instance_bvh_width, build_method
-        ]()
-    elif scene == 2:
-        return make_mis_showcase_world[
-            world_bvh_width, instance_bvh_width, build_method
-        ]()
-    elif scene == 3:
-        return make_lbvh_world[
-            world_bvh_width, instance_bvh_width, build_method
-        ]()
-    elif scene == 4:
-        return make_emissive_instance_world[
-            world_bvh_width, instance_bvh_width, build_method
-        ]()
-    elif scene == 5:
-        return make_many_lights_world[
-            world_bvh_width, instance_bvh_width, build_method
-        ]()
-    elif scene == 6:
-        return make_indirect_hall_world[
-            world_bvh_width, instance_bvh_width, build_method
-        ]()
-    elif scene == 7:
-        return make_specular_transport_world[
-            world_bvh_width, instance_bvh_width, build_method
-        ]()
-    raise Error("unsupported viewer scene")
-
-
 def load_viewer_scene_data(scene: Int, scene_path: String) raises -> SceneData:
-    """Build a viewer scene and transfer ownership of its raw scene data."""
-    if scene == 8 or scene == 9:
-        var parsed = read_pbrt(scene_path)
-        return parsed^.take_data()
-
-    comptime width = simd_width_of[DType.float32]()
-    var world = _make_viewer_world[width, width, CPU_VIEWER_BUILD_METHOD](scene)
-    return world^.take_data()
+    """Create scene data before either backend prepares acceleration."""
+    match scene:
+        case 0:
+            return make_weekend_scene()
+        case 1:
+            return make_cornell_scene()
+        case 2:
+            return make_mis_showcase_scene()
+        case 3:
+            return make_lbvh_scene()
+        case 4:
+            return make_emissive_instance_scene()
+        case 5:
+            return make_many_lights_scene()
+        case 6:
+            return make_indirect_hall_scene()
+        case 7:
+            return make_specular_transport_scene()
+        case 8 | 9:
+            var parsed = read_pbrt(scene_path)
+            return parsed^.take_data()
+        case _:
+            raise Error("unsupported viewer scene")
 
 
 def _render_gpu_frame[
@@ -237,89 +212,56 @@ def _render_gpu_frame[
     )
 
 
-def _render_frame[
+def _render_cpu_frame[
     integrator: Integrator,
-    BACKEND: Int,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
     build_method: CpuBvhBuildMethod,
     traversal_mode: CpuTraversalMode,
     *adaptive_packet_sizes: SIMDLength,
 ](
-    output: String,
-    width: Int,
-    height: Int,
-    samples: Int,
-    max_depth: Int,
-    origin: Point3W,
-    yaw_degrees: Float32,
-    pitch_degrees: Float32,
-    vfov: Float32,
-    world: CpuScene[world_bvh_width, instance_bvh_width],
-    sampler: Sampler = .INDEPENDENT,
-    sample_offset: Int = 0,
-    sample_sequence_length: Int = 0,
-    linear_output: Bool = False,
+    request: _ViewerRenderRequest, var data: SceneData
 ) raises -> ViewerRenderStats:
-    comptime if BACKEND == 1:
-        return _render_gpu_frame[integrator](
-            output,
-            width,
-            height,
-            samples,
-            max_depth,
-            origin,
-            yaw_degrees,
-            pitch_degrees,
-            vfov,
-            world.scene_data(),
-            sampler,
-            sample_offset,
-            sample_sequence_length,
-            linear_output,
-        )
-    else:
-        comptime assert BACKEND == 0, "unsupported viewer rendering backend"
-
-        var camera = _viewer_camera(
-            origin,
-            yaw_degrees,
-            pitch_degrees,
-            vfov,
-        )
-
-        var settings = RenderSettings(
-            width,
-            height,
-            samples,
-            UInt64(1234),
-            max_depth,
-            sampler,
-            sample_offset,
-            sample_sequence_length,
-        )
-        var result = render_wavefront_configured[
-            traversal_mode,
-            integrator,
-            16,
-            1024,
-            True,
-            CpuSchedulerMode.TASK_PARTITIONS,
-            world_bvh_width,
-            instance_bvh_width,
-            *adaptive_packet_sizes,
-        ](settings, camera, world)
-        _write_viewer_frame(output, width, height, result.pixels, linear_output)
-        return ViewerRenderStats(
-            ns_to_ms(result.timings.total_ns),
-            _viewer_bvh_stats[
-                0,
-                world_bvh_width,
-                instance_bvh_width,
-                build_method,
-                traversal_mode,
-            ](world.scene_data()),
-        )
+    var world = CpuScene[world_bvh_width, instance_bvh_width].__init__[
+        build_method
+    ](data^)
+    var camera = _viewer_camera(
+        request.origin, request.yaw_degrees, request.pitch_degrees, request.vfov
+    )
+    var settings = RenderSettings(
+        request.width,
+        request.height,
+        request.samples,
+        UInt64(1234),
+        request.max_depth,
+        request.sampler,
+        request.sample_offset,
+        request.sample_sequence_length,
+    )
+    var result = render_wavefront_configured[
+        traversal_mode,
+        integrator,
+        16,
+        1024,
+        True,
+        CpuSchedulerMode.TASK_PARTITIONS,
+        world_bvh_width,
+        instance_bvh_width,
+        *adaptive_packet_sizes,
+    ](settings, camera, world)
+    _write_viewer_frame(
+        request.output,
+        request.width,
+        request.height,
+        result.pixels,
+        request.linear_output,
+    )
+    return ViewerRenderStats(
+        ns_to_ms(result.timings.total_ns),
+        _viewer_bvh_stats[
+            0, world_bvh_width, instance_bvh_width, build_method, traversal_mode
+        ](world.scene_data()),
+    )
 
 
 @fieldwise_init
@@ -348,82 +290,45 @@ def _render_scene[
     traversal_mode: CpuTraversalMode,
     *adaptive_packet_sizes: SIMDLength,
 ](request: _ViewerRenderRequest) raises -> ViewerRenderStats:
-    if request.scene == 8 or request.scene == 9:
-        var parsed = read_pbrt(request.scene_path)
-        comptime if BACKEND == 0:
-            return _render_frame[
+    var data = load_viewer_scene_data(request.scene, request.scene_path)
+    comptime if BACKEND == 1:
+        return _render_gpu_frame[integrator](
+            request.output,
+            request.width,
+            request.height,
+            request.samples,
+            request.max_depth,
+            request.origin,
+            request.yaw_degrees,
+            request.pitch_degrees,
+            request.vfov,
+            data,
+            request.sampler,
+            request.sample_offset,
+            request.sample_sequence_length,
+            request.linear_output,
+        )
+    else:
+        comptime assert BACKEND == 0, "unsupported viewer rendering backend"
+        if request.scene == 8 or request.scene == 9:
+            return _render_cpu_frame[
                 integrator,
-                BACKEND,
                 16,
                 16,
                 build_method,
                 traversal_mode,
                 *adaptive_packet_sizes,
-            ](
-                request.output,
-                request.width,
-                request.height,
-                request.samples,
-                request.max_depth,
-                request.origin,
-                request.yaw_degrees,
-                request.pitch_degrees,
-                request.vfov,
-                CpuScene[16, 16].__init__[build_method](parsed^.take_data()),
-                request.sampler,
-                request.sample_offset,
-                request.sample_sequence_length,
-                request.linear_output,
-            )
-        else:
-            return _render_gpu_frame[integrator](
-                request.output,
-                request.width,
-                request.height,
-                request.samples,
-                request.max_depth,
-                request.origin,
-                request.yaw_degrees,
-                request.pitch_degrees,
-                request.vfov,
-                parsed.data,
-                request.sampler,
-                request.sample_offset,
-                request.sample_sequence_length,
-                request.linear_output,
-            )
-    # not everyone has avx-512
-    comptime world_bvh_width = simd_width_of[DType.float32]()
-    comptime instance_bvh_width = simd_width_of[DType.float32]()
-
-    var world = _make_viewer_world[
-        world_bvh_width, instance_bvh_width, build_method
-    ](request.scene)
-
-    return _render_frame[
-        integrator,
-        BACKEND,
-        world_bvh_width,
-        instance_bvh_width,
-        build_method,
-        traversal_mode,
-        *adaptive_packet_sizes,
-    ](
-        request.output,
-        request.width,
-        request.height,
-        request.samples,
-        request.max_depth,
-        request.origin,
-        request.yaw_degrees,
-        request.pitch_degrees,
-        request.vfov,
-        world,
-        request.sampler,
-        request.sample_offset,
-        request.sample_sequence_length,
-        request.linear_output,
-    )
+            ](request, data^)
+        # Procedural scenes use the native SIMD width on each host.
+        comptime width = simd_width_of[DType.float32]()
+        return _render_cpu_frame[
+            integrator,
+            width,
+            width,
+            build_method,
+            traversal_mode,
+            *adaptive_packet_sizes,
+        ](request, data^)
 
 
 def _render_scene_for_policy[

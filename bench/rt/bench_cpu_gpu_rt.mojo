@@ -32,9 +32,9 @@ from bajo.benchmark.gpu_harness import (
     SAMPLES_PER_PIXEL,
     gpu_rt_camera,
     gpu_rt_checksum,
-    make_many_light_world,
+    make_many_light_scene,
 )
-from examples.cornell_box import make_cornell_world
+from examples.cornell_box import make_cornell_scene
 
 
 comptime CPU_PACKET_WIDTH = 16
@@ -214,7 +214,7 @@ def main() raises:
         IMAGE_WIDTH, IMAGE_HEIGHT, SAMPLES_PER_PIXEL, RNG_SEED, MAX_DEPTH
     )
     var camera = gpu_rt_camera()
-    var world = make_cornell_world()
+    var world = CpuScene[16, 16](make_cornell_scene())
     var sample_count = IMAGE_WIDTH * IMAGE_HEIGHT * SAMPLES_PER_PIXEL
     print("CPU/GPU RT comparison")
     print(
@@ -234,7 +234,7 @@ def main() raises:
     var cpu_ao = _bench_cpu[.AO](settings, camera, world)
     var cpu_nee = _bench_cpu[.NEE](settings, camera, world)
     var cpu_mis = _bench_cpu[.MIS](settings, camera, world)
-    var many_light_world = make_many_light_world()
+    var many_light_world = CpuScene[16, 16](make_many_light_scene())
     var cpu_nee_64 = _bench_cpu[.NEE](settings, camera, many_light_world)
 
     with DeviceContext() as ctx:

@@ -55,7 +55,7 @@ from bajo.rt import (
     render_wavefront,
     sample_bsdf,
 )
-from examples.cornell_box import make_cornell_world
+from examples.cornell_box import make_cornell_scene
 from bajo.rt.cpu import reflect, reflectance
 from bajo.rt.common import (
     environment_light_pdf,
@@ -1288,7 +1288,7 @@ def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
 
 def test_direct_light_integrators_render_cornell() raises:
     var settings = RenderSettings(8, 8, 2, UInt64(2026))
-    var world = make_cornell_world()
+    var world = CpuScene[16, 16](make_cornell_scene())
     var camera = Camera.from_vfov(
         Point3f32[.WORLD](0.0, 1.0, 3.2),
         Point3f32[.WORLD](0.0, 1.0, -1.0),

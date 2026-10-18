@@ -16,13 +16,20 @@ def linear_to_gamma[
 
 @always_inline
 def color_to_byte[
-    length: SIMDLength = 1
+    length: SIMDLength = 1,
+    *,
+    gamma_correct: Bool = True,
 ](x: SIMD[.float32, length]) -> SIMD[.uint8, length]:
-    return (256.0 * linear_to_gamma(x).clamp(0.0, 0.999)).cast[.uint8]()
+    comptime if gamma_correct:
+        return (256.0 * linear_to_gamma(x).clamp(0.0, 0.999)).cast[.uint8]()
+    else:
+        return (255.0 * x.clamp(0.0, 1.0)).cast[.uint8]()
 
 
 def _encode_ppm[
-    width: SIMDLength = simd_width_of[Float32]()
+    width: SIMDLength = simd_width_of[Float32](),
+    *,
+    gamma_correct: Bool = True,
 ](pixels: ImmSpan[Color, _]) -> List[UInt8]:
     var count = len(pixels) * 3
     var bytes = List[UInt8](unsafe_uninit_length=count)
@@ -31,20 +38,20 @@ def _encode_ppm[
 
     def encode[lanes: Int](first: Int) {imm}:
         dest.unsafe_store(
-            first, color_to_byte(source.unsafe_load[width=lanes](first))
+            first,
+            color_to_byte[gamma_correct=gamma_correct](
+                source.unsafe_load[width=lanes](first)
+            ),
         )
 
     vectorize[width](count, encode)
     return bytes^
 
 
-def write_ppm_from_colors(
-    path: String,
-    width: Int,
-    height: Int,
-    pixels: ImmSpan[Color, _],
-) raises:
+def write_ppm_from_colors[
+    gamma_correct: Bool = True
+](path: String, width: Int, height: Int, pixels: ImmSpan[Color, _],) raises:
     with open(path, "w") as f:
         f.write(t"P6\n{width} {height}\n255\n")
-        var bytes = _encode_ppm(pixels)
+        var bytes = _encode_ppm[gamma_correct=gamma_correct](pixels)
         f.write_bytes(bytes)

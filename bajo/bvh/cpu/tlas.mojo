@@ -19,6 +19,7 @@ from bajo.core.intersect import intersect_ray_aabb_rcp
 from bajo.bvh.cpu.blas_storage import CpuBlasSet
 from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
 from bajo.bvh.types import BlasDesc, Hit, Instance
+from bajo.bvh.camera import Camera
 from bajo.bvh.cpu.blas_set import (
     _debug_check_blas_index,
     _trace_blas_desc_precomputed_rcp,
@@ -355,6 +356,34 @@ struct CpuTlas[
 
     def bounds(self) -> AABB[.WORLD]:
         return self.tree.root_bounds()
+
+    def trace_camera[
+        blas_node_width: SIMDLength,
+        blas_leaf_width: SIMDLength = blas_node_width,
+        *,
+        parallel: Bool = True,
+    ](
+        self,
+        blases: CpuBlasSet[.TRIANGLE, blas_node_width, blas_leaf_width],
+        camera: Camera,
+        width: Int,
+        height: Int,
+        hits: MutSpan[Float32, _],
+    ) raises:
+        if width <= 0 or height <= 0:
+            raise Error("camera dimensions must be positive")
+        if width > len(hits) // Hit.STRIDE // height:
+            raise Error("hit output buffer is too short")
+
+        def row(py: Int) {imm}:
+            for px in range(width):
+                var ray = camera.make_ray(px, py, width, height)
+                var hit = self.trace_blases[
+                    blas_node_width, blas_leaf_width, .CLOSEST_HIT
+                ](ray, blases)
+                hit.store(hits, py * width + px)
+
+        parallelize(row, height, height)
 
     def _refit_node[
         recurse: Bool = True

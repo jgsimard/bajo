@@ -99,7 +99,7 @@ def test_packed_hit_store_bits_offsets_and_frames() raises:
                             assert_equal(values[index], guard)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     comptime if not has_accelerator():
         raise "No accelerator found"
     TestSuite.discover_tests[__functions_in_module()]().run()

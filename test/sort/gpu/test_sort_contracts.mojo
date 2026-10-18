@@ -205,5 +205,5 @@ def test_general_sort_handles_non_power_of_two_prefixes() raises:
                 assert_equal(v[size], UInt32(67890))
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

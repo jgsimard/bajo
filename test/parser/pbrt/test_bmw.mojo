@@ -165,5 +165,5 @@ def test_ply_nonfinite_geometry_remains_an_error() raises:
         _ = read_pbrt("scene/main.pbrt", loader)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

@@ -189,5 +189,5 @@ def test_gpu_wavefront_contract_atomic_roundtrip() raises:
             assert_equal(counters[WAVE_COUNTER.STATUS], WAVE_STATUS.OK)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

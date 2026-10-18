@@ -262,5 +262,5 @@ def test_ray_transform() raises:
     assert_almost_equal(transformed.t_max, 7)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

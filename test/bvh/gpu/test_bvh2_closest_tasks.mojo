@@ -195,5 +195,5 @@ def test_gpu_bvh2_closest_deep_chain_finds_deferred_triangle() raises:
     _assert_deep_tree[False, True]()
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

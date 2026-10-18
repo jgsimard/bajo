@@ -344,7 +344,7 @@ def test_alias_copy_cache_is_lazy_and_reused() raises:
                     )
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     comptime if not has_accelerator():
         raise "No Accelerator found"
     TestSuite.discover_tests[__functions_in_module()]().run()

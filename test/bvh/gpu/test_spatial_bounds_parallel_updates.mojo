@@ -164,5 +164,5 @@ def test_bounds_parallel_rebuild_groups_graphs_and_rejection() raises:
     _check[256, True](65537, False)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

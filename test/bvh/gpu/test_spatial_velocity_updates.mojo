@@ -79,5 +79,5 @@ def test_velocity_publication_rejection_alias_and_clear() raises:
                     assert_equal(actual[component], cpu.bvh.bounds[component])
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

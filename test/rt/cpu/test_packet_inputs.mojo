@@ -96,5 +96,5 @@ def test_material_parameter_packets_use_record_stride_and_masks() raises:
         _parameters[.DIELECTRIC, width]()
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

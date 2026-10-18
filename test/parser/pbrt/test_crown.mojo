@@ -181,5 +181,5 @@ Shape "sphere"
     assert_true(camera.fov_scale > 0.6)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

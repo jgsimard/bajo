@@ -326,5 +326,5 @@ def test_nearest_mixed_magnitudes_preserve_canonical_projection() raises:
                     )
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

@@ -122,5 +122,5 @@ def test_onesweep_empty_and_single_input_preserves_buffers() raises:
             assert_equal(ids[0], value)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

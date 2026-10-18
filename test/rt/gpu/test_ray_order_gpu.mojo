@@ -357,5 +357,5 @@ def test_gpu_nee_grouped_coatings_and_mixed_lights_match_unordered_chunks() rais
     _assert_grouped_lighting_render[.NEE]()
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

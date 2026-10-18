@@ -669,7 +669,7 @@ def test_gpu_triangle_bvh_segmented_build_methods() raises:
     _assert_segmented_gpu_triangle_matches_cpu_camera(scene)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     comptime if not has_accelerator():
         raise "No Accelerator found"
     TestSuite.discover_tests[__functions_in_module()]().run()

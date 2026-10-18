@@ -269,5 +269,5 @@ def test_block_wrong_launch_shape_returns_empty_without_scratch_overflow() raise
                 assert_equal(actual[lane], UInt32(0))
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

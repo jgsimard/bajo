@@ -123,5 +123,5 @@ def test_gpu_filtered_bounds_match_double_precision() raises:
                 )
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

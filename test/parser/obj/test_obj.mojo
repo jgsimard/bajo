@@ -751,5 +751,5 @@ def test_bulk_simd_scanning_preserves_long_faces_comments_and_line_endings() rai
         _assert_mesh_equal(actual, expected)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

@@ -495,5 +495,5 @@ def test_triangle_simd_rejects_bad_indices_in_every_vector_and_tail_lane() raise
                 _emit_triangles(bytes, output, 17)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

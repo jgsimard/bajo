@@ -226,5 +226,5 @@ def test_gpu_empty_invalid_queries_and_failed_updates() raises:
             assert_equal(data[1], UInt32(1))
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

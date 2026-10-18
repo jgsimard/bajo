@@ -229,5 +229,5 @@ def test_raw_rejects_reserved_blocks_and_invalid_stored_lengths() raises:
         _ = inflate_raw([UInt8(1), 1, 0, 0, 0, 42], output)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

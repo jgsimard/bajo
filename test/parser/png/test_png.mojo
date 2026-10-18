@@ -330,5 +330,5 @@ def test_conversion_handles_empty_and_subvector_inputs() raises:
             _assert_exact(encoded, actual, index)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

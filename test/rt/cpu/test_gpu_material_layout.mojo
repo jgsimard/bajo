@@ -322,5 +322,5 @@ def test_empty_coated_tables_are_valid() raises:
     assert_equal(len(pack_coated_materials[True](surfaces)), 0)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

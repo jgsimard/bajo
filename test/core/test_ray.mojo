@@ -33,5 +33,5 @@ def test_load_packed_ray_span() raises:
     assert_almost_equal(ray.t_max, 8.0)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

@@ -367,5 +367,5 @@ def test_vector64_infers_scalar_and_packet_widths() raises:
     check_vector64_width[16]()
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

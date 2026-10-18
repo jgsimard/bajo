@@ -144,5 +144,5 @@ def test_coated_sampling_and_evaluation_share_estimator_seed() raises:
     assert_true(successes > 16)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

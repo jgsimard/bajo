@@ -83,5 +83,5 @@ def test_sort_diagnostics_check_every_id_and_its_uniqueness() raises:
                 _ = validate_sorted_keys(keys, ids, bad_size)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

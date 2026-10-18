@@ -57,5 +57,5 @@ def test_frame_rejects_inconsistent_dimensions() raises:
         _ = _linear_frame(1, -1, pixels)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

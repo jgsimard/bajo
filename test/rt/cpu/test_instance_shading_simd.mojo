@@ -173,5 +173,5 @@ def test_instance_surface_packets_match_scalar_with_mixed_mesh_attributes() rais
         check_surface_packets[width](world)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

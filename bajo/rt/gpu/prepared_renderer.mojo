@@ -181,7 +181,7 @@ struct GpuRtPreparedRenderer[
         var arguments = _RenderGraphArguments(
             settings.copy(),
             self.scene.view(),
-            queues^,
+            queues,
             Int(self.target.camera.unsafe_ptr()),
             Int(self.target.pixels.unsafe_ptr()),
             integrator.value,

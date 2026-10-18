@@ -587,5 +587,5 @@ def test_mesh_vector_validation_batches_tails_and_atomicity() raises:
             assert_equal(bitcast[.uint32](value), UInt32(0))
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

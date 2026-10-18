@@ -53,5 +53,5 @@ def test_halton_large_index_fallback() raises:
     )
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

@@ -238,5 +238,5 @@ def test_sphere_canonical_vertex_cancellation_and_cutoff_neighbors() raises:
                 assert_equal(actual[slot], expected[slot])
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

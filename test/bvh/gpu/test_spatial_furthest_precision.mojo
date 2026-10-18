@@ -248,5 +248,5 @@ def test_furthest_inclusive_unit_cutoff_and_equal_vertex_ties() raises:
                 assert_equal(actual[lane * 8 + 5], Float64(-1.0))
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

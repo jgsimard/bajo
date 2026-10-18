@@ -467,5 +467,5 @@ def test_gpu_adjacency_view_survives_parallel_device_rebuild_and_graph() raises:
                 assert_equal(values[i], adjacency[i])
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

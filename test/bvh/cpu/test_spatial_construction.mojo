@@ -239,5 +239,5 @@ def test_many_sparse_groups_preserve_membership_and_morton_order() raises:
                 assert_equal(cursor, end)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

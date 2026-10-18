@@ -47,5 +47,5 @@ def test_box_has_closed_outward_faces_bounds_and_surfaces() raises:
     assert_almost_equal(area, Float32(2 * (5 * 2 + 5 * 3 + 2 * 3)))
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

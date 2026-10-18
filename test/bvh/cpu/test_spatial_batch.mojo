@@ -199,5 +199,5 @@ def test_packet_batches_match_scalar_for_widths_groups_tails_and_updates() raise
             tree.rebuild(boxes)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

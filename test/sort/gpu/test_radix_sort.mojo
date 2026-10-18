@@ -75,5 +75,5 @@ def test_radix_empty_input_preserves_buffers() raises:
             assert_equal(ids[0], UInt32(88))
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

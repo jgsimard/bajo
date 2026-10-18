@@ -106,5 +106,5 @@ def test_distance2_scalar_and_packets_at_extreme_scales() raises:
             assert_almost_equal(furthest[lane], Float64(8.25), atol=1e-12)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

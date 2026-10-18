@@ -35,5 +35,5 @@ def test_bitonic_sort_pairs_match_expected() raises:
                     assert_equal(host_values[i], expected_vals[i])
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

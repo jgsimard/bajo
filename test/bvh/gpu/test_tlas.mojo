@@ -314,7 +314,7 @@ def test_all_empty_cpu_blas_set_upload_uses_dummy_device_storage() raises:
         assert_true(uploaded.blas_count == 1)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     comptime if not has_accelerator():
         raise "No Accelerator found"
     TestSuite.discover_tests[__functions_in_module()]().run()

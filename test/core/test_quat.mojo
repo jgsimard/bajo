@@ -84,5 +84,5 @@ def test_rotate() raises:
     _test_rotate[.float64]()
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

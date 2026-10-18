@@ -222,5 +222,5 @@ Shape "plymesh" "string filename" "cube.ply"
             assert_almost_equal(gpu[i].z[0], cpu.pixels[i].z[0], atol=1e-4)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

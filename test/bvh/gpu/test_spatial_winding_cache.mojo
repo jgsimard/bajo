@@ -366,5 +366,5 @@ def test_winding_storage_empty_open_mixed_and_disjoint_views() raises:
                 assert_equal(data[0], 0)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

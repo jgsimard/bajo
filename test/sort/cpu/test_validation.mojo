@@ -51,5 +51,5 @@ def test_bitonic_size_contract() raises:
             validate_bitonic_size(size)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

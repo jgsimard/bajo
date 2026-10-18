@@ -171,5 +171,5 @@ def test_gpu_prepared_graph_replays_textured_instances() raises:
     assert_true(Bool(renderer._render_graph))
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

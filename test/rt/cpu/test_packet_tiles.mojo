@@ -366,5 +366,5 @@ def test_medium_transition_is_width_generic() raises:
     assert_equal(result, SIMD[.uint32, 4](2, 3, 7, 7))
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

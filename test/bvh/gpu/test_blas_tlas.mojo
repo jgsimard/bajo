@@ -464,7 +464,7 @@ def test_gpu_triangle_tlas_builders_stress_8_blas_512_instances_match_cpu() rais
         assert_true(cpu[2] == hploc_gpu[2])
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     comptime if not has_accelerator():
         raise "No Accelerator found"
     TestSuite.discover_tests[__functions_in_module()]().run()

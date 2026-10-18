@@ -485,5 +485,5 @@ def test_ray_provisional_winners_near_coincident_planes_and_cutoffs() raises:
                         )
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

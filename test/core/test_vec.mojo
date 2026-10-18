@@ -107,5 +107,5 @@ def test_compiletime_indexed_assignment_and_setter_compatibility() raises:
     assert_vec_equal(value, Vec3[.float32, .WORLD, 4](5.0, 7.0, 6.0))
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

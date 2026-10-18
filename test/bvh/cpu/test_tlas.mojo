@@ -457,5 +457,5 @@ def test_parallel_tlas_refit_matches_serial() raises:
                 )
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

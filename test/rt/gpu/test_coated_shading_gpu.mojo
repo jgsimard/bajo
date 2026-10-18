@@ -95,5 +95,5 @@ def test_layered_coated_diffuse_matches_on_gpu() raises:
             assert_true((host[8] != 0.0) == expected.ok[0])
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

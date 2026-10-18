@@ -169,5 +169,5 @@ def test_normal_sign_certifications_match_float64_across_extremes() raises:
         print(t"GPU_SIGN_FILTER_PASS\t{CASES}\t{certified}")
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

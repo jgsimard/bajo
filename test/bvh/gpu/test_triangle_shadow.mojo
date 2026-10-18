@@ -214,7 +214,7 @@ def test_shadow_masks_match_reference() raises:
             assert_true(misses > 0)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     comptime if not has_accelerator():
         raise "No accelerator found"
     TestSuite.discover_tests[__functions_in_module()]().run()

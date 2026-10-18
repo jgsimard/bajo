@@ -89,5 +89,5 @@ def test_gpu_capped_mis_coated_instance_matches_uncapped() raises:
         assert_pixels_equal(actual, expected)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

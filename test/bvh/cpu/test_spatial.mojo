@@ -203,5 +203,5 @@ def test_group_mismatch_and_update_count_fail_atomically() raises:
     assert_equal(index, UInt32(0))
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

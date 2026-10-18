@@ -118,5 +118,5 @@ def test_parallel_sah_mixed_subtrees_preserve_every_payload() raises:
         assert_equal(occurrences, 1)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

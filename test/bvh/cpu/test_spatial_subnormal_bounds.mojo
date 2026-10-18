@@ -187,5 +187,5 @@ def test_many_groups_precise_build_and_rebuild_preserve_roots_and_storage() rais
             assert_equal(tree.group_roots[group], roots[group])
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

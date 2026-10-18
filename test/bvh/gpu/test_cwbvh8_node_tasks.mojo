@@ -161,7 +161,7 @@ def test_packed_slab_boundaries_match_legacy_decoder() raises:
     _assert_decoders_match[3]()
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     comptime if not has_accelerator():
         raise "No Accelerator found"
     TestSuite.discover_tests[__functions_in_module()]().run()

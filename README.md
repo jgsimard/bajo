@@ -108,6 +108,14 @@ The test runner accepts a suite path when a smaller run is useful, for
 example `pixi run test core` or `pixi run test bvh/cpu`. With no suite argument,
 `pixi run test` runs all Mojo and Python tests and requires a supported accelerator.
 
+Each subsystem (`core`, `parser`, `bvh`, `rt`, `sort`, `gpu`, and `viewer`) has
+one `run_tests.mojo` entry point that runs its test modules in one process and
+reports failures after all selected modules finish. Test modules expose
+`run_tests()`; add new modules to their subsystem runner. The shell runner checks
+that every discovered test is registered. Suite and individual-file filters
+select modules at compile time, so host-only runs do not compile GPU tests.
+For example, `pixi run test core/test_aabb.mojo` runs just the AABB tests.
+
 ## Examples
 
 The main examples are available as Pixi tasks:

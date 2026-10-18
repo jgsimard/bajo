@@ -1371,5 +1371,5 @@ def test_segmented_sphere_blases_allow_empty_segments() raises:
     )
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

@@ -108,5 +108,5 @@ def test_gpu_inverted_subnormal_device_and_graph_rejection() raises:
                     )
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

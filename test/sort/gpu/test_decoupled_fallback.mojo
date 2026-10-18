@@ -318,5 +318,5 @@ def test_size_validation() raises:
                 ](ctx, workspace, keys, values, size)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

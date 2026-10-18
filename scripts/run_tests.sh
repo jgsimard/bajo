@@ -1,47 +1,90 @@
 #!/usr/bin/env bash
-#
-# Run tests, see https://forum.modular.com/t/proposal-deprecating-mojo-test/2371
+# Compile one Mojo runner per subsystem, then run Python integration tests.
 set -euo pipefail
 
-# Accept directories or individual files; default to the repository root.
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ "$#" -eq 0 ]; then
-  set -- .
+  set -- "$repo_root/test"
 fi
 
-test_count=0
+declare -A selected_tests=()
 failed=0
-
-run_test() {
-  case "$1" in
-    *.mojo) mojo run -I . "$1" ;;
-    *.py) python "$1" ;;
-  esac
-}
-
 for test_path in "$@"; do
-  echo "Running tests in: $test_path"
-  # Check paths before find runs in a process substitution, where an error
-  # would otherwise be lost if another path contained runnable tests.
   if [ ! -e "$test_path" ]; then
     echo "Test path does not exist: $test_path" >&2
     failed=1
     continue
   fi
-  while IFS= read -r test_file; do
-    test_count=$((test_count + 1))
-    echo "### ------------------------------------------------------------- ###"
-    echo "Running: $test_file"
-    if ! run_test "$test_file"; then
-      failed=1
-    fi
-  done < <(find "$test_path" -type f \( -name "test_*.mojo" -o -name "test_*.py" \) -not -path "*/.pixi/*" | sort)
+  test_path="$(realpath -- "$test_path")"
+  while IFS= read -r -d '' test_file; do
+    selected_tests["$test_file"]=1
+  done < <(find "$test_path" -type f \( -name 'test_*.mojo' -o -name 'test_*.py' \) -not -path '*/.pixi/*' -print0)
 done
 
-if [ "$test_count" -eq 0 ]; then
+if [ "${#selected_tests[@]}" -eq 0 ]; then
   echo "No test files found in: $*" >&2
   exit 1
 fi
+mapfile -d '' -t test_files < <(printf '%s\0' "${!selected_tests[@]}" | sort -z)
 
-if [ "$failed" -ne 0 ]; then
-  exit 1
+cd "$repo_root"
+declare -A mojo_groups=()
+for test_file in "${test_files[@]}"; do
+  if [[ "$test_file" == *.mojo ]]; then
+    relative="${test_file#"$repo_root/test/"}"
+    group="${relative%%/*}"
+    mojo_groups["$group"]=1
+  fi
+done
+
+if [ "${#mojo_groups[@]}" -gt 0 ]; then
+  mapfile -t groups < <(printf '%s\n' "${!mojo_groups[@]}" | sort)
+  for group in "${groups[@]}"; do
+    runner="$repo_root/test/$group/run_tests.mojo"
+    if [ ! -f "$runner" ]; then
+      echo "Missing Mojo test runner: $runner" >&2
+      failed=1
+      continue
+    fi
+    runner_source="$(tr -d '[:space:]' < "$runner")"
+    flags=(-D BAJO_TEST_FILTERED=1)
+    missing=false
+    for test_file in "${test_files[@]}"; do
+      if [[ "$test_file" != "$repo_root/test/$group/"*.mojo ]]; then
+        continue
+      fi
+      relative="${test_file#"$repo_root/"}"
+      module="${relative%.mojo}"
+      module="${module//\//.}"
+      alias="${test_file#"$repo_root/test/$group/"}"
+      alias="${alias%.mojo}"
+      alias="${alias//\//_}"
+      if [[ "$runner_source" != *"import${module}as${alias}"* ||
+            "$runner_source" != *"module_selected[\"$alias\"]()"* ||
+            "$runner_source" != *"tests.run(\"$relative\",$alias.run_tests[True]"* ]]; then
+        echo "Test missing from test/$group/run_tests.mojo: $relative" >&2
+        missing=true
+      fi
+      flags+=(-D "BAJO_TEST_$alias=1")
+    done
+    if "$missing"; then
+      failed=1
+      continue
+    fi
+    echo "Running Mojo tests in: test/$group"
+    if ! mojo run -I "$repo_root" "${flags[@]}" "$runner"; then
+      failed=1
+    fi
+  done
 fi
+
+for test_file in "${test_files[@]}"; do
+  if [[ "$test_file" == *.py ]]; then
+    echo "Running: ${test_file#"$repo_root/"}"
+    if ! python "$test_file"; then
+      failed=1
+    fi
+  fi
+done
+
+exit "$failed"

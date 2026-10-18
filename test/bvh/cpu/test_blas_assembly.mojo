@@ -345,5 +345,5 @@ def test_sphere_packets_preserve_segment_offsets_and_empty_segments() raises:
         _assert_packet_segment_hits(idx, hits, occluded, 1.5)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

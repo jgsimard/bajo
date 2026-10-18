@@ -290,5 +290,5 @@ def test_packet_direct_lights_match_scalar_with_mixed_emitter_kinds() raises:
     _direct_lights[16](True)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

@@ -344,5 +344,5 @@ def test_gpu_tlas2_distance_pruned_sphere_matches_reference() raises:
     _assert_visibility[.SPHERE, .CLOSEST_HIT, 3]()
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

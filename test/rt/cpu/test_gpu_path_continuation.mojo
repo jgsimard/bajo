@@ -157,5 +157,5 @@ def test_continuation_uses_roulette_throughput_at_late_bounces() raises:
         _test_continuation[.MIS](bounce=UInt32(bounce))
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

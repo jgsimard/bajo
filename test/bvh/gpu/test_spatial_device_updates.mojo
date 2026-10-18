@@ -286,5 +286,5 @@ def test_device_update_invalid_counts_order_and_empty_mesh() raises:
         assert_equal(len(empty_mesh.points), 0)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

@@ -84,5 +84,5 @@ Shape "plymesh" "string filename" "mesh.ply"
             assert_pixels_close(averaged, expected, atol=1e-5, rtol=1e-5)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

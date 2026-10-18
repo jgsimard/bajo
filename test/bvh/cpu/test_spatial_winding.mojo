@@ -361,5 +361,5 @@ def test_winding_connected_chain_missing_face_and_orientation_certificates() rai
     check_connected_periodic_chain[16]()
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

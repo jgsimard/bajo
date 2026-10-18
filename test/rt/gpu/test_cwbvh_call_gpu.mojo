@@ -56,5 +56,5 @@ def test_static_mis_call_boundary_coated() raises:
     _check(True)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

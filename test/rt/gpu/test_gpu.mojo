@@ -901,5 +901,5 @@ def test_gpu_viewer_renders_all_procedural_stress_scenes() raises:
     _assert_nonzero_result(difficult)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

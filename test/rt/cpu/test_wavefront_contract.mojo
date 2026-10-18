@@ -165,5 +165,5 @@ def test_cpu_aos_boundary_adapters() raises:
     assert_false(restored_works[0].hit.front_face)
 
 
-def main() raises:
+def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

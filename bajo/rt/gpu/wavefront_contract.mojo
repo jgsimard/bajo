@@ -232,11 +232,9 @@ struct GpuWavefrontArena:
             "host/device path capacities must match",
         )
         with self.path_a.path_ids.map_to_host() as ids:
-            for i in range(self.capacity):
-                ids[i] = packed.path_ids[i]
+            ids.as_span().copy_from(Span(packed.path_ids))
         with self.path_a.fields.map_to_host() as fields:
-            for i, field in enumerate(packed.fields):
-                fields[i] = field
+            fields.as_span().copy_from(Span(packed.fields))
         ctx.synchronize()
 
     def download_next(
@@ -250,11 +248,9 @@ struct GpuWavefrontArena:
         var packed = PackedWavePathQueue(self.capacity)
         packed.count = count
         with self.path_b.path_ids.map_to_host() as ids:
-            for i in range(self.capacity):
-                packed.path_ids[i] = ids[i]
+            Span(packed.path_ids).copy_from(ids.as_span())
         with self.path_b.fields.map_to_host() as fields:
-            for i in range(len(packed.fields)):
-                packed.fields[i] = fields[i]
+            Span(packed.fields).copy_from(fields.as_span())
         return packed^
 
 

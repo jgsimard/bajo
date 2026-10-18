@@ -6,7 +6,7 @@ from max.gpu.host import (
     DeviceGraph,
     DeviceGraphBuilder,
 )
-from std.math import min, max, ceildiv
+from std.math import min, max, ceildiv, align_up
 from .parallel_refit import (
     forest_parents,
     forest_parents_kernel,
@@ -103,7 +103,7 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         lengths[13] = node_count if node_count >= 4096 else 0
         var offsets = Array[Int, 15](fill=0)
         comptime for i in range(14):
-            offsets[i + 1] = offsets[i] + ceildiv(lengths[i], 16) * 16
+            offsets[i + 1] = offsets[i] + Int(align_up(lengths[i], 16))
         var staging = ctx.enqueue_create_host_buffer[.uint32](offsets[10])
         var storage = ctx.enqueue_create_buffer[.uint32](offsets[14])
         var staging_span = staging.as_span()
@@ -119,8 +119,7 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         staging[offsets[8] + 1] = 0
         staging[offsets[9]] = 0
         comptime for i in range(10):
-            for padding in range(offsets[i] + lengths[i], offsets[i + 1]):
-                staging[padding] = 0
+            staging_span[offsets[i] + lengths[i] : offsets[i + 1]].fill(0)
         staging.enqueue_copy_to(
             storage.create_sub_buffer[.uint32](0, offsets[10])
         )

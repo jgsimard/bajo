@@ -49,8 +49,8 @@ struct _ObjParserState:
     def ensure_material(
         mut self, mut mesh: ObjMesh, name: String, fallback: Bool = True
     ) raises:
-        if name in mesh.material_names:
-            self.current_material = mesh.material_names[name]
+        if case .Some(index) = mesh.material_names.get(name):
+            self.current_material = index
             return
 
         var index = len(mesh.materials)
@@ -72,8 +72,7 @@ struct _ObjParserState:
         mesh.face_materials.append(self.current_material)
 
         if is_line or len(mesh.face_lines) > 0:
-            while len(mesh.face_lines) < len(mesh.face_vertices) - 1:
-                mesh.face_lines.append(UInt8(0))
+            mesh.face_lines.resize(len(mesh.face_vertices) - 1, fill=UInt8(0))
             mesh.face_lines.append(UInt8(1) if is_line else UInt8(0))
 
         self.current_group.face_count += 1
@@ -82,8 +81,7 @@ struct _ObjParserState:
 
 def _push_color(mut mesh: ObjMesh, r: Float32, g: Float32, b: Float32):
     var target_before_this_color = len(mesh.positions) - 3
-    while len(mesh.colors) < target_before_this_color:
-        mesh.colors.append(1.0)
+    mesh.colors.resize(target_before_this_color, fill=1.0)
     mesh.colors.extend([r, g, b])
 
 
@@ -269,7 +267,7 @@ def _parse_obj_serial[
     mesh.face_materials.reserve(est_elements)
 
     var text_len = text.byte_length()
-    var bytes = Span(unsafe_ptr=text.unsafe_ptr(), length=text.byte_length())
+    var bytes = text.as_bytes()
     var line_start = 0
     var lines = _ObjLines(bytes, 0, len(bytes))
 
@@ -333,8 +331,7 @@ def _parse_obj_serial[
         line_start = line_end + 1
 
     if len(mesh.colors) > 0:
-        while len(mesh.colors) < len(mesh.positions):
-            mesh.colors.append(1.0)
+        mesh.colors.resize(len(mesh.positions), fill=1.0)
 
     state.finish(mesh)
     return mesh^

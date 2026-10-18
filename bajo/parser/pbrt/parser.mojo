@@ -506,8 +506,8 @@ struct _Builder(
         self.has_environment = False
 
     def image_index(mut self, path: String) raises -> UInt32:
-        if path in self.image_indices:
-            return self.image_indices[path]
+        if case .Some(index) = self.image_indices.get(path):
+            return index
         var index = UInt32(len(self.image_paths))
         self.image_paths.append(path)
         self.image_indices[path] = index
@@ -522,23 +522,17 @@ struct _Builder(
             Int(mesh_index)
         ].copy()
         for base in range(0, len(vertices), 3):
-            var vertex = vertices[base + 1]
-            vertices[base + 1] = vertices[base + 2]
-            vertices[base + 2] = vertex
+            vertices.swap_elements(base + 1, base + 2)
             if len(normals):
                 for lane in range(3):
-                    var normal = normals[3 * (base + 1) + lane]
-                    normals[3 * (base + 1) + lane] = normals[
-                        3 * (base + 2) + lane
-                    ]
-                    normals[3 * (base + 2) + lane] = normal
+                    normals.swap_elements(
+                        3 * (base + 1) + lane, 3 * (base + 2) + lane
+                    )
             if len(texcoords):
                 for lane in range(2):
-                    var uv = texcoords[2 * (base + 1) + lane]
-                    texcoords[2 * (base + 1) + lane] = texcoords[
-                        2 * (base + 2) + lane
-                    ]
-                    texcoords[2 * (base + 2) + lane] = uv
+                    texcoords.swap_elements(
+                        2 * (base + 1) + lane, 2 * (base + 2) + lane
+                    )
         return self.scene.add_owned_triangle_mesh(
             vertices^, normals^, texcoords^
         )

@@ -372,12 +372,9 @@ def _decode_chunk(
     ]
     # First-touch these pages in the same workers that decode their faces.
     # The ordered metadata pass then only overwrites non-default materials.
-    _fill_face_materials(
-        Span(mesh.face_materials)[
-            chunk.face_offset : chunk.face_offset + chunk.faces
-        ],
-        0,
-    )
+    Span(mesh.face_materials)[
+        chunk.face_offset : chunk.face_offset + chunk.faces
+    ].fill(0)
     var lines = _ObjLines(bytes, chunk.begin, chunk.end)
     while start < chunk.end:
         var stop = lines.next_end()
@@ -444,18 +441,6 @@ def _decode_chunk(
         raise Error("OBJ structural count mismatch")
 
 
-@always_inline
-def _fill_face_materials(output: MutSpan[Int, _], material: Int):
-    comptime width = simd_width_of[Int]()
-    var end = len(output) // width * width
-    var ptr = output.unsafe_ptr()
-    var value = SIMD[.int, width](material)
-    for i in range(0, end, width):
-        ptr.unsafe_offset(i).unsafe_store[width=width](value)
-    for i in range(end, len(output)):
-        ptr[unsafe_offset=i] = material
-
-
 def _finish_metadata[
     Loader: AssetLoader
 ](
@@ -471,9 +456,8 @@ def _finish_metadata[
             var face = chunk.face_offset + event.face
             var index = chunk.index_offset + event.index
             if state.current_material != 0:
-                _fill_face_materials(
-                    Span(mesh.face_materials)[previous_face:face],
-                    state.current_material,
+                Span(mesh.face_materials)[previous_face:face].fill(
+                    state.current_material
                 )
             previous_face = face
             match event.kind:
@@ -498,9 +482,7 @@ def _finish_metadata[
                 case _:
                     pass
     if state.current_material != 0:
-        _fill_face_materials(
-            Span(mesh.face_materials)[previous_face:], state.current_material
-        )
+        Span(mesh.face_materials)[previous_face:].fill(state.current_material)
     state.current_group.face_count = (
         len(mesh.face_vertices) - state.current_group.face_offset
     )

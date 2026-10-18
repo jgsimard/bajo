@@ -360,15 +360,13 @@ def prepare_gpu_scene[
                 normal_offsets.append(UInt32.MAX)
             else:
                 normal_offsets.append(UInt32(len(normals)))
-                for value in mesh_normals:
-                    normals.append(value)
+                normals.extend(Span(mesh_normals))
             ref mesh_texcoords = data.triangle_mesh_texcoords()[mesh_idx]
             if len(mesh_texcoords) == 0:
                 texcoord_offsets.append(UInt32.MAX)
             else:
                 texcoord_offsets.append(UInt32(len(texcoords)))
-                for value in mesh_texcoords:
-                    texcoords.append(value)
+                texcoords.extend(Span(mesh_texcoords))
         if len(normals) == 0:
             normals.append(0.0)
         if len(texcoords) == 0:

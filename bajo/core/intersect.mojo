@@ -872,14 +872,10 @@ def no_div_tri_tri_isect[
     var s2_1 = res2.a * xxyy + res2.c * xx * res2.x0
 
     if s1_0 > s1_1:
-        var tmp = s1_0
-        s1_0 = s1_1
-        s1_1 = tmp
+        swap(s1_0, s1_1)
 
     if s2_0 > s2_1:
-        var tmp = s2_0
-        s2_0 = s2_1
-        s2_1 = tmp
+        swap(s2_0, s2_1)
 
     return not (s1_1 < s2_0 or s2_1 < s1_0)
 

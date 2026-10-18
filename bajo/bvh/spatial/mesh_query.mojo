@@ -888,12 +888,8 @@ struct MeshQueryView[
                     var ld = distances[0]
                     var rd = distances[1]
                     if rd < ld:
-                        var temp = left
-                        left = right
-                        right = temp
-                        var td = ld
-                        ld = rd
-                        rd = td
+                        swap(left, right)
+                        swap(ld, rd)
                     if rd != miss:
                         pending[unsafe_offset=count] = right
                         count += 1

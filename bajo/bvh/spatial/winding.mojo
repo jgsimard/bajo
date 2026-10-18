@@ -6,7 +6,7 @@ Position updates cannot change this topological certificate.
 """
 
 from std.bit import next_power_of_two
-from std.math import min, max
+from std.math import min, max, ceildiv
 from bajo.core import AABB, Frame
 from bajo.bvh.constants import EMPTY_LANE
 from .bounds import SpatialBoundsBvh
@@ -105,10 +105,10 @@ struct WindingLayout[frame: Frame, width: SIMDLength](Copyable):
         boxes: ImmSpan[AABB[Self.frame], _],
     ) raises:
         var count = len(boxes)
-        var parents = List[UInt32](length=count, fill=0)
+        var parents = List[UInt32](
+            length=count, fill_with=lambda (face: Int) -> UInt32: UInt32(face)
+        )
         var sizes = List[UInt32](length=count, fill=1)
-        for face in range(count):
-            parents[face] = UInt32(face)
         # At most three unique keys per face. A power-of-two table with
         # four slots per face stays at most 75% full, including open meshes.
         var capacity = next_power_of_two(count * 4)
@@ -144,9 +144,7 @@ struct WindingLayout[frame: Frame, width: SIMDLength](Copyable):
                         if sizes.unsafe_get(Int(left)) < sizes.unsafe_get(
                             Int(right)
                         ):
-                            var tmp = left
-                            left = right
-                            right = tmp
+                            swap(left, right)
                         parents.unsafe_get(Int(right)) = left
                         sizes.unsafe_get(Int(left)) += sizes.unsafe_get(
                             Int(right)
@@ -199,11 +197,11 @@ struct WindingLayout[frame: Frame, width: SIMDLength](Copyable):
         for n in component_counts:
             self.offsets.append(
                 self.offsets[len(self.offsets) - 1]
-                + (Int(n) + Self.width - 1) // Self.width
+                + ceildiv(Int(n), Int(Self.width))
             )
         self.offsets.append(
             self.offsets[len(self.offsets) - 1]
-            + (open_count + Self.width - 1) // Self.width
+            + ceildiv(open_count, Int(Self.width))
         )
         var cursors = [
             self.offsets[i] * Self.width

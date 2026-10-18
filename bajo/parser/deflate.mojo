@@ -470,10 +470,8 @@ struct _Huffman:
 
 def _fixed(mut literals: _Huffman, mut distances: _Huffman) raises:
     var lengths = List[UInt8](length=288, fill=8)
-    for i in range(144, 256):
-        lengths[i] = 9
-    for i in range(256, 280):
-        lengths[i] = 7
+    Span(lengths)[144:256].fill(9)
+    Span(lengths)[256:280].fill(7)
     literals.build(lengths, 0, 9)
     var offsets = List[UInt8](length=32, fill=5)
     distances.build(offsets, 1)
@@ -513,8 +511,7 @@ def _dynamic[
             repeat = 11 + Int(bits.read(7))
         if repeat > literal_count + distance_count - len(lengths):
             raise Error("DEFLATE code length repeat exceeds alphabet")
-        for _ in range(repeat):
-            lengths.append(value)
+        lengths.resize(len(lengths) + repeat, fill=value)
     if lengths[256] == 0:
         raise Error("DEFLATE code is missing end of block")
     literals.build(ImmSpan(lengths)[:literal_count], 0)

@@ -92,8 +92,8 @@ bench_bvh_smoke = { depends-on = ["bench_bvh_cpu_grid"] }
 
 [dependencies]
 libpng = ">=1.6.59,<2"
-mojo = ">=1.2.0.dev2026101705,<2"
-max = ">=26.7.0.dev2026101705,<27"
+mojo = ">=1.2.0.dev2026101805,<2"
+max = ">=26.7.0.dev2026101805,<27"
 python = ">=3.13.16,<3.14"
 polars = ">=2.0.0,<3"
 matplotlib = ">=3.11.2,<4"

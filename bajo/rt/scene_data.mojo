@@ -140,10 +140,10 @@ struct SceneBuilder(
         vertices: ImmSpan[Point3f32[.WORLD], _],
         surface: SurfaceId[1],
     ):
-        for v in vertices:
-            self.triangle_vertices.append(v)
-        for _ in range(len(vertices) / 3):
-            self.triangle_surfaces.append(surface.copy())
+        self.triangle_vertices.extend(vertices)
+        self.triangle_surfaces.resize(
+            len(self.triangle_surfaces) + len(vertices) / 3, fill=surface
+        )
 
     def add_triangle_mesh_instance(
         mut self,
@@ -152,8 +152,7 @@ struct SceneBuilder(
         bounds: AABB[.LOCAL],
         surface: SurfaceId[1],
     ) -> UInt32:
-        var owned_vertices = List[Point3f32[.LOCAL]](capacity=len(vertices))
-        owned_vertices.extend(vertices)
+        var owned_vertices = List(vertices)
         return self.add_owned_triangle_mesh_instance(
             owned_vertices^,
             List[Float32](),
@@ -742,9 +741,7 @@ struct SceneData:
                     self._triangle_meshes[mesh_idx][base + 2]
                 )
                 if reverses_orientation:
-                    var tmp = p1
-                    p1 = p2
-                    p2 = tmp
+                    swap(p1, p2)
                 var weight = triangle_area(p0, p1, p2) * (
                     _light_importance(radiance)
                 )

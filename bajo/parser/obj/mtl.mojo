@@ -13,9 +13,7 @@ def _map_name_from_tail(mut cur: ObjLineCursor) -> StringSpan[cur.origin]:
         if word.byte_length() == 0:
             break
         # Skip flags like '-clamp' or '-s'
-        var word_bytes = Span(
-            unsafe_ptr=word.unsafe_ptr(), length=word.byte_length()
-        )
+        var word_bytes = word.as_bytes()
         if word_bytes[0] == MINUS:
             continue
         candidate = word
@@ -25,17 +23,13 @@ def _map_name_from_tail(mut cur: ObjLineCursor) -> StringSpan[cur.origin]:
 def _upsert_material(
     mut mesh: ObjMesh, var material: ObjMaterial
 ) raises -> Int:
-    if material.name in mesh.material_names:
-        var index = mesh.material_names[material.name]
-        if mesh.materials[index].fallback:
-            mesh.materials[index] = material^
-            return index
-
-    var index = len(mesh.materials)
-    if not (material.name in mesh.material_names):
-        mesh.material_names[material.name] = index
+    var next_index = len(mesh.materials)
+    var index = mesh.material_names.setdefault(material.name, next_index)
+    if index != next_index and mesh.materials[index].fallback:
+        mesh.materials[index] = material^
+        return index
     mesh.materials.append(material^)
-    return index
+    return next_index
 
 
 def _add_texture(
@@ -43,8 +37,8 @@ def _add_texture(
 ) raises -> Int:
     var filename = String(name)
     var path = std.os.path.join(base, filename)
-    if path in mesh.texture_names:
-        return mesh.texture_names[path]
+    if case .Some(index) = mesh.texture_names.get(path):
+        return index
 
     var index = len(mesh.textures)
     mesh.textures.append(ObjTexture(filename^, path))

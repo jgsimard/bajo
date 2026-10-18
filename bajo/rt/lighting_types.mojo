@@ -110,12 +110,13 @@ def _build_alias_distribution(
     if count == 0 or total <= 0.0:
         return
     probabilities = List[Float32](length=count, fill=1.0)
-    indices = List[UInt32](length=count, fill=UInt32(0))
+    indices = List[UInt32](
+        length=count, fill_with=lambda (i: Int) -> UInt32: UInt32(i)
+    )
     var scaled = List[Float64](length=count, fill=0.0)
     var small = List[Int](capacity=count)
     var large = List[Int](capacity=count)
     for i in range(count):
-        indices[i] = UInt32(i)
         scaled[i] = Float64(weights[i]) / total * Float64(count)
         if scaled[i] < 1.0:
             small.append(i)

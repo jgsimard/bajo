@@ -54,8 +54,7 @@ def _flatten_texture_pixels(world: SceneData) -> List[Float32]:
     var out = List[Float32](capacity=count)
     for texture_idx in range(len(world.surfaces().image_textures)):
         ref texture = world.surfaces().image_textures[texture_idx]
-        for value in texture.pixels:
-            out.append(value)
+        out.extend(Span(texture.pixels))
     return out^
 
 

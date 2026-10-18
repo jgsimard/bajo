@@ -87,8 +87,8 @@ struct SceneMedia:
     def set_boundary(mut values: List[UInt32], index: Int, boundary: UInt32):
         if boundary == 0 and index >= len(values):
             return
-        while len(values) <= index:
-            values.append(UInt32(0))
+        if index >= len(values):
+            values.resize(index + 1, fill=UInt32(0))
         values[index] = boundary
 
     @staticmethod

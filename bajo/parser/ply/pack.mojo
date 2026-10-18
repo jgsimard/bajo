@@ -41,7 +41,7 @@ def _remove_degenerate_triangles(mut mesh: PlyMesh) raises:
             for lane in range(3):
                 mesh.indices[write + lane] = mesh.indices[base + lane]
         write += 3
-    mesh.indices.resize(write, fill=UInt32(0))
+    mesh.indices.shrink(write)
 
 
 @fieldwise_init

@@ -179,12 +179,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
             if count > 0 and self.group_ids[count - 1] == group:
                 continue
             if count <= _SMALL_GROUP_COUNT:
-                var found = False
-                for previous in self.group_ids:
-                    if previous == group:
-                        found = True
-                        break
-                if found:
+                if group in self.group_ids:
                     continue
                 if count == _SMALL_GROUP_COUNT:
                     for slot, label in enumerate(self.group_ids):
@@ -797,9 +792,6 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
         _ = self._validate_update(boxes)
         var fresh = Self(boxes, self.groups)
         debug_assert["safe"](len(fresh.nodes) == len(self.nodes))
-        for i in range(len(self.nodes)):
-            self.nodes[i] = fresh.nodes[i]
-        for i in range(len(self.bounds)):
-            self.bounds[i] = fresh.bounds[i]
-        for i in range(len(boxes)):
-            self.item_bounds[i] = boxes[i]
+        Span(self.nodes).copy_from(Span(fresh.nodes))
+        Span(self.bounds).copy_from(Span(fresh.bounds))
+        Span(self.item_bounds).copy_from(Span(fresh.item_bounds))

@@ -35,12 +35,8 @@ def traverse_ordered[
                 var right = nodes.unsafe_ptr().unsafe_load(Int(left) * 2)
                 var ld, rd = children(left, right)
                 if rd > ld if furthest else rd < ld:
-                    var temp = left
-                    left = right
-                    right = temp
-                    var td = ld
-                    ld = rd
-                    rd = td
+                    swap(left, right)
+                    swap(ld, rd)
                 if accept(rd, cutoff):
                     pending[unsafe_offset=count] = right
                     distances[unsafe_offset=count] = rd

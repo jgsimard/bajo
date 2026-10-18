@@ -60,5 +60,4 @@ def copy_to_device[
     if len(values) != len(buffer):
         raise Error("Device buffer copy requires matching lengths")
     with buffer.map_to_host() as data:
-        for i in range(len(values)):
-            data[i] = values[i]
+        data.as_span().copy_from(values)

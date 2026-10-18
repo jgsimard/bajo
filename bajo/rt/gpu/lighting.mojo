@@ -90,8 +90,7 @@ struct GpuRtLights:
             len(world.lights().records) < (1 << 28),
             "GPU RT alias table supports fewer than 2^28 lights",
         )
-        for probability in world.lights().alias_probabilities:
-            fields.append(probability)
+        fields.extend(Span(world.lights().alias_probabilities))
         var uniform_kind = PrimitiveKind.UNKNOWN
         var homogeneous = True
         for light_idx, light in enumerate(world.lights().records):

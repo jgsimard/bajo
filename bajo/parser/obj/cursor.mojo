@@ -283,19 +283,11 @@ struct ObjLineCursor[origin: ImmOrigin]:
                 self.bytes = self.bytes[:logical_end]
                 break
             p += 1
-        var end_pos = logical_end - 1
-        while end_pos >= start:
-            var b = self.bytes.unsafe_get(end_pos)
-            if not _is_ws(b):
-                break
-            end_pos -= 1
         self.pos = len(self.bytes)
-        if end_pos < start:
-            return ""
         return String(
             StringSpan[Self.origin](
-                unsafe_from_utf8=self.bytes[start : end_pos + 1]
-            )
+                unsafe_from_utf8=self.bytes[start:logical_end]
+            ).rstrip(" \t\r")
         )
 
     def next_word(mut self) -> StringSpan[Self.origin]:

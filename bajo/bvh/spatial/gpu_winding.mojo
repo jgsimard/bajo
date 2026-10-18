@@ -2,7 +2,7 @@
 
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
-from std.math import min, max, ceildiv
+from std.math import min, max, align_up
 from bajo.gpu.buffers import _copy_staging_slice, upload_list, _device_span
 from bajo.core import Frame
 from bajo.bvh.constants import EMPTY_LANE, f32_max
@@ -82,7 +82,7 @@ struct GpuWindingCache[frame: Frame = .WORLD]:
         lengths[7] = len(tree.nodes) // 2
         var starts = Array[Int, 9](fill=0)
         comptime for i in range(8):
-            starts[i + 1] = starts[i] + ceildiv(lengths[i], 16) * 16
+            starts[i + 1] = starts[i] + Int(align_up(lengths[i], 16))
         var staging = ctx.enqueue_create_host_buffer[.uint32](starts[6])
         var storage = ctx.enqueue_create_buffer[.uint32](starts[8])
         var staging_span = staging.as_span()
@@ -93,8 +93,7 @@ struct GpuWindingCache[frame: Frame = .WORLD]:
         _copy_staging_slice(staging_span, starts[4], parents)
         staging[starts[5]] = 0
         comptime for i in range(6):
-            for padding in range(starts[i] + lengths[i], starts[i + 1]):
-                staging[padding] = 0
+            staging_span[starts[i] + lengths[i] : starts[i + 1]].fill(0)
         staging.enqueue_copy_to(
             storage.create_sub_buffer[.uint32](0, starts[6])
         )

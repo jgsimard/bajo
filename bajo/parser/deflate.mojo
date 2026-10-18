@@ -7,7 +7,6 @@ written output. No speculative memory access extends outside either span.
 """
 
 from std.bit import bit_reverse
-from std.memory import unsafe_memcpy
 from std.sys.info import CompilationTarget
 from std.sys.intrinsics import llvm_intrinsic
 
@@ -757,10 +756,8 @@ def inflate_raw(
             var offset = bits.offset - bits.count // 8
             if length > len(input) - offset or length > len(output) - written:
                 raise Error("DEFLATE stored block exceeds input or output")
-            unsafe_memcpy(
-                dest=output.unsafe_ptr().unsafe_offset(written),
-                src=input.unsafe_ptr().unsafe_offset(offset),
-                count=length,
+            output[written : written + length].copy_from(
+                input[offset : offset + length]
             )
             written += length
             bits.offset = offset + length

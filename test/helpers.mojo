@@ -14,9 +14,9 @@ def assert_vec_equal[
     b: Geo3[dtype, kind, frame, width],
     atol: Float64 = 1e-5,
 ) raises:
-    assert_almost_equal(a.x, b.x, msg=String("x"), atol=atol)
-    assert_almost_equal(a.y, b.y, msg=String("y"), atol=atol)
-    assert_almost_equal(a.z, b.z, msg=String("z"), atol=atol)
+    assert_almost_equal(a.x, b.x, msg="x", atol=atol)
+    assert_almost_equal(a.y, b.y, msg="y", atol=atol)
+    assert_almost_equal(a.z, b.z, msg="z", atol=atol)
 
 
 def assert_mat_equal[
@@ -30,9 +30,9 @@ def assert_mat_equal[
     b: Mat[dtype, rows, cols, frame, width],
     atol: Float64 = 1e-5,
 ) raises:
-    comptime for i in range(rows):
-        comptime for j in range(cols):
-            comptime for lane in range(width):
+    for i in range(rows):
+        for j in range(cols):
+            for lane in range(width):
                 assert_almost_equal(
                     a[i][j][lane],
                     b[i][j][lane],

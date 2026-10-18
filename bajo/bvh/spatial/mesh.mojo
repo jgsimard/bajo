@@ -1,6 +1,5 @@
 """Owning indexed mesh for shared CPU/GPU spatial queries."""
 
-from std.memory import unsafe_memcpy
 from std.sys.info import size_of
 from .policy import BUILD_WIDTH
 from bajo.core import AABB, Frame, Point3f32, Vec3f32
@@ -37,12 +36,12 @@ def _copy_mesh_vectors[
     debug_assert["safe", _use_compiler_assume=True](
         len(destination) == len(values) * 3
     )
-    if len(values) > 0:
-        unsafe_memcpy(
-            dest=destination.unsafe_ptr(),
-            src=values.unsafe_ptr().unsafe_bitcast[Float32](),
-            count=len(values) * 3,
-        )
+    # The size assertion above establishes the flat three-coordinate view.
+    var coordinates = ImmSpan(
+        unsafe_ptr=values.unsafe_ptr().unsafe_bitcast[Float32](),
+        length=len(values) * 3,
+    )
+    destination.copy_from(coordinates)
 
 
 struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
@@ -126,12 +125,7 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
         _copy_mesh_vectors(self.points, points)
         if len(velocities) > 0:
             _copy_mesh_vectors(self.velocities, velocities)
-        if len(indices) > 0:
-            unsafe_memcpy(
-                dest=self.indices.unsafe_ptr(),
-                src=indices.unsafe_ptr(),
-                count=len(indices),
-            )
+        Span(self.indices).copy_from(indices)
         self.bvh = SpatialBoundsBvh(
             Self._face_bounds_validated(points, self.indices), groups
         )

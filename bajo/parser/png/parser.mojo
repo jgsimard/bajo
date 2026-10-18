@@ -3,7 +3,6 @@
 from max.algorithm import parallelize
 from std.ffi import OwnedDLHandle
 from std.math import ceildiv, pow
-from std.memory import unsafe_memcpy
 from std.sys import num_logical_cores, simd_width_of
 
 from bajo.parser.mmap import MMap
@@ -204,10 +203,8 @@ def _try_parse_png_simd(
         var write = 0
         for chunk in ranges:
             var count = chunk[1] - chunk[0]
-            unsafe_memcpy(
-                dest=compressed.unsafe_ptr().unsafe_offset(write),
-                src=bytes.unsafe_ptr().unsafe_offset(chunk[0]),
-                count=count,
+            Span(compressed)[write : write + count].copy_from(
+                bytes[chunk[0] : chunk[1]]
             )
             write += count
         _inflate_png(compressed, Span(raw)[:decoded_size])

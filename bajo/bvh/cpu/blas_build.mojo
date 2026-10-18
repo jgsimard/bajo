@@ -1,7 +1,7 @@
 """CPU BLAS construction and packed-storage assembly."""
 
 from max.algorithm import parallelize
-from std.memory import unsafe_memcpy, bitcast
+from std.memory import bitcast
 
 from bajo.bvh.constants import (
     EMPTY_LANE,
@@ -93,7 +93,7 @@ def _pack_built_triangle_blas[
     ],
     descs: MutPointer[UInt32, _],
     nodes: MutPointer[Float32, _],
-    leaves: MutPointer[Float32, _],
+    leaves: MutSpan[Float32, _],
     blas_idx: Int,
     node_f32_base: Int,
     leaf_f32_base: Int,
@@ -113,12 +113,12 @@ def _pack_built_triangle_blas[
 
     def pack_leaf(block_idx: Int) {imm}:
         var block_stride = leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
-        unsafe_memcpy(
-            dest=leaves.unsafe_offset(leaf_f32_base + block_idx * block_stride),
-            src=bvh.packed_leaf_blocks.unsafe_ptr().unsafe_offset(
-                block_idx * block_stride
-            ),
-            count=block_stride,
+        var source_base = block_idx * block_stride
+        var destination_base = leaf_f32_base + source_base
+        leaves[destination_base : destination_base + block_stride].copy_from(
+            ImmSpan(bvh.packed_leaf_blocks)[
+                source_base : source_base + block_stride
+            ]
         )
 
     var node_count = len(bvh.tree.nodes)
@@ -162,7 +162,7 @@ def _pack_triangle_blas[
     vertices: ImmSpan[Point3f32[frame], _],
     descs: MutPointer[UInt32, _],
     nodes: MutPointer[Float32, _],
-    leaves: MutPointer[Float32, _],
+    leaves: MutSpan[Float32, _],
     blas_idx: Int,
     node_f32_base: Int,
     leaf_f32_base: Int,
@@ -235,7 +235,7 @@ def _build_single_triangle_blas[
         bvh,
         descs.unsafe_ptr(),
         nodes.unsafe_ptr(),
-        unused_leaf.unsafe_ptr(),
+        unused_leaf,
         0,
         0,
         0,
@@ -390,7 +390,7 @@ def build_cpu_triangle_blas_set[
     leaves.resize(unsafe_uninit_length=layout.leaf_f32_count)
     var descs_ptr = descs.unsafe_ptr()
     var nodes_ptr = nodes.unsafe_ptr()
-    var leaves_ptr = leaves.unsafe_ptr()
+    var leaves_span = Span(leaves)
 
     def build_one(blas_idx: Int) {imm}:
         if len(vertex_sets[blas_idx]) == 0:
@@ -412,7 +412,7 @@ def build_cpu_triangle_blas_set[
             vertex_sets[blas_idx],
             descs_ptr,
             nodes_ptr,
-            leaves_ptr,
+            leaves_span,
             blas_idx,
             layout.node_bases[blas_idx],
             layout.leaf_bases[blas_idx],

@@ -7,7 +7,6 @@ from max.gpu.host import (
     DeviceGraphBuilder,
 )
 from std.math import min, max, ceildiv
-from std.memory import unsafe_memcpy
 from .parallel_refit import (
     forest_parents,
     forest_parents_kernel,
@@ -17,7 +16,12 @@ from .parallel_refit import (
     refit_mesh_chunks_kernel,
     publish_mesh_chunk_parents_kernel,
 )
-from bajo.gpu.buffers import _device_span, copy_to_device, upload_list
+from bajo.gpu.buffers import (
+    _copy_staging_slice,
+    _device_span,
+    copy_to_device,
+    upload_list,
+)
 from bajo.core import Frame, Point3f32, Vec3f32
 
 from .device_update import (
@@ -102,52 +106,15 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
             offsets[i + 1] = offsets[i] + ceildiv(lengths[i], 16) * 16
         var staging = ctx.enqueue_create_host_buffer[.uint32](offsets[10])
         var storage = ctx.enqueue_create_buffer[.uint32](offsets[14])
-        unsafe_memcpy(
-            dest=staging.unsafe_ptr()
-            .unsafe_offset(offsets[0])
-            .unsafe_bitcast[Float32](),
-            src=host.points.unsafe_ptr(),
-            count=lengths[0],
-        )
-        unsafe_memcpy(
-            dest=staging.unsafe_ptr().unsafe_offset(offsets[1]),
-            src=host.indices.unsafe_ptr(),
-            count=lengths[1],
-        )
-        unsafe_memcpy(
-            dest=staging.unsafe_ptr()
-            .unsafe_offset(offsets[2])
-            .unsafe_bitcast[Float32](),
-            src=host.velocities.unsafe_ptr(),
-            count=lengths[2],
-        )
-        unsafe_memcpy(
-            dest=staging.unsafe_ptr()
-            .unsafe_offset(offsets[3])
-            .unsafe_bitcast[Float32](),
-            src=host.bvh.bounds.unsafe_ptr(),
-            count=lengths[3],
-        )
-        unsafe_memcpy(
-            dest=staging.unsafe_ptr().unsafe_offset(offsets[4]),
-            src=host.bvh.nodes.unsafe_ptr(),
-            count=lengths[4],
-        )
-        unsafe_memcpy(
-            dest=staging.unsafe_ptr().unsafe_offset(offsets[5]),
-            src=tiles.unsafe_ptr(),
-            count=lengths[5],
-        )
-        unsafe_memcpy(
-            dest=staging.unsafe_ptr().unsafe_offset(offsets[6]),
-            src=chunks.unsafe_ptr(),
-            count=lengths[6],
-        )
-        unsafe_memcpy(
-            dest=staging.unsafe_ptr().unsafe_offset(offsets[7]),
-            src=parents.unsafe_ptr(),
-            count=lengths[7],
-        )
+        var staging_span = staging.as_span()
+        _copy_staging_slice(staging_span, offsets[0], host.points)
+        _copy_staging_slice(staging_span, offsets[1], host.indices)
+        _copy_staging_slice(staging_span, offsets[2], host.velocities)
+        _copy_staging_slice(staging_span, offsets[3], host.bvh.bounds)
+        _copy_staging_slice(staging_span, offsets[4], host.bvh.nodes)
+        _copy_staging_slice(staging_span, offsets[5], tiles)
+        _copy_staging_slice(staging_span, offsets[6], chunks)
+        _copy_staging_slice(staging_span, offsets[7], parents)
         staging[offsets[8]] = 0
         staging[offsets[8] + 1] = 0
         staging[offsets[9]] = 0

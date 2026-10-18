@@ -3,8 +3,7 @@
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from std.math import min, max, ceildiv
-from std.memory import unsafe_memcpy
-from bajo.gpu.buffers import upload_list, _device_span
+from bajo.gpu.buffers import _copy_staging_slice, upload_list, _device_span
 from bajo.core import Frame
 from bajo.bvh.constants import EMPTY_LANE, f32_max
 
@@ -86,33 +85,12 @@ struct GpuWindingCache[frame: Frame = .WORLD]:
             starts[i + 1] = starts[i] + ceildiv(lengths[i], 16) * 16
         var staging = ctx.enqueue_create_host_buffer[.uint32](starts[6])
         var storage = ctx.enqueue_create_buffer[.uint32](starts[8])
-        unsafe_memcpy(
-            dest=staging.unsafe_ptr().unsafe_offset(starts[0]),
-            src=offsets.unsafe_ptr(),
-            count=lengths[0],
-        )
-        unsafe_memcpy(
-            dest=staging.unsafe_ptr().unsafe_offset(starts[1]),
-            src=faces.unsafe_ptr(),
-            count=lengths[1],
-        )
-        unsafe_memcpy(
-            dest=staging.unsafe_ptr()
-            .unsafe_offset(starts[2])
-            .unsafe_bitcast[Float32](),
-            src=tree.bounds.unsafe_ptr(),
-            count=lengths[2],
-        )
-        unsafe_memcpy(
-            dest=staging.unsafe_ptr().unsafe_offset(starts[3]),
-            src=tree.nodes.unsafe_ptr(),
-            count=lengths[3],
-        )
-        unsafe_memcpy(
-            dest=staging.unsafe_ptr().unsafe_offset(starts[4]),
-            src=parents.unsafe_ptr(),
-            count=lengths[4],
-        )
+        var staging_span = staging.as_span()
+        _copy_staging_slice(staging_span, starts[0], offsets)
+        _copy_staging_slice(staging_span, starts[1], faces)
+        _copy_staging_slice(staging_span, starts[2], tree.bounds)
+        _copy_staging_slice(staging_span, starts[3], tree.nodes)
+        _copy_staging_slice(staging_span, starts[4], parents)
         staging[starts[5]] = 0
         comptime for i in range(6):
             for padding in range(starts[i] + lengths[i], starts[i + 1]):

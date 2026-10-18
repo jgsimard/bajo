@@ -1,6 +1,23 @@
 """Device buffer uploads, retained-buffer copies, and device ABI views."""
 
 from max.gpu.host import DeviceBuffer, DeviceContext
+from std.sys import align_of, size_of
+
+
+def _copy_staging_slice[
+    dtype: DType
+](staging: MutSpan[UInt32, _], offset: Int, values: ImmSpan[Scalar[dtype], _]):
+    """Copy four-byte scalars into a checked slice of host staging storage."""
+    comptime assert size_of[Scalar[dtype]]() == size_of[UInt32]()
+    comptime assert align_of[Scalar[dtype]]() <= align_of[UInt32]()
+    var destination = staging[offset : offset + len(values)]
+    # Word storage satisfies this scalar's size and alignment. Reinterpret
+    # only after slicing the host view, preserving all payload bits.
+    var typed_destination = MutSpan(
+        unsafe_ptr=destination.unsafe_ptr().unsafe_bitcast[Scalar[dtype]](),
+        length=len(destination),
+    )
+    typed_destination.copy_from(values)
 
 
 def _device_span[

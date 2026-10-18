@@ -1,6 +1,5 @@
 """GPU ownership and upload adapter for packed BLAS storage."""
 
-from std.memory import unsafe_memcpy
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.cpu.blas_storage import CpuBlasSet
@@ -75,13 +74,7 @@ struct GpuBlasSet[
         # CPU triangle leaves omit the two padding planes used by the GPU's
         # float4-aligned edge layout.  Repack them and rewrite per-BLAS leaf
         # offsets; nodes and sphere leaves already share their GPU layouts.
-        var upload_descs = List[UInt32](length=len(host.descs), fill=0)
-        if len(host.descs) > 0:
-            unsafe_memcpy(
-                dest=upload_descs.unsafe_ptr(),
-                src=host.descs.unsafe_ptr(),
-                count=len(host.descs),
-            )
+        var upload_descs = host.descs.copy()
         var upload_leaves: List[Float32]
         comptime if Self.kind == .TRIANGLE:
             comptime assert CPU_TRI_LEAF_PACKED_STRIDE == 10
@@ -119,40 +112,33 @@ struct GpuBlasSet[
                     )
                     # v0, primitive id, and e1 occupy planes 0 through 6 in
                     # both layouts.
-                    comptime for plane in range(7):
-                        unsafe_memcpy(
-                            dest=upload_leaves.unsafe_ptr().unsafe_offset(
-                                gpu_block_base + plane * Self.leaf_width
-                            ),
-                            src=host.leaves.unsafe_ptr().unsafe_offset(
-                                cpu_block_base + plane * Self.leaf_width
-                            ),
-                            count=Self.leaf_width,
-                        )
+                    Span(upload_leaves)[
+                        gpu_block_base : gpu_block_base + 7 * Self.leaf_width
+                    ].copy_from(
+                        ImmSpan(host.leaves)[
+                            cpu_block_base : cpu_block_base
+                            + 7 * Self.leaf_width
+                        ]
+                    )
                     # GPU planes 7 and 11 remain zero padding around e2.
-                    comptime for plane in range(3):
-                        unsafe_memcpy(
-                            dest=upload_leaves.unsafe_ptr().unsafe_offset(
-                                gpu_block_base + (plane + 8) * Self.leaf_width
-                            ),
-                            src=host.leaves.unsafe_ptr().unsafe_offset(
-                                cpu_block_base + (plane + 7) * Self.leaf_width
-                            ),
-                            count=Self.leaf_width,
-                        )
+                    Span(upload_leaves)[
+                        gpu_block_base
+                        + 8 * Self.leaf_width : gpu_block_base
+                        + 11 * Self.leaf_width
+                    ].copy_from(
+                        ImmSpan(host.leaves)[
+                            cpu_block_base
+                            + 7 * Self.leaf_width : cpu_block_base
+                            + 10 * Self.leaf_width
+                        ]
+                    )
                 gpu_leaf_base += (
                     Int(desc.leaf_block_count)
                     * Self.leaf_width
                     * TRI_LEAF_PACKED_STRIDE
                 )
         else:
-            upload_leaves = List[Float32](length=len(host.leaves), fill=0.0)
-            if len(host.leaves) > 0:
-                unsafe_memcpy(
-                    dest=upload_leaves.unsafe_ptr(),
-                    src=host.leaves.unsafe_ptr(),
-                    count=len(host.leaves),
-                )
+            upload_leaves = host.leaves.copy()
 
         var descs = ctx.enqueue_create_buffer[.uint32](len(upload_descs))
         var node_count = len(host.nodes) if len(host.nodes) > 0 else 1

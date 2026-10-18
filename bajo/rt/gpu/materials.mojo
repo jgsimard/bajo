@@ -20,9 +20,7 @@ def _flatten_lambertians(world: SceneData) -> List[Float32]:
         capacity=len(world.surfaces().lambertians) * GpuRgbMaterialLayout.STRIDE
     )
     for material in world.surfaces().lambertians:
-        out.append(material.albedo.x)
-        out.append(material.albedo.y)
-        out.append(material.albedo.z)
+        out.extend([material.albedo.x, material.albedo.y, material.albedo.z])
     return out^
 
 
@@ -79,13 +77,19 @@ def _flatten_metals(world: SceneData) -> List[Float32]:
 
 
 def _flatten_dielectrics(world: SceneData) -> List[Float32]:
-    var out = List[Float32](capacity=len(world.surfaces().dielectrics))
+    var out = List[Float32](
+        capacity=len(world.surfaces().dielectrics) * GpuDielectricLayout.STRIDE
+    )
     for material in world.surfaces().dielectrics:
-        out.append(material.refraction_index)
-        out.append(material.displacement_scale)
-        out.append(material.displacement_u_scale)
-        out.append(material.displacement_v_scale)
-        out.append(bitcast[.float32](material.displacement_texture_index))
+        out.extend(
+            [
+                material.refraction_index,
+                material.displacement_scale,
+                material.displacement_u_scale,
+                material.displacement_v_scale,
+                bitcast[.float32](material.displacement_texture_index),
+            ]
+        )
     return out^
 
 
@@ -94,9 +98,9 @@ def _flatten_emissives(world: SceneData) -> List[Float32]:
         capacity=len(world.surfaces().emissives) * GpuRgbMaterialLayout.STRIDE
     )
     for material in world.surfaces().emissives:
-        out.append(material.radiance.x)
-        out.append(material.radiance.y)
-        out.append(material.radiance.z)
+        out.extend(
+            [material.radiance.x, material.radiance.y, material.radiance.z]
+        )
     return out^
 
 
@@ -196,9 +200,7 @@ struct GpuRtMaterials:
             capacity=3 * len(world.media().absorption)
         )
         for value in world.media().absorption:
-            absorption.append(value.x)
-            absorption.append(value.y)
-            absorption.append(value.z)
+            absorption.extend([value.x, value.y, value.z])
         self.medium_absorption = _upload_nonempty(ctx, absorption)
         self.sphere_media = _upload_nonempty(ctx, world.media().spheres)
         self.triangle_media = _upload_nonempty(ctx, world.media().triangles)

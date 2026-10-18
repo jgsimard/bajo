@@ -4,6 +4,7 @@ Adapted from libdeflate v1.25; see LICENSE.libdeflate in this directory.
 """
 
 from std.memory import bitcast
+from std.math import iota
 from std.sys.info import CompilationTarget
 from std.sys.intrinsics import llvm_intrinsic
 
@@ -80,9 +81,7 @@ def _adler32_simd[
     var a = (initial & UInt32(65535)) % UInt32(65521)
     var b = (initial >> 16) % UInt32(65521)
     var offset = 0
-    var weights = SIMD[.uint8, width](0)
-    comptime for lane in range(width):
-        weights[lane] = UInt8(width - lane)
+    comptime weights = SIMD[.uint8, width](UInt8(width)) - iota[.uint8, width]()
     # A whole number of pairs keeps scalar tails out of every NMAX block.
     # Both sums and the final weighted sum stay below 2**32 at 5552 bytes.
     comptime batch = 5552 // (2 * width) * (2 * width)
@@ -144,9 +143,7 @@ def adler32(bytes: ImmSpan[UInt8, _], initial: UInt32 = 1) -> UInt32:
             var vector_end = offset + (end - offset) // 32 * 32
             var sums = SIMD[.uint32, 32](0)
             var weighted = sums
-            var weights = SIMD[.uint32, 32](0)
-            comptime for lane in range(32):
-                weights[lane] = UInt32(32 - lane)
+            comptime weights = SIMD[.uint32, 32](32) - iota[.uint32, 32]()
             for i in range(offset, vector_end, 32):
                 var values = (
                     bytes.unsafe_ptr()

@@ -1,7 +1,7 @@
 from max.algorithm import parallelize
 from std.atomic import Atomic, Ordering
 from std.sys import num_logical_cores, simd_width_of, size_of
-from std.math import min, ceildiv
+from std.math import min, ceildiv, iota
 
 from bajo.core import AABB, Frame
 from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
@@ -103,9 +103,11 @@ def _radix_sort_morton_pass_parallel[
 
     def scatter_worker(task_idx: Int) {imm}:
         var offsets_base = task_idx * 256
-        var worker_offsets = Array[Int, 256](fill=0)
-        for bucket in range(256):
-            worker_offsets[bucket] = offsets[offsets_base + bucket]
+        var worker_offsets = Array[Int, 256](
+            fill_with=lambda (bucket: Int) -> Int: offsets[
+                offsets_base + bucket
+            ]
+        )
 
         var first = len(src) * task_idx // worker_count
         var end = len(src) * (task_idx + 1) // worker_count
@@ -172,9 +174,11 @@ def _radix_sort_morton_storage_pass[
 
     def scatter_worker(task_idx: Int) {imm, mut storage}:
         var offsets_base = task_idx * 256
-        var worker_offsets = Array[Int, 256](fill=0)
-        for bucket in range(256):
-            worker_offsets[bucket] = offsets.unsafe_get(offsets_base + bucket)
+        var worker_offsets = Array[Int, 256](
+            fill_with=lambda (bucket: Int) -> Int: offsets.unsafe_get(
+                offsets_base + bucket
+            )
+        )
         var first = count * task_idx // worker_count
         var end = count * (task_idx + 1) // worker_count
         for i in range(first, end):
@@ -243,9 +247,7 @@ def _has_refinable_morton_run(pairs: ImmSpan[MortonItem, _]) -> Bool:
     comptime assert size_of[MortonItem]() == 2 * size_of[UInt32]()
     comptime width = max(2, simd_width_of[DType.uint32]())
     comptime items_per_vector = width // 2
-    var even = SIMD[.bool, width](fill=False)
-    comptime for lane in range(0, width, 2):
-        even[lane] = True
+    comptime even = (iota[.uint32, width]() & UInt32(1)).eq(0)
     var words = pairs.unsafe_ptr().unsafe_bitcast[UInt32]()
     comptime run_gap = MORTON_REFINEMENT_MIN_RUN - 1
     var i = run_gap

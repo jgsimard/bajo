@@ -154,9 +154,7 @@ def _flatten_triangle_sets[
     var packed_vertices = List[Float32](capacity=total_vertex_count * 3)
     for vertices in vertex_sets:
         for vertex in vertices:
-            packed_vertices.append(vertex.x)
-            packed_vertices.append(vertex.y)
-            packed_vertices.append(vertex.z)
+            packed_vertices.extend([vertex.x, vertex.y, vertex.z])
     return _TriangleHostSegments(
         SegmentOffsets.from_counts(primitive_counts), packed_vertices^
     )
@@ -172,9 +170,7 @@ def _flatten_triangle_sets[
     )
     var packed_vertices = List[Float32](capacity=len(vertices) * 3)
     for vertex in vertices:
-        packed_vertices.append(vertex.x)
-        packed_vertices.append(vertex.y)
-        packed_vertices.append(vertex.z)
+        packed_vertices.extend([vertex.x, vertex.y, vertex.z])
     return _TriangleHostSegments(
         SegmentOffsets.single(len(vertices) / 3), packed_vertices^
     )

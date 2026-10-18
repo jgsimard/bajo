@@ -117,9 +117,7 @@ struct SceneBuilder(
         v2: Point3f32[.WORLD],
         surface: SurfaceId[1],
     ):
-        self.triangle_vertices.append(v0)
-        self.triangle_vertices.append(v1)
-        self.triangle_vertices.append(v2)
+        self.triangle_vertices.extend([v0, v1, v2])
         self.triangle_surfaces.append(surface.copy())
 
     def add_quad(

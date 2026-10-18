@@ -1,6 +1,6 @@
 from max.algorithm import parallelize
 from std.atomic import Atomic, Ordering
-from std.math import abs, max, min
+from std.math import abs, max, min, iota
 from std.sys import simd_width_of
 
 from bajo.bvh.constants import LBVH_SENTINEL
@@ -400,9 +400,7 @@ def _nearest_neighbors_simd(
     var nearest = Array[Int, _HPLOC_CLUSTER_CAPACITY](uninitialized=True)
 
     for cluster_base in range(0, cluster_count, _HPLOC_SIMD_WIDTH):
-        var positions = SIMD[.int32, _HPLOC_SIMD_WIDTH](0)
-        comptime for lane in range(_HPLOC_SIMD_WIDTH):
-            positions[lane] = Int32(cluster_base + lane)
+        var positions = iota[.int32, _HPLOC_SIMD_WIDTH](Int32(cluster_base))
 
         var active = positions.lt(Int32(cluster_count))
         var own = cluster_bounds.load[_HPLOC_SIMD_WIDTH](

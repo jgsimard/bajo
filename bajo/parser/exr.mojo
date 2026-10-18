@@ -3,7 +3,7 @@
 from std.bit import byte_swap
 from std.memory import bitcast
 from max.algorithm import parallelize
-from std.math import ceildiv
+from std.math import ceildiv, iota
 from std.sys import Endian, num_logical_cores, simd_width_of
 from std.utils.numerics import isfinite
 
@@ -501,9 +501,7 @@ def _decode_channel[
 ) raises:
     comptime vector_width = simd_width_of[Float32]()
     var vector_end = width - width % vector_width
-    var offsets = SIMD[.int32, vector_width](0)
-    comptime for index in range(vector_width):
-        offsets[index] = Int32(3 * index)
+    comptime offsets = iota[.int32, vector_width]() * Int32(3)
     for x in range(0, vector_end, vector_width):
         var values: SIMD[.float32, vector_width]
         comptime if pixel_type == 1:

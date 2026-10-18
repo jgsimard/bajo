@@ -1,7 +1,7 @@
 """Width-generic packet CPU wavefront kernels."""
 
 from bajo.core.tensor_layout import record_tile, gather_record_vec3
-from std.math import sqrt
+from std.math import sqrt, iota
 from std.memory import Pointer
 from std.sys.info import size_of
 from bajo.rt.material_parameters import CoatedParameters
@@ -272,11 +272,9 @@ def _sample_bsdf_values[
     var estimator_seeds = path_stage_seed(sampling, batch.path_ids, stage)
     var random_u = SIMD[.float32, length](0.0)
     var random_v = SIMD[.float32, length](0.0)
-    var active = SIMD[.bool, length](fill=False)
+    var active = iota[.int, length]().lt(lane_count)
     var texture_albedo = True
     var texture_roughness = True
-    for lane in range(lane_count):
-        active[lane] = True
     comptime if MATERIAL_KIND == .COATED_DIFFUSE:
         if lane_count > 0:
             var records = record_tile[
@@ -478,9 +476,7 @@ def _trace_packets[
             )
             var misses = SIMD[.bool, length](fill=False)
             var direct_lights = _DirectLightBatch[length]()
-            var valid_lanes = SIMD[.bool, length](fill=False)
-            for lane in range(lane_count):
-                valid_lanes[lane] = True
+            var valid_lanes = iota[.int, length]().lt(lane_count)
             var ray_packet = Ray[.float32, .WORLD, length](
                 Point3[.float32, .WORLD, length](
                     packet.ox, packet.oy, packet.oz

@@ -104,9 +104,7 @@ def upload_vertices[
 ) raises -> DeviceBuffer[.float32]:
     var flat = List[Float32](capacity=len(verts) * 3)
     for v in verts:
-        flat.append(v.x)
-        flat.append(v.y)
-        flat.append(v.z)
+        flat.extend([v.x, v.y, v.z])
     return upload_list(ctx, flat)
 
 

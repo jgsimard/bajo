@@ -13,8 +13,9 @@ def module_selected[name: StaticString]() -> Bool:
     )
 
 
-@explicit_destroy("Call tests^.finish() to report all test results")
-struct TestRunner(Deinitable where False):
+struct TestRunner(
+    Deinitable where (False, "Call tests^.finish() to report all test results")
+):
     var modules: Int
     var failures: Int
 

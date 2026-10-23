@@ -3,7 +3,6 @@ from std.testing import (
     assert_almost_equal,
     assert_raises,
     assert_true,
-    assert_false,
 )
 
 from bajo.parser.asset_loader import MemoryAssetLoader

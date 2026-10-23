@@ -14,7 +14,7 @@ from bajo.bvh.gpu import (
     build_gpu_tlas,
 )
 
-from bajo.core import Affine3f32, Point3f32
+from bajo.core import Affine3f32
 from bajo.rt.gpu.lighting import GpuRtLights
 from bajo.rt.gpu.materials import GpuRtMaterials
 from bajo.rt.gpu.config import (

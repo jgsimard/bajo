@@ -1,4 +1,3 @@
-from std.math import min, max
 from std.builtin.sort import (
     _insertion_sort,
     _sort3,

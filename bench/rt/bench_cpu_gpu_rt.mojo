@@ -9,7 +9,6 @@ from bajo.core.utils import ns_to_ms
 from bajo.bvh.gpu import GpuBvhLayout
 from bajo.rt import (
     Camera,
-    Color,
     Integrator,
     RenderResult,
     RenderSettings,
@@ -17,7 +16,6 @@ from bajo.rt import (
 )
 from bajo.rt.cpu import render_wavefront
 from bajo.rt.gpu.resources import GpuRtRenderTarget, download_gpu_pixels
-from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.config import GpuRtBvhFormat, GPU_RT_BVH_WIDE4
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
 from bajo.rt.gpu.render import enqueue_render_gpu

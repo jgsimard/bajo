@@ -1,7 +1,7 @@
 import std.os.path
 from max.algorithm import parallelize
 from std.bit import count_trailing_zeros, pop_count
-from std.math import abs, cos, pi, sin, sqrt, tan
+from std.math import abs, cos, pi, sin, sqrt
 from std.utils.numerics import isfinite
 from std.memory import pack_bits
 from std.sys import num_logical_cores, simd_width_of

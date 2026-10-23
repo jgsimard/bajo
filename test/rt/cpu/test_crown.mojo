@@ -1,6 +1,6 @@
 """Absorption transport and textured material parity for CPU/GPU adapters."""
 
-from std.math import exp, sqrt
+from std.math import exp
 from std.memory import bitcast
 from std.testing import (
     TestSuite,
@@ -10,12 +10,11 @@ from std.testing import (
 )
 from bajo.bvh import Camera
 from bajo.core import Point3f32, Vec3f32, dot
-from bajo.core.random import Sampler
 from bajo.rt import CpuScene, render_wavefront
 from bajo.rt.render_types import Color, RenderSettings
 from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.media import SceneMedia, medium_transmittance, transmitted_medium
-from bajo.rt.material_types import ImageTexture, NO_TEXTURE
+from bajo.rt.material_types import ImageTexture
 from bajo.rt.material_storage import pack_coated_materials
 from bajo.rt.shading import _sample_dielectric
 from bajo.rt.gpu.materials import (

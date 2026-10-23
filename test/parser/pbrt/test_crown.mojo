@@ -12,9 +12,8 @@ from bajo.parser import AssetLoader
 from bajo.parser.pbrt import parse_pbrt, read_pbrt, read_pbrt_camera
 from bajo.parser.pbrt.spectrum import _blackbody_rgb
 from bajo.parser.ply import PlyMesh
-from bajo.rt.material_types import ImageTexture, NO_TEXTURE, MaterialKind
+from bajo.rt.material_types import ImageTexture, MaterialKind
 from bajo.rt.media import SceneMedia
-from bajo.rt.render_types import Color
 from bajo.core import Vec3f32, dot
 
 

@@ -6,13 +6,11 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.gpu.buffers import _device_span, upload_list
 from bajo.bvh.gpu.utils import (
     GpuBuildTimings,
-    upload_vertices,
 )
 from bajo.core import (
     AABB,
     vmin,
     vmax,
-    Vec3,
     Point3f32,
     Frame,
     SegmentOffsets,
@@ -24,8 +22,6 @@ from bajo.bvh.constants import (
     TRI_LEAF_VERTEX_STRIDE,
     TRI_LEAF_PACKED_STRIDE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
-    f32_max,
-    WideNode,
 )
 from bajo.bvh.gpu.wide_layout import (
     GpuCompactWideLayout,

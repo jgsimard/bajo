@@ -9,7 +9,6 @@ from .types import ObjMesh, ObjGroup, ObjIndex
 from .lines import _ObjLines
 from .cursor import ObjIndexLimit, ObjLineCursor
 from .constants import *
-from .primitives import _is_ws_or_line_cut
 from .serial import _ObjParserState, _word_ends_here, _parse_obj_serial
 from .mtl import _read_mtl_file
 from bajo.parser.asset_loader import AssetLoader

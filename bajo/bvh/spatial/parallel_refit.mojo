@@ -12,7 +12,7 @@ from std.utils.numerics import isfinite
 from max.gpu import global_idx, thread_idx, block_idx
 from max.gpu.sync import barrier
 from max.gpu.memory import AddressSpace
-from std.memory import stack_allocation, bitcast
+from std.memory import stack_allocation
 from bajo.bvh.constants import EMPTY_LANE
 from .device_update import centroid_order_key
 

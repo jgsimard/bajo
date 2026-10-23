@@ -2,7 +2,6 @@ from test.helpers import assert_mat_equal, assert_vec_equal
 
 from std.testing import (
     TestSuite,
-    assert_equal,
     assert_almost_equal,
 )
 

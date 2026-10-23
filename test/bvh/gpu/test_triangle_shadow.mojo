@@ -5,7 +5,6 @@ from std.math import ceildiv
 from std.memory import bitcast
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_equal, assert_true
-from bajo.bvh.constants import TraceMode
 from bajo.bvh.gpu.triangle_trace import (
     _intersect_cwbvh_triangle,
     _intersect_cwbvh_indexed_triangle,

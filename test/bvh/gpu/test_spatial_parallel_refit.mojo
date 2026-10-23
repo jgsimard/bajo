@@ -1,5 +1,5 @@
 """Large transactional mesh refits compared with the independent CPU forest."""
-from std.testing import TestSuite, assert_equal, assert_true
+from std.testing import TestSuite, assert_equal
 from std.math import nan
 from max.gpu.host import DeviceContext
 from bajo.core import Point3f32

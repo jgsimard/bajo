@@ -20,11 +20,9 @@ from bajo.bvh.cpu import (
 )
 from bajo.bvh.types import Hit
 from bajo.core import (
-    Affine3f32,
     Affine3,
     Frame,
     GeoKind,
-    Point3,
     Point3f32,
     Ray,
     Rayf32,
@@ -37,7 +35,6 @@ from bajo.rt.geometry import (
     interpolate_triangle_attribute,
 )
 from bajo.core.tensor_layout import record_tile
-from bajo.rt.render_types import Color
 from bajo.rt.material_types import (
     PrimitiveId,
     SurfaceId,

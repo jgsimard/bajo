@@ -17,7 +17,6 @@ from std.sys.info import bit_width_of
 from .utils import circular_shift, warp_level_multi_split
 from .radix_common import (
     init_radix_workspace,
-    global_histogram,
     scan_local_histogram,
     scatter_radix_tile,
     enqueue_radix_passes,

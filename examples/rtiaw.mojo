@@ -1,4 +1,4 @@
-from bajo.core import Vec3f32, length, Vec3W, Point3W, Point3
+from bajo.core import length, Vec3W, Point3W
 from bajo.core.random import Rng
 from bajo.core.utils import ns_to_ms
 from bajo.rt import (

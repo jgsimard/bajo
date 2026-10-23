@@ -37,7 +37,6 @@ from bajo.rt import (
     Environment,
     ImageTexture,
     Integrator,
-    Instance,
     Lambertian,
     LightRecord,
     LightStore,

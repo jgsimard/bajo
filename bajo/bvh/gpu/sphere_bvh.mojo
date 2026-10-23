@@ -14,8 +14,6 @@ from bajo.bvh.constants import (
 from bajo.core.utils import min_argmin
 from bajo.core import (
     AABB,
-    Vec3,
-    Point3,
     Point3f32,
     Frame,
     GeoKind,

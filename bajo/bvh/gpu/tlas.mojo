@@ -35,7 +35,6 @@ from bajo.bvh.gpu.triangle_trace import (
 )
 from bajo.bvh.gpu.trace import (
     GpuLeafFn,
-    trace_bounds_bvh,
     trace_bounds_bvh_state,
 )
 from bajo.bvh.gpu.utils import GpuBuildTimings

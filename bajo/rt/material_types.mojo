@@ -8,7 +8,7 @@ from bajo.rt.texture_math import (
 )
 from std.utils.numerics import isfinite
 
-from bajo.core import Affine3f32, Vec3, Vec3f32
+from bajo.core import Affine3f32, Vec3
 from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.render_types import Color

@@ -1,4 +1,4 @@
-from bajo.core import AABB, Vec3f32, Point3f32, Frame
+from bajo.core import AABB, Point3f32, Frame
 from bajo.bvh.types import Sphere
 
 

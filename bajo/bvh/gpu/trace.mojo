@@ -12,7 +12,7 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
 )
 from bajo.bvh.types import Hit
-from bajo.core import Frame, Point3, Rayf32, Vec3
+from bajo.core import Frame, Rayf32
 
 
 comptime GpuLeafFn[frame: Frame] = def(

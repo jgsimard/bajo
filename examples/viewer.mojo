@@ -12,7 +12,6 @@ from bajo.core.utils import ns_to_ms
 from bajo.bvh.cpu import CpuBvhBuildMethod, CpuTraversalMode
 from bajo.parser.number import parse_f32_at
 from bajo.rt import (
-    Camera,
     Integrator,
     RenderSettings,
     SceneData,

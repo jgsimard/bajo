@@ -1,5 +1,4 @@
-from std.benchmark import keep
-from std.math import abs, round, min, max
+from std.math import abs, round, max
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext, DeviceBuffer

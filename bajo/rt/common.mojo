@@ -10,7 +10,6 @@ from bajo.rt.render_types import (
 )
 from bajo.rt.material_types import (
     Environment,
-    EnvironmentKind,
     SurfaceStore,
 )
 from bajo.rt.lighting_types import _light_importance

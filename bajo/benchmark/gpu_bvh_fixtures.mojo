@@ -35,7 +35,6 @@ from bajo.bvh.gpu.triangle_trace import (
     trace_cwbvh8_triangles,
 )
 from bajo.bvh.gpu.tlas_diagnostics import _trace_cwbvh8_with_stats_in_frame
-from bajo.bvh.gpu.trace import GpuTraversalStats
 
 from bajo.core import AABB, Point3f32, Rayf32, SegmentOffsets
 

@@ -41,7 +41,7 @@ from bajo.bvh.gpu.compressed_bounds_bvh import (
     _quantize_upper,
     _unary_triangle_count,
 )
-from bajo.core import AABB, Point3f32, SegmentOffsets
+from bajo.core import AABB, SegmentOffsets
 from bajo.core.utils import min_argmin
 
 

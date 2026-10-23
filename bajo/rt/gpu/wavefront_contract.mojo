@@ -8,7 +8,6 @@ from max.gpu import global_idx
 from std.math import ceildiv
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.constants import f32_max
 from bajo.rt.rays import RT_RAY_T_MIN
 from bajo.rt.material_types import (
     Integrator,
@@ -26,12 +25,10 @@ from bajo.rt.wavefront_contract import (
     WAVE_STATUS,
     WavePathFloatAbi,
     WaveSampleFloatAbi,
-    WaveShadeFloatAbi,
     WaveShadowFloatAbi,
     load_device_wave_path,
     store_device_wave_path,
     store_device_wave_shade,
-    wavefront_plane_index,
     wavefront_rng_subsequence,
 )
 

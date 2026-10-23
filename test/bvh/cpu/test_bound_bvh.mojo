@@ -28,8 +28,6 @@ from bajo.bvh.types import BlasDesc, Hit, Sphere
 from bajo.core.random import Rng
 from bajo.bvh.constants import (
     EMPTY_LANE,
-    PrimitiveKind,
-    TraceMode,
     SPHERE_LEAF_PACKED_STRIDE,
     CPU_TRI_LEAF_PACKED_STRIDE,
     WideNode,

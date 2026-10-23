@@ -6,10 +6,7 @@ The result is broadcast to every lane; callers publish outputs in one lane.
 """
 
 from max.gpu import thread_idx, block_dim
-from max.gpu.memory import AddressSpace
 from max.gpu.primitives import block, warp
-from max.gpu.sync import barrier
-from std.memory import stack_allocation
 from std.math import min, max
 from std.memory import bitcast
 from bajo.core import Frame, Point3f32, Rayf32, Vec3f32, dot

@@ -16,7 +16,6 @@ from bajo.rt.render_types import Color, SamplingConfig
 from bajo.rt.material_types import (
     Environment,
     ImageTexture,
-    NO_TEXTURE,
     SurfaceId,
     SurfaceStore,
 )

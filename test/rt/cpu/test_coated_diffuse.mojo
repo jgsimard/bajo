@@ -7,7 +7,7 @@ from std.testing import (
     assert_true,
 )
 
-from bajo.core import dot, Vec3, Vec3f32
+from bajo.core import dot, Vec3f32
 from bajo.rt.coated_diffuse import (
     _dielectric_f,
     _evaluate_coated_diffuse,

@@ -1,4 +1,4 @@
-from std.math import abs, cos, sin
+from std.math import abs
 
 from bajo.core.vec import Vec3
 from bajo.core.frame import Frame

@@ -4,7 +4,6 @@ import argparse
 from collections import deque
 import math
 import os
-import sys
 import threading
 import time
 from pathlib import Path

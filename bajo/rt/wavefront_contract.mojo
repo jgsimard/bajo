@@ -14,7 +14,6 @@ from bajo.rt.material_types import SurfaceId
 from bajo.rt.shading_types import SurfaceHit
 from bajo.rt.wavefront_queue import (
     FRONT_FACE_BIT,
-    PacketPathQueue,
     PATH_INDEX_MASK,
     WavePath,
     WaveShade,

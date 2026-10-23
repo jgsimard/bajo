@@ -11,7 +11,6 @@ from bajo.core.intersect import (
     triangle_normal,
 )
 from bajo.bvh.spatial.gpu_geometry import (
-    ray_triangle_filter,
     ray_triangle_interval,
     project_triangle_filtered,
     triangle_normal_f32,

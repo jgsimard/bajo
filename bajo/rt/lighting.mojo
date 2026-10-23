@@ -4,7 +4,6 @@ from std.math import sqrt
 
 from bajo.core import (
     Point3,
-    Point3f32,
     Vec3,
     Vec3f32,
     cross,

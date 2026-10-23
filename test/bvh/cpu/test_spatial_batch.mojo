@@ -1,4 +1,4 @@
-from std.testing import TestSuite, assert_true, assert_equal
+from std.testing import TestSuite, assert_equal
 from bajo.core import AABB, Point3f32, Vec3f32, Rayf32
 from bajo.bvh.spatial import (
     SpatialBoundsBvh,

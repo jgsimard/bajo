@@ -1,4 +1,4 @@
-from std.testing import TestSuite, assert_equal, assert_true
+from std.testing import TestSuite, assert_equal
 from max.gpu import thread_idx, block_idx
 from max.gpu.host import DeviceContext
 from max.gpu.sync import barrier

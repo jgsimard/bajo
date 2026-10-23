@@ -10,7 +10,7 @@ from max.gpu.memory import AddressSpace
 from max.gpu.primitives import block
 from max.gpu.sync import barrier
 from std.memory import stack_allocation
-from std.math import min, max
+from std.math import min
 from bajo.bvh.constants import MORTON_REFINEMENT_MIN_RUN
 from bajo.core import AABB, Point3f32
 from bajo.core.morton import morton3

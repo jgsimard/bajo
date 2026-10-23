@@ -1,6 +1,5 @@
 """Emission and next-event estimation for CPU path integrators."""
 
-from std.math import pi
 from std.memory import Pointer
 from std.sys.info import size_of
 from bajo.core.tensor_layout import record_tile, gather_record_vec3
@@ -9,7 +8,6 @@ from bajo.core import (
     Point3,
     Rayf32,
     Vec3,
-    Vec3f32,
     dot,
     normalize,
 )
@@ -26,7 +24,6 @@ from bajo.rt.lighting import (
     _emissive_hit_light_pdf,
     _emissive_hit_weight_from_pdf,
     _finish_direct_light_geometry,
-    _LightSurfaceSample,
     _resolve_alias_draw,
     _sample_sphere_light_surface,
     _sample_triangle_light_surface,

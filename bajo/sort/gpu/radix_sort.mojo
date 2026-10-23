@@ -1,5 +1,5 @@
 from std.atomic import Atomic, Ordering
-from std.bit import pop_count, count_trailing_zeros
+from std.bit import count_trailing_zeros
 from max.gpu import (
     thread_idx,
     block_idx,

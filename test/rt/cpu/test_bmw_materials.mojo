@@ -11,7 +11,7 @@ from std.testing import (
     assert_false,
     assert_true,
 )
-from bajo.core import Vec3f32, dot
+from bajo.core import Vec3f32
 from bajo.core import Point3f32, Rayf32
 from bajo.core.random import Rng
 from bajo.parser.pbrt import parse_pbrt

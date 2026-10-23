@@ -4,7 +4,7 @@ from max.gpu.host import DeviceContext, DeviceBuffer
 from bajo.gpu.buffers import _device_span, upload_list
 
 from bajo.bvh.camera import Camera
-from bajo.core import Vec3f32, Point3f32, Frame, Rayf32
+from bajo.core import Point3f32, Frame, Rayf32
 from bajo.bvh.types import Hit
 from bajo.bvh.constants import f32_max
 

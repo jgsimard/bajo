@@ -3,7 +3,6 @@
 from std.algorithm import vectorize
 from std.math import sqrt
 from std.sys import simd_width_of
-from std.sys.info import size_of
 from bajo.rt.render_types import Color
 
 

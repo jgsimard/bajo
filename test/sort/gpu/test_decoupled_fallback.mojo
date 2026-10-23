@@ -1,6 +1,5 @@
 from std.math import ceildiv
 from std.memory import stack_allocation
-from std.sys.info import bit_width_of
 from std.testing import TestSuite, assert_equal, assert_true, assert_raises
 from max.gpu import thread_idx
 from max.gpu.memory import AddressSpace

@@ -1,7 +1,7 @@
 from std.math import round
 from std.time import perf_counter_ns
 
-from bajo.bvh.constants import PrimitiveKind, f32_max
+from bajo.bvh.constants import f32_max
 from bajo.bvh.cpu import build_cpu_triangle_blas_set, trace_blas_set
 from bajo.bvh.cpu import (
     CpuBlasSet,

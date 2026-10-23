@@ -4,7 +4,6 @@ from max.gpu import block_dim, global_idx, grid_dim
 from std.math import sqrt, ceildiv, pi
 from max.gpu.host import DeviceContext
 
-from bajo.bvh import Hit
 from bajo.bvh.constants import PrimitiveKind
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.tlas import _trace_tlas_ray
@@ -53,13 +52,11 @@ from bajo.rt.wavefront_contract import (
     wavefront_rng_material_stage,
 )
 from bajo.rt.gpu.wavefront_contract import (
-    _reserve_slot,
     load_gpu_rt_path,
     load_gpu_rt_shadow,
     store_gpu_rt_path_values,
 )
 from bajo.rt.gpu.common_kernels import (
-    GPU_RT_BLOCK_SIZE,
     GPU_RT_MAX_BLOCKS,
     clear_gpu_rt_sample,
     make_gpu_rt_primary_path,

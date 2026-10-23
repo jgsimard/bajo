@@ -6,12 +6,9 @@ from bajo.core.tensor_layout import field_tile, record_tile
 from bajo.core import (
     AABB,
     Vec3f32,
-    Normal3f32,
     Affine3f32,
     Point3f32,
     Frame,
-    Ray,
-    Rayf32,
 )
 from bajo.bvh.constants import (
     f32_max,

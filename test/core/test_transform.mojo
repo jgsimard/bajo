@@ -1,7 +1,6 @@
 from test.helpers import assert_vec_equal
 
 from std.testing import TestSuite, assert_almost_equal, assert_true
-from std.memory.alloc import alloc, dealloc, Layout
 
 from bajo.core import (
     Affine3,

@@ -7,7 +7,6 @@ from std.testing import (
 from std.math import sqrt, atan2, abs
 from std.memory import bitcast
 from bajo.bvh.spatial.mesh import SpatialMesh
-from bajo.bvh.constants import EMPTY_LANE
 from bajo.core.intersect import angle_atan2
 from bajo.core import AABB, Point3f32, Vec3f32, Rayf32
 from test.bvh.spatial_fixtures import tetrahedron

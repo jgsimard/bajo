@@ -1,10 +1,10 @@
 from max.gpu import global_idx
-from std.math import abs, ceildiv, round, min, max
+from std.math import abs, ceildiv, round, max
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext, DeviceBuffer
 
-from bajo.core import AABB, Vec3f32, Point3f32, Rayf32, SegmentOffsets
+from bajo.core import AABB, Point3f32, Rayf32, SegmentOffsets
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.host_utils import compute_bounds, sphere_bounds
 from bajo.bvh.constants import (

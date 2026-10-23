@@ -1,6 +1,5 @@
 from std.testing import (
     TestSuite,
-    assert_true,
     assert_raises,
     assert_equal,
     assert_almost_equal,

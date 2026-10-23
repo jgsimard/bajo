@@ -8,7 +8,6 @@ from bajo.bvh.cpu import (
     CpuBlasSet,
     CpuBvhBuildMethod,
 )
-from bajo.bvh.types import Hit
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core import Point3f32, Rayf32

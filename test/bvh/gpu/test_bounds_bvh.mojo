@@ -1,4 +1,3 @@
-from std.benchmark import keep
 from std.math import abs, max
 from std.sys import has_accelerator
 from std.testing import (
@@ -27,7 +26,6 @@ from bajo.bvh.cpu import (
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.segmented_build import build_single_segment_wide
 from bajo.bvh.gpu.wide_layout import (
-    GpuWideBoundsBvh,
     _wide_node_load_meta,
 )
 from bajo.bvh.gpu.quality import (

@@ -1,4 +1,3 @@
-from std.benchmark import keep
 from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true, assert_almost_equal
 from max.gpu.host import DeviceContext

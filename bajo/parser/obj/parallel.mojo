@@ -449,55 +449,56 @@ def _finish_metadata[
     mut mesh: ObjMesh,
 ) raises:
     var state = _ObjParserState()
-    var previous_face = 0
-    for chunk in chunks:
-        for event in chunk.events:
-            var face = chunk.face_offset + event.face
-            var index = chunk.index_offset + event.index
-            if state.current_material != 0:
-                Span(mesh.face_materials)[previous_face:face].fill(
-                    state.current_material
-                )
-            previous_face = face
-            match event.kind:
-                case 6:
-                    state.current_object.face_count = (
-                        face - state.current_object.face_offset
+    try:
+        var previous_face = 0
+        for chunk in chunks:
+            for event in chunk.events:
+                var face = chunk.face_offset + event.face
+                var index = chunk.index_offset + event.index
+                if state.current_material != 0:
+                    Span(mesh.face_materials)[previous_face:face].fill(
+                        state.current_material
                     )
-                    if state.current_object.face_count > 0:
-                        mesh.objects.append(state.current_object^)
-                    state.current_object = ObjGroup(event.name, 0, face, index)
-                case 7:
-                    state.current_group.face_count = (
-                        face - state.current_group.face_offset
-                    )
-                    if state.current_group.face_count > 0:
-                        mesh.groups.append(state.current_group^)
-                    state.current_group = ObjGroup(event.name, 0, face, index)
-                case 8:
-                    state.ensure_material(mesh, event.name, fallback=True)
-                case 9:
-                    _read_mtl_file(mesh, path, event.name, loader)
-                case _:
-                    pass
-    if state.current_material != 0:
-        Span(mesh.face_materials)[previous_face:].fill(state.current_material)
-    state.current_group.face_count = (
-        len(mesh.face_vertices) - state.current_group.face_offset
-    )
-    if state.current_group.face_count > 0:
-        mesh.groups.append(state.current_group^)
-    state.current_group = ObjGroup(
-        "", 0, len(mesh.face_vertices), len(mesh.indices)
-    )
-    state.current_object.face_count = (
-        len(mesh.face_vertices) - state.current_object.face_offset
-    )
-    if state.current_object.face_count > 0:
-        mesh.objects.append(state.current_object^)
-    state.current_object = ObjGroup(
-        "", 0, len(mesh.face_vertices), len(mesh.indices)
-    )
+                previous_face = face
+                match event.kind:
+                    case 6:
+                        state.current_object.face_count = (
+                            face - state.current_object.face_offset
+                        )
+                        if state.current_object.face_count > 0:
+                            mesh.objects.append(state.current_object^)
+                        state.current_object = ObjGroup(
+                            event.name, 0, face, index
+                        )
+                    case 7:
+                        state.current_group.face_count = (
+                            face - state.current_group.face_offset
+                        )
+                        if state.current_group.face_count > 0:
+                            mesh.groups.append(state.current_group^)
+                        state.current_group = ObjGroup(
+                            event.name, 0, face, index
+                        )
+                    case 8:
+                        state.ensure_material(mesh, event.name, fallback=True)
+                    case 9:
+                        _read_mtl_file(mesh, path, event.name, loader)
+                    case _:
+                        pass
+        if state.current_material != 0:
+            Span(mesh.face_materials)[previous_face:].fill(
+                state.current_material
+            )
+        state.current_group.face_count = (
+            len(mesh.face_vertices) - state.current_group.face_offset
+        )
+        state.current_object.face_count = (
+            len(mesh.face_vertices) - state.current_object.face_offset
+        )
+    except error:
+        state^.abort()
+        raise error
+    state^.finish(mesh)
 
 
 def _parse_obj_bulk[

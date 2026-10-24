@@ -10,7 +10,14 @@ from bajo.parser.asset_loader import AssetLoader
 comptime _MAX_OBJ_INDEX = Int(0x7FFFFFFF)
 
 
-struct _ObjParserState:
+struct _ObjParserState(
+    Deinitable where (
+        False,
+        "call finish() or abort() to consume OBJ parser state",
+    )
+):
+    """Pending object/group metadata that must be finalized or discarded."""
+
     var current_material: Int
     var current_object: ObjGroup
     var current_group: ObjGroup
@@ -42,9 +49,13 @@ struct _ObjParserState:
         self._flush_group(mesh)
         self.current_group.name = name
 
-    def finish(mut self, mut mesh: ObjMesh):
+    def finish(deinit self, mut mesh: ObjMesh):
         self._flush_group(mesh)
         self._flush_object(mesh)
+
+    def abort(deinit self):
+        """Discard pending metadata when parsing fails."""
+        pass
 
     def ensure_material(
         mut self, mut mesh: ObjMesh, name: String, fallback: Bool = True
@@ -271,67 +282,71 @@ def _parse_obj_serial[
     var line_start = 0
     var lines = _ObjLines(bytes, 0, len(bytes))
 
-    while line_start < text_len:
-        var line_end = lines.next_end()
+    try:
+        while line_start < text_len:
+            var line_end = lines.next_end()
 
-        var cur = ObjLineCursor(bytes[line_start:line_end])
-        cur.skip_ws()
-        if cur.pos < len(cur.bytes):
-            var p = cur.pos
-            var c0 = cur.bytes.unsafe_get(p)
-            if c0 == CHAR_v:
-                if _word_ends_here(cur.bytes, p + 1):
+            var cur = ObjLineCursor(bytes[line_start:line_end])
+            cur.skip_ws()
+            if cur.pos < len(cur.bytes):
+                var p = cur.pos
+                var c0 = cur.bytes.unsafe_get(p)
+                if c0 == CHAR_v:
+                    if _word_ends_here(cur.bytes, p + 1):
+                        cur.pos = p + 1
+                        _parse_v_cursor(mesh, cur)
+                    elif (
+                        p + 1 < len(cur.bytes)
+                        and cur.bytes.unsafe_get(p + 1) == CHAR_t
+                    ):
+                        if _word_ends_here(cur.bytes, p + 2):
+                            cur.pos = p + 2
+                            _parse_vt_cursor(mesh, cur)
+                    elif (
+                        p + 1 < len(cur.bytes)
+                        and cur.bytes.unsafe_get(p + 1) == CHAR_n
+                    ):
+                        if _word_ends_here(cur.bytes, p + 2):
+                            cur.pos = p + 2
+                            _parse_vn_cursor(mesh, cur)
+                elif c0 == CHAR_f and _word_ends_here(cur.bytes, p + 1):
                     cur.pos = p + 1
-                    _parse_v_cursor(mesh, cur)
-                elif (
-                    p + 1 < len(cur.bytes)
-                    and cur.bytes.unsafe_get(p + 1) == CHAR_t
-                ):
-                    if _word_ends_here(cur.bytes, p + 2):
-                        cur.pos = p + 2
-                        _parse_vt_cursor(mesh, cur)
-                elif (
-                    p + 1 < len(cur.bytes)
-                    and cur.bytes.unsafe_get(p + 1) == CHAR_n
-                ):
-                    if _word_ends_here(cur.bytes, p + 2):
-                        cur.pos = p + 2
-                        _parse_vn_cursor(mesh, cur)
-            elif c0 == CHAR_f and _word_ends_here(cur.bytes, p + 1):
-                cur.pos = p + 1
-                _parse_face_cursor(mesh, state, cur, is_line=False)
-            elif c0 == CHAR_l and _word_ends_here(cur.bytes, p + 1):
-                cur.pos = p + 1
-                _parse_face_cursor(mesh, state, cur, is_line=True)
-            elif c0 == CHAR_g and _word_ends_here(cur.bytes, p + 1):
-                cur.pos = p + 1
-                state.begin_group(mesh, cur.joined_rest_of_line())
-            elif c0 == CHAR_o and _word_ends_here(cur.bytes, p + 1):
-                cur.pos = p + 1
-                state.begin_object(mesh, cur.joined_rest_of_line())
-            else:
-                var tag_start = p
-                var tag_end = p
-                while tag_end < len(cur.bytes) and not _is_ws_or_line_cut(
-                    cur.bytes.unsafe_get(tag_end)
-                ):
-                    tag_end += 1
-                var tag = StringSpan(
-                    unsafe_from_utf8=cur.bytes[tag_start:tag_end]
-                )
-                cur.pos = tag_end
-                if tag == "usemtl":
-                    var name = cur.joined_rest_of_line()
-                    if name.byte_length() > 0:
-                        state.ensure_material(mesh, name, fallback=True)
-                elif tag == "mtllib":
-                    var mtl_name = cur.joined_rest_of_line()
-                    if mtl_name.byte_length() > 0:
-                        _read_mtl_file(mesh, path, mtl_name, loader)
-        line_start = line_end + 1
+                    _parse_face_cursor(mesh, state, cur, is_line=False)
+                elif c0 == CHAR_l and _word_ends_here(cur.bytes, p + 1):
+                    cur.pos = p + 1
+                    _parse_face_cursor(mesh, state, cur, is_line=True)
+                elif c0 == CHAR_g and _word_ends_here(cur.bytes, p + 1):
+                    cur.pos = p + 1
+                    state.begin_group(mesh, cur.joined_rest_of_line())
+                elif c0 == CHAR_o and _word_ends_here(cur.bytes, p + 1):
+                    cur.pos = p + 1
+                    state.begin_object(mesh, cur.joined_rest_of_line())
+                else:
+                    var tag_start = p
+                    var tag_end = p
+                    while tag_end < len(cur.bytes) and not _is_ws_or_line_cut(
+                        cur.bytes.unsafe_get(tag_end)
+                    ):
+                        tag_end += 1
+                    var tag = StringSpan(
+                        unsafe_from_utf8=cur.bytes[tag_start:tag_end]
+                    )
+                    cur.pos = tag_end
+                    if tag == "usemtl":
+                        var name = cur.joined_rest_of_line()
+                        if name.byte_length() > 0:
+                            state.ensure_material(mesh, name, fallback=True)
+                    elif tag == "mtllib":
+                        var mtl_name = cur.joined_rest_of_line()
+                        if mtl_name.byte_length() > 0:
+                            _read_mtl_file(mesh, path, mtl_name, loader)
+            line_start = line_end + 1
+    except error:
+        state^.abort()
+        raise error
 
     if len(mesh.colors) > 0:
         mesh.colors.resize(len(mesh.positions), fill=1.0)
 
-    state.finish(mesh)
+    state^.finish(mesh)
     return mesh^

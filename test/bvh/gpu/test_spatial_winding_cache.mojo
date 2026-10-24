@@ -39,7 +39,7 @@ def _winding_kernel[
         indices,
         velocities,
         BoundsQueryView[ImmutAnyOrigin, .WORLD](bounds, nodes),
-        DeviceWindingView[ImmutAnyOrigin, .WORLD](
+        device_winding=DeviceWindingView[ImmutAnyOrigin, .WORLD](
             BoundsQueryView[ImmutAnyOrigin, .WORLD](wb, wn), offsets, faces
         ),
     )

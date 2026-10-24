@@ -70,41 +70,10 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
         out self,
         points: ImmSpan[Point3f32[Self.frame], _],
         indices: ImmSpan[UInt32, _],
-        cache_winding: Bool = True,
-        cache_adjacency: Bool = True,
-    ) raises:
-        self = Self(
-            points,
-            indices,
-            List[UInt32](),
-            List[Vec3f32[Self.frame]](),
-            cache_winding,
-            cache_adjacency,
-        )
-
-    def __init__(
-        out self,
-        points: ImmSpan[Point3f32[Self.frame], _],
-        indices: ImmSpan[UInt32, _],
-        groups: ImmSpan[UInt32, _],
-        cache_winding: Bool = True,
-        cache_adjacency: Bool = True,
-    ) raises:
-        self = Self(
-            points,
-            indices,
-            groups,
-            List[Vec3f32[Self.frame]](),
-            cache_winding,
-            cache_adjacency,
-        )
-
-    def __init__(
-        out self,
-        points: ImmSpan[Point3f32[Self.frame], _],
-        indices: ImmSpan[UInt32, _],
-        groups: ImmSpan[UInt32, _],
-        velocities: ImmSpan[Vec3f32[Self.frame], _],
+        groups: ImmSpan[UInt32, _] = ImmSpan[UInt32, ImmutAnyOrigin](),
+        velocities: ImmSpan[Vec3f32[Self.frame], _] = ImmSpan[
+            Vec3f32[Self.frame], ImmutAnyOrigin
+        ](),
         cache_winding: Bool = True,
         cache_adjacency: Bool = True,
     ) raises:

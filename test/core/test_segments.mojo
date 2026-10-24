@@ -3,6 +3,18 @@ from std.testing import TestSuite, assert_equal, assert_raises
 from bajo.core import SegmentOffsets
 
 
+def test_segment_offsets_copy_or_take_storage() raises:
+    var offsets: List[UInt32] = [0, 3, 8]
+    var copied = SegmentOffsets(offsets.copy())
+    offsets[1] = 5
+    assert_equal(copied.count(0), UInt32(3))
+
+    var storage = Int(offsets.unsafe_ptr())
+    var moved = SegmentOffsets(offsets^)
+    assert_equal(Int(moved.offsets.unsafe_ptr()), storage)
+    assert_equal(moved.count(0), UInt32(5))
+
+
 def test_segment_offsets_from_counts() raises:
     var segments = SegmentOffsets.from_counts([3, 0, 5, 2])
 

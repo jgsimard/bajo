@@ -25,7 +25,10 @@ from bajo.rt.media import SceneMedia
 
 
 struct SceneBuilder(
-    Deinitable where (False, "call finish() to validate and finalize the scene")
+    Deinitable where (
+        False,
+        "call finish() or abort() to consume the scene builder",
+    )
 ):
     var spheres: List[Sphere[.WORLD]]
     var sphere_surfaces: List[SurfaceId[1]]
@@ -40,33 +43,27 @@ struct SceneBuilder(
     var environment: Environment
     var media: SceneMedia
 
-    def __init__(out self):
-        self.spheres = List[Sphere[.WORLD]]()
-        self.sphere_surfaces = List[SurfaceId[1]]()
-        self.triangle_vertices = List[Point3f32[.WORLD]]()
-        self.triangle_surfaces = List[SurfaceId[1]]()
-        self.triangle_meshes = List[List[Point3f32[.LOCAL]]]()
-        self.triangle_mesh_normals = List[List[Float32]]()
-        self.triangle_mesh_texcoords = List[List[Float32]]()
-        self.triangle_instances = List[Instance]()
-        self.triangle_instance_surfaces = List[SurfaceId[1]]()
-        self.surfaces = SurfaceStore()
-        self.environment = Environment()
-        self.media = SceneMedia()
-
     def __init__(
         out self,
-        var spheres: List[Sphere[.WORLD]],
-        var sphere_surfaces: List[SurfaceId[1]],
-        var triangle_vertices: List[Point3f32[.WORLD]],
-        var triangle_surfaces: List[SurfaceId[1]],
-        var triangle_meshes: List[List[Point3f32[.LOCAL]]],
-        var triangle_mesh_normals: List[List[Float32]],
-        var triangle_mesh_texcoords: List[List[Float32]],
-        var triangle_instances: List[Instance],
-        var triangle_instance_surfaces: List[SurfaceId[1]],
-        var surfaces: SurfaceStore,
-        environment: Environment,
+        var spheres: List[Sphere[.WORLD]] = List[Sphere[.WORLD]](),
+        var sphere_surfaces: List[SurfaceId[1]] = List[SurfaceId[1]](),
+        var triangle_vertices: List[Point3f32[.WORLD]] = List[
+            Point3f32[.WORLD]
+        ](),
+        var triangle_surfaces: List[SurfaceId[1]] = List[SurfaceId[1]](),
+        var triangle_meshes: List[List[Point3f32[.LOCAL]]] = List[
+            List[Point3f32[.LOCAL]]
+        ](),
+        var triangle_mesh_normals: List[List[Float32]] = List[List[Float32]](),
+        var triangle_mesh_texcoords: List[List[Float32]] = List[
+            List[Float32]
+        ](),
+        var triangle_instances: List[Instance] = List[Instance](),
+        var triangle_instance_surfaces: List[SurfaceId[1]] = List[
+            SurfaceId[1]
+        ](),
+        var surfaces: SurfaceStore = SurfaceStore(),
+        environment: Environment = Environment(),
     ):
         self.spheres = spheres^
         self.sphere_surfaces = sphere_surfaces^

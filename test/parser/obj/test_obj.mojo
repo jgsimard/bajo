@@ -21,13 +21,19 @@ from std.memory import bitcast
 from bajo.parser.number import F32ParseResult, parse_f32_at
 from bajo.parser.number import parse_f32_fast_at
 from bajo.parser.obj.parallel import _parse_obj_bulk
-from bajo.parser.obj.serial import _parse_obj_serial
+from bajo.parser.obj.serial import _ObjParserState, _parse_obj_serial
 from bajo.parser.obj.triangulate import _triangulated_indices_parallel
 
 
 def _assert_obj_parse_error(text: String) raises:
     with assert_raises():
         _ = parse_obj(text, "invalid.obj")
+
+
+def test_parser_state_requires_explicit_consumption() raises:
+    comptime assert not conforms_to(_ObjParserState, Deinitable)
+    var state = _ObjParserState()
+    state^.abort()
 
 
 def test_basic_triangle() raises:

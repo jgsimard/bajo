@@ -55,16 +55,12 @@ struct WindingView[origin: ImmOrigin, frame: Frame](Copyable):
     var bvh: BoundsQueryView[Self.origin, Self.frame]
     var offsets: ImmSpan[Int, Self.origin]
 
-    def __init__(out self):
-        self.bvh = BoundsQueryView[Self.origin, Self.frame](
-            ImmSpan[Float32, Self.origin](), ImmSpan[UInt32, Self.origin]()
-        )
-        self.offsets = ImmSpan[Int, Self.origin]()
-
     def __init__(
         out self,
-        var bvh: BoundsQueryView[Self.origin, Self.frame],
-        offsets: ImmSpan[Int, Self.origin],
+        var bvh: BoundsQueryView[Self.origin, Self.frame] = BoundsQueryView[
+            Self.origin, Self.frame
+        ](ImmSpan[Float32, Self.origin](), ImmSpan[UInt32, Self.origin]()),
+        offsets: ImmSpan[Int, Self.origin] = ImmSpan[Int, Self.origin](),
     ):
         self.bvh = bvh^
         self.offsets = offsets
@@ -75,18 +71,13 @@ struct DeviceWindingView[origin: ImmOrigin, frame: Frame](Copyable):
     var offsets: ImmSpan[UInt32, Self.origin]
     var faces: ImmSpan[UInt32, Self.origin]
 
-    def __init__(out self):
-        self.bvh = BoundsQueryView[Self.origin, Self.frame](
-            ImmSpan[Float32, Self.origin](), ImmSpan[UInt32, Self.origin]()
-        )
-        self.offsets = ImmSpan[UInt32, Self.origin]()
-        self.faces = ImmSpan[UInt32, Self.origin]()
-
     def __init__(
         out self,
-        var bvh: BoundsQueryView[Self.origin, Self.frame],
-        offsets: ImmSpan[UInt32, Self.origin],
-        faces: ImmSpan[UInt32, Self.origin],
+        var bvh: BoundsQueryView[Self.origin, Self.frame] = BoundsQueryView[
+            Self.origin, Self.frame
+        ](ImmSpan[Float32, Self.origin](), ImmSpan[UInt32, Self.origin]()),
+        offsets: ImmSpan[UInt32, Self.origin] = ImmSpan[UInt32, Self.origin](),
+        faces: ImmSpan[UInt32, Self.origin] = ImmSpan[UInt32, Self.origin](),
     ):
         self.bvh = bvh^
         self.offsets = offsets

@@ -231,19 +231,15 @@ struct MeshQueryView[
         indices: ImmSpan[UInt32, Self.origin],
         velocities: ImmSpan[Float32, Self.origin],
         var bvh: BoundsQueryView[Self.origin, Self.frame],
-    ):
-        self = Self(
-            points, indices, velocities, bvh^, ImmSpan[Float32, Self.origin]()
-        )
-
-    @always_inline
-    def __init__(
-        out self,
-        points: ImmSpan[Float32, Self.origin],
-        indices: ImmSpan[UInt32, Self.origin],
-        velocities: ImmSpan[Float32, Self.origin],
-        var bvh: BoundsQueryView[Self.origin, Self.frame],
-        packed_triangles: ImmSpan[Float32, Self.origin],
+        packed_triangles: ImmSpan[Float32, Self.origin] = ImmSpan[
+            Float32, Self.origin
+        ](),
+        var winding: WindingView[Self.origin, Self.frame] = WindingView[
+            Self.origin, Self.frame
+        ](),
+        var device_winding: DeviceWindingView[
+            Self.origin, Self.frame
+        ] = DeviceWindingView[Self.origin, Self.frame](),
     ):
         self.adjacency = ImmSpan[UInt32, Self.origin]()
         self.points = points
@@ -251,32 +247,7 @@ struct MeshQueryView[
         self.velocities = velocities
         self.bvh = bvh^
         self.packed_triangles = packed_triangles
-        self.winding = WindingView[Self.origin, Self.frame]()
-        self.device_winding = DeviceWindingView[Self.origin, Self.frame]()
-
-    @always_inline
-    def __init__(
-        out self,
-        points: ImmSpan[Float32, Self.origin],
-        indices: ImmSpan[UInt32, Self.origin],
-        velocities: ImmSpan[Float32, Self.origin],
-        var bvh: BoundsQueryView[Self.origin, Self.frame],
-        packed_triangles: ImmSpan[Float32, Self.origin],
-        var winding: WindingView[Self.origin, Self.frame],
-    ):
-        self = Self(points, indices, velocities, bvh^, packed_triangles)
         self.winding = winding^
-
-    @always_inline
-    def __init__(
-        out self,
-        points: ImmSpan[Float32, Self.origin],
-        indices: ImmSpan[UInt32, Self.origin],
-        velocities: ImmSpan[Float32, Self.origin],
-        var bvh: BoundsQueryView[Self.origin, Self.frame],
-        var device_winding: DeviceWindingView[Self.origin, Self.frame],
-    ):
-        self = Self(points, indices, velocities, bvh^)
         self.device_winding = device_winding^
 
     def vertex(self, index: UInt32) -> Point3f32[Self.frame]:

@@ -241,7 +241,8 @@ keys use a shared spatial scale, finite Float64 midpoint arithmetic and stable
 original-ID ties. Balanced emission preserves the existing refit schedule.
 
 
-CPU `SpatialMesh` constructors accept `cache_winding=False` to skip optional
+CPU `SpatialMesh` accepts optional `groups` and `velocities` spans. Pass cache
+controls by name: `SpatialMesh(points, indices, cache_winding=False)` skips
 closed-component metadata and triangle packing. The default remains `True`.
 Exact winding queries still work through indexed Float64 accumulation; refit and
 rebuild maintain geometry and bounds with either setting. A `GpuSpatialMesh`

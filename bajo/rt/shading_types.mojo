@@ -28,15 +28,13 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
     var geometric_normal: Vec3[.float32, .WORLD, Self.length]
 
     def __init__(out self, t_max: SIMD[.float32, Self.length]):
-        self.medium_boundary = 0
-        self.geometric_normal = Vec3[.float32, .WORLD, Self.length](0.0)
-        self.normal = Vec3[.float32, .WORLD, Self.length](0.0)
-        self.surface = SurfaceId[Self.length](SIMD[.uint32, Self.length](0))
-        self.uv_u = 0.0
-        self.uv_v = 0.0
-        self.t = t_max
-        self.front_face = SIMD[.bool, Self.length](fill=True)
-        self.hit = SIMD[.bool, Self.length](fill=False)
+        self = Self(
+            Vec3[.float32, .WORLD, Self.length](0.0),
+            SurfaceId[Self.length](SIMD[.uint32, Self.length](0)),
+            t_max,
+            SIMD[.bool, Self.length](fill=True),
+            SIMD[.bool, Self.length](fill=False),
+        )
 
     def __init__(
         out self,
@@ -46,15 +44,16 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
         front_face: SIMD[.bool, Self.length],
         hit: SIMD[.bool, Self.length],
     ):
-        self.medium_boundary = 0
-        self.geometric_normal = normal
-        self.normal = normal
-        self.surface = surface.copy()
-        self.uv_u = 0.0
-        self.uv_v = 0.0
-        self.t = t
-        self.front_face = front_face
-        self.hit = hit
+        self = Self(
+            normal,
+            surface,
+            0.0,
+            0.0,
+            t,
+            front_face,
+            hit,
+            geometric_normal=normal,
+        )
 
     def __init__(
         out self,

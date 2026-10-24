@@ -26,6 +26,7 @@ from bajo.rt.gpu.config import (
 )
 from bajo.rt.gpu.resources import GpuRtRenderTarget, upload_surface_ids
 from bajo.rt.render_types import RenderSettings
+from bajo.rt.material_types import EnvironmentKind
 from bajo.rt.gpu.views import (
     GpuRtInstanceView,
     GpuRtSceneView,
@@ -89,7 +90,7 @@ struct GpuRtScene[
     var _instance_texcoords: Optional[DeviceBuffer[.float32]]
     var materials: GpuRtMaterials
     var lights: GpuRtLights
-    var environment_kind: UInt32
+    var environment_kind: EnvironmentKind
     var environment_texture_index: UInt32
     var environment_scale_x: Float32
     var environment_scale_y: Float32
@@ -394,7 +395,7 @@ def prepare_gpu_scene[
         instance_texcoords^,
         materials^,
         lights^,
-        data.environment().kind.value,
+        data.environment().kind,
         data.environment().texture_index,
         data.environment().scale.x[0],
         data.environment().scale.y[0],

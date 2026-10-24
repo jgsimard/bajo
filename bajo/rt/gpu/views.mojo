@@ -4,6 +4,7 @@ from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from max.gpu.host import DeviceBuffer
 
 from bajo.core import Affine3f32
+from bajo.rt.material_types import EnvironmentKind
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
 
 
@@ -107,7 +108,7 @@ struct GpuRtSceneView(Copyable, DevicePassable):
     var environment_alias_probabilities: Pointer[Float32, ImmUntrackedOrigin]
     var environment_alias_indices: Pointer[UInt32, ImmUntrackedOrigin]
     var environment_alias_count: Int32
-    var environment_kind: UInt32
+    var environment_kind: EnvironmentKind
     var environment_texture_index: UInt32
     var environment_scale_x: Float32
     var environment_scale_y: Float32

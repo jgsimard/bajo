@@ -459,8 +459,6 @@ struct SceneData:
             raise Error("inverse environment transform must be finite")
         if not self._environment.scale.is_finite()[0]:
             raise Error("environment scale must be finite")
-        if not self._environment.kind.is_valid():
-            raise Error("unknown environment kind")
         if (
             self._environment.scale.x[0] < 0.0
             or self._environment.scale.y[0] < 0.0

@@ -24,7 +24,7 @@ from bajo.rt.lighting import (
 from bajo.rt.shading import _evaluate_coated_diffuse, _evaluate_material
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.render_types import Color, SamplingConfig
-from bajo.rt.material_types import EnvironmentKind, Integrator, SurfaceId
+from bajo.rt.material_types import Integrator, SurfaceId
 from bajo.rt.lighting_types import _light_importance
 from bajo.rt.scene_data import SceneData
 from bajo.rt.wavefront_contract import (
@@ -259,7 +259,7 @@ def _sample_direct_light_candidate[
         var direction = normalize(
             scene.environment_light_to_world.vector(local_direction)
         )
-        match EnvironmentKind(scene.environment_kind):
+        match scene.environment_kind:
             case .IMAGE:
                 var desc_base = GpuTextureDescLayout.STRIDE * Int(
                     scene.environment_texture_index
@@ -292,7 +292,7 @@ def _sample_direct_light_candidate[
         var light_pdf = scene.environment_weight / (
             4.0 * pi * scene.total_light_weight
         )
-        match EnvironmentKind(scene.environment_kind):
+        match scene.environment_kind:
             case .IMAGE:
                 light_pdf = (
                     _light_importance(emission) / scene.total_light_weight

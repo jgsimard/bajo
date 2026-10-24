@@ -39,7 +39,6 @@ from bajo.rt.render_types import (
 from bajo.rt.media import medium_transmittance
 from bajo.rt.material_types import (
     NO_TEXTURE,
-    EnvironmentKind,
     Integrator,
     SurfaceId,
 )
@@ -104,7 +103,7 @@ def _gpu_environment_radiance(
         scene.environment_scale_y,
         scene.environment_scale_z,
     )
-    match EnvironmentKind(scene.environment_kind):
+    match scene.environment_kind:
         case .BLACK:
             return Color(0.0)
         case .PROCEDURAL:
@@ -465,7 +464,7 @@ def _gpu_rt_scene_trace_path[
             var environment_light_pdf = Float32(0.0)
             comptime if integrator == .MIS:
                 if bounce > 0 and not path.delta:
-                    match EnvironmentKind(scene.environment_kind):
+                    match scene.environment_kind:
                         case .IMAGE:
                             environment_light_pdf = (
                                 _light_importance(environment_emission)

@@ -1,6 +1,7 @@
 """Material, texture, environment, and surface storage types."""
 
 from std.math import sqrt
+from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from bajo.rt.texture_math import (
     sample_image_texture,
     texture_luminance,
@@ -80,13 +81,16 @@ struct ImageTexture:
         )
 
 
-@fieldwise_init
-struct EnvironmentKind(EnumLike, Equatable, TrivialRegisterPassable, Writable):
-    var value: UInt32
-    comptime BLACK = Self(0)
-    comptime PROCEDURAL = Self(1)
-    comptime UNIFORM = Self(2)
-    comptime IMAGE = Self(3)
+struct EnvironmentKind(
+    DevicePassable, EnumLike, Equatable, TrivialRegisterPassable, Writable
+):
+    """Environment model with checked compile-time construction."""
+
+    var _value: UInt32
+    comptime BLACK = Self.__init__[0]()
+    comptime PROCEDURAL = Self.__init__[1]()
+    comptime UNIFORM = Self.__init__[2]()
+    comptime IMAGE = Self.__init__[3]()
     comptime _enum_case_names = ParameterList.of[
         "BLACK".value,
         "PROCEDURAL".value,
@@ -97,8 +101,24 @@ struct EnvironmentKind(EnumLike, Equatable, TrivialRegisterPassable, Writable):
         Trait=AnyType, NoneType, NoneType, NoneType, NoneType
     ].values
 
+    def __init__[value: Int](out self):
+        """Construct an environment kind from a compile-time model ID."""
+        comptime assert 0 <= value <= 3
+        self._value = UInt32(value)
+
+    comptime device_type: AnyType = Self
+
+    def _to_device_type(
+        self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
+    ):
+        encoder.encode(self, target)
+
+    @staticmethod
+    def get_type_name() -> String:
+        return "EnvironmentKind"
+
     def _get_enum_discriminant(self) -> Int:
-        return Int(self.value)
+        return Int(self._value)
 
     def _unsafe_get_enum_payload[
         id: Int
@@ -107,9 +127,6 @@ struct EnvironmentKind(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     ]:
         while True:
             pass
-
-    def is_valid(self) -> Bool:
-        return self.value <= Self.IMAGE.value
 
 
 struct Environment(Copyable, Writable):

@@ -207,7 +207,6 @@ def render_gpu_configured[
     world: SceneData,
 ) raises -> RenderResult:
     """Render one explicitly selected scene shape, format, and builder set."""
-    comptime assert integrator.is_valid()
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var sample_count = pixel_count * settings.samples_per_pixel
@@ -256,7 +255,6 @@ def render_gpu[
     world: SceneData,
 ) raises -> RenderResult:
     """Select geometry with WIDE4 spheres, CWBVH8 triangles/BLASes and TLAS2."""
-    comptime assert integrator.is_valid()
     if len(world.triangle_instances()) > 0:
         if len(world.spheres()) > 0:
             if len(world.triangle_vertices()) > 0:

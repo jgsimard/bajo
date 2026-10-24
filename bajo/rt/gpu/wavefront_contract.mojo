@@ -60,7 +60,6 @@ def load_gpu_rt_path[
     idx: Int,
 ) -> DeviceWavePath:
     """Load only the path planes consumed by one compile-time integrator."""
-    comptime assert integrator.is_valid()
     return load_device_wave_path[
         False,
         Integrator.is_path_tracing[integrator],

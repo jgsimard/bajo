@@ -225,8 +225,6 @@ def enqueue_gpu_wavefront[
     settings: RenderSettings,
 ) raises:
     """Compile-time scheduler shared by every geometry specialization."""
-    comptime assert integrator.is_valid()
-
     target.validate_compatible(settings)
     var sampling = SamplingConfig.from_settings(settings)
     var sample_begin = 0

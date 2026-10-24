@@ -238,14 +238,15 @@ def resolve_mix_surface(
     return surface
 
 
-@fieldwise_init
 struct Integrator(EnumLike, Equatable, TrivialRegisterPassable, Writable):
-    var value: UInt32
-    comptime PATH = Self(0)
-    comptime NORMALS = Self(1)
-    comptime AO = Self(2)
-    comptime NEE = Self(3)
-    comptime MIS = Self(4)
+    """Render algorithm with checked compile-time construction."""
+
+    var _value: UInt32
+    comptime PATH = Self.__init__[0]()
+    comptime NORMALS = Self.__init__[1]()
+    comptime AO = Self.__init__[2]()
+    comptime NEE = Self.__init__[3]()
+    comptime MIS = Self.__init__[4]()
     comptime _enum_case_names = ParameterList.of[
         "PATH".value,
         "NORMALS".value,
@@ -257,20 +258,24 @@ struct Integrator(EnumLike, Equatable, TrivialRegisterPassable, Writable):
         Trait=AnyType, NoneType, NoneType, NoneType, NoneType, NoneType
     ].values
     comptime is_path_tracing[integrator: Self] = (
-        integrator.value == Self.PATH.value
-        or integrator.value == Self.NEE.value
-        or integrator.value == Self.MIS.value
+        integrator == Self.PATH
+        or integrator == Self.NEE
+        or integrator == Self.MIS
     )
     comptime uses_direct_lighting[integrator: Self] = (
-        integrator.value == Self.NEE.value or integrator.value == Self.MIS.value
+        integrator == Self.NEE or integrator == Self.MIS
     )
     comptime uses_visibility[integrator: Self] = (
-        integrator.value == Self.AO.value
-        or Self.uses_direct_lighting[integrator]
+        integrator == Self.AO or Self.uses_direct_lighting[integrator]
     )
 
+    def __init__[value: Int](out self):
+        """Construct an integrator from a compile-time algorithm ID."""
+        comptime assert 0 <= value <= 4
+        self._value = UInt32(value)
+
     def _get_enum_discriminant(self) -> Int:
-        return Int(self.value)
+        return Int(self._value)
 
     def _unsafe_get_enum_payload[
         id: Int
@@ -279,15 +284,6 @@ struct Integrator(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     ]:
         while True:
             pass
-
-    def is_valid(self) -> Bool:
-        return self in (
-            Integrator.PATH,
-            Integrator.NORMALS,
-            Integrator.AO,
-            Integrator.NEE,
-            Integrator.MIS,
-        )
 
 
 @fieldwise_init

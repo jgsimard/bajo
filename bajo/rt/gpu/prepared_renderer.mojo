@@ -95,7 +95,7 @@ struct _RenderGraphArguments(Copyable):
     var queues: GpuRtTraceQueueView
     var camera: Int
     var pixels: Int
-    var integrator: UInt32
+    var integrator: Integrator
 
     def matches(self, other: Self) -> Bool:
         return (
@@ -184,7 +184,7 @@ struct GpuRtPreparedRenderer[
             queues,
             Int(self.target.camera.unsafe_ptr()),
             Int(self.target.pixels.unsafe_ptr()),
-            integrator.value,
+            integrator,
         )
         if (
             not self._graph_arguments
@@ -224,7 +224,6 @@ struct GpuRtPreparedRenderer[
         camera: Camera,
     ) raises -> RenderResult:
         """Render while retaining the scene and every compatible allocation."""
-        comptime assert integrator.is_valid()
         var total_t0 = perf_counter_ns()
         var init_t0 = perf_counter_ns()
         if (

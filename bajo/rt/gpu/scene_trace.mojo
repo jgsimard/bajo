@@ -147,7 +147,6 @@ def _gpu_rt_scene_trace_path[
     sampling: SamplingConfig,
     bounce: UInt32,
 ):
-    comptime assert integrator.is_valid()
     comptime assert (
         scene_kind.has_spheres()
         or scene_kind.has_triangles()

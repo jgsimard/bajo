@@ -162,6 +162,22 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         self.y = y
         self.z = z
 
+    @always_inline
+    def broadcast[
+        target_width: SIMDLength
+    ](self) -> Geo3[Self.dtype, Self.kind, Self.frame, target_width] where (
+        Self.width == 1 or target_width == Self.width
+    ):
+        """Broadcast scalar components or retain an existing packet's width."""
+        comptime if target_width == Self.width:
+            return rebind[
+                Geo3[Self.dtype, Self.kind, Self.frame, target_width]
+            ](self)
+        else:
+            return Geo3[Self.dtype, Self.kind, Self.frame, target_width](
+                self.x[0], self.y[0], self.z[0]
+            )
+
     def unsafe_convert[
         new_kind: GeoKind = Self.kind, new_frame: Frame = Self.frame
     ](self) -> Geo3[Self.dtype, new_kind, new_frame, Self.width]:

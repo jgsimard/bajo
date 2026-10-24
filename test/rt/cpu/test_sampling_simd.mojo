@@ -9,12 +9,13 @@ from std.testing import (
     assert_almost_equal,
     assert_true,
 )
-from bajo.core import Affine3f32, Point3, Point3f32, Vec3
+from bajo.core import Affine3f32, Point3, Point3f32, Vec3, Vec3f32, Rayf32
 from bajo.core.random import Rng, Sampler
 from bajo.rt.common import path_stage_rng
 from bajo.rt.render_types import Color, SamplingConfig
 from bajo.rt.material_types import (
     Environment,
+    MaterialKind,
     ImageTexture,
     SurfaceId,
     SurfaceStore,
@@ -23,7 +24,13 @@ from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.cpu import CpuScene
 from bajo.rt.cpu.lighting import _sample_direct_light_candidate
 from bajo.rt.shading_types import ShadingPoint
-from bajo.rt.lighting import _draw_alias_column, _resolve_alias_draw
+from bajo.rt.lighting import (
+    _draw_alias_column,
+    _resolve_alias_draw,
+    _emissive_hit_light_pdf,
+    _emissive_hit_weight_from_pdf,
+)
+from bajo.rt.cpu.bsdf import _MaterialParameters, sample_bsdf
 from bajo.rt.lighting_types import _build_alias_distribution
 
 
@@ -287,6 +294,189 @@ def test_packet_direct_lights_match_scalar_with_mixed_emitter_kinds() raises:
     _direct_lights[4](False)
     _direct_lights[8](True)
     _direct_lights[16](True)
+
+
+def _emission_packets[width: SIMDLength]() raises:
+    var surfaces = SurfaceStore()
+    var first = surfaces.add_emissive(Color(2.0))
+    var second = surfaces.add_emissive(Color(4.0))
+    var matte = surfaces.add_lambertian(Color(0.5))
+    for offset in range(6):
+        var ids = SIMD[.uint32, width](UInt32.MAX)
+        var front = SIMD[.bool, width](fill=True)
+        var active = SIMD[.bool, width](fill=True)
+        var delta = SIMD[.bool, width](fill=False)
+        for lane in range(Int(width)):
+            var scenario = (offset + lane) % 6
+            ids[lane] = (
+                first.value[0] if scenario == 0
+                or scenario == 2 else second.value[0] if scenario == 1
+                or scenario
+                == 5 else matte.value[0] if scenario
+                == 3 else UInt32.MAX
+            )
+            front[lane] = scenario != 2
+            active[lane] = scenario < 4
+            delta[lane] = scenario % 2 == 1
+        var emission = surfaces.emitted_radiance(
+            SurfaceId[width](ids), front, active
+        )
+        var pdf = _emissive_hit_light_pdf(
+            Vec3[.float32, .WORLD, width](0, 0, -2),
+            SIMD[.float32, width](3),
+            Vec3[.float32, .WORLD, width](0, 0, 1),
+            emission,
+            4.0,
+        )
+        var mis = _emissive_hit_weight_from_pdf[.MIS](
+            UInt32(1), delta, SIMD[.float32, width](6), pdf
+        )
+        var nee = _emissive_hit_weight_from_pdf[.NEE](
+            UInt32(1), delta, SIMD[.float32, width](6), pdf
+        )
+        var primary = _emissive_hit_weight_from_pdf[.MIS](
+            UInt32(0), delta, SIMD[.float32, width](6), pdf
+        )
+        for lane in range(Int(width)):
+            var scenario = (offset + lane) % 6
+            var value = Float32(
+                2 if scenario == 0 else 4 if scenario == 1 else 0
+            )
+            assert_equal(emission.x[lane], value)
+            assert_equal(emission.y[lane], value)
+            assert_equal(emission.z[lane], value)
+            var expected_pdf = value * 9.0
+            assert_almost_equal(pdf[lane], expected_pdf)
+            assert_almost_equal(
+                mis[lane],
+                Float32(1) if delta[lane] else 36.0
+                / (36.0 + expected_pdf * expected_pdf),
+                atol=1e-6,
+            )
+            assert_equal(nee[lane], Float32(1 if delta[lane] else 0))
+            assert_equal(primary[lane], Float32(1))
+    var empty = SurfaceStore()
+    var ignored = empty.emitted_radiance(
+        SurfaceId[width](SIMD[.uint32, width](UInt32.MAX)),
+        SIMD[.bool, width](fill=True),
+        SIMD[.bool, width](fill=False),
+    )
+    assert_equal(ignored.x.reduce_add(), Float32(0))
+
+
+def test_emission_packets_preserve_masks_primary_delta_and_mis_weights() raises:
+    comptime for width in [1, 4, 8, 16]:
+        _emission_packets[width]()
+
+
+def test_scalar_bsdf_setup_preserves_rng_draw_counts_for_all_samplers() raises:
+    var surfaces = SurfaceStore()
+    var matte = surfaces.add_lambertian(Color(0.5))
+    var smooth = surfaces.add_metal(Color(0.5), 0.0)
+    var rough = surfaces.add_metal(Color(0.5), 0.3)
+    var glass = surfaces.add_dielectric(1.5)
+    var coated = surfaces.add_coated_diffuse(Color(0.5), 0.3, 1.5, max_depth=2)
+    var light = surfaces.add_emissive(Color(2.0))
+    var mixed_smooth = surfaces.add_mix(smooth, matte, 0.0)
+    var mixed_matte = surfaces.add_mix(smooth, matte, 1.0)
+    var ids: List[UInt32] = [
+        matte.value[0],
+        smooth.value[0],
+        rough.value[0],
+        glass.value[0],
+        glass.value[0],
+        coated.value[0],
+        light.value[0],
+        mixed_smooth.value[0],
+        mixed_matte.value[0],
+    ]
+    var draws: List[Int] = [2, 0, 2, 1, 0, 2, 0, 1, 3]
+    for sampler_id in range(6):
+        var sampler = Sampler(sampler_id)
+        for scenario in range(len(ids)):
+            var rng = Rng[1](UInt64(2026), UInt64(17), sampler=sampler)
+            var expected = Rng[1](UInt64(2026), UInt64(17), sampler=sampler)
+            for _ in range(draws[scenario]):
+                _ = expected.f32()
+            var point = ShadingPoint[1](
+                Point3f32[.WORLD](0), Vec3f32[.WORLD](0, 0, 1), scenario != 4
+            )
+            var direction = Vec3f32[.WORLD](
+                0.9, 0, -0.1
+            ) if scenario == 4 else Vec3f32[.WORLD](0, 0, -1)
+            _ = sample_bsdf(
+                SurfaceId.from_raw(ids[scenario]),
+                surfaces,
+                Rayf32[.WORLD](Point3f32[.WORLD](0), direction),
+                point,
+                rng,
+            )
+            for _ in range(4):
+                assert_equal(
+                    bitcast[.uint32](rng.f32()),
+                    bitcast[.uint32](expected.f32()),
+                )
+
+
+def _packet_bsdf_draws[kind: MaterialKind, width: SIMDLength]() raises:
+    var surfaces = SurfaceStore()
+    _ = surfaces.add_metal(Color(0.5), 0.0)
+    _ = surfaces.add_metal(Color(0.5), 0.3)
+    _ = surfaces.add_dielectric(1.5)
+    for pattern in range(4):
+        var indices = SIMD[.uint32, width](UInt32.MAX)
+        var path_ids = SIMD[.uint64, width](0)
+        var active = SIMD[.bool, width](fill=False)
+        var front = SIMD[.bool, width](fill=True)
+        var eligible = False
+        for lane in range(Int(width)):
+            path_ids[lane] = UInt64(17 + lane)
+            active[lane] = pattern != 0 and (
+                pattern != 3 or lane == Int(width) - 1
+            )
+            if active[lane]:
+                comptime if kind == .METAL:
+                    indices[lane] = UInt32(
+                        1 if pattern >= 2 and lane % 2 == 0 else 0
+                    )
+                    eligible |= indices[lane] == 1
+                else:
+                    indices[lane] = 0
+                    front[lane] = pattern != 2
+                    eligible |= front[lane]
+        var material = _MaterialParameters[width]()
+        material.load[kind](surfaces, indices, 0.0, 0.0, active)
+        var rng = Rng[width](UInt64(2026), path_ids)
+        var expected = Rng[width](UInt64(2026), path_ids)
+        var draws = 0
+        if eligible:
+            draws = 2 if kind == .METAL else 1
+        for _ in range(draws):
+            _ = expected.f32()
+        var sampled = material.sample[kind](
+            Vec3[.float32, .WORLD, width](0.9, 0, -0.1),
+            Vec3[.float32, .WORLD, width](0, 0, 1),
+            front,
+            rng,
+            active=active,
+        )
+        for lane in range(Int(width)):
+            if not active[lane]:
+                assert_equal(sampled.ok[lane], False)
+        for _ in range(4):
+            var actual_draw = rng.f32()
+            var expected_draw = expected.f32()
+            for lane in range(Int(width)):
+                assert_equal(
+                    bitcast[.uint32](actual_draw[lane]),
+                    bitcast[.uint32](expected_draw[lane]),
+                )
+
+
+def test_packet_bsdf_setup_preserves_draws_for_masks_smooth_metals_and_tir() raises:
+    comptime for width in [1, 4, 8, 16]:
+        _packet_bsdf_draws[.METAL, width]()
+        _packet_bsdf_draws[.DIELECTRIC, width]()
 
 
 def run_tests[_discovery: Bool = True]() raises:

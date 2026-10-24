@@ -151,7 +151,63 @@ def append_masked_tile[
     mask: SIMD[.bool, Packet.WIDTH],
     lane_count: Int,
 ):
-    """Stable compaction shared by path and shade queues, including tails."""
+    @always_inline
+    def make_packet() {source} -> Packet:
+        return source.copy()
+
+    @always_inline
+    def copy_lane(
+        mut destination: Packet, source_lane: Int, target_lane: Int
+    ) {source}:
+        destination.copy_lane(source, source_lane, target_lane)
+
+    @always_inline
+    def copy_metadata(
+        mut destination: Packet, source_lane: Int, target_lane: Int
+    ) {source}:
+        destination.copy_metadata_lane(source, source_lane, target_lane)
+
+    @always_inline
+    def copy_floats(
+        mut destination: Packet,
+        selected: SIMD[.bool, Packet.WIDTH],
+        target_lane: Int,
+    ) {source}:
+        destination.copy_float_lanes(source, selected, target_lane)
+
+    append_masked_lanes(
+        packets,
+        count,
+        mask,
+        lane_count,
+        make_packet,
+        copy_lane,
+        copy_metadata,
+        copy_floats,
+    )
+
+
+@always_inline
+def append_masked_lanes[
+    Packet: TilePacket,
+    MakePacket: def() -> Packet,
+    CopyLane: def(mut Packet, Int, Int),
+    CopyMetadata: def(mut Packet, Int, Int),
+    CopyFloats: def(mut Packet, SIMD[.bool, Packet.WIDTH], Int),
+](
+    mut packets: List[Packet],
+    mut count: Int,
+    mask: SIMD[.bool, Packet.WIDTH],
+    lane_count: Int,
+    make_packet: MakePacket,
+    copy_lane: CopyLane,
+    copy_metadata: CopyMetadata,
+    copy_floats: CopyFloats,
+):
+    """Compact lanes from packet storage or register values without staging.
+
+    Writers preserve source order and copy floats directly to their final rows.
+    """
     debug_assert["safe", _use_compiler_assume=True](
         lane_count >= 0 and lane_count <= Packet.WIDTH,
         "invalid masked packet lane count",
@@ -162,9 +218,7 @@ def append_masked_tile[
                 var destination_lane = count % Packet.WIDTH
                 if destination_lane == 0:
                     packets.append(Packet())
-                packets[count / Packet.WIDTH].copy_lane(
-                    source, lane, destination_lane
-                )
+                copy_lane(packets[count / Packet.WIDTH], lane, destination_lane)
                 count += 1
     else:
         var remaining = UInt64(pack_bits(mask))
@@ -177,7 +231,7 @@ def append_masked_tile[
             and count % Packet.WIDTH == 0
             and mask.reduce_and()
         ):
-            packets.append(source.copy())
+            packets.append(make_packet())
             count += Packet.WIDTH
             return
         while remaining != 0:
@@ -187,13 +241,13 @@ def append_masked_tile[
             ref destination = packets[count / Packet.WIDTH]
 
             @always_inline
-            def copy_lane(
+            def copy_selected_lane(
                 source_lane: Int, target_lane: Int
-            ) {source, mut destination}:
-                destination.copy_metadata_lane(source, source_lane, target_lane)
+            ) {copy_metadata, mut destination}:
+                copy_metadata(destination, source_lane, target_lane)
 
             var selection = select_packet_lanes[Packet.WIDTH](
-                remaining, destination_lane, copy_lane
+                remaining, destination_lane, copy_selected_lane
             )
-            destination.copy_float_lanes(source, selection[0], destination_lane)
+            copy_floats(destination, selection[0], destination_lane)
             count += selection[1]

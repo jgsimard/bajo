@@ -6,7 +6,7 @@ from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from bajo.rt.lighting_types import LightRecord
 from bajo.core import (
     Point3,
-    Rayf32,
+    Ray,
     Vec3,
     dot,
     normalize,
@@ -29,12 +29,13 @@ from bajo.rt.lighting import (
     _sample_triangle_light_surface,
 )
 from bajo.bvh.constants import PrimitiveKind
-from bajo.rt.render_types import Color
 from bajo.rt.material_types import (
     Integrator,
+    MaterialKind,
     Emissive,
     PRIMITIVE_INDEX_BITS,
     SURFACE_INDEX_MASK,
+    SURFACE_INDEX_BITS,
 )
 from bajo.rt.shading_types import (
     ShadingPoint,
@@ -72,43 +73,61 @@ def _emissive_hit_weight[
     integrator: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
+    length: SIMDLength = 1,
 ](
     world: CpuScene[world_bvh_width, instance_bvh_width],
-    ray: Rayf32[.WORLD],
-    hit: SurfaceHit[1],
+    ray: Ray[.float32, .WORLD, length],
+    hit: SurfaceHit[length],
+    emission: Vec3[.float32, .WORLD, length],
     bounce: Int,
-    previous_bsdf_pdf: Float32,
-    previous_delta: Bool,
-) -> Float32:
-    var light_pdf = Float32(0.0)
+    previous_bsdf_pdf: SIMD[.float32, length],
+    previous_delta: SIMD[.bool, length],
+    active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+) -> SIMD[.float32, length]:
+    var light_pdf = SIMD[.float32, length](0.0)
     comptime if integrator == .MIS:
-        if bounce > 0 and not previous_delta:
-            light_pdf = light_pdf_for_emissive_hit(world, ray, hit)
+        if bounce > 0 and (active & ~previous_delta).reduce_or():
+            light_pdf = _emissive_hit_light_pdf(
+                ray.d,
+                hit.t,
+                hit.normal,
+                emission,
+                world.scene_data().total_light_weight(),
+            )
     return _emissive_hit_weight_from_pdf[integrator](
         UInt32(bounce), previous_delta, previous_bsdf_pdf, light_pdf
     )
 
 
+@always_inline
 def light_pdf_for_emissive_hit[
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
+    length: SIMDLength = 1,
 ](
     world: CpuScene[world_bvh_width, instance_bvh_width],
-    ray: Rayf32[.WORLD],
-    hit: SurfaceHit[1],
-) -> Float32:
-    """Evaluate the triangle-light distribution in solid-angle measure."""
-    if hit.surface.kind() != .EMISSIVE or not hit.front_face:
-        return 0.0
-    var total_weight = world.scene_data().total_light_weight()
-    var radiance = (
-        world.scene_data()
-        .surfaces()
-        .emissives[Int(hit.surface.index())]
-        .radiance
+    ray: Ray[.float32, .WORLD, length],
+    hit: SurfaceHit[length],
+    active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+) -> SIMD[.float32, length]:
+    ref data = world.scene_data()
+    var emitting = (
+        active
+        & hit.front_face
+        & (hit.surface.value >> SURFACE_INDEX_BITS).eq(
+            MaterialKind.EMISSIVE.value
+        )
     )
-    return _emissive_hit_light_pdf(
-        ray.d, hit.t, hit.normal, radiance, total_weight
+    if not emitting.reduce_or():
+        return 0.0
+    var radiance = data.surfaces().emitted_radiance(
+        hit.surface, hit.front_face, emitting
+    )
+    return emitting.select(
+        _emissive_hit_light_pdf(
+            ray.d, hit.t, hit.normal, radiance, data.total_light_weight()
+        ),
+        0.0,
     )
 
 
@@ -129,27 +148,29 @@ def environment_pdf_for_miss[
     )[0]
 
 
+@always_inline
 def _environment_miss_weight[
     integrator: Integrator,
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
+    length: SIMDLength = 1,
 ](
     world: CpuScene[world_bvh_width, instance_bvh_width],
-    emission: Color,
+    emission: Vec3[.float32, .WORLD, length],
     bounce: Int,
-    previous_bsdf_pdf: Float32,
-    previous_delta: Bool,
-) -> Float32:
-    var light_pdf = Float32(0.0)
+    previous_bsdf_pdf: SIMD[.float32, length],
+    previous_delta: SIMD[.bool, length],
+) -> SIMD[.float32, length]:
+    var light_pdf = SIMD[.float32, length](0.0)
     comptime if integrator == .MIS:
-        if bounce > 0 and not previous_delta:
+        if bounce > 0 and (~previous_delta).reduce_or():
             ref data = world.scene_data()
             light_pdf = environment_pdf_from_radiance(
                 data.environment(),
                 data.environment_weight(),
                 data.total_light_weight(),
                 emission,
-            )[0]
+            )
     return _emissive_hit_weight_from_pdf[integrator](
         UInt32(bounce), previous_delta, previous_bsdf_pdf, light_pdf
     )

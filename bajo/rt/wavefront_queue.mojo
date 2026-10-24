@@ -2,7 +2,6 @@
 
 from std.collections import Array
 from std.math import ceildiv
-from std.memory import pack_bits
 from std.sys.intrinsics import llvm_intrinsic
 from layout import Coord
 from bajo.rt.path_values import PathContinuation, PathFloatField
@@ -17,7 +16,7 @@ from bajo.rt.packet_layout import (
     copy_packet_float_lane,
     TilePacket,
     append_masked_tile,
-    select_packet_lanes,
+    append_masked_lanes,
 )
 from bajo.core import Rayf32
 from bajo.rt.render_types import Color
@@ -217,76 +216,59 @@ struct PacketPathQueue[length: SIMDLength](Sized):
         mask: SIMD[.bool, Self.length],
         lane_count: Int,
     ):
-        debug_assert["safe", _use_compiler_assume=True](
-            lane_count >= 0 and lane_count <= Self.length,
-            "invalid continuation lane count",
-        )
-        comptime if Self.length == 1 or Self.length > 64:
-            for source_lane in range(lane_count):
-                if not mask[source_lane]:
-                    continue
-                var destination_lane = self.count % Self.length
-                if destination_lane == 0:
-                    self.packets.append(PathPacket[Self.length]())
-                ref destination = self.packets[self.count / Self.length]
-                destination.path_ids[destination_lane] = values.path_ids[
+        @always_inline
+        def make_packet() {values} -> PathPacket[Self.length]:
+            return PathPacket[Self.length](values)
+
+        @always_inline
+        def copy_metadata(
+            mut destination: PathPacket[Self.length],
+            source_lane: Int,
+            target_lane: Int,
+        ) {values}:
+            destination.path_ids[target_lane] = values.path_ids[source_lane]
+            destination.medium_ids[target_lane] = values.medium_ids[source_lane]
+            destination.deltas[target_lane] = values.delta[source_lane]
+
+        @always_inline
+        def copy_lane(
+            mut destination: PathPacket[Self.length],
+            source_lane: Int,
+            target_lane: Int,
+        ) {values, copy_metadata}:
+            copy_metadata(destination, source_lane, target_lane)
+            var tile = destination.tile()
+            comptime for field in range(PathFloatField.VALUE_PLANES):
+                tile[field, target_lane] = values.float_field[field]()[
                     source_lane
                 ]
-                destination.medium_ids[destination_lane] = values.medium_ids[
-                    source_lane
-                ]
-                destination.deltas[destination_lane] = values.delta[source_lane]
-                var tile = destination.tile()
-                comptime for field in range(PathFloatField.VALUE_PLANES):
-                    tile[field, destination_lane] = values.float_field[field]()[
-                        source_lane
-                    ]
-                self.count += 1
-        else:
-            var remaining = UInt64(pack_bits(mask))
-            if lane_count < 64:
-                remaining &= (UInt64(1) << UInt64(lane_count)) - 1
-            if remaining == 0:
-                return
-            if (
-                lane_count == Self.length
-                and self.count % Self.length == 0
-                and mask.reduce_and()
-            ):
-                self.packets.append(PathPacket[Self.length](values))
-                self.count += Self.length
-                return
-            while remaining != 0:
-                var destination_lane = self.count % Self.length
-                if destination_lane == 0:
-                    self.packets.append(PathPacket[Self.length]())
-                ref destination = self.packets[self.count / Self.length]
 
-                @always_inline
-                def copy_lane(
-                    source_lane: Int, target_lane: Int
-                ) {values, mut destination}:
-                    destination.path_ids[target_lane] = values.path_ids[
-                        source_lane
-                    ]
-                    destination.medium_ids[target_lane] = values.medium_ids[
-                        source_lane
-                    ]
-                    destination.deltas[target_lane] = values.delta[source_lane]
-
-                var selection = select_packet_lanes[Self.length](
-                    remaining, destination_lane, copy_lane
+        @always_inline
+        def copy_floats(
+            mut destination: PathPacket[Self.length],
+            selected: SIMD[.bool, Self.length],
+            target_lane: Int,
+        ) {values}:
+            var tile = destination.tile()
+            comptime for field in range(PathFloatField.VALUE_PLANES):
+                llvm_intrinsic["llvm.masked.compressstore", NoneType](
+                    values.float_field[field](),
+                    tile.ptr.unsafe_offset(
+                        Int(tile.layout(Coord(field, target_lane)))
+                    ),
+                    selected,
                 )
-                var tile = destination.tile()
-                comptime for field in range(PathFloatField.VALUE_PLANES):
-                    llvm_intrinsic["llvm.masked.compressstore", NoneType](
-                        values.float_field[field](),
-                        tile.ptr.unsafe_offset(
-                            Int(tile.layout(Coord(field, destination_lane)))
-                        ),
-                        selection[0],
-                    )
-                self.count += selection[1]
+
+        append_masked_lanes(
+            self.packets,
+            self.count,
+            mask,
+            lane_count,
+            make_packet,
+            copy_lane,
+            copy_metadata,
+            copy_floats,
+        )
 
 
 struct ShadePacket[length: SIMDLength](TilePacket):

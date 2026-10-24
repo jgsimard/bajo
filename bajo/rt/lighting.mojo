@@ -5,14 +5,12 @@ from std.math import sqrt
 from bajo.core import (
     Point3,
     Vec3,
-    Vec3f32,
     cross,
     dot,
     length2,
     normalize,
 )
 from bajo.rt.rays import RT_RAY_T_MIN, RT_SHADOW_END_OFFSET
-from bajo.rt.render_types import Color
 from bajo.rt.material_types import Integrator
 from bajo.rt.lighting_types import _light_importance
 
@@ -197,17 +195,17 @@ def power_heuristic[
 
 
 @always_inline
-def _emissive_hit_light_pdf(
-    ray_direction: Vec3f32[.WORLD],
-    hit_t: Float32,
-    normal: Vec3f32[.WORLD],
-    emission: Color,
+def _emissive_hit_light_pdf[
+    length: SIMDLength = 1
+](
+    ray_direction: Vec3[.float32, .WORLD, length],
+    hit_t: SIMD[.float32, length],
+    normal: Vec3[.float32, .WORLD, length],
+    emission: Vec3[.float32, .WORLD, length],
     total_light_weight: Float32,
-) -> Float32:
-    """Evaluate an emissive-hit light PDF in solid-angle measure."""
+) -> SIMD[.float32, length]:
+    """Evaluate emissive-hit light PDFs at any width, including one."""
     var light_cosine = max(dot(normal, -normalize(ray_direction)), 0.0)
-    if light_cosine <= 0.0 or total_light_weight <= 0.0:
-        return 0.0
     return _solid_angle_light_pdf(
         hit_t * hit_t * length2(ray_direction),
         light_cosine,
@@ -219,22 +217,24 @@ def _emissive_hit_light_pdf(
 @always_inline
 def _emissive_hit_weight_from_pdf[
     integrator: Integrator,
+    length: SIMDLength = 1,
 ](
     bounce: UInt32,
-    previous_delta: Bool,
-    previous_bsdf_pdf: Float32,
-    light_pdf: Float32,
-) -> Float32:
-    """Apply the shared NEE/MIS policy to an emissive surface hit."""
-    comptime match integrator:
-        case .NEE:
-            if bounce > 0 and not previous_delta:
-                return 0.0
-        case .MIS:
-            if bounce > 0 and not previous_delta:
-                return power_heuristic[1](previous_bsdf_pdf, light_pdf)
-        case .PATH | .AO | .NORMALS:
-            pass
+    previous_delta: SIMD[.bool, length],
+    previous_bsdf_pdf: SIMD[.float32, length],
+    light_pdf: SIMD[.float32, length],
+) -> SIMD[.float32, length]:
+    """Apply one NEE/MIS policy to scalar and packet emission."""
+    if bounce > 0:
+        comptime match integrator:
+            case .NEE:
+                return previous_delta.select(Float32(1.0), Float32(0.0))
+            case .MIS:
+                return previous_delta.select(
+                    Float32(1.0), power_heuristic(previous_bsdf_pdf, light_pdf)
+                )
+            case .PATH | .AO | .NORMALS:
+                pass
     return 1.0
 
 

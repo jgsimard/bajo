@@ -1,24 +1,13 @@
 """Width-generic packet CPU wavefront kernels."""
 
-from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from std.math import sqrt, iota
-from std.memory import Pointer
-from std.sys.info import size_of
-from bajo.rt.material_parameters import CoatedParameters
-from bajo.rt.material_storage import (
-    load_coated_parameters,
-    CoatedDiffuseLayout,
-)
 from bajo.rt.continuation import finish_continuation, continuation_medium
 
 from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
 from bajo.core import (
     Point3,
-    Point3f32,
-    Rayf32,
     Ray,
     Vec3,
-    Vec3f32,
     dot,
 )
 from bajo.rt.render_types import (
@@ -27,11 +16,8 @@ from bajo.rt.render_types import (
     SamplingConfig,
 )
 from bajo.rt.material_types import (
-    NO_TEXTURE,
     Environment,
     MaterialKind,
-    Metal,
-    Dielectric,
     Integrator,
     SurfaceId,
     SurfaceStore,
@@ -42,6 +28,7 @@ from bajo.rt.shading_types import (
     ShadingPoint,
 )
 from ..scene import CpuScene
+from ..bsdf import _MaterialParameters
 from bajo.rt.common import (
     environment_radiance,
     path_stage_rng,
@@ -50,11 +37,8 @@ from bajo.rt.common import (
 from bajo.rt.lighting import _direct_light_scale
 from bajo.rt.rays import make_ao_ray, spawn_surface_ray
 from bajo.rt.shading import (
-    dielectric_geometry,
     _evaluate_coated_diffuse,
     _evaluate_material,
-    _sample_coated_diffuse,
-    _sample_material,
 )
 from bajo.rt.wavefront_queue import (
     PacketPathQueue,
@@ -94,60 +78,6 @@ struct _DirectLightBatch[length: SIMDLength]:
         self.surface_indices = 0
 
 
-struct _MaterialParameters[length: SIMDLength]:
-    var albedo: Vec3[.float32, .WORLD, Self.length]
-    # Fuzz/roughness, or the dielectric refraction index.
-    var parameter: SIMD[.float32, Self.length]
-    var coated: CoatedParameters[Self.length]
-
-    def __init__(out self):
-        self.albedo = Vec3[.float32, .WORLD, Self.length](0.0)
-        self.parameter = SIMD[.float32, Self.length](1.0)
-        self.coated = CoatedParameters[Self.length]()
-
-    @always_inline
-    def gather[
-        kind: MaterialKind
-    ](
-        mut self,
-        surfaces: SurfaceStore,
-        indices: SIMD[.uint32, Self.length],
-        active: SIMD[.bool, Self.length],
-    ):
-        comptime if kind == .METAL or kind == .DIELECTRIC:
-            if not active.reduce_or():
-                return
-            # Borrow the actual field address and use the record's ABI stride;
-            # no hard-coded offsets or second prepared copy of the materials.
-            comptime if kind == .METAL:
-                self._gather_parameter(
-                    Pointer(to=surfaces.metals[0].fuzz),
-                    size_of[Metal]() // size_of[Float32](),
-                    indices,
-                    active,
-                )
-            else:
-                self._gather_parameter(
-                    Pointer(to=surfaces.dielectrics[0].refraction_index),
-                    size_of[Dielectric]() // size_of[Float32](),
-                    indices,
-                    active,
-                )
-
-    @always_inline
-    def _gather_parameter[
-        origin: ImmOrigin
-    ](
-        mut self,
-        fields: Pointer[Float32, origin],
-        stride: Int,
-        indices: SIMD[.uint32, Self.length],
-        active: SIMD[.bool, Self.length],
-    ):
-        var offsets = active.select(indices, 0).cast[.int]() * stride
-        self.parameter = active.select(fields.unsafe_gather(offsets), 1.0)
-
-
 @always_inline
 def _accumulate_direct_light_packet[
     integrator: Integrator, length: SIMDLength
@@ -185,19 +115,14 @@ def _accumulate_direct_light_packet[
         lights.surface_indices,
         lights.sample.valid & lights.surface_kinds.eq(MaterialKind.METAL.value),
     )
-    if coated_active.reduce_or():
-        var records = record_tile[.float32, CoatedDiffuseLayout.STRIDE, True](
-            coated_fields.unsafe_ptr(), len(surfaces.coated_diffuses)
-        )
-        var ids = coated_active.select(lights.surface_indices, 0)
-        material.coated = load_coated_parameters(
-            records, ids, ids.eq(ids[0]).reduce_and()
-        )
-        material.coated.conductor_roughness = (
-            surfaces.sample_conductor_roughness(
-                surface, lights.point.uv_u, lights.point.uv_v, coated_active
-            )
-        )
+    material.load[.COATED_DIFFUSE, False](
+        surfaces,
+        lights.surface_indices,
+        lights.point.uv_u,
+        lights.point.uv_v,
+        coated_active,
+        coated_fields,
+    )
 
     var lambertian = _evaluate_material[.LAMBERTIAN, length](
         ray_direction,
@@ -262,96 +187,26 @@ def _sample_bsdf_values[
     sampling: SamplingConfig,
     stage: UInt32,
 ) -> BsdfSample[length]:
-    """Gather material/RNG state, then sample with BSDF math."""
-    comptime assert MaterialKind.has_bsdf[MATERIAL_KIND]
-    var ray_direction = Vec3[.float32, .WORLD, length](
-        batch.dx, batch.dy, batch.dz
-    )
-    var normal = Vec3[.float32, .WORLD, length](batch.nx, batch.ny, batch.nz)
-    var material = _MaterialParameters[length]()
-    var estimator_seeds = path_stage_seed(sampling, batch.path_ids, stage)
-    var random_u = SIMD[.float32, length](0.0)
-    var random_v = SIMD[.float32, length](0.0)
+    """Load and sample through the same setup used by scalar CPU shading."""
     var active = iota[.int, length]().lt(lane_count)
-    var texture_albedo = True
-    var texture_roughness = True
-    comptime if MATERIAL_KIND == .COATED_DIFFUSE:
-        if lane_count > 0:
-            var records = record_tile[
-                .float32, CoatedDiffuseLayout.STRIDE, True
-            ](coated_fields.unsafe_ptr(), len(surfaces.coated_diffuses))
-            var ids = active.select(
-                batch.surface_indices, batch.surface_indices[0]
-            )
-            var uniform = ids.eq(ids[0]).reduce_and()
-            material.coated = load_coated_parameters(records, ids, uniform)
-            material.albedo = gather_record_vec3[
-                .WORLD, CoatedDiffuseLayout.ALBEDO
-            ](records, ids, uniform)
-            if uniform:
-                ref source = surfaces.coated_diffuses[Int(ids[0])]
-                texture_albedo = source.texture_index != NO_TEXTURE
-                texture_roughness = source.roughness_texture_index != NO_TEXTURE
-    var surface = SurfaceId[length](
-        (SIMD[.uint32, length](MATERIAL_KIND.value) << SURFACE_INDEX_BITS)
-        | batch.surface_indices
+    var material = _MaterialParameters[length]()
+    material.load[MATERIAL_KIND](
+        surfaces,
+        batch.surface_indices,
+        batch.uv_u,
+        batch.uv_v,
+        active,
+        coated_fields,
     )
-    comptime if MATERIAL_KIND != .DIELECTRIC:
-        if texture_albedo or MATERIAL_KIND != .COATED_DIFFUSE:
-            material.albedo = surfaces.sample_albedo(
-                surface, batch.uv_u, batch.uv_v, active
-            )
-    comptime if MATERIAL_KIND == .COATED_DIFFUSE:
-        if texture_roughness:
-            material.coated.conductor_roughness = (
-                surfaces.sample_conductor_roughness(
-                    surface, batch.uv_u, batch.uv_v, active
-                )
-            )
-    else:
-        material.gather[MATERIAL_KIND](surfaces, batch.surface_indices, active)
     var rng = path_stage_rng(sampling, batch.path_ids, stage)
-    comptime if MATERIAL_KIND == .DIELECTRIC:
-        var ri = batch.front_faces.select(
-            Float32(1.0) / material.parameter, material.parameter
-        )
-        var geometry = dielectric_geometry(ray_direction, normal, ri)
-        var eligible = active & geometry[2].le(1.0)
-        if eligible.reduce_or():
-            random_u = eligible.select(rng.f32(), 0.0)
-    else:
-        var eligible = active
-        comptime if MATERIAL_KIND == .METAL:
-            eligible &= material.parameter.gt(1.0e-4)
-        if eligible.reduce_or():
-            random_u = eligible.select(rng.f32(), 0.0)
-            random_v = eligible.select(rng.f32(), 0.0)
-
-    var sampled: BsdfSample[length]
-    comptime if MATERIAL_KIND == .COATED_DIFFUSE:
-        sampled = _sample_coated_diffuse(
-            ray_direction,
-            normal,
-            material.albedo,
-            material.coated,
-            random_u,
-            random_v,
-            active=active,
-            estimator_seed=estimator_seeds,
-        )
-    else:
-        sampled = _sample_material[MATERIAL_KIND, length](
-            ray_direction,
-            normal,
-            material.albedo,
-            material.parameter,
-            batch.front_faces,
-            random_u,
-            random_v,
-        )
-
-    sampled.ok &= active
-    return sampled^
+    return material.sample[MATERIAL_KIND](
+        Vec3[.float32, .WORLD, length](batch.dx, batch.dy, batch.dz),
+        Vec3[.float32, .WORLD, length](batch.nx, batch.ny, batch.nz),
+        batch.front_faces,
+        rng,
+        path_stage_seed(sampling, batch.path_ids, stage),
+        active,
+    )
 
 
 @always_inline
@@ -378,24 +233,16 @@ def _accumulate_environment_packet[
         surfaces,
         Vec3[.float32, .WORLD, length](packet.dx, packet.dy, packet.dz),
     )
-    var red = packet.tx * emission.x
-    var green = packet.ty * emission.y
-    var blue = packet.tz * emission.z
+    var weight = _environment_miss_weight[integrator](
+        world, emission, bounce, packet.bsdf_pdfs, packet.deltas
+    )
+    var red = packet.tx * emission.x * weight
+    var green = packet.ty * emission.y * weight
+    var blue = packet.tz * emission.z * weight
     for lane in range(lane_count):
         if misses[lane]:
             var pixel_idx = Int(packet.path_ids[lane]) / samples_per_pixel
-            var weight = _environment_miss_weight[integrator](
-                world,
-                Vec3f32[.WORLD](
-                    emission.x[lane], emission.y[lane], emission.z[lane]
-                ),
-                bounce,
-                packet.bsdf_pdfs[lane],
-                packet.deltas[lane],
-            )
-            pixels[pixel_idx] += (
-                Color(red[lane], green[lane], blue[lane]) * weight
-            )
+            pixels[pixel_idx] += Color(red[lane], green[lane], blue[lane])
 
 
 @always_inline
@@ -474,7 +321,6 @@ def _trace_packets[
             var lane_count = min(
                 length, len(active_paths) - packet_idx * length
             )
-            var misses = SIMD[.bool, length](fill=False)
             var direct_lights = _DirectLightBatch[length]()
             var valid_lanes = iota[.int, length]().lt(lane_count)
             var ray_packet = Ray[.float32, .WORLD, length](
@@ -540,52 +386,47 @@ def _trace_packets[
                     packet.tx *= attenuation.x
                     packet.ty *= attenuation.y
                     packet.tz *= attenuation.z
-                for lane in range(lane_count):
-                    var ray = Rayf32[.WORLD](
-                        Point3f32[.WORLD](
-                            packet.ox[lane], packet.oy[lane], packet.oz[lane]
-                        ),
-                        Vec3f32[.WORLD](
-                            packet.dx[lane], packet.dy[lane], packet.dz[lane]
-                        ),
-                        packet.t_min[lane],
-                        packet.t_max[lane],
+                var misses = valid_lanes & ~surface_hits.hit
+                var emitting = (
+                    valid_lanes
+                    & surface_hits.hit
+                    & surface_hits.front_face
+                    & (surface_hits.surface.value >> SURFACE_INDEX_BITS).eq(
+                        MaterialKind.EMISSIVE.value
                     )
-                    var hit = surface_hits.get(lane)
-                    if hit.hit:
-                        var pixel_idx = (
-                            Int(packet.path_ids[lane])
-                            / settings.samples_per_pixel
+                )
+                if emitting.reduce_or():
+                    var emission = (
+                        world.scene_data()
+                        .surfaces()
+                        .emitted_radiance(
+                            surface_hits.surface,
+                            surface_hits.front_face,
+                            emitting,
                         )
-                        if hit.surface.kind() == .EMISSIVE:
-                            var emission_weight = _emissive_hit_weight[
-                                integrator
-                            ](
-                                world,
-                                ray,
-                                hit,
-                                bounce,
-                                packet.bsdf_pdfs[lane],
-                                packet.deltas[lane],
+                    )
+                    var weight = _emissive_hit_weight[integrator](
+                        world,
+                        ray_packet,
+                        surface_hits,
+                        emission,
+                        bounce,
+                        packet.bsdf_pdfs,
+                        packet.deltas,
+                        emitting,
+                    )
+                    var red = packet.tx * emission.x * weight
+                    var green = packet.ty * emission.y * weight
+                    var blue = packet.tz * emission.z * weight
+                    for lane in range(lane_count):
+                        if emitting[lane]:
+                            var pixel_idx = (
+                                Int(packet.path_ids[lane])
+                                / settings.samples_per_pixel
                             )
-                            pixels[pixel_idx] += (
-                                Color(
-                                    packet.tx[lane],
-                                    packet.ty[lane],
-                                    packet.tz[lane],
-                                )
-                                * world.scene_data()
-                                .surfaces()
-                                .emitted_radiance(
-                                    hit.surface,
-                                    hit.front_face,
-                                )
-                                * emission_weight
+                            pixels[pixel_idx] += Color(
+                                red[lane], green[lane], blue[lane]
                             )
-                            continue
-
-                    else:
-                        misses[lane] = True
 
                 # Gather ray/throughput rows once, after per-lane attenuation;
                 # append one compact tile per material, preserving lane order.

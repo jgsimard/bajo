@@ -2,11 +2,9 @@ from std.math import tan
 
 from bajo.bvh.constants import f32_max
 from bajo.core import (
-    Vec3,
     Vec3f32,
     normalize,
     cross,
-    Point3,
     Point3f32,
     Ray,
     Rayf32,
@@ -150,26 +148,12 @@ struct Camera(TrivialRegisterPassable, Writable):
         var aspect = width / height
         var sx = ((px + pixel_u) / width) * 2.0 - 1.0
         var sy = 1.0 - ((py + pixel_v) / height) * 2.0
-        var origin = Point3[.float32, .WORLD, length](
-            self.origin.x, self.origin.y, self.origin.z
-        )
-        var forward = Vec3[.float32, .WORLD, length](
-            self.forward.x, self.forward.y, self.forward.z
-        )
-        var right = Vec3[.float32, .WORLD, length](
-            self.right.x, self.right.y, self.right.z
-        )
-        var up = Vec3[.float32, .WORLD, length](self.up.x, self.up.y, self.up.z)
-        var disk_u = Vec3[.float32, .WORLD, length](
-            self.defocus_disk_u.x,
-            self.defocus_disk_u.y,
-            self.defocus_disk_u.z,
-        )
-        var disk_v = Vec3[.float32, .WORLD, length](
-            self.defocus_disk_v.x,
-            self.defocus_disk_v.y,
-            self.defocus_disk_v.z,
-        )
+        var origin = self.origin.broadcast[length]()
+        var forward = self.forward.broadcast[length]()
+        var right = self.right.broadcast[length]()
+        var up = self.up.broadcast[length]()
+        var disk_u = self.defocus_disk_u.broadcast[length]()
+        var disk_v = self.defocus_disk_v.broadcast[length]()
         var focal_point = origin + self.focus_dist * (
             forward
             + right * (sx * aspect * self.fov_scale)

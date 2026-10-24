@@ -1,6 +1,7 @@
 """Material, texture, environment, and surface storage types."""
 
 from std.math import sqrt
+from std.sys.info import size_of
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from bajo.rt.texture_math import (
     sample_image_texture,
@@ -790,12 +791,36 @@ struct SurfaceStore:
         mapped = remap.select(sqrt(mapped), mapped)
         return textures.ne(NO_TEXTURE).select(mapped, roughness)
 
-    def emitted_radiance(
-        self, surface: SurfaceId[1], front_face: Bool
-    ) -> Color:
-        if surface.kind() == .EMISSIVE and front_face:
-            return self.emissives[Int(surface.index())].radiance
-        return Color(0.0)
+    @always_inline
+    def emitted_radiance[
+        length: SIMDLength = 1
+    ](
+        self,
+        surface: SurfaceId[length],
+        front_face: SIMD[.bool, length],
+        active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+    ) -> Vec3[.float32, .WORLD, length]:
+        var emitting = (
+            active
+            & front_face
+            & (surface.value >> SURFACE_INDEX_BITS).eq(
+                MaterialKind.EMISSIVE.value
+            )
+        )
+        var zero = Vec3[.float32, .WORLD, length](0.0)
+        if not emitting.reduce_or():
+            return zero
+        var ids = emitting.select(surface.value & SURFACE_INDEX_MASK, 0)
+        debug_assert["safe", _use_compiler_assume=True](
+            (~emitting | ids.lt(UInt32(len(self.emissives)))).reduce_and(),
+            "emissive surface index is out of range",
+        )
+        comptime assert size_of[Emissive]() == 3 * size_of[Float32]()
+        var records = record_tile[.float32, 3](
+            self.emissives.unsafe_ptr().unsafe_bitcast[Float32](),
+            len(self.emissives),
+        )
+        return Vec3.select(emitting, gather_record_vec3(records, ids), zero)
 
     def add_image_texture(mut self, var texture: ImageTexture) -> UInt32:
         var index = UInt32(len(self.image_textures))

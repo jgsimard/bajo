@@ -4,6 +4,26 @@ from bajo.bvh.constants import EMPTY_LANE
 
 
 @always_inline
+def evaluate_child_pair[
+    width: SIMDLength,
+    EvaluateFn: def(SIMD[.uint32, width]) -> SIMD[.float64, width],
+](left: UInt32, right: UInt32, evaluate: EvaluateFn) -> Tuple[Float64, Float64]:
+    """Evaluate both child bounds at width one or in a padded SIMD packet."""
+    comptime assert width > 0
+    comptime if width == 1:
+        return (
+            evaluate(SIMD[.uint32, width](left))[0],
+            evaluate(SIMD[.uint32, width](right))[0],
+        )
+    else:
+        var children = SIMD[.uint32, width](EMPTY_LANE)
+        children[0] = left
+        children[1] = right
+        var values = evaluate(children)
+        return (values[0], values[1])
+
+
+@always_inline
 def traverse_ordered[
     dtype: DType,
     furthest: Bool,

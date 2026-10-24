@@ -21,7 +21,7 @@ from bajo.bvh.constants import EMPTY_LANE, f32_max
 from .query import BoundsQueryView, BoundsQuery, _gpu_ray_bounds_interval
 from .policy import BATCH_WIDTH, RAY_COUNT_WIDTH
 from .winding import WindingView, DeviceWindingView
-from .ordered_traversal import traverse_ordered
+from .ordered_traversal import evaluate_child_pair, traverse_ordered
 from .adjacency import NormalSignFaces
 from .gpu_geometry import (
     ray_triangle_filter,
@@ -743,28 +743,18 @@ struct MeshQueryView[
             return value <= cutoff
 
         @always_inline
+        def evaluate_nodes(
+            nodes: SIMD[.uint32, width]
+        ) {imm} -> SIMD[.float64, width]:
+            return self._ray_node_entries[width, width <= 2](
+                ray, inverse, nodes
+            )
+
+        @always_inline
         def child_bounds(
             left: UInt32, right: UInt32
         ) {imm} -> Tuple[Float64, Float64]:
-            var ld: Float64
-            var rd: Float64
-            comptime if width == 1:
-                ld = self._ray_node_entries[1, True](
-                    ray, inverse, SIMD[.uint32, 1](left)
-                )
-                rd = self._ray_node_entries[1, True](
-                    ray, inverse, SIMD[.uint32, 1](right)
-                )
-            else:
-                var children = SIMD[.uint32, width](EMPTY_LANE)
-                children[0] = left
-                children[1] = right
-                var child_entries = self._ray_node_entries[width, width == 2](
-                    ray, inverse, children
-                )
-                ld = child_entries[0]
-                rd = child_entries[1]
-            return (ld, rd)
+            return evaluate_child_pair[width](left, right, evaluate_nodes)
 
         @always_inline
         def visit_face(face: UInt32) {imm, mut result, mut best} -> Float64:
@@ -1354,28 +1344,16 @@ struct MeshQueryView[
             return value >= cutoff if furthest else value <= cutoff
 
         @always_inline
+        def evaluate_nodes(
+            nodes: SIMD[.uint32, width]
+        ) {imm} -> SIMD[.float64, width]:
+            return self._point_node_distances2[width, furthest](point, nodes)
+
+        @always_inline
         def child_bounds(
             left: UInt32, right: UInt32
         ) {imm} -> Tuple[Float64, Float64]:
-            var ld: Float64
-            var rd: Float64
-            comptime if width == 1:
-                ld = self._point_node_distances2[1, furthest](
-                    point, SIMD[.uint32, 1](left)
-                )
-                rd = self._point_node_distances2[1, furthest](
-                    point, SIMD[.uint32, 1](right)
-                )
-            else:
-                var children = SIMD[.uint32, width](EMPTY_LANE)
-                children[0] = left
-                children[1] = right
-                var bounds_distance2 = self._point_node_distances2[
-                    width, furthest
-                ](point, children)
-                ld = bounds_distance2[0]
-                rd = bounds_distance2[1]
-            return (ld, rd)
+            return evaluate_child_pair[width](left, right, evaluate_nodes)
 
         @always_inline
         def visit_face(

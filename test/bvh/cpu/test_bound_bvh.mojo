@@ -1,3 +1,4 @@
+from std.math import min
 from std.testing import (
     TestSuite,
     assert_equal,
@@ -51,8 +52,7 @@ from bajo.bvh.tagged_ref import (
 )
 from bajo.bvh.cpu.builder.hploc import (
     _HplocClusterBounds,
-    _nearest_neighbors_scalar,
-    _nearest_neighbors_simd,
+    _nearest_neighbors,
 )
 from bajo.bvh.cpu.builder.lbvh import (
     MortonItem,
@@ -496,43 +496,64 @@ def test_parallel_hploc_builder_leaf_invariants() raises:
     _assert_wide_leaf_ranges_at_most_width[.WORLD, 16, .HPLOC](builder)
 
 
-def test_hploc_simd_neighbors_match_scalar() raises:
+def _reference_hploc_neighbors(
+    boxes: List[AABB[.WORLD]], search_radius: Int
+) -> List[Int]:
+    # Keep an independent, scalar oracle in the test rather than production.
+    var nearest = List[Int]()
+    for position in range(len(boxes)):
+        var best_area = Float32.MAX
+        var best = -1
+        for radius in range(1, min(search_radius, len(boxes) - 1) + 1):
+            for candidate in [position + radius, position - radius]:
+                if 0 <= candidate < len(boxes):
+                    var area = (
+                        AABB[.WORLD]
+                        .merge(boxes[position], boxes[candidate])
+                        .surface_area()[0]
+                    )
+                    if area < best_area:
+                        best_area = area
+                        best = candidate
+        nearest.append(best)
+    return nearest^
+
+
+def _check_hploc_neighbors[
+    width: SIMDLength
+](bounds: _HplocClusterBounds, expected: List[Int], radius: Int) raises:
+    var actual = _nearest_neighbors[width](bounds, len(expected), radius)
+    for i in range(len(expected)):
+        assert_equal(actual[i], expected[i])
+
+
+def test_hploc_simd_neighbors_match_reference() raises:
     var rng = Rng(UInt64(949494), 0)
-
-    for cluster_count in range(2, 33):
-        var bounds = _HplocClusterBounds()
-        for i in range(cluster_count):
-            var x = _rng_f32(rng, -20.0, 20.0)
-            var y = _rng_f32(rng, -20.0, 20.0)
-            var z = _rng_f32(rng, -20.0, 20.0)
-            var dx = _rng_f32(rng, 0.0, 4.0)
-            var dy = _rng_f32(rng, 0.0, 4.0)
-            var dz = _rng_f32(rng, 0.0, 4.0)
-            bounds.set(
-                i,
-                AABB[.WORLD](
-                    Point3W(x, y, z),
-                    Point3W(x + dx, y + dy, z + dz),
-                ),
-            )
-
-        var scalar = _nearest_neighbors_scalar(bounds, cluster_count, 8)
-        bounds.initialize_padding(cluster_count)
-        var simd = _nearest_neighbors_simd(bounds, cluster_count, 8)
-        for i in range(cluster_count):
-            assert_equal(simd[i], scalar[i])
-
-    var tied = _HplocClusterBounds()
-    for i in range(32):
-        tied.set(
-            i,
-            AABB[.WORLD](Point3W(0.0), Point3W(1.0)),
-        )
-    var tied_scalar = _nearest_neighbors_scalar(tied, 32, 8)
-    tied.initialize_padding(32)
-    var tied_simd = _nearest_neighbors_simd(tied, 32, 8)
-    for i in range(32):
-        assert_equal(tied_simd[i], tied_scalar[i])
+    var radii: List[Int] = [1, 2, 8, 9, 31, 1000]
+    for tied in range(2):
+        for cluster_count in range(2, 33):
+            var bounds = _HplocClusterBounds()
+            var boxes = List[AABB[.WORLD]]()
+            for i in range(cluster_count):
+                var x = _rng_f32(rng, -20.0, 20.0)
+                var y = _rng_f32(rng, -20.0, 20.0)
+                var z = _rng_f32(rng, -20.0, 20.0)
+                var dx = _rng_f32(rng, 0.0, 4.0)
+                var dy = _rng_f32(rng, 0.0, 4.0)
+                var dz = _rng_f32(rng, 0.0, 4.0)
+                var box = AABB[.WORLD](
+                    Point3W(x, y, z), Point3W(x + dx, y + dy, z + dz)
+                ) if not tied else AABB[.WORLD](Point3W(0.0), Point3W(1.0))
+                boxes.append(box)
+                bounds.set(i, box)
+            bounds.initialize_padding(cluster_count)
+            for radius in radii:
+                var expected = _reference_hploc_neighbors(boxes, radius)
+                _check_hploc_neighbors[1](bounds, expected, radius)
+                _check_hploc_neighbors[4](bounds, expected, radius)
+                _check_hploc_neighbors[8](bounds, expected, radius)
+                _check_hploc_neighbors[16](bounds, expected, radius)
+                _check_hploc_neighbors[32](bounds, expected, radius)
 
 
 def test_cpu_lbvh_radix_sort_orders_all_bytes() raises:

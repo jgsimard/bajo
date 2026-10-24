@@ -73,17 +73,13 @@ struct Ray[dtype: DType, frame: Frame, length: SIMDLength = 1](
         width: SIMDLength
     ](self) -> Point3[Self.dtype, Self.frame, width]:
         comptime assert Self.length == 1
-        return Point3[Self.dtype, Self.frame, width](
-            self.o.x[0], self.o.y[0], self.o.z[0]
-        )
+        return self.o.broadcast[width]()
 
     def direction[
         width: SIMDLength
     ](self) -> Vec3[Self.dtype, Self.frame, width]:
         comptime assert Self.length == 1
-        return Vec3[Self.dtype, Self.frame, width](
-            self.d.x[0], self.d.y[0], self.d.z[0]
-        )
+        return self.d.broadcast[width]()
 
     def reciprocal_direction[
         width: SIMDLength = Self.length
@@ -91,16 +87,7 @@ struct Ray[dtype: DType, frame: Frame, length: SIMDLength = 1](
         Self.dtype, Self.frame, width
     ] where Self.dtype.is_floating_point():
         comptime assert Self.length == 1 or width == Self.length
-        var direction = Vec3[Self.dtype, Self.frame, width](0.0)
-        comptime for lane in range(width):
-            comptime if Self.length == 1:
-                direction.x[lane] = self.d.x[0]
-                direction.y[lane] = self.d.y[0]
-                direction.z[lane] = self.d.z[0]
-            else:
-                direction.x[lane] = self.d.x[lane]
-                direction.y[lane] = self.d.y[lane]
-                direction.z[lane] = self.d.z[lane]
+        var direction = self.d.broadcast[width]()
 
         var e = SIMD[Self.dtype, width](eps)
         var large = SIMD[Self.dtype, width](1.0 / eps)

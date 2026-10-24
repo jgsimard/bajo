@@ -1,10 +1,12 @@
-"""CPU BSDF adapters over the shared host/device shading implementation."""
+"""CPU scalar and packet BSDF setup over shared host/device shading."""
 
-from bajo.rt.material_parameters import CoatedParameters
-
-
-from bajo.core import Vec3f32, Rayf32, dot
+from std.memory import Pointer
+from std.sys.info import size_of
+from bajo.core import Vec3, Vec3f32, Rayf32, dot
+from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from bajo.core.random import Rng
+from bajo.rt.material_parameters import CoatedParameters
+from bajo.rt.material_storage import load_coated_parameters, CoatedDiffuseLayout
 from bajo.rt.shading import (
     dielectric_geometry,
     _evaluate_coated_diffuse,
@@ -14,14 +16,271 @@ from bajo.rt.shading import (
 )
 from bajo.rt.render_types import Color
 from bajo.rt.material_types import (
+    MaterialKind,
+    Metal,
+    Dielectric,
+    NO_TEXTURE,
     SurfaceId,
     SurfaceStore,
+    SURFACE_INDEX_BITS,
+    SURFACE_INDEX_MASK,
 )
-from bajo.rt.shading_types import (
-    BsdfEvaluation,
-    BsdfSample,
-    ShadingPoint,
-)
+from bajo.rt.shading_types import BsdfEvaluation, BsdfSample, ShadingPoint
+
+
+struct _MaterialParameters[length: SIMDLength]:
+    var albedo: Vec3[.float32, .WORLD, Self.length]
+    # Fuzz/roughness, or the dielectric refraction index.
+    var parameter: SIMD[.float32, Self.length]
+    var coated: CoatedParameters[Self.length]
+
+    def __init__(out self):
+        self.albedo = Vec3[.float32, .WORLD, Self.length](0.0)
+        self.parameter = SIMD[.float32, Self.length](1.0)
+        self.coated = CoatedParameters[Self.length]()
+
+    @always_inline
+    def gather[
+        kind: MaterialKind
+    ](
+        mut self,
+        surfaces: SurfaceStore,
+        indices: SIMD[.uint32, Self.length],
+        active: SIMD[.bool, Self.length],
+    ):
+        comptime if kind == .METAL or kind == .DIELECTRIC:
+            if not active.reduce_or():
+                return
+            # Borrow the actual field address and use the record's ABI stride;
+            # no hard-coded offsets or second prepared copy of the materials.
+            comptime if kind == .METAL:
+                self._gather_parameter(
+                    Pointer(to=surfaces.metals[0].fuzz),
+                    size_of[Metal]() // size_of[Float32](),
+                    indices,
+                    active,
+                )
+            else:
+                self._gather_parameter(
+                    Pointer(to=surfaces.dielectrics[0].refraction_index),
+                    size_of[Dielectric]() // size_of[Float32](),
+                    indices,
+                    active,
+                )
+
+    @always_inline
+    def _gather_parameter[
+        origin: ImmOrigin
+    ](
+        mut self,
+        fields: Pointer[Float32, origin],
+        stride: Int,
+        indices: SIMD[.uint32, Self.length],
+        active: SIMD[.bool, Self.length],
+    ):
+        var offsets = active.select(indices, 0).cast[.int]() * stride
+        self.parameter = active.select(fields.unsafe_gather(offsets), 1.0)
+
+    @always_inline
+    def load[
+        kind: MaterialKind, LOAD_ALBEDO: Bool = True
+    ](
+        mut self,
+        surfaces: SurfaceStore,
+        indices: SIMD[.uint32, Self.length],
+        u: SIMD[.float32, Self.length],
+        v: SIMD[.float32, Self.length],
+        active: SIMD[.bool, Self.length],
+        coated_fields: ImmSpan[Float32, _] = ImmSpan[Float32, ImmutAnyOrigin](),
+    ):
+        """Load one material group from authoring records or prepared tables."""
+        if not active.reduce_or():
+            return
+        var surface = SurfaceId[Self.length](
+            (SIMD[.uint32, Self.length](kind.value) << SURFACE_INDEX_BITS)
+            | indices
+        )
+        var texture_albedo = True
+        var texture_roughness = True
+        var albedo = self.albedo
+        comptime if kind == .COATED_DIFFUSE:
+            if len(coated_fields) > 0:
+                var first = 0
+                while not active[first]:
+                    first += 1
+                var ids = active.select(indices, indices[first])
+                var uniform = ids.eq(ids[first]).reduce_and()
+                var records = record_tile[
+                    .float32, CoatedDiffuseLayout.STRIDE, True
+                ](coated_fields.unsafe_ptr(), len(surfaces.coated_diffuses))
+                self.coated = load_coated_parameters(records, ids, uniform)
+                comptime if LOAD_ALBEDO:
+                    albedo = gather_record_vec3[
+                        .WORLD, CoatedDiffuseLayout.ALBEDO
+                    ](records, ids, uniform)
+                if uniform:
+                    ref source = surfaces.coated_diffuses[Int(ids[first])]
+                    texture_albedo = source.texture_index != NO_TEXTURE
+                    texture_roughness = (
+                        source.roughness_texture_index != NO_TEXTURE
+                    )
+            else:
+                for lane in range(Self.length):
+                    if active[lane]:
+                        self.coated.set_lane(
+                            lane,
+                            CoatedParameters[1].from_material(
+                                surfaces.coated_diffuses[Int(indices[lane])]
+                            ),
+                        )
+            if texture_roughness:
+                self.coated.conductor_roughness = (
+                    surfaces.sample_conductor_roughness(surface, u, v, active)
+                )
+        else:
+            self.gather[kind](surfaces, indices, active)
+        comptime if LOAD_ALBEDO and kind in [
+            MaterialKind.LAMBERTIAN,
+            MaterialKind.METAL,
+            MaterialKind.COATED_DIFFUSE,
+        ]:
+            if texture_albedo:
+                albedo = surfaces.sample_albedo(surface, u, v, active)
+            self.albedo = Vec3.select(active, albedo, self.albedo)
+
+    @always_inline
+    def evaluate[
+        kind: MaterialKind
+    ](
+        self,
+        direction: Vec3[.float32, .WORLD, Self.length],
+        normal: Vec3[.float32, .WORLD, Self.length],
+        outgoing: Vec3[.float32, .WORLD, Self.length],
+        estimator_seed: SIMD[.uint32, Self.length] = 0,
+        active: SIMD[.bool, Self.length] = SIMD[.bool, Self.length](fill=True),
+    ) -> BsdfEvaluation[Self.length]:
+        comptime if kind == .COATED_DIFFUSE:
+            return _evaluate_coated_diffuse(
+                direction,
+                normal,
+                self.albedo,
+                self.coated,
+                outgoing,
+                active=active,
+                estimator_seed=estimator_seed,
+            )
+        else:
+            return _evaluate_material[kind, Self.length](
+                direction, normal, self.albedo, self.parameter, outgoing
+            )
+
+    @always_inline
+    def sample[
+        kind: MaterialKind
+    ](
+        self,
+        direction: Vec3[.float32, .WORLD, Self.length],
+        normal: Vec3[.float32, .WORLD, Self.length],
+        front_face: SIMD[.bool, Self.length],
+        mut rng: Rng[Self.length],
+        estimator_seed: SIMD[.uint32, Self.length] = 0,
+        active: SIMD[.bool, Self.length] = SIMD[.bool, Self.length](fill=True),
+    ) -> BsdfSample[Self.length]:
+        """Consume the same draws for scalar and packet material sampling."""
+        comptime assert MaterialKind.has_bsdf[kind]
+        var random_u = SIMD[.float32, Self.length](0.0)
+        var random_v = SIMD[.float32, Self.length](0.0)
+        var eligible = active
+        comptime if kind == .DIELECTRIC:
+            debug_assert["safe", _use_compiler_assume=True](
+                (~active | self.parameter.gt(0.0)).reduce_and()
+            )
+            var ri = front_face.select(
+                Float32(1.0) / self.parameter, self.parameter
+            )
+            var geometry = dielectric_geometry(direction, normal, ri)
+            eligible &= geometry[2].le(1.0)
+            if eligible.reduce_or():
+                random_u = eligible.select(rng.f32(), 0.0)
+        else:
+            comptime if kind == .METAL:
+                debug_assert["safe", _use_compiler_assume=True](
+                    (
+                        ~active
+                        | (self.parameter.ge(0.0) & self.parameter.le(1.0))
+                    ).reduce_and()
+                )
+                eligible &= self.parameter.gt(1.0e-4)
+            if eligible.reduce_or():
+                random_u = eligible.select(rng.f32(), 0.0)
+                random_v = eligible.select(rng.f32(), 0.0)
+        var sampled: BsdfSample[Self.length]
+        comptime if kind == .COATED_DIFFUSE:
+            sampled = _sample_coated_diffuse(
+                direction,
+                normal,
+                self.albedo,
+                self.coated,
+                random_u,
+                random_v,
+                active=active,
+                estimator_seed=estimator_seed,
+            )
+        else:
+            sampled = _sample_material[kind, Self.length](
+                direction,
+                normal,
+                self.albedo,
+                self.parameter,
+                front_face,
+                random_u,
+                random_v,
+            )
+        sampled.ok &= active
+        return sampled^
+
+
+@always_inline
+def _evaluate_surface[
+    kind: MaterialKind
+](
+    surface: SurfaceId[1],
+    surfaces: SurfaceStore,
+    ray: Rayf32[.WORLD],
+    hit: ShadingPoint[1],
+    outgoing: Vec3f32[.WORLD],
+    estimator_seed: UInt32,
+) -> BsdfEvaluation[1]:
+    var material = _MaterialParameters[1]()
+    comptime if kind not in [MaterialKind.DIELECTRIC, MaterialKind.EMISSIVE]:
+        material.load[kind](
+            surfaces,
+            surface.value & SURFACE_INDEX_MASK,
+            hit.uv_u,
+            hit.uv_v,
+            True,
+        )
+    return material.evaluate[kind](ray.d, hit.normal, outgoing, estimator_seed)
+
+
+@always_inline
+def _sample_surface[
+    kind: MaterialKind
+](
+    surface: SurfaceId[1],
+    surfaces: SurfaceStore,
+    ray: Rayf32[.WORLD],
+    hit: ShadingPoint[1],
+    mut rng: Rng[1],
+    estimator_seed: UInt32,
+) -> BsdfSample[1]:
+    var material = _MaterialParameters[1]()
+    material.load[kind](
+        surfaces, surface.value & SURFACE_INDEX_MASK, hit.uv_u, hit.uv_v, True
+    )
+    return material.sample[kind](
+        ray.d, hit.normal, hit.front_face, rng, estimator_seed
+    )
 
 
 def evaluate_bsdf(
@@ -32,57 +291,26 @@ def evaluate_bsdf(
     out_direction: Vec3f32[.WORLD],
     estimator_seed: UInt32 = 0,
 ) -> BsdfEvaluation[1]:
-    """Evaluate the non-delta BSDF and its solid-angle sampling PDF."""
     match surface.kind():
         case .LAMBERTIAN:
-            return _evaluate_material[.LAMBERTIAN, 1](
-                ray.d,
-                hit.normal,
-                surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
-                SIMD[.float32, 1](1.0),
-                out_direction,
+            return _evaluate_surface[.LAMBERTIAN](
+                surface, surfaces, ray, hit, out_direction, estimator_seed
             )
         case .METAL:
-            ref material = surfaces.metals[Int(surface.index())]
-            return _evaluate_material[.METAL, 1](
-                ray.d,
-                hit.normal,
-                surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
-                SIMD[.float32, 1](material.fuzz),
-                out_direction,
+            return _evaluate_surface[.METAL](
+                surface, surfaces, ray, hit, out_direction, estimator_seed
             )
-
         case .COATED_DIFFUSE:
-            ref material = surfaces.coated_diffuses[Int(surface.index())]
-            var coated = CoatedParameters[1].from_material(material)
-            coated.conductor_roughness = surfaces.sample_conductor_roughness(
-                surface, hit.uv_u[0], hit.uv_v[0]
+            return _evaluate_surface[.COATED_DIFFUSE](
+                surface, surfaces, ray, hit, out_direction, estimator_seed
             )
-            return _evaluate_coated_diffuse(
-                ray.d,
-                hit.normal,
-                surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
-                coated,
-                out_direction,
-                estimator_seed=estimator_seed,
-            )
-
         case .DIELECTRIC:
-            return _evaluate_material[.DIELECTRIC, 1](
-                ray.d,
-                hit.normal,
-                Color(0.0),
-                SIMD[.float32, 1](1.0),
-                out_direction,
+            return _evaluate_surface[.DIELECTRIC](
+                surface, surfaces, ray, hit, out_direction, estimator_seed
             )
-
         case .EMISSIVE:
-            return _evaluate_material[.EMISSIVE, 1](
-                ray.d,
-                hit.normal,
-                Color(0.0),
-                SIMD[.float32, 1](1.0),
-                out_direction,
+            return _evaluate_surface[.EMISSIVE](
+                surface, surfaces, ray, hit, out_direction, estimator_seed
             )
         case .MIX:
             var index = Int(surface.index())
@@ -122,75 +350,21 @@ def sample_bsdf(
 ) -> BsdfSample[1]:
     match surface.kind():
         case .LAMBERTIAN:
-            return _sample_material[.LAMBERTIAN, 1](
-                ray.d,
-                hit.normal,
-                surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
-                SIMD[.float32, 1](1.0),
-                hit.front_face,
-                SIMD[.float32, 1](rng.f32()),
-                SIMD[.float32, 1](rng.f32()),
+            return _sample_surface[.LAMBERTIAN](
+                surface, surfaces, ray, hit, rng, estimator_seed
             )
-
         case .METAL:
-            ref material = surfaces.metals[Int(surface.index())]
-            debug_assert["safe", _use_compiler_assume=True](
-                material.fuzz >= 0.0 and material.fuzz <= 1.0
+            return _sample_surface[.METAL](
+                surface, surfaces, ray, hit, rng, estimator_seed
             )
-            var random_u = Float32(0.0)
-            var random_v = Float32(0.0)
-            if material.fuzz > 1.0e-4:
-                random_u = rng.f32()
-                random_v = rng.f32()
-            return _sample_material[.METAL, 1](
-                ray.d,
-                hit.normal,
-                surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
-                SIMD[.float32, 1](material.fuzz),
-                hit.front_face,
-                SIMD[.float32, 1](random_u),
-                SIMD[.float32, 1](random_v),
-            )
-
         case .COATED_DIFFUSE:
-            ref material = surfaces.coated_diffuses[Int(surface.index())]
-            var coated = CoatedParameters[1].from_material(material)
-            coated.conductor_roughness = surfaces.sample_conductor_roughness(
-                surface, hit.uv_u[0], hit.uv_v[0]
+            return _sample_surface[.COATED_DIFFUSE](
+                surface, surfaces, ray, hit, rng, estimator_seed
             )
-            return _sample_coated_diffuse(
-                ray.d,
-                hit.normal,
-                surfaces.sample_albedo(surface, hit.uv_u[0], hit.uv_v[0]),
-                coated,
-                SIMD[.float32, 1](rng.f32()),
-                SIMD[.float32, 1](rng.f32()),
-                estimator_seed=estimator_seed,
-            )
-
         case .DIELECTRIC:
-            ref material = surfaces.dielectrics[Int(surface.index())]
-            debug_assert["safe", _use_compiler_assume=True](
-                material.refraction_index > 0.0
+            return _sample_surface[.DIELECTRIC](
+                surface, surfaces, ray, hit, rng, estimator_seed
             )
-            var ri = (
-                1.0
-                / material.refraction_index if hit.front_face else material.refraction_index
-            )
-            var geometry = dielectric_geometry(ray.d, hit.normal, ri)
-            var random_u = Float32(0.0)
-            if geometry[2] <= 1.0:
-                random_u = rng.f32()
-            return _sample_material[.DIELECTRIC, 1](
-                ray.d,
-                hit.normal,
-                Color(0.0),
-                SIMD[.float32, 1](material.refraction_index),
-                hit.front_face,
-                SIMD[.float32, 1](random_u),
-                SIMD[.float32, 1](0.0),
-            )
-
         case .EMISSIVE:
             return BsdfSample(
                 hit.normal,

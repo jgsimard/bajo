@@ -5,7 +5,7 @@ from bajo.core import Vec3
 from bajo.rt.media import SceneMedia, medium_transmittance
 from bajo.rt.render_types import Color
 from bajo.rt.material_types import SurfaceStore, MaterialKind
-from bajo.rt.cpu.wavefront.packet import _MaterialParameters
+from bajo.rt.cpu.bsdf import _MaterialParameters
 
 
 def _media[width: SIMDLength]() raises:

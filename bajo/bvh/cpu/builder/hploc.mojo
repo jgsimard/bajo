@@ -82,7 +82,7 @@ struct _HplocBoundsPacket[width: SIMDLength](TrivialRegisterPassable):
 
 
 struct _HplocClusterBounds(Copyable):
-    """Padded SoA bounds cache for scalar-reference and CPU SIMD merging."""
+    """Padded SoA bounds cache for CPU cluster merging."""
 
     var min_x: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
     var min_y: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
@@ -133,21 +133,6 @@ struct _HplocClusterBounds(Copyable):
         self.max_z[dst_pos] = self.max_z[src_pos]
 
     @always_inline
-    def merged_area(self, a: Int, b: Int) -> Float32:
-        var a_pos = _HPLOC_BOUNDS_PAD + a
-        var b_pos = _HPLOC_BOUNDS_PAD + b
-        var dx = max(self.max_x[a_pos], self.max_x[b_pos]) - min(
-            self.min_x[a_pos], self.min_x[b_pos]
-        )
-        var dy = max(self.max_y[a_pos], self.max_y[b_pos]) - min(
-            self.min_y[a_pos], self.min_y[b_pos]
-        )
-        var dz = max(self.max_z[a_pos], self.max_z[b_pos]) - min(
-            self.min_z[a_pos], self.min_z[b_pos]
-        )
-        return 2.0 * (dx * dy + dx * dz + dy * dz)
-
-    @always_inline
     def load[
         width: SIMDLength
     ](self, storage_pos: Int) -> _HplocBoundsPacket[width]:
@@ -171,6 +156,30 @@ struct _HplocClusterBounds(Copyable):
             .unsafe_offset(storage_pos)
             .unsafe_load[width=width](),
         )
+
+    @always_inline
+    def load_neighbors[
+        width: SIMDLength, padded: Bool
+    ](self, first: Int, active: SIMD[.bool, width]) -> _HplocBoundsPacket[
+        width
+    ]:
+        comptime if padded:
+            return self.load[width](_HPLOC_BOUNDS_PAD + first)
+        else:
+            # Larger search radii can extend beyond the contiguous-load padding.
+            # Redirect inactive lanes to initialized storage before gathering.
+            var positions = active.select(
+                iota[.int, width](_HPLOC_BOUNDS_PAD + first),
+                _HPLOC_BOUNDS_PAD,
+            )
+            return _HplocBoundsPacket[width](
+                self.min_x.unsafe_ptr().unsafe_gather(positions),
+                self.min_y.unsafe_ptr().unsafe_gather(positions),
+                self.min_z.unsafe_ptr().unsafe_gather(positions),
+                self.max_x.unsafe_ptr().unsafe_gather(positions),
+                self.max_y.unsafe_ptr().unsafe_gather(positions),
+                self.max_z.unsafe_ptr().unsafe_gather(positions),
+            )
 
     def initialize_padding(mut self, cluster_count: Int):
         for storage_pos in range(_HPLOC_BOUNDS_PAD):
@@ -353,88 +362,67 @@ def _bounds_difference[frame: Frame](a: AABB[frame], b: AABB[frame]) -> Float64:
     )
 
 
-def _nearest_neighbors_scalar(
+def _nearest_neighbors[
+    width: SIMDLength = _HPLOC_SIMD_WIDTH
+](
     cluster_bounds: _HplocClusterBounds,
     cluster_count: Int,
     search_radius: Int,
 ) -> Array[Int, _HPLOC_CLUSTER_CAPACITY]:
-    var nearest = Array[Int, _HPLOC_CLUSTER_CAPACITY](uninitialized=True)
-    for cluster_pos in range(cluster_count):
-        var best_area = Float32.MAX
-        var best_neighbor = -1
-        for radius in range(1, search_radius + 1):
-            var right = cluster_pos + radius
-            if right < cluster_count:
-                var area = cluster_bounds.merged_area(cluster_pos, right)
-                if area < best_area:
-                    best_area = area
-                    best_neighbor = right
-
-            var left = cluster_pos - radius
-            if left >= 0:
-                var area = cluster_bounds.merged_area(cluster_pos, left)
-                if area < best_area:
-                    best_area = area
-                    best_neighbor = left
-
-        debug_assert["safe", _use_compiler_assume=True](
-            best_neighbor >= 0,
-            "H-PLOC cluster has no neighbor in the search radius",
+    """Find neighbors at any SIMD width, including width one."""
+    if search_radius > _HPLOC_BOUNDS_PAD:
+        return _nearest_neighbors_impl[width, False](
+            cluster_bounds, cluster_count, search_radius
         )
-        nearest[cluster_pos] = best_neighbor
+    return _nearest_neighbors_impl[width, True](
+        cluster_bounds, cluster_count, search_radius
+    )
 
-    return nearest^
 
-
-def _nearest_neighbors_simd(
-    mut cluster_bounds: _HplocClusterBounds,
+def _nearest_neighbors_impl[
+    width: SIMDLength, padded: Bool
+](
+    cluster_bounds: _HplocClusterBounds,
     cluster_count: Int,
     search_radius: Int,
 ) -> Array[Int, _HPLOC_CLUSTER_CAPACITY]:
-    """Evaluate one radius across a native SIMD packet of CPU clusters."""
-    comptime assert _HPLOC_SIMD_WIDTH <= _HPLOC_CLUSTER_CAPACITY
+    comptime assert width <= _HPLOC_CLUSTER_CAPACITY
     debug_assert["safe", _use_compiler_assume=True](
-        search_radius <= HPLOC_SEARCH_RADIUS,
-        "H-PLOC SIMD search radius exceeds its padded bounds cache",
+        2 <= cluster_count <= _HPLOC_CLUSTER_CAPACITY and search_radius > 0,
+        "H-PLOC neighbor search requires 2..32 clusters and a positive radius",
     )
     var nearest = Array[Int, _HPLOC_CLUSTER_CAPACITY](uninitialized=True)
 
-    for cluster_base in range(0, cluster_count, _HPLOC_SIMD_WIDTH):
-        var positions = iota[.int32, _HPLOC_SIMD_WIDTH](Int32(cluster_base))
+    for cluster_base in range(0, cluster_count, width):
+        var positions = iota[.int32, width](Int32(cluster_base))
 
         var active = positions.lt(Int32(cluster_count))
-        var own = cluster_bounds.load[_HPLOC_SIMD_WIDTH](
-            _HPLOC_BOUNDS_PAD + cluster_base
-        )
-        var best_areas = SIMD[.float32, _HPLOC_SIMD_WIDTH](Float32.MAX)
-        var best_neighbors = SIMD[.int32, _HPLOC_SIMD_WIDTH](-1)
+        var own = cluster_bounds.load[width](_HPLOC_BOUNDS_PAD + cluster_base)
+        var best_areas = SIMD[.float32, width](Float32.MAX)
+        var best_neighbors = SIMD[.int32, width](-1)
 
-        for radius in range(1, search_radius + 1):
+        for radius in range(1, min(search_radius, cluster_count - 1) + 1):
             var right_positions = positions + Int32(radius)
-            var right = cluster_bounds.load[_HPLOC_SIMD_WIDTH](
-                _HPLOC_BOUNDS_PAD + cluster_base + radius
+            var right_active = active & right_positions.lt(Int32(cluster_count))
+            var right = cluster_bounds.load_neighbors[width, padded](
+                cluster_base + radius, right_active
             )
             var right_areas = own.merged_area(right)
-            var take_right = (
-                active
-                & right_positions.lt(Int32(cluster_count))
-                & right_areas.lt(best_areas)
-            )
+            var take_right = right_active & right_areas.lt(best_areas)
             best_areas = take_right.select(right_areas, best_areas)
             best_neighbors = take_right.select(right_positions, best_neighbors)
 
             var left_positions = positions - Int32(radius)
-            var left = cluster_bounds.load[_HPLOC_SIMD_WIDTH](
-                _HPLOC_BOUNDS_PAD + cluster_base - radius
+            var left_active = active & left_positions.ge(Int32(0))
+            var left = cluster_bounds.load_neighbors[width, padded](
+                cluster_base - radius, left_active
             )
             var left_areas = own.merged_area(left)
-            var take_left = (
-                active & left_positions.ge(Int32(0)) & left_areas.lt(best_areas)
-            )
+            var take_left = left_active & left_areas.lt(best_areas)
             best_areas = take_left.select(left_areas, best_areas)
             best_neighbors = take_left.select(left_positions, best_neighbors)
 
-        comptime for lane in range(_HPLOC_SIMD_WIDTH):
+        comptime for lane in range(width):
             if cluster_base + lane < cluster_count:
                 var best_neighbor = Int(best_neighbors[lane])
                 debug_assert["safe", _use_compiler_assume=True](
@@ -485,15 +473,9 @@ def _merge_round[
     search_radius: Int,
     mut next_node: List[UInt32],
 ) -> Int:
-    var nearest: Array[Int, _HPLOC_CLUSTER_CAPACITY]
-    comptime if build_metadata:
-        nearest = _nearest_neighbors_scalar(
-            cluster_bounds, cluster_count, search_radius
-        )
-    else:
-        nearest = _nearest_neighbors_simd(
-            cluster_bounds, cluster_count, search_radius
-        )
+    var nearest = _nearest_neighbors(
+        cluster_bounds, cluster_count, search_radius
+    )
     var merge_count = 0
     for cluster_pos in range(cluster_count):
         var neighbor = nearest[cluster_pos]
@@ -595,8 +577,7 @@ def _reduce_clusters[
             cluster_pos,
             nodes[Int(cluster_indices.unsafe_get(first + cluster_pos))].bounds,
         )
-    comptime if not build_metadata:
-        cluster_bounds.initialize_padding(cluster_count)
+    cluster_bounds.initialize_padding(cluster_count)
     var reduced_count = cluster_count
     while reduced_count > threshold:
         reduced_count = _merge_round[frame, build_metadata, parallel_build](

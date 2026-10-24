@@ -1042,6 +1042,59 @@ def test_triangle_mesh_instances_use_instance_surfaces() raises:
     assert_almost_equal(compact.t, hit1.t)
 
 
+def _check_world_occlusion_packets[
+    length: SIMDLength
+](world: CpuScene[16, 16], visible_geometry: Bool = True) raises:
+    # Each primitive kind, misses, masked hits, and both ray interval ends.
+    var xs: List[Float32] = [-2, 0, 2, 5, -2, 0, 2, 0, -2, 0, 2]
+    var ends: List[Float32] = [3, 4, 5, 5, 1, 2, 3, 4, 3, 4, 5]
+    var starts: List[Float32] = [
+        0.001,
+        0.001,
+        0.001,
+        0.001,
+        0.001,
+        0.001,
+        0.001,
+        0.001,
+        2.6,
+        3.1,
+        4.1,
+    ]
+    for pattern in range(3):
+        for first in range(len(xs)):
+            var rays = Ray[.float32, .WORLD, length](
+                Point3[.float32, .WORLD, length](0.0),
+                Vec3[.float32, .WORLD, length](0.0, 0.0, -1.0),
+                0.001,
+                5.0,
+            )
+            var valid = SIMD[.bool, length](fill=True)
+            var expected = SIMD[.bool, length](fill=False)
+            comptime for lane in range(length):
+                var scenario = (first + lane) % (3 if pattern == 2 else len(xs))
+                rays.o.x[lane] = xs[scenario]
+                rays.t_max[lane] = ends[scenario]
+                rays.t_min[lane] = starts[scenario]
+                valid[lane] = pattern != 1 and scenario != 7
+                expected[lane] = (
+                    visible_geometry and valid[lane] and scenario < 3
+                )
+            var actual = world.occluded(rays, valid)
+            comptime for lane in range(length):
+                assert_equal(actual[lane], expected[lane])
+                if valid[lane]:
+                    var scalar = world.occluded(
+                        Rayf32[.WORLD](
+                            Point3f32[.WORLD](rays.o.x[lane], 0.0, 0.0),
+                            Vec3f32[.WORLD](0.0, 0.0, -1.0),
+                            rays.t_min[lane],
+                            rays.t_max[lane],
+                        )
+                    )
+                    assert_equal(actual[lane], scalar[0])
+
+
 def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.5))
@@ -1138,6 +1191,17 @@ def test_world_occluded_covers_all_geometry_and_ray_interval() raises:
             )
         )
     )
+
+    comptime for width in [1, 4, 8, 16]:
+        _check_world_occlusion_packets[width](world)
+    var distant_builder = SceneBuilder()
+    var distant_matte = distant_builder.add_lambertian(Color(0.5))
+    distant_builder.add_sphere(
+        Point3f32[.WORLD](1000.0, 0.0, 0.0), 1.0, distant_matte
+    )
+    var distant_world = CpuScene[16, 16](distant_builder^.finish())
+    _check_world_occlusion_packets[1](distant_world, False)
+    _check_world_occlusion_packets[4](distant_world, False)
 
 
 def test_render_settings_validation() raises:

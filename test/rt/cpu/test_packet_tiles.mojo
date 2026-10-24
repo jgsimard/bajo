@@ -122,6 +122,7 @@ def _wide_cases[length: SIMDLength]() raises:
 def test_wide_masked_tile_append_and_generic_fallback() raises:
     _wide_cases[1]()
     _wide_cases[16]()
+    _wide_cases[64]()
     _wide_cases[128]()
 
 
@@ -218,6 +219,7 @@ def _shade_masked_cases[length: SIMDLength]() raises:
 def test_masked_shade_tiles_match_scalar_append() raises:
     _shade_masked_cases[1]()
     _shade_masked_cases[16]()
+    _shade_masked_cases[64]()
     _shade_masked_cases[128]()
 
 
@@ -280,7 +282,46 @@ def _append_cases[length: SIMDLength]() raises:
 def test_continuation_append_preserves_order_across_partial_packets() raises:
     _append_cases[1]()
     _append_cases[16]()
+    _append_cases[64]()
     _append_cases[128]()
+
+
+def test_continuation_and_packet_compaction_all_four_lane_masks_and_tails() raises:
+    for bits in range(16):
+        for prefix in range(4):
+            for tail in range(5):
+                var queue = PacketPathQueue[4](0)
+                var expected = List[Int]()
+                var mask = SIMD[.bool, 4](fill=False)
+                queue.append_continuation(
+                    _values[4](0), SIMD[.bool, 4](fill=True), prefix
+                )
+                for lane in range(prefix):
+                    expected.append(lane)
+                for lane in range(4):
+                    mask[lane] = (bits & (1 << lane)) != 0
+                # Alternate the two input layouts while sharing partial packets.
+                queue.append_continuation(_values[4](100), mask, tail)
+                queue.append_packet_masked(
+                    PathPacket[4](_values[4](200)), mask, tail
+                )
+                for base in [100, 200]:
+                    for lane in range(tail):
+                        if mask[lane]:
+                            expected.append(base + lane)
+                assert_equal(len(queue), len(expected))
+                for index in range(len(expected)):
+                    ref packet = queue.packets[index // 4]
+                    var lane = index % 4
+                    var values = _values[1](expected[index])
+                    assert_equal(packet.path_ids[lane], values.path_ids[0])
+                    assert_equal(packet.medium_ids[lane], values.medium_ids[0])
+                    assert_equal(packet.deltas[lane], values.delta[0])
+                    var tile = packet.tile()
+                    comptime for field in range(PathFloatField.VALUE_PLANES):
+                        assert_equal(
+                            tile[field, lane], values.float_field[field]()[0]
+                        )
 
 
 def test_path_store_static_and_dynamic_extents_match() raises:

@@ -23,6 +23,7 @@ from bajo.core import (
     Affine3,
     Frame,
     GeoKind,
+    Point3,
     Point3f32,
     Ray,
     Rayf32,
@@ -166,35 +167,87 @@ def _triangle_instance_shading[
     return (outward_normal, texture_u, texture_v)
 
 
-@fieldwise_init
-struct _WorldHit(Copyable, Writable):
-    """Canonical closest-hit record shared by public and renderer queries."""
+@always_inline
+def _blas_occluded[
+    kind: PrimitiveKind, width: SIMDLength, length: SIMDLength
+](
+    blases: CpuBlasSet[kind, width, width],
+    rays: Ray[.float32, .WORLD, length],
+    valid: SIMD[.bool, length],
+) -> SIMD[.bool, length]:
+    """Dispatch BLAS visibility without changing its traversal policy."""
+    # Mojo's traversal overloads require a concrete primitive kind here.
+    comptime if length == 1:
+        var hit: Hit[.WORLD]
+        comptime if kind == .SPHERE:
+            hit = trace_blas_set[width, width, .ANY_HIT, .WORLD](
+                rebind[CpuBlasSet[.SPHERE, width, width]](blases),
+                UInt32(0),
+                rebind[Rayf32[.WORLD]](rays),
+            )
+        else:
+            comptime assert kind == .TRIANGLE
+            hit = trace_blas_set[width, width, .ANY_HIT, .WORLD](
+                rebind[CpuBlasSet[.TRIANGLE, width, width]](blases),
+                UInt32(0),
+                rebind[Rayf32[.WORLD]](rays),
+            )
+        return SIMD[.bool, length](fill=hit.is_occluded()[0])
+    else:
+        comptime if kind == .SPHERE:
+            return trace_blas_set_packet_any_hit[
+                width, width, length, frame=.WORLD
+            ](
+                rebind[CpuBlasSet[.SPHERE, width, width]](blases),
+                UInt32(0),
+                rays,
+                valid,
+            )
+        else:
+            comptime assert kind == .TRIANGLE
+            return trace_blas_set_packet_any_hit[
+                width, width, length, frame=.WORLD
+            ](
+                rebind[CpuBlasSet[.TRIANGLE, width, width]](blases),
+                UInt32(0),
+                rays,
+                valid,
+            )
 
+
+@fieldwise_init
+struct _WorldHit(Copyable):
     var primitive: PrimitiveId
-    var normal: Vec3f32[.WORLD]
-    var surface: SurfaceId[1]
-    var uv_u: Float32
-    var uv_v: Float32
-    var t: Float32
-    var front_face: Bool
-    var hit: Bool
-    var medium_boundary: UInt32
-    var geometric_normal: Vec3f32[.WORLD]
+    var surface: SurfaceHit[1]
 
     @staticmethod
     def miss(t: Float32 = f32_max) -> Self:
         return Self(
-            PrimitiveId(PrimitiveKind.SPHERE, UInt32(0)),
-            Vec3f32[.WORLD](0.0),
-            SurfaceId(.LAMBERTIAN, UInt32(0)),
-            0.0,
-            0.0,
-            t,
-            True,
-            False,
-            UInt32(0),
-            Vec3f32[.WORLD](0.0),
+            PrimitiveId(PrimitiveKind.SPHERE, UInt32(0)), SurfaceHit[1](t)
         )
+
+
+@always_inline
+def _merge_surface_hit[
+    length: SIMDLength
+](mut result: SurfaceHit[length], candidate: SurfaceHit[length]):
+    """Keep the first hit on equal distances, independently in each lane."""
+    var take = candidate.hit & (~result.hit | candidate.t.lt(result.t))
+    result.normal = Vec3.select(take, candidate.normal, result.normal)
+    result.geometric_normal = Vec3.select(
+        take, candidate.geometric_normal, result.geometric_normal
+    )
+    result.surface.value = take.select(
+        candidate.surface.value, result.surface.value
+    )
+    result.uv_u = take.select(candidate.uv_u, result.uv_u)
+    result.uv_v = take.select(candidate.uv_v, result.uv_v)
+    result.t = take.select(candidate.t, result.t)
+    result.front_face = take.select(candidate.front_face, result.front_face)
+    result.medium_boundary = take.select(
+        candidate.medium_boundary, result.medium_boundary
+    )
+    result.hit |= candidate.hit
 
 
 struct CpuScene[
@@ -309,103 +362,78 @@ struct CpuScene[
         rays: Ray[.float32, .WORLD, length],
         valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
     ) -> SIMD[.bool, length]:
-        """Trace bounded visibility rays together where packet BVHs exist."""
+        """Trace visibility in geometry order, skipping already blocked lanes.
+        """
+        var result = SIMD[.bool, length](fill=False)
+        var active = valid
+        if not active.reduce_or():
+            return result
+        if self.sphere_bvh:
+            result |= _blas_occluded(self.sphere_bvh.value(), rays, active)
+            active &= ~result
+        if not active.reduce_or():
+            return result
+        if self.triangle_bvh:
+            result |= _blas_occluded(self.triangle_bvh.value(), rays, active)
+            active &= ~result
+        if (
+            active.reduce_or()
+            and self.triangle_tlas
+            and self.triangle_mesh_blases
+        ):
+            result |= self._instances_occluded(rays, active)
+        return result
+
+    @always_inline
+    def _instances_occluded[
+        length: SIMDLength
+    ](
+        self,
+        rays: Ray[.float32, .WORLD, length],
+        valid: SIMD[.bool, length],
+    ) -> SIMD[.bool, length]:
         comptime if length == 1:
-            var result = SIMD[.bool, length](fill=False)
-            if not valid[0]:
-                return result
-            var ray = Rayf32[.WORLD](
-                Point3f32[.WORLD](rays.o.x[0], rays.o.y[0], rays.o.z[0]),
-                Vec3f32[.WORLD](rays.d.x[0], rays.d.y[0], rays.d.z[0]),
-                rays.t_min[0],
-                rays.t_max[0],
-            )
-            if self.sphere_bvh:
-                var hit = trace_blas_set[
-                    Self.world_bvh_width,
-                    Self.world_bvh_width,
-                    .ANY_HIT,
-                    .WORLD,
-                ](self.sphere_bvh.value(), UInt32(0), ray)
-                if hit.is_occluded():
-                    result[0] = True
-                    return result
-            if self.triangle_bvh:
-                var hit = trace_blas_set[
-                    Self.world_bvh_width,
-                    Self.world_bvh_width,
-                    .ANY_HIT,
-                    .WORLD,
-                ](self.triangle_bvh.value(), UInt32(0), ray)
-                if hit.is_occluded():
-                    result[0] = True
-                    return result
-            if self.triangle_tlas and self.triangle_mesh_blases:
-                var hit = self.triangle_tlas.value().trace_blases[
-                    Self.instance_bvh_width,
-                    Self.instance_bvh_width,
-                    .ANY_HIT,
-                ](ray, self.triangle_mesh_blases.value())
-                if hit.is_occluded():
-                    result[0] = True
-            return result
+            var hit = self.triangle_tlas.value().trace_blases[
+                Self.instance_bvh_width,
+                Self.instance_bvh_width,
+                .ANY_HIT,
+            ](rebind[Rayf32[.WORLD]](rays), self.triangle_mesh_blases.value())
+            return SIMD[.bool, length](fill=hit.is_occluded()[0])
         else:
-            var result = SIMD[.bool, length](fill=False)
-            if self.sphere_bvh:
-                var sphere_occluded = trace_blas_set_packet_any_hit[
-                    Self.world_bvh_width,
-                    Self.world_bvh_width,
-                    length,
-                    Frame.WORLD,
-                ](self.sphere_bvh.value(), UInt32(0), rays, valid)
-                result |= sphere_occluded
-
-            if self.triangle_bvh:
-                var active = valid & ~result
-                if active.reduce_or():
-                    var triangle_occluded = trace_blas_set_packet_any_hit[
-                        Self.world_bvh_width,
-                        Self.world_bvh_width,
-                        length,
-                        False,
-                        .WORLD,
-                    ](self.triangle_bvh.value(), UInt32(0), rays, active)
-                    result |= triangle_occluded
-
-            if self.triangle_tlas and self.triangle_mesh_blases:
-                var active = valid & ~result
-                if active.reduce_or():
-                    result |= (
-                        self.triangle_tlas.value().trace_blases_packet_any_hit[
-                            Self.instance_bvh_width,
-                            Self.instance_bvh_width,
-                            length,
-                        ](rays, self.triangle_mesh_blases.value(), active)
-                    )
-            return result
+            return self.triangle_tlas.value().trace_blases_packet_any_hit[
+                Self.instance_bvh_width,
+                Self.instance_bvh_width,
+                length,
+            ](rays, self.triangle_mesh_blases.value(), valid)
 
     def _trace_closest(self, ray: Rayf32[.WORLD]) -> _WorldHit:
-        var closest = self._trace_spheres(ray)
-        var triangle_hit = self._trace_triangles(ray)
-        if triangle_hit.hit and (not closest.hit or triangle_hit.t < closest.t):
+        var closest = self._trace_geometry[.SPHERE](ray)
+        var triangle_hit = self._trace_geometry[.TRIANGLE](ray)
+        if triangle_hit.surface.hit and (
+            not closest.surface.hit
+            or triangle_hit.surface.t < closest.surface.t
+        ):
             closest = triangle_hit^
 
-        var instance_hit = self._trace_triangle_instances(ray)
-        if instance_hit.hit and (not closest.hit or instance_hit.t < closest.t):
+        var instance_hit = self._trace_geometry[.TRIANGLE_INSTANCE](ray)
+        if instance_hit.surface.hit and (
+            not closest.surface.hit
+            or instance_hit.surface.t < closest.surface.t
+        ):
             closest = instance_hit^
         return closest^
 
     def trace(self, ray: Rayf32[.WORLD]) -> Optional[HitRecord]:
         var hit = self._trace_closest(ray)
-        if not hit.hit:
+        if not hit.surface.hit:
             return None
         return HitRecord(
             hit.primitive.copy(),
-            ray.at(hit.t),
-            hit.normal,
-            hit.surface.copy(),
-            hit.t,
-            hit.front_face,
+            ray.at(hit.surface.t),
+            hit.surface.normal,
+            hit.surface.surface.copy(),
+            hit.surface.t,
+            hit.surface.front_face,
         )
 
     @always_inline
@@ -417,30 +445,10 @@ struct CpuScene[
         valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
     ) -> SurfaceHit[length]:
         comptime if length == 1:
-            if valid[0]:
-                var ray = Rayf32[.WORLD](
-                    Point3f32[.WORLD](rays.o.x[0], rays.o.y[0], rays.o.z[0]),
-                    Vec3f32[.WORLD](rays.d.x[0], rays.d.y[0], rays.d.z[0]),
-                    rays.t_min[0],
-                    rays.t_max[0],
-                )
-                var scalar_hit = self._trace_closest(ray)
-                var result = SurfaceHit[length](rays.t_max)
-                result.normal.x[0] = scalar_hit.normal.x
-                result.normal.y[0] = scalar_hit.normal.y
-                result.normal.z[0] = scalar_hit.normal.z
-                result.surface.value[0] = scalar_hit.surface.value
-                result.uv_u[0] = scalar_hit.uv_u
-                result.uv_v[0] = scalar_hit.uv_v
-                result.t[0] = scalar_hit.t
-                result.front_face[0] = scalar_hit.front_face
-                result.hit[0] = scalar_hit.hit
-                result.medium_boundary[0] = scalar_hit.medium_boundary
-                result.geometric_normal.x[0] = scalar_hit.geometric_normal.x
-                result.geometric_normal.y[0] = scalar_hit.geometric_normal.y
-                result.geometric_normal.z[0] = scalar_hit.geometric_normal.z
-                return result^
-            return SurfaceHit[length](rays.t_max)
+            if not valid[0]:
+                return SurfaceHit[length](rays.t_max)
+            var hit = self._trace_closest(rebind[Rayf32[.WORLD]](rays))
+            return rebind[SurfaceHit[length]](hit.surface).copy()
         else:
             return self._trace_surface_shared_stack[
                 length, CpuTraversalMode.AUTO_COHERENT, 16, 8, 4
@@ -494,6 +502,96 @@ struct CpuScene[
                     .WORLD,
                 ](self.triangle_bvh.value(), UInt32(0), rays, valid)
 
+    @always_inline
+    def _surface_from_hit[
+        kind: PrimitiveKind, length: SIMDLength
+    ](
+        self,
+        rays: Ray[.float32, .WORLD, length],
+        hits: Hit[.WORLD, length],
+        active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+    ) -> SurfaceHit[length]:
+        """Assemble shading attributes at every width, including one."""
+        var mask = active & hits.is_hit()
+        comptime if kind == .TRIANGLE_INSTANCE:
+            mask &= hits.inst.ne(EMPTY_LANE)
+        if not mask.reduce_or():
+            return SurfaceHit[length](rays.t_max)
+
+        var surfaces = SIMD[.uint32, length](0)
+        var boundaries = SIMD[.uint32, length](0)
+        var center = Point3[.float32, .WORLD, length](0.0)
+        var radius = SIMD[.float32, length](1.0)
+        for lane in range(length):
+            if mask[lane]:
+                comptime if kind == .SPHERE:
+                    var index = Int(hits.prim[lane])
+                    ref sphere = self._scene.spheres()[index]
+                    center.x[lane] = sphere.center.x
+                    center.y[lane] = sphere.center.y
+                    center.z[lane] = sphere.center.z
+                    radius[lane] = sphere.radius
+                    surfaces[lane] = self._scene.sphere_surfaces()[index].value
+                    boundaries[lane] = SceneMedia.boundary(
+                        self._scene.media().spheres, index
+                    )
+                elif kind == .TRIANGLE:
+                    var index = Int(hits.prim[lane])
+                    surfaces[lane] = self._scene.triangle_surfaces()[
+                        index
+                    ].value
+                    boundaries[lane] = SceneMedia.boundary(
+                        self._scene.media().triangles, index
+                    )
+                else:
+                    comptime assert kind == .TRIANGLE_INSTANCE
+                    var index = Int(hits.inst[lane])
+                    surfaces[lane] = self._scene.triangle_instance_surfaces()[
+                        index
+                    ].value
+                    boundaries[lane] = SceneMedia.boundary(
+                        self._scene.media().instances, index
+                    )
+
+        var geometric_normal = hits.normal.unsafe_convert[
+            new_kind=GeoKind.VECTOR
+        ]()
+        comptime if kind == .SPHERE:
+            geometric_normal = (rays.at(hits.t) - center) * (
+                Float32(1.0) / radius
+            )
+        var normal = geometric_normal
+        var u = SIMD[.float32, length](0.0)
+        var v = SIMD[.float32, length](0.0)
+        comptime if kind == .TRIANGLE_INSTANCE:
+            if self._has_instance_attributes:
+                var shading = _triangle_instance_shading(
+                    self._scene,
+                    hits.inst,
+                    hits.prim,
+                    hits.u,
+                    hits.v,
+                    geometric_normal,
+                    mask,
+                )
+                normal = shading[0]
+                u = shading[1]
+                v = shading[2]
+        var oriented = orient_surface_normal(rays.d, normal)
+        var geometric = orient_surface_normal(rays.d, geometric_normal)
+        var zero = Vec3[.float32, .WORLD, length](0.0)
+        return SurfaceHit[length](
+            Vec3.select(mask, oriented.normal, zero),
+            SurfaceId[length](surfaces),
+            u,
+            v,
+            mask.select(hits.t, rays.t_max),
+            mask.select(geometric.front_face, SIMD[.bool, length](fill=True)),
+            mask,
+            boundaries,
+            Vec3.select(mask, geometric.normal, zero),
+        )
+
     def _trace_surface_shared_stack[
         length: SIMDLength,
         traversal_mode: CpuTraversalMode,
@@ -507,271 +605,76 @@ struct CpuScene[
         comptime assert length > 1
         var result = SurfaceHit[length](rays.t_max)
         if self.sphere_bvh:
-            var sphere_hits = trace_blas_set_packet[
+            var hits = trace_blas_set_packet[
                 Self.world_bvh_width,
                 Self.world_bvh_width,
                 length,
                 Frame.WORLD,
             ](self.sphere_bvh.value(), UInt32(0), rays, valid)
-            var sphere_mask = sphere_hits.is_hit()
-            var center_x = SIMD[.float32, length](0.0)
-            var center_y = SIMD[.float32, length](0.0)
-            var center_z = SIMD[.float32, length](0.0)
-            var radius = SIMD[.float32, length](1.0)
-            var surface_values = SIMD[.uint32, length](0)
-            for lane in range(length):
-                if sphere_mask[lane]:
-                    var sphere_idx = Int(sphere_hits.prim[lane])
-                    result.medium_boundary[lane] = SceneMedia.boundary(
-                        self._scene.media().spheres, sphere_idx
-                    )
-                    ref sphere = self._scene.spheres()[sphere_idx]
-                    center_x[lane] = sphere.center.x
-                    center_y[lane] = sphere.center.y
-                    center_z[lane] = sphere.center.z
-                    radius[lane] = sphere.radius
-                    surface_values[lane] = self._scene.sphere_surfaces()[
-                        sphere_idx
-                    ].value
-            var inverse_radius = Float32(1.0) / radius
-            var outward_normal = Vec3[.float32, .WORLD, length](
-                (rays.o.x + sphere_hits.t * rays.d.x - center_x)
-                * inverse_radius,
-                (rays.o.y + sphere_hits.t * rays.d.y - center_y)
-                * inverse_radius,
-                (rays.o.z + sphere_hits.t * rays.d.z - center_z)
-                * inverse_radius,
-            )
-            var oriented = orient_surface_normal(rays.d, outward_normal)
-            result.normal = Vec3.select(
-                sphere_mask, oriented.normal, result.normal
-            )
-            result.geometric_normal = Vec3.select(
-                sphere_mask, oriented.normal, result.geometric_normal
-            )
-            result.surface.value = sphere_mask.select(
-                surface_values, result.surface.value
-            )
-            result.t = sphere_mask.select(sphere_hits.t, result.t)
-            result.front_face = sphere_mask.select(
-                oriented.front_face, result.front_face
-            )
-            result.hit |= sphere_mask
+            result = self._surface_from_hit[.SPHERE](rays, hits, valid)
 
         if self.triangle_bvh:
-            var triangle_hits = self._trace_world_triangle_packet[
+            var hits = self._trace_world_triangle_packet[
                 length, traversal_mode, *adaptive_packet_sizes
             ](rays, valid)
-            var triangle_mask = triangle_hits.is_hit() & triangle_hits.t.lt(
-                result.t
+            _merge_surface_hit(
+                result,
+                self._surface_from_hit[.TRIANGLE](
+                    rays, hits, valid & hits.t.lt(result.t)
+                ),
             )
-            var surface_values = SIMD[.uint32, length](0)
-            for lane in range(length):
-                if triangle_mask[lane]:
-                    var triangle_idx = Int(triangle_hits.prim[lane])
-                    result.medium_boundary[lane] = SceneMedia.boundary(
-                        self._scene.media().triangles, triangle_idx
-                    )
-                    surface_values[lane] = self._scene.triangle_surfaces()[
-                        triangle_idx
-                    ].value
-            var triangle_normal = triangle_hits.normal.unsafe_convert[
-                new_kind=GeoKind.VECTOR
-            ]()
-            var oriented = orient_surface_normal(rays.d, triangle_normal)
-            result.normal = Vec3.select(
-                triangle_mask, oriented.normal, result.normal
-            )
-            result.geometric_normal = Vec3.select(
-                triangle_mask, oriented.normal, result.geometric_normal
-            )
-            result.surface.value = triangle_mask.select(
-                surface_values, result.surface.value
-            )
-            result.t = triangle_mask.select(triangle_hits.t, result.t)
-            result.front_face = triangle_mask.select(
-                oriented.front_face, result.front_face
-            )
-            result.hit |= triangle_mask
 
         if self.triangle_tlas and self.triangle_mesh_blases:
             var bounded_rays = Ray[.float32, .WORLD, length](
                 rays.o, rays.d, rays.t_min, result.t
             )
-            var instance_hits = self.triangle_tlas.value().trace_blases_packet[
+            var hits = self.triangle_tlas.value().trace_blases_packet[
                 Self.instance_bvh_width,
                 Self.instance_bvh_width,
                 length,
             ](bounded_rays, self.triangle_mesh_blases.value(), valid)
-            var instance_mask = instance_hits.is_hit()
-            instance_mask &= instance_hits.t.lt(result.t)
-            var surface_values = SIMD[.uint32, length](0)
-            var instance_normal = instance_hits.normal.unsafe_convert[
-                new_kind=GeoKind.VECTOR
-            ]()
-            var texture_u = SIMD[.float32, length](0.0)
-            var texture_v = SIMD[.float32, length](0.0)
-            if self._has_instance_attributes:
-                var shading = _triangle_instance_shading(
-                    self._scene,
-                    instance_hits.inst,
-                    instance_hits.prim,
-                    instance_hits.u,
-                    instance_hits.v,
-                    instance_normal,
-                    instance_mask,
-                )
-                instance_normal = shading[0]
-                texture_u = shading[1]
-                texture_v = shading[2]
-            for lane in range(length):
-                if instance_mask[lane]:
-                    var instance_idx = Int(instance_hits.inst[lane])
-                    result.medium_boundary[lane] = SceneMedia.boundary(
-                        self._scene.media().instances, instance_idx
-                    )
-                    surface_values[
-                        lane
-                    ] = self._scene.triangle_instance_surfaces()[
-                        instance_idx
-                    ].value
-            var geometric = orient_surface_normal(
-                rays.d,
-                instance_hits.normal.unsafe_convert[new_kind=GeoKind.VECTOR](),
+            _merge_surface_hit(
+                result,
+                self._surface_from_hit[.TRIANGLE_INSTANCE](
+                    rays, hits, valid & hits.t.lt(result.t)
+                ),
             )
-            var oriented = orient_surface_normal(rays.d, instance_normal)
-            result.geometric_normal = Vec3.select(
-                instance_mask, geometric.normal, result.geometric_normal
-            )
-            result.normal = Vec3.select(
-                instance_mask, oriented.normal, result.normal
-            )
-            result.surface.value = instance_mask.select(
-                surface_values, result.surface.value
-            )
-            result.uv_u = instance_mask.select(texture_u, result.uv_u)
-            result.uv_v = instance_mask.select(texture_v, result.uv_v)
-            result.t = instance_mask.select(instance_hits.t, result.t)
-            result.front_face = instance_mask.select(
-                geometric.front_face, result.front_face
-            )
-            result.hit |= instance_mask
-
         return result^
 
-    def _trace_spheres(self, ray: Rayf32[.WORLD]) -> _WorldHit:
-        if not self.sphere_bvh:
+    def _trace_geometry[
+        kind: PrimitiveKind
+    ](self, ray: Rayf32[.WORLD]) -> _WorldHit:
+        """Use scalar traversal and the same SIMD hit assembly at width one."""
+        var hits: Hit[.WORLD]
+        comptime if kind == .SPHERE:
+            if not self.sphere_bvh:
+                return _WorldHit.miss(ray.t_max)
+            hits = trace_blas_set[
+                Self.world_bvh_width,
+                Self.world_bvh_width,
+                .CLOSEST_HIT,
+                .WORLD,
+            ](self.sphere_bvh.value(), UInt32(0), ray)
+        elif kind == .TRIANGLE:
+            if not self.triangle_bvh:
+                return _WorldHit.miss(ray.t_max)
+            hits = trace_blas_set[
+                Self.world_bvh_width,
+                Self.world_bvh_width,
+                .CLOSEST_HIT,
+                .WORLD,
+            ](self.triangle_bvh.value(), UInt32(0), ray)
+        else:
+            comptime assert kind == .TRIANGLE_INSTANCE
+            if not self.triangle_tlas or not self.triangle_mesh_blases:
+                return _WorldHit.miss(ray.t_max)
+            hits = self.triangle_tlas.value().trace_blases[
+                Self.instance_bvh_width,
+                Self.instance_bvh_width,
+                .CLOSEST_HIT,
+            ](ray, self.triangle_mesh_blases.value())
+        var surface = self._surface_from_hit[kind](ray, hits)
+        if not surface.hit:
             return _WorldHit.miss(ray.t_max)
-
-        var bvh_hit = trace_blas_set[
-            Self.world_bvh_width,
-            Self.world_bvh_width,
-            .CLOSEST_HIT,
-            .WORLD,
-        ](self.sphere_bvh.value(), UInt32(0), ray)
-        if not bvh_hit.is_hit():
-            return _WorldHit.miss(ray.t_max)
-
-        var sphere_idx = Int(bvh_hit.prim)
-        debug_assert["safe", _use_compiler_assume=True](
-            sphere_idx >= 0 and sphere_idx < len(self._scene.spheres()),
-            "BVH returned an out-of-range sphere index",
-        )
-        ref sphere = self._scene.spheres()[sphere_idx]
-        var p = ray.at(bvh_hit.t)
-        var outward_normal = (p - sphere.center) / sphere.radius
-        var oriented = orient_surface_normal(ray.d, outward_normal)
-        return _WorldHit(
-            PrimitiveId(PrimitiveKind.SPHERE, bvh_hit.prim),
-            oriented.normal,
-            self._scene.sphere_surfaces()[sphere_idx].copy(),
-            0.0,
-            0.0,
-            bvh_hit.t,
-            oriented.front_face,
-            True,
-            SceneMedia.boundary(self._scene.media().spheres, sphere_idx),
-            orient_surface_normal(ray.d, outward_normal).normal,
-        )
-
-    def _trace_triangles(self, ray: Rayf32[.WORLD]) -> _WorldHit:
-        if not self.triangle_bvh:
-            return _WorldHit.miss(ray.t_max)
-
-        var bvh_hit = trace_blas_set[
-            Self.world_bvh_width,
-            Self.world_bvh_width,
-            .CLOSEST_HIT,
-            .WORLD,
-        ](self.triangle_bvh.value(), UInt32(0), ray)
-        if not bvh_hit.is_hit():
-            return _WorldHit.miss(ray.t_max)
-
-        var tri_idx = Int(bvh_hit.prim)
-        debug_assert["safe", _use_compiler_assume=True](
-            tri_idx >= 0 and tri_idx < len(self._scene.triangle_surfaces()),
-            "BVH returned an out-of-range triangle index",
-        )
-        var outward_normal = bvh_hit.normal.unsafe_convert[
-            new_kind=GeoKind.VECTOR
-        ]()
-        var oriented = orient_surface_normal(ray.d, outward_normal)
-        return _WorldHit(
-            PrimitiveId(PrimitiveKind.TRIANGLE, bvh_hit.prim),
-            oriented.normal,
-            self._scene.triangle_surfaces()[tri_idx].copy(),
-            0.0,
-            0.0,
-            bvh_hit.t,
-            oriented.front_face,
-            True,
-            SceneMedia.boundary(self._scene.media().triangles, tri_idx),
-            orient_surface_normal(ray.d, outward_normal).normal,
-        )
-
-    def _trace_triangle_instances(self, ray: Rayf32[.WORLD]) -> _WorldHit:
-        if not self.triangle_tlas or not self.triangle_mesh_blases:
-            return _WorldHit.miss(ray.t_max)
-
-        var bvh_hit = self.triangle_tlas.value().trace_blases[
-            Self.instance_bvh_width,
-            Self.instance_bvh_width,
-            .CLOSEST_HIT,
-        ](ray, self.triangle_mesh_blases.value())
-        if not bvh_hit.is_hit() or bvh_hit.inst == EMPTY_LANE:
-            return _WorldHit.miss(ray.t_max)
-
-        var instance_idx = Int(bvh_hit.inst)
-        debug_assert["safe", _use_compiler_assume=True](
-            instance_idx >= 0
-            and instance_idx < len(self._scene.triangle_instances()),
-            "TLAS returned an out-of-range triangle instance index",
-        )
-        var shading = _triangle_instance_shading(
-            self._scene,
-            UInt32(instance_idx),
-            bvh_hit.prim,
-            bvh_hit.u,
-            bvh_hit.v,
-            bvh_hit.normal.unsafe_convert[new_kind=GeoKind.VECTOR](),
-        )
-        var outward_normal = shading[0]
-        var texture_u = shading[1]
-        var texture_v = shading[2]
-        var oriented = orient_surface_normal(ray.d, outward_normal)
-        return _WorldHit(
-            PrimitiveId(PrimitiveKind.TRIANGLE_INSTANCE, bvh_hit.inst),
-            oriented.normal,
-            self._scene.triangle_instance_surfaces()[instance_idx].copy(),
-            texture_u,
-            texture_v,
-            bvh_hit.t,
-            orient_surface_normal(
-                ray.d, bvh_hit.normal.unsafe_convert[new_kind=GeoKind.VECTOR]()
-            ).front_face,
-            True,
-            SceneMedia.boundary(self._scene.media().instances, instance_idx),
-            orient_surface_normal(
-                ray.d, bvh_hit.normal.unsafe_convert[new_kind=GeoKind.VECTOR]()
-            ).normal,
-        )
+        var index = hits.inst if kind == .TRIANGLE_INSTANCE else hits.prim
+        return _WorldHit(PrimitiveId(kind, index), surface^)

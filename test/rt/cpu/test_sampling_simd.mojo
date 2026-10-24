@@ -10,7 +10,7 @@ from std.testing import (
     assert_true,
 )
 from bajo.core import Affine3f32, Point3, Point3f32, Vec3
-from bajo.core.random import Rng
+from bajo.core.random import Rng, Sampler
 from bajo.rt.common import path_stage_rng
 from bajo.rt.render_types import Color, SamplingConfig
 from bajo.rt.material_types import (
@@ -53,7 +53,7 @@ def _streams[length: SIMDLength]() raises:
             UInt32(0xC0000009),
         ]:
             var config = SamplingConfig(
-                2026, UInt32(sampler), 7, 100, 1024, 320
+                2026, Sampler(sampler), 7, 100, 1024, 320
             )
             var paths = ids.cast[.uint32]()
             var expected = List[Float32]()
@@ -229,7 +229,7 @@ def _direct_lights[length: SIMDLength](image_environment: Bool) raises:
         SIMD[.bool, length](fill=True),
     )
     for sampler in range(6):
-        var config = SamplingConfig(2026, UInt32(sampler), 7, 100, 1024, 320)
+        var config = SamplingConfig(2026, Sampler(sampler), 7, 100, 1024, 320)
         for packet in range(20):
             var ids = SIMD[.uint32, length](0)
             var active = SIMD[.bool, length](fill=True)

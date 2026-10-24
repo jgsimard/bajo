@@ -49,9 +49,6 @@ struct RenderSettings(Copyable, Writable):
         if sequence_length == 0:
             sequence_length = samples_per_pixel
         debug_assert["safe", _use_compiler_assume=True](
-            sampler.is_valid(), "unknown sampler"
-        )
-        debug_assert["safe", _use_compiler_assume=True](
             sample_offset >= 0
             and sample_offset + samples_per_pixel <= sequence_length,
             "sample batch is outside the sample sequence",
@@ -78,8 +75,6 @@ struct RenderSettings(Copyable, Writable):
             raise Error("samples per pixel must be positive")
         if self.max_depth < 0:
             raise Error("max depth must be non-negative")
-        if not self.sampler.is_valid():
-            raise Error("unknown sampler")
         if self.sample_offset < 0:
             raise Error("sample offset must be non-negative")
         if self.sample_sequence_length <= 0:
@@ -114,7 +109,7 @@ struct SamplingConfig(
     """Compact CPU/GPU description of one batch in a pixel sample sequence."""
 
     var seed: UInt64
-    var sampler_value: UInt32
+    var sampler: Sampler
     var samples_per_pixel: UInt32
     var sample_offset: UInt32
     var sequence_length: UInt32
@@ -135,7 +130,7 @@ struct SamplingConfig(
     def from_settings(settings: RenderSettings) -> Self:
         return Self(
             settings.rng_seed,
-            settings.sampler.value,
+            settings.sampler,
             UInt32(settings.samples_per_pixel),
             UInt32(settings.sample_offset),
             UInt32(settings.sample_sequence_length),

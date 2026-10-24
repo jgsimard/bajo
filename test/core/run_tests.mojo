@@ -9,6 +9,7 @@ import test.core.test_mat as test_mat
 import test.core.test_morton as test_morton
 import test.core.test_quat as test_quat
 import test.core.test_ray as test_ray
+import test.core.test_sampler as test_sampler
 import test.core.test_segments as test_segments
 import test.core.test_transform as test_transform
 import test.core.test_vec as test_vec
@@ -32,6 +33,8 @@ def main() raises:
         tests.run("test/core/test_quat.mojo", test_quat.run_tests[True])
     comptime if module_selected["test_ray"]():
         tests.run("test/core/test_ray.mojo", test_ray.run_tests[True])
+    comptime if module_selected["test_sampler"]():
+        tests.run("test/core/test_sampler.mojo", test_sampler.run_tests[True])
     comptime if module_selected["test_segments"]():
         tests.run("test/core/test_segments.mojo", test_segments.run_tests[True])
     comptime if module_selected["test_transform"]():

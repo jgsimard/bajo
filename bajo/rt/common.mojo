@@ -3,7 +3,7 @@
 from std.math import abs, cos, pi, sin, sqrt
 
 from bajo.core import Frame, Vec3, normalize
-from bajo.core.random import Rng, Sampler, _mix32
+from bajo.core.random import Rng, _mix32
 from bajo.rt.render_types import (
     Color,
     SamplingConfig,
@@ -204,7 +204,7 @@ def environment_pdf_from_radiance[
 def path_stage_rng(seed: UInt64, path_id: UInt32, stage: UInt32) -> Rng[1]:
     """Create the deterministic Philox stream owned by one path stage."""
     return path_stage_rng(
-        SamplingConfig(seed, Sampler.INDEPENDENT.value, 1, 0, 1, 1),
+        SamplingConfig(seed, .INDEPENDENT, 1, 0, 1, 1),
         path_id,
         stage,
     )
@@ -220,7 +220,7 @@ def path_stage_rng[
     var batch_spp = sampling.samples_per_pixel
     var pixel_id = path_id / batch_spp
     var sample_index = sampling.sample_offset + path_id % batch_spp
-    var sampler = Sampler(unsafe_from_value=sampling.sampler_value)
+    var sampler = sampling.sampler
     match sampler:
         case .INDEPENDENT:
             var canonical_path_id = (
@@ -275,7 +275,7 @@ def russian_roulette(
 ) -> RussianRouletteResult[1]:
     """Unbiased continuation using a stream separate from BSDF sampling."""
     return russian_roulette(
-        SamplingConfig(seed, Sampler.INDEPENDENT.value, 1, 0, 1, 1),
+        SamplingConfig(seed, .INDEPENDENT, 1, 0, 1, 1),
         path_id,
         depth,
         throughput,

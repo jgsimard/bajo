@@ -1,14 +1,22 @@
 from std.bit import bit_reverse
 from std.builtin.globals import global_constant
+from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import cos, floor, pi, sin, sqrt, cbrt
 
 from bajo.core import Vec3, dot, Frame
 
 
-struct Sampler(EnumLike, Equatable, TrivialRegisterPassable, Writable):
-    """Runtime-selectable sample sequence used by the ray tracers."""
+struct Sampler(
+    DevicePassable,
+    EnumLike,
+    Equatable,
+    Intable,
+    TrivialRegisterPassable,
+    Writable,
+):
+    """Runtime-selectable sample sequence, validated at construction."""
 
-    var value: UInt32
+    var _value: UInt32
     comptime INDEPENDENT = Self.__init__[0]()
     comptime HALTON = Self.__init__[1]()
     comptime R2 = Self.__init__[2]()
@@ -36,24 +44,35 @@ struct Sampler(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     def __init__[value: Int](out self):
         """Construct a sampler from a compile-time sequence ID."""
         comptime assert 0 <= value <= 5
-        self.value = UInt32(value)
+        self._value = UInt32(value)
 
     def __init__(out self, value: Int) raises:
         """Construct a sampler from an external sequence ID."""
         if value < 0 or value > 5:
             raise Error("unknown sampler: expected a sequence ID from 0 to 5")
-        self.value = UInt32(value)
+        self._value = UInt32(value)
 
     def __init__(out self, value: UInt32) raises:
         """Construct a sampler from a 32-bit sequence ID."""
         self = Self(Int(value))
 
-    def __init__(out self, *, unsafe_from_value: UInt32):
-        """Reconstruct a sampler from an already-validated sequence ID."""
-        self.value = unsafe_from_value
+    def __int__(self) -> Int:
+        """Return the external sequence ID."""
+        return Int(self._value)
+
+    comptime device_type: AnyType = Self
+
+    def _to_device_type(
+        self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
+    ):
+        encoder.encode(self, target)
+
+    @staticmethod
+    def get_type_name() -> String:
+        return "Sampler"
 
     def _get_enum_discriminant(self) -> Int:
-        return Int(self.value)
+        return Int(self)
 
     def _unsafe_get_enum_payload[
         id: Int
@@ -62,16 +81,6 @@ struct Sampler(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     ]:
         while True:
             pass
-
-    def is_valid(self) -> Bool:
-        return self in (
-            Sampler.INDEPENDENT,
-            Sampler.HALTON,
-            Sampler.R2,
-            Sampler.OWEN_SOBOL,
-            Sampler.SZ,
-            Sampler.STBN,
-        )
 
 
 @always_inline

@@ -1,7 +1,7 @@
 """Cached raylib geometry and native presentation of Bajo scenes."""
 
 from std.ffi import OwnedDLHandle, c_int
-from std.math import atan, pi, sqrt
+from std.math import atan, pi
 from std.memory import Pointer
 from std.os import abort
 from bajo.bvh import Camera
@@ -14,10 +14,9 @@ from bajo.core import (
     normalize,
 )
 from bajo.rt.image_output import color_to_byte
-from bajo.rt.material_types import MaterialKind, SurfaceId, SurfaceStore
+from bajo.rt.material_types import SurfaceId, SurfaceStore
 from bajo.rt.scene_data import SceneData
 from .raylib import (
-    BoundingBox,
     Camera3D,
     Color,
     Frame,

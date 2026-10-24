@@ -44,8 +44,11 @@ class ViewerLauncherTests(unittest.TestCase):
                 """)
         )
         compiler.chmod(0o755)
-        self.env = dict(os.environ, PATH=f"{self.root / 'bin'}:{os.environ['PATH']}",
-                        COMPILER_LOG=str(self.log))
+        self.env = dict(
+            os.environ,
+            PATH=f"{self.root / 'bin'}:{os.environ['PATH']}",
+            COMPILER_LOG=str(self.log),
+        )
 
     def launch(self, *args):
         result = subprocess.run(
@@ -55,8 +58,8 @@ class ViewerLauncherTests(unittest.TestCase):
         return json.loads(result.stdout.splitlines()[-1])
 
     def builds(self):
-        return [args for line in self.log.read_text().splitlines()
-                if (args := json.loads(line))[0] == "build"]
+        calls = map(json.loads, self.log.read_text().splitlines())
+        return [args for args in calls if args[0] == "build"]
 
     def test_executes_compiled_viewer_and_forwards_arguments(self):
         args = ["--scene", "cornell", "--hidden"]
@@ -75,10 +78,19 @@ class ViewerLauncherTests(unittest.TestCase):
         self.launch("--help")
         self.assertEqual(len(self.builds()), 3)
 
+    def test_launcher_changes_invalidate_cached_build(self):
+        self.launch("--help")
+        script = self.root / "scripts/run_viewer.sh"
+        script.write_text(script.read_text() + "\n# changed build configuration\n")
+        self.launch("--help")
+        self.assertEqual(len(self.builds()), 2)
+
     def test_gpu_build_uses_requested_architecture(self):
         self.launch("--help")
         self.env["BAJO_GPU_ARCH"] = "sm_89"
-        self.assertEqual(self.launch("--gpu", "--backend", "gpu"), ["--backend", "gpu"])
+        self.assertEqual(
+            self.launch("--gpu", "--backend", "gpu"), ["--backend", "gpu"]
+        )
         self.assertEqual(len(self.builds()), 2)
         args = self.builds()[-1]
         self.assertEqual(args[args.index("--target-accelerator") + 1], "sm_89")

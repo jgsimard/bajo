@@ -6,16 +6,22 @@ from std.ffi import c_int
 from bajo.bvh import Camera
 from bajo.core import Vec3W, cross, dot, normalize
 from bajo.core.random import Sampler
-from bajo.rt.render_types import Color as LinearColor, RenderSettings
-from bajo.rt.image_output import color_to_byte
+from bajo.rt.render_types import RenderSettings
 from .core import ViewerScene
-from .scenes import load_viewer_scene, viewer_scene_index, viewer_scene_name
+from .scenes import (
+    BUILTIN_SCENE_COUNT,
+    CUSTOM_SCENE,
+    load_viewer_scene,
+    viewer_scene_index,
+    viewer_scene_name,
+)
 from .raylib import Window, Color, BoundingBox, Vector3, Frame, TextFont
 from .raster import RasterScene, DisplayTexture, raster_camera
 from .worker import RenderWorker
 from .debug import DebugBox, object_boxes
 from .file_picker import FilePicker, contains, is_scene_file
 from .batching import samples_for_batch, smaller_batch, larger_batch
+from .accumulation import FrameAccumulator
 
 
 struct ViewerOptions(Copyable):
@@ -93,7 +99,7 @@ def parse_options() raises -> ViewerOptions:
             case "--scene":
                 options.scene = viewer_scene_index(value)
             case "--pbrt":
-                options.scene = 9
+                options.scene = CUSTOM_SCENE
                 options.path = value
             case "--raylib-library":
                 options.library = value
@@ -268,7 +274,7 @@ struct PreparedScene:
             scene^, options.build_method, options.traversal
         )
         var name = viewer_scene_name(options.scene)
-        if options.scene == 9:
+        if options.scene == CUSTOM_SCENE:
             name = "PBRT: " + window.file_name(options.path)
         self.camera = camera
         self.settings = settings^
@@ -313,11 +319,7 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
     var boxes = List[DebugBox]()
     var have_boxes = False
     var box_request_in_flight = False
-    var generation = UInt64(0)
-    var samples = 0
-    var completed_batches = 0
-    var linear = List[LinearColor]()
-    var rgba = List[UInt8]()
+    var accumulation = FrameAccumulator()
     var texture = Optional[DisplayTexture]()
     var render_ms = Float64(0)
     var moving_time = Float32(0)
@@ -440,12 +442,12 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
                 if not is_scene_file(window, path):
                     raise Error("Select a .pbrt or .pbrt-v4 scene.")
                 var candidate_options = options.copy()
-                candidate_options.scene = 9
+                candidate_options.scene = CUSTOM_SCENE
                 candidate_options.path = path
                 var candidate = PreparedScene(window, candidate_options)
                 # Commit only after parsing and raster upload have succeeded.
                 view = candidate^
-                options.scene = 9
+                options.scene = CUSTOM_SCENE
                 options.path = path
                 scene_name = view.name
                 camera = view.camera
@@ -453,10 +455,6 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
                 settings = view.settings.copy()
                 max_samples = settings.sample_sequence_length
                 max_depth = settings.max_depth
-                samples = 0
-                completed_batches = 0
-                linear.clear()
-                rgba.clear()
                 if texture:
                     _ = texture.take()
                 boxes.clear()
@@ -483,10 +481,7 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
             settings.image_height = render_height
             changed = True
         if changed:
-            generation += 1
-            samples = 0
-            completed_batches = 0
-            linear.clear()
+            accumulation.reset()
             moving_time = 0.25 if camera_moved else 0
             error_text = ""
         else:
@@ -500,25 +495,8 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
                 box_request_in_flight = False
             if view.worker.state[].result:
                 var completed = view.worker.state[].result.take()
-                if completed.generation == generation:
-                    if len(linear) != len(completed.pixels):
-                        linear = List[LinearColor](
-                            length=len(completed.pixels), fill=LinearColor(0)
-                        )
-                    for index in range(len(linear)):
-                        linear[index] += completed.pixels[index] * Float32(
-                            completed.samples
-                        )
-                    samples += completed.samples
-                    completed_batches += 1
+                if accumulation.add(completed):
                     render_ms = completed.render_ms
-                    rgba.resize(len(linear) * 4, 0)
-                    for index in range(len(linear)):
-                        var color = linear[index] / Float32(samples)
-                        rgba[4 * index] = color_to_byte(color.x)
-                        rgba[4 * index + 1] = color_to_byte(color.y)
-                        rgba[4 * index + 2] = color_to_byte(color.z)
-                        rgba[4 * index + 3] = 255
                     if texture:
                         if (
                             Int(texture.value().texture.width)
@@ -533,10 +511,12 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
                             window,
                             completed.width,
                             completed.height,
-                            rgba,
+                            accumulation.rgba,
                         )
                     else:
-                        window.update_texture(texture.value().texture, rgba)
+                        window.update_texture(
+                            texture.value().texture, accumulation.rgba
+                        )
             view.worker.acknowledge()
         var needs_boxes = (
             bounds >= 2 and not have_boxes and not box_request_in_flight
@@ -545,23 +525,23 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
             view.worker.idle()
             and not next_scene
             and error_text == ""
-            and (needs_boxes or (traced and samples < max_samples))
+            and (needs_boxes or (traced and accumulation.samples < max_samples))
         ):
             var batch = settings.copy()
             batch.max_depth = max_depth
             batch.samples_per_pixel = samples_for_batch(
                 options.samples_per_batch,
-                samples,
+                accumulation.samples,
                 max_samples,
                 moving_time > 0,
                 options.moving_samples,
             ) if traced else 1
-            batch.sample_offset = samples
+            batch.sample_offset = accumulation.samples
             batch.sample_sequence_length = max_samples
             view.worker.submit(
                 camera,
                 batch,
-                generation,
+                accumulation.generation,
                 integrator,
                 backend,
                 traced,
@@ -598,8 +578,13 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
                     == "" else "TRACE ERROR (raster preview)"
                 )
             var backend_name = String("CPU") if backend == 0 else String("GPU")
+            var batch_count = String(
+                "1 batch"
+            ) if accumulation.batches == 1 else String(
+                t"{accumulation.batches} batches"
+            )
             var trace_stats = String(
-                t"{samples}/{max_samples} spp | {completed_batches} batches |"
+                t"{accumulation.samples}/{max_samples} spp | {batch_count} |"
                 t" {render_ms} ms"
             )
             frame.draw_text_ex(
@@ -714,7 +699,7 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
         # every new session immediately switches again without rendering.
         if next_scene:
             break
-        if not traced or samples > 0:
+        if not traced or accumulation.samples > 0:
             display_frames += 1
         if options.frame_limit and display_frames >= options.frame_limit:
             break
@@ -725,7 +710,7 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
             window.screenshot(options.screenshot)
         print(
             "Viewer closed:",
-            samples,
+            accumulation.samples,
             "samples; raster mesh count",
             len(view.raster.meshes),
             "draw count",
@@ -749,7 +734,10 @@ def run_viewer(var options: ViewerOptions) raises:
     try:
         window.set_exit_key(0)
         while _session(window, options):
-            options.scene = options.scene + 1 if options.scene < 8 else 0
+            options.scene = (
+                options.scene + 1 if options.scene + 1
+                < BUILTIN_SCENE_COUNT else 0
+            )
             options.path = ""
     except error:
         window^.close()

@@ -22,50 +22,38 @@ from bajo.parser.pbrt import read_pbrt
 from bajo.parser.asset_loader import AssetLoader, PathAssetLoader
 
 
+# PBRT entries follow the procedural scenes.
+comptime _SCENE_NAMES: List[String] = [
+    "rtiaw",
+    "cornell",
+    "veach",
+    "lbvh",
+    "emissive-instance",
+    "many-lights",
+    "indirect-hall",
+    "specular-transport",
+    "pbrt",
+    "custom PBRT",
+]
+comptime CUSTOM_SCENE = len(_SCENE_NAMES) - 1
+comptime BUILTIN_SCENE_COUNT = CUSTOM_SCENE
+comptime BUILTIN_PBRT_SCENE = BUILTIN_SCENE_COUNT - 1
 comptime BUILTIN_PBRT_PATH = "examples/scenes/pbrt_showcase.pbrt"
 
 
 def viewer_scene_name(scene: Int) raises -> String:
-    var names: List[String] = [
-        "rtiaw",
-        "cornell",
-        "veach",
-        "lbvh",
-        "emissive-instance",
-        "many-lights",
-        "indirect-hall",
-        "specular-transport",
-        "pbrt",
-        "custom PBRT",
-    ]
-    if scene < 0 or scene >= len(names):
-        raise Error("unknown viewer scene")
-    return names[scene]
+    var names = materialize[_SCENE_NAMES]()
+    if scene >= 0 and scene < len(names):
+        return names[scene]
+    raise Error("unknown viewer scene")
 
 
 def viewer_scene_index(name: String) raises -> Int:
-    """Resolve the scene names supported by the existing viewer CLI."""
-    match name:
-        case "rtiaw":
-            return 0
-        case "cornell":
-            return 1
-        case "veach":
-            return 2
-        case "lbvh":
-            return 3
-        case "emissive-instance":
-            return 4
-        case "many-lights":
-            return 5
-        case "indirect-hall":
-            return 6
-        case "specular-transport":
-            return 7
-        case "pbrt":
-            return 8
-        case _:
-            raise Error("unknown viewer scene: " + name)
+    var names = materialize[_SCENE_NAMES]()
+    for index in range(BUILTIN_SCENE_COUNT):
+        if names[index] == name:
+            return index
+    raise Error("unknown viewer scene: " + name)
 
 
 def default_viewer_camera(scene: Int) raises -> Camera:
@@ -103,6 +91,13 @@ def load_viewer_scene[
 ](scene: Int, scene_path: String, loader: Loader) raises -> SceneDescription:
     """Load once, retaining authored PBRT camera, film, and sampling settings.
     """
+    if scene == BUILTIN_PBRT_SCENE or scene == CUSTOM_SCENE:
+        var path = scene_path
+        if path == "":
+            if scene == CUSTOM_SCENE:
+                raise Error("custom PBRT scene requires a path")
+            path = BUILTIN_PBRT_PATH
+        return read_pbrt(path, loader)
     var data: SceneData
     match scene:
         case 0:
@@ -121,13 +116,6 @@ def load_viewer_scene[
             data = make_indirect_hall_scene()
         case 7:
             data = make_specular_transport_scene()
-        case 8 | 9:
-            var path = scene_path
-            if path == "":
-                if scene == 9:
-                    raise Error("custom PBRT scene requires a path")
-                path = BUILTIN_PBRT_PATH
-            return read_pbrt(path, loader)
         case _:
             raise Error("unsupported viewer scene")
     return SceneDescription(

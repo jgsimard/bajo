@@ -7,7 +7,7 @@ from std.memory import Pointer
 
 @fieldwise_init
 struct Color(ImplicitlyCopyable, RegisterPassable):
-    """raylib Color: four unsigned bytes, passed by value."""
+    """Raylib Color: four unsigned bytes, passed by value."""
 
     var r: UInt8
     var g: UInt8
@@ -17,7 +17,7 @@ struct Color(ImplicitlyCopyable, RegisterPassable):
 
 @fieldwise_init
 struct Vector2(ImplicitlyCopyable, RegisterPassable):
-    """raylib Vector2: two C floats, passed by value."""
+    """Raylib Vector2: two C floats, passed by value."""
 
     var x: Float32
     var y: Float32
@@ -112,7 +112,7 @@ struct Texture(ImplicitlyCopyable, RegisterPassable):
 
 @fieldwise_init
 struct Font(ImplicitlyCopyable, RegisterPassable):
-    """raylib Font ABI; glyph data remains owned by TextFont."""
+    """Raylib Font ABI; glyph data remains owned by TextFont."""
 
     var base_size: c_int
     var glyph_count: c_int
@@ -177,7 +177,7 @@ struct Material(ImplicitlyCopyable, RegisterPassable):
 
 @fieldwise_init
 struct Mesh(ImplicitlyCopyable, RegisterPassable):
-    """raylib 6.2 mesh ABI; native-size integers hold opaque C addresses."""
+    """Raylib 6.2 mesh ABI; native-size integers hold opaque C addresses."""
 
     var vertex_count: c_int
     var triangle_count: c_int
@@ -213,12 +213,6 @@ struct Mesh(ImplicitlyCopyable, RegisterPassable):
         self.anim_normals = 0
         self.vao_id = 0
         self.vbo_id = 0
-
-
-comptime KEY_LEFT_SHIFT = 340
-comptime KEY_RIGHT = 262
-comptime KEY_D = 68
-comptime KEY_TAB = 258
 
 
 struct Window(
@@ -269,10 +263,7 @@ struct Window(
             "ToggleFullscreen",
             "BeginDrawing",
             "ClearBackground",
-            "DrawLine",
             "DrawRectangle",
-            "DrawLineEx",
-            "DrawText",
             "LoadFontEx",
             "IsFontValid",
             "SetTextureFilter",
@@ -293,7 +284,6 @@ struct Window(
             "LoadShaderFromMemory",
             "IsShaderValid",
             "GetShaderLocation",
-            "UnloadShader",
             "LoadTextureFromImage",
             "UpdateTexture",
             "UnloadTexture",
@@ -303,7 +293,6 @@ struct Window(
             "GetFrameTime",
             "GetScreenWidth",
             "GetScreenHeight",
-            "GetFPS",
             "SetWindowSize",
             "TakeScreenshot",
             "SetTraceLogLevel",
@@ -519,9 +508,6 @@ struct Window(
             raise error
         return mesh
 
-    def unload_mesh(self, mesh: Mesh) raises:
-        self.library.get_function[NoneType]("UnloadMesh")(mesh)
-
     def sphere_mesh(self) raises -> Mesh:
         return self.library.get_function[Mesh]("GenMeshSphere")(
             Float32(1), c_int(20), c_int(24)
@@ -554,9 +540,6 @@ struct Window(
         self.library.get_function[NoneType]("UpdateTexture")(
             texture, pixels.unsafe_ptr()
         )
-
-    def unload_texture(self, texture: Texture) raises:
-        self.library.get_function[NoneType]("UnloadTexture")(texture)
 
     def begin_drawing(deinit self) -> Frame:
         """Transfer this window into a unique drawing session."""
@@ -599,13 +582,6 @@ struct Frame(
     def clear_background(self, color: Color) raises:
         self.window.library.get_function[NoneType]("ClearBackground")(color)
 
-    def draw_line(
-        self, x1: Int, y1: Int, x2: Int, y2: Int, color: Color
-    ) raises:
-        self.window.library.get_function[NoneType]("DrawLine")(
-            c_int(x1), c_int(y1), c_int(x2), c_int(y2), color
-        )
-
     def draw_rectangle(
         self, x: Int, y: Int, width: Int, height: Int, color: Color
     ) raises:
@@ -620,20 +596,6 @@ struct Frame(
 
     def end_scissor(self) raises:
         self.window.library.get_function[NoneType]("EndScissorMode")()
-
-    def draw_line_ex(
-        self, start: Vector2, end: Vector2, thickness: Float32, color: Color
-    ) raises:
-        self.window.library.get_function[NoneType]("DrawLineEx")(
-            start, end, thickness, color
-        )
-
-    def draw_text(
-        self, var label: String, x: Int, y: Int, size: Int, color: Color
-    ) raises:
-        self.window.library.get_function[NoneType]("DrawText")(
-            label.as_c_string_span(), c_int(x), c_int(y), c_int(size), color
-        )
 
     def draw_text_ex(
         self,

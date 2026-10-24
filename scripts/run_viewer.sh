@@ -18,6 +18,7 @@ viewer_fingerprint="$(
   {
     printf '%s\n' "$viewer_compiler" "$viewer_version" "$viewer_target"
     stat -Lc '%s:%Y' "$viewer_compiler"
+    sha256sum scripts/run_viewer.sh
     # Include untracked files too, so editing a new module invalidates the build.
     find bajo examples -type f -name '*.mojo' -print0 |
       sort -z | xargs -0 sha256sum

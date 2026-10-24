@@ -109,7 +109,7 @@ void DrawTextEx(Font font, const char *text, Vector2 position, float size, float
     const char *backend = strstr(text, "| Bajo ");
     const char *stats = backend ? strchr(backend + 7, '|') : NULL;
     int samples, total, batches;
-    if (stats && sscanf(stats + 1, " %d/%d spp | %d batches", &samples, &total, &batches) == 3) {
+    if (stats && sscanf(stats + 1, " %d/%d spp | %d batch", &samples, &total, &batches) == 3) {
         if (samples < completed_samples && total == total_samples) ++sample_resets;
         completed_samples = samples;
         total_samples = total;

@@ -107,7 +107,7 @@ BAJO_GPU_ARCH=sm_89 pixi run viewer_gpu --mode trace --backend gpu
 ```
 
 The launcher builds and caches a standalone executable before opening the window.
-Source or compiler changes rebuild it; `pixi run clean` removes the cache. This
+Source, compiler, or launcher changes rebuild it; `pixi run clean` removes the cache. This
 avoids a render-worker stall under `mojo run`. A raster preview stays visible
 until the first traced frame is ready. Use `pixi run viewer --help` for
 scene names, render options, CPU builder/traversal selection, and library path.

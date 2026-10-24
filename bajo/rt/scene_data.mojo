@@ -546,7 +546,7 @@ struct SceneData:
                 )
             if inst.blas_idx >= UInt32(len(self._triangle_meshes)):
                 raise Error("triangle instance blas_idx is out of range")
-            var surface = self._triangle_instance_surfaces[i].copy()
+            ref surface = self._triangle_instance_surfaces[i]
             if not self._surfaces.contains(surface):
                 raise Error("triangle instance surface id is out of range")
 
@@ -738,7 +738,7 @@ struct SceneData:
                     self._append_light(
                         LightRecord.triangle(
                             PrimitiveId(PrimitiveKind.TRIANGLE, UInt32(idx)),
-                            surface.copy(),
+                            surface,
                             weight,
                             p0,
                             p1,
@@ -761,7 +761,7 @@ struct SceneData:
                     self._append_light(
                         LightRecord.sphere(
                             PrimitiveId(PrimitiveKind.SPHERE, UInt32(idx)),
-                            surface.copy(),
+                            surface,
                             weight,
                             self._spheres[idx].center,
                             radius,
@@ -807,7 +807,7 @@ struct SceneData:
                                 PrimitiveKind.TRIANGLE_INSTANCE,
                                 UInt32(instance_idx),
                             ),
-                            surface.copy(),
+                            surface,
                             weight,
                             p0,
                             p1,

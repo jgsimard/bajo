@@ -2,18 +2,22 @@ struct SegmentOffsets(Copyable):
     var offsets: List[UInt32]
 
     def __init__(out self, offsets: List[UInt32]):
+        self = Self(owned_offsets=offsets.copy())
+
+    def __init__(out self, *, var owned_offsets: List[UInt32]):
+        """Consume offsets when the caller no longer needs their storage."""
         debug_assert["safe", _use_compiler_assume=True](
-            len(offsets) > 0, "segment offsets require a leading zero"
+            len(owned_offsets) > 0, "segment offsets require a leading zero"
         )
         debug_assert["safe", _use_compiler_assume=True](
-            offsets[0] == 0, "segment offsets must start at zero"
+            owned_offsets[0] == 0, "segment offsets must start at zero"
         )
-        for i in range(1, len(offsets)):
+        for i in range(1, len(owned_offsets)):
             debug_assert["safe", _use_compiler_assume=True](
-                offsets[i - 1] <= offsets[i],
+                owned_offsets[i - 1] <= owned_offsets[i],
                 "segment offsets must be nondecreasing",
             )
-        self.offsets = offsets.copy()
+        self.offsets = owned_offsets^
 
     @staticmethod
     def from_counts(counts: List[Int]) -> Self:
@@ -30,7 +34,7 @@ struct SegmentOffsets(Copyable):
             )
             total += UInt32(count)
             offsets.append(total)
-        return Self(offsets)
+        return Self(owned_offsets=offsets^)
 
     @staticmethod
     def single(item_count: Int) -> Self:

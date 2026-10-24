@@ -469,8 +469,8 @@ def _trace_packets[
         dielectric_queue.clear()
         coated_diffuse_queue.clear()
         next_paths.clear()
-        for packet_idx, source_packet in enumerate(active_paths.packets):
-            var packet = source_packet.copy()
+        for packet_idx in range(len(active_paths.packets)):
+            ref packet = active_paths.packets[packet_idx]
             var lane_count = min(
                 length, len(active_paths) - packet_idx * length
             )

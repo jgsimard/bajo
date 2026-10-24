@@ -483,7 +483,7 @@ struct _Builder(
         var default_surface = self.scene.surfaces.add_lambertian(Color(0.5))
         self.state = _GraphicsState(
             _Transform.identity(),
-            default_surface.copy(),
+            default_surface^,
             False,
             Color(0.0),
             False,
@@ -657,7 +657,7 @@ struct _Builder(
         return SceneDescription(
             data^,
             prepared[0],
-            prepared[1].copy(),
+            prepared[1],
             self.integrator,
         )
 
@@ -862,7 +862,7 @@ def _texture(
                 raise Error(
                     "unsupported PBRT spectrum texture: " + implementation
                 )
-        builder.color_textures[name] = value.copy()
+        builder.color_textures[name] = value^
         return
 
     if value_type == "float":
@@ -908,7 +908,7 @@ def _texture(
                 )
             case _:
                 raise Error("unsupported PBRT float texture: " + implementation)
-        builder.scalar_textures[name] = value.copy()
+        builder.scalar_textures[name] = value^
         return
 
     raise Error("unsupported PBRT texture value type: " + value_type)

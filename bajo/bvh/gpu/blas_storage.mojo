@@ -74,9 +74,10 @@ struct GpuBlasSet[
         # CPU triangle leaves omit the two padding planes used by the GPU's
         # float4-aligned edge layout.  Repack them and rewrite per-BLAS leaf
         # offsets; nodes and sphere leaves already share their GPU layouts.
-        var upload_descs = host.descs.copy()
+        var upload_descs: List[UInt32]
         var upload_leaves: List[Float32]
         comptime if Self.kind == .TRIANGLE:
+            upload_descs = host.descs.copy()
             comptime assert CPU_TRI_LEAF_PACKED_STRIDE == 10
             comptime assert TRI_LEAF_PACKED_STRIDE == 12
             var total_leaf_blocks = 0
@@ -138,21 +139,36 @@ struct GpuBlasSet[
                     * TRI_LEAF_PACKED_STRIDE
                 )
         else:
-            upload_leaves = host.leaves.copy()
+            return Self._upload_wide_buffers(
+                ctx, host.descs, host.nodes, host.leaves, host.blas_count
+            )
 
+        return Self._upload_wide_buffers(
+            ctx, upload_descs, host.nodes, upload_leaves, host.blas_count
+        )
+
+    @staticmethod
+    def _upload_wide_buffers(
+        mut ctx: DeviceContext,
+        upload_descs: ImmSpan[UInt32, _],
+        upload_nodes: ImmSpan[Float32, _],
+        upload_leaves: ImmSpan[Float32, _],
+        blas_count: Int,
+    ) raises -> Self:
+        """Upload borrowed buffers that already use the GPU wide layout."""
         var descs = ctx.enqueue_create_buffer[.uint32](len(upload_descs))
-        var node_count = len(host.nodes) if len(host.nodes) > 0 else 1
+        var node_count = len(upload_nodes) if len(upload_nodes) > 0 else 1
         var leaf_count = len(upload_leaves) if len(upload_leaves) > 0 else 1
         var nodes = ctx.enqueue_create_buffer[.float32](node_count)
         var leaves = ctx.enqueue_create_buffer[.float32](leaf_count)
         var h_descs = ctx.enqueue_create_host_buffer[.uint32](len(upload_descs))
         h_descs.enqueue_copy_from(upload_descs)
         h_descs.enqueue_copy_to(descs)
-        if len(host.nodes) > 0:
+        if len(upload_nodes) > 0:
             var h_nodes = ctx.enqueue_create_host_buffer[.float32](
-                len(host.nodes)
+                len(upload_nodes)
             )
-            h_nodes.enqueue_copy_from(host.nodes)
+            h_nodes.enqueue_copy_from(upload_nodes)
             h_nodes.enqueue_copy_to(nodes)
         else:
             ctx.enqueue_memset(nodes, 0)
@@ -164,4 +180,4 @@ struct GpuBlasSet[
             h_leaves.enqueue_copy_to(leaves)
         else:
             ctx.enqueue_memset(leaves, 0)
-        return Self(descs^, nodes^, leaves^, host.blas_count)
+        return Self(descs^, nodes^, leaves^, blas_count)

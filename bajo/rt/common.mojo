@@ -135,7 +135,7 @@ def environment_radiance[
             )
         case .IMAGE:
             pass
-    var transform = environment.world_to_light.copy()
+    ref transform = environment.world_to_light
     var light_direction = Vec3[.float32, .LOCAL, length](
         transform.m00[0] * direction.x
         + transform.m01[0] * direction.y

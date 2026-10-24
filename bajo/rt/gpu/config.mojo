@@ -3,7 +3,7 @@
 from bajo.bvh.gpu import GpuBvhLayout
 
 
-struct GpuRtSceneKind(EnumLike, Equatable, ImplicitlyCopyable):
+struct GpuRtSceneKind(EnumLike, Equatable, ImplicitlyCopyable, Intable):
     """Enum-like geometry-presence mask used as one specialization value."""
 
     comptime SPHERES = Self.__init__[1]()
@@ -47,6 +47,10 @@ struct GpuRtSceneKind(EnumLike, Equatable, ImplicitlyCopyable):
                 "invalid GPU scene kind: expected a geometry mask from 1 to 7"
             )
         self._bits = UInt8(bits)
+
+    def __int__(self) -> Int:
+        """Return the geometry mask used by external scene handles."""
+        return Int(self._bits)
 
     def _get_enum_discriminant(self) -> Int:
         return Int(self._bits) - 1

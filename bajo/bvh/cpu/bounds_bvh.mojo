@@ -384,7 +384,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         self.nodes.append(WideBvhNode[Self.frame, Self.width]())
 
         var frontier = frontier_fn(bin_idx)
-        var pool = frontier[0].copy()
+        ref pool = frontier[0]
         var p_size = frontier[1]
 
         var node = WideBvhNode[Self.frame, Self.width]()
@@ -439,7 +439,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
             unsafe_uninit_length=max_wide_nodes
         )
         var frontier = frontier_fn(0)
-        var pool = frontier[0].copy()
+        ref pool = frontier[0]
         var p_size = frontier[1]
         var root = WideBvhNode[Self.frame, Self.width]()
         var task_bins = List[UInt32](capacity=Int(Self.width))
@@ -493,7 +493,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         ref pack_leaf_fn: PackLeafFn,
     ):
         var frontier = frontier_fn(bin_idx)
-        var pool = frontier[0].copy()
+        ref pool = frontier[0]
         var p_size = frontier[1]
         var node = WideBvhNode[Self.frame, Self.width]()
 

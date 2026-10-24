@@ -48,7 +48,7 @@ def _allocate_state[
     comptime State = GpuRtPreparedRenderer[kind]
     var ptr = unsafe_alloc[State](1)
     ptr.unsafe_write(State(settings, camera, data))
-    return (Int(ptr), Int(kind.bits))
+    return (Int(ptr), Int(kind))
 
 
 def _create_gpu_state(

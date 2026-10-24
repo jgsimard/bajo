@@ -21,8 +21,8 @@ from bajo.viewer.common import (
     _settings,
     _camera,
 )
-from examples.viewer import (
-    _viewer_bvh_stats,
+from bajo.viewer.scenes import (
+    viewer_bvh_stats as _viewer_bvh_stats,
     load_viewer_scene_data,
 )
 

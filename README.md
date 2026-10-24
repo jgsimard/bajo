@@ -19,6 +19,16 @@ Pixi provides the pinned nightly Mojo, MAX, and Python dependencies declared in
 pixi install
 ```
 
+For the native raylib window bindings, install the pinned [raylib 6.2 release](https://github.com/raysan5/raylib/releases/tag/6.2):
+
+```bash
+pixi run install_raylib
+```
+
+This verifies the release archive's SHA-256 checksum and installs it in
+`.pixi/raylib/`, upgrading older installations. Pass
+`.pixi/raylib/lib/libraylib.so` to `bajo.viewer.raylib.Window`.
+
 Examples and asset-dependent benchmarks download their meshes on first use:
 
 ```bash
@@ -28,57 +38,72 @@ pixi run download_assets
 
 ## Interactive renderer
 
-Launch the CPU viewer with its default RTIAW scene:
+The viewer runs in Mojo with raylib 6.2 for the window, input, and raster rendering.
+`pixi run viewer` installs raylib locally when needed and opens the RTIAW scene:
 
 ```bash
 pixi run viewer
+pixi run viewer --scene cornell --bounds both
+pixi run viewer --scene cornell --mode trace --width 320 --max-spp 32
+pixi run viewer --pbrt examples/scenes/pbrt_showcase.pbrt
 ```
 
-![renderer viewer](renders/renderer_viewer.png)
+`Tab` switches between raylib rasterization and progressive Bajo ray tracing.
+Both modes share the loaded geometry, instance transforms, camera, and field of
+view. Raster geometry is uploaded once per scene; shared meshes stay shared.
+Raster materials use approximate colors and directional lighting, including
+unlit emitters; glass, textures, shadows, and indirect lighting are not reproduced.
+Ray tracing supports `PATH`, `NEE`, `MIS`, `NORMALS`, and `AO`, and all six samplers.
+A native background thread handles tracing and acceleration preparation while
+raylib continues processing input. Camera/settings changes reset accumulation;
+completed frames from an older camera are discarded. Closing waits for the
+current render batch to finish.
 
-The viewer supports CPU and GPU backends, the `PATH`, `NEE`, `MIS`, `NORMALS`,
-and `AO` algorithms, linear progressive accumulation, independent, Halton, R2,
-Owen-Sobol, SZ, and procedural STBN sample sequences, Cornell/Veach/RTIAW scenes,
-an emissive triangle-instance showcase, the built-in PBRT showcase, and custom
-PBRT files.
+| Control | Action |
+| --- | --- |
+| `W/S`, `A/D`, `Q/E` | Move forward/back, sideways, down/up |
+| Left mouse drag; Shift | Look around; move faster |
+| `R`; `F`; `Esc` | Reset camera; fullscreen; close |
+| `Tab`; `G` | Raster/trace; CPU/GPU tracing backend |
+| `1`–`5`; `P` | PATH/NEE/MIS/NORMALS/AO; cycle sampler |
+| `C` | Next built-in scene |
+| `B` | Cycle bounds off / objects / CPU BVH / both |
+| `[` / `]` | Decrease/increase displayed BVH depth |
+| `+` / `-`; `,` / `.` | Adjust maximum samples; path depth |
 
-Useful command-line options include `--backend`, `--scene`, `--sampler`,
-`--max-spp`, `--max-depth`, `--gpu-arch`, and `--pbrt`. Run
-`pixi run viewer --help` for the complete list.
+Bounding boxes appear in raster mode: object bounds in yellow and CPU BVH
+bounds in cyan. The BVH overlay includes top-level instance bounds and transformed
+mesh BLAS bounds, and is labeled CPU BVH even when GPU tracing is selected.
+Flat world triangles have individual triangle bounds because scene data does not
+retain source object groups. Debug snapshots cap object boxes at 10,000 and BVH
+boxes at 20,000 to keep large scenes usable.
 
-Use `W/S`, `A/D`, and `Q/E` to move; drag with the left mouse button to look
-around. `R` resets the camera, `B` toggles CPU/GPU, `1`–`5` select an algorithm,
-`+`/`-` adjust the number of progressive batches, and `Esc` closes the viewer.
-The `Moving spp` selector controls samples per frame while the camera is moving;
-it can also be set at startup with `--moving-spp`.
-One batch renders all `max-spp` samples in one pass; larger values divide that
-same sample sequence across multiple updates. The status bar reports build time,
-render time, FPS, and MRays/s.
-
-The built-in stress scenes isolate different renderer limits:
-
-| Scene | Contents | What to compare |
-| --- | --- | --- |
-| `MANY LIGHTS` | 528 spheres and 96 small colored emitters | PATH struggles to discover emitters; compare NEE/MIS and sampler convergence |
-| `INDIRECT HALL` | Alternating diffuse baffles hiding four area lights | NEE only solves visible direct lighting; deep indirect transport remains noisy |
-| `SPECULAR TRANSPORT` | Hollow glass shells, glossy reflectors, blockers, and tiny lights | Exposes caustics, fireflies, missing shadow transmission, and difficult delta paths |
-
-For a GPU target other than the default, pass `--gpu-arch` or set
-`BAJO_GPU_ARCH`.
-
-The viewer caches scene preparation separately from rendering in
-`__mojocache__/`. Preparation is shared across integrators and traversal
-policies; CPU builder changes rebuild preparation but reuse rendering.
-Switching integrator or traversal retains the prepared scene. Rendering keeps
-its existing compile-time specialization. Both extensions share a compiler and
-source fingerprint, and the preparation extension owns scene cleanup.
-
-Run the extension cache tests and the headless CPU ownership/rendering test with:
+For GPU tracing on the default `sm_120` target:
 
 ```bash
-pixi run python test/viewer/test_viewer_extensions.py
-pixi run python test/viewer/test_viewer_cpu.py
+pixi run viewer_gpu --scene cornell --mode trace --backend gpu
+# Other GPU targets:
+pixi run mojo run -I . --target-accelerator sm_89 examples/viewer_raylib.mojo --backend gpu
 ```
+
+The launcher compiles the native viewer. Use `pixi run viewer --help` for
+scene names, render options, CPU builder/traversal selection, and library path.
+For graphical smoke checks, `--hidden --frames 4 --screenshot /tmp/viewer.png`
+renders a few frames and exits; a working display/OpenGL context is still needed.
+The previous Python viewer remains available as `pixi run viewer_legacy`.
+
+The native core can also be exercised without a window:
+
+```bash
+pixi run viewer_scene --scene cornell
+pixi run viewer_scene --scene cornell --prepare-cpu
+pixi run viewer_scene --pbrt examples/scenes/pbrt_showcase.pbrt
+```
+
+`bajo.viewer` exposes shared camera/render state and PBRT loading that retains the
+authored camera and settings. CPU preparation moves the geometry into `CpuScene`;
+camera, integrator, and render-setting changes retain prepared acceleration.
+CPU and GPU tracing prepare their own acceleration structures lazily.
 
 
 ## Tests

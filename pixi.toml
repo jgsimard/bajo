@@ -7,6 +7,7 @@ version = "0.1.0"
 
 [tasks]
 download_assets = "bash scripts/download_assets.sh"
+install_raylib = "bash scripts/install_raylib.sh"
 install_prek = "prek install"
 fmt = "mojo format ."
 clean = "bash scripts/clean.sh"
@@ -17,7 +18,10 @@ example_rtiaw = "mojo -I . examples/rtiaw.mojo"
 example_cornell = "mojo -I . examples/cornell_box.mojo"
 example_mis_showcase = "mojo -I . examples/mis_showcase.mojo"
 example_pbrt = "mojo -I . examples/pbrt_scene.mojo"
-viewer = "python tools/viewer.py"
+viewer = { cmd = "mojo run -I . examples/viewer_raylib.mojo", depends-on = ["install_raylib"] }
+viewer_gpu = { cmd = "mojo run -I . --target-accelerator sm_120 examples/viewer_raylib.mojo", depends-on = ["install_raylib"] }
+viewer_legacy = "python tools/viewer.py"
+viewer_scene = "mojo run -I . examples/viewer_scene.mojo"
 
 # tests
 test = { cmd = "bash scripts/run_tests.sh test/{{suite}}", args = [
@@ -31,6 +35,8 @@ test_host = { depends-on = [
   { task = "test", args = ["bvh/cpu"] },
   { task = "test", args = ["sort/cpu"] },
   { task = "test", args = ["viewer/test_linear_frame.mojo"] },
+  { task = "test", args = ["viewer/test_core.mojo"] },
+  { task = "test", args = ["viewer/test_native.mojo"] },
   "test_python_host",
 ] }
 test_gpu = { depends-on = [

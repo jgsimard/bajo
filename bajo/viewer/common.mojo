@@ -4,46 +4,14 @@ Both extensions must be built with the same compiler and source revision.
 The Python viewer retains the preparation module until its handles are freed.
 """
 
-from std.math import cos, sin
-from std.memory import Pointer, bitcast
+from std.memory import Pointer
 from std.python import Python, PythonObject
 from bajo.bvh import Camera
 from bajo.core import Point3W, Vec3W
 from bajo.core.random import Sampler
-from bajo.core.utils import degrees_to_radians
-from bajo.rt.cpu.scene import CpuScene
 from bajo.rt.render_types import RenderSettings
-
-
-struct CpuViewerState:
-    var world: CpuScene[16, 16]
-
-    def __init__(out self, var world: CpuScene[16, 16]):
-        self.world = world^
-
-
-def _viewer_camera(
-    origin: Point3W,
-    yaw_degrees: Float32,
-    pitch_degrees: Float32,
-    vfov: Float32,
-) -> Camera:
-    var yaw = degrees_to_radians(yaw_degrees)
-    var pitch = degrees_to_radians(pitch_degrees)
-    var cos_pitch = cos(pitch)
-    var forward = Vec3W(
-        sin(yaw) * cos_pitch,
-        sin(pitch),
-        -cos(yaw) * cos_pitch,
-    )
-    return Camera.from_vfov(
-        origin,
-        origin + forward,
-        Vec3W(0.0, 1.0, 0.0),
-        vfov,
-        10.0,
-        0.0,
-    )
+from .core import CpuViewerState, viewer_camera as _viewer_camera
+from .output import write_linear_frame as _write_linear_frame
 
 
 def _linear_frame(
@@ -65,23 +33,6 @@ def _linear_frame(
         output[unsafe_offset=3 * index + 1] = pixels[index].y
         output[unsafe_offset=3 * index + 2] = pixels[index].z
     return frame^
-
-
-def _write_linear_frame(path: String, pixels: ImmSpan[Vec3W, _]) raises:
-    var bytes = List[UInt8](length=len(pixels) * 12, fill=0)
-    var out_idx = 0
-    for pixel in pixels:
-        var values = SIMD[.float32, 4](pixel.x, pixel.y, pixel.z, 0.0)
-        for channel in range(3):
-            var value = values[channel]
-            var word = bitcast[.uint32](value)
-            bytes[out_idx + 0] = UInt8(word & UInt32(0xFF))
-            bytes[out_idx + 1] = UInt8((word >> UInt32(8)) & UInt32(0xFF))
-            bytes[out_idx + 2] = UInt8((word >> UInt32(16)) & UInt32(0xFF))
-            bytes[out_idx + 3] = UInt8(word >> UInt32(24))
-            out_idx += 4
-    with open(path, "w") as f:
-        f.write_bytes(bytes)
 
 
 def _settings(config: PythonObject) raises -> RenderSettings:

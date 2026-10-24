@@ -1,4 +1,5 @@
-from bajo.viewer.common import _viewer_camera, _write_linear_frame
+from bajo.viewer.core import viewer_camera as _viewer_camera
+from bajo.viewer.output import write_linear_frame as _write_linear_frame
 from std.sys.arg import argv
 from std.sys import has_accelerator, simd_width_of
 from std.sys.defines import get_defined_int
@@ -21,17 +22,10 @@ from bajo.rt import (
     render_wavefront_configured,
     write_ppm_from_colors,
 )
-from examples.rtiaw import make_weekend_scene
-from examples.cornell_box import make_cornell_scene
-from examples.mis_showcase import make_mis_showcase_scene
-from examples.lbvh_scene import make_lbvh_scene
-from examples.emissive_instances import make_emissive_instance_scene
-from examples.stress_scenes import (
-    make_indirect_hall_scene,
-    make_many_lights_scene,
-    make_specular_transport_scene,
+from bajo.viewer.scenes import (
+    load_viewer_scene_data,
+    viewer_bvh_stats as _viewer_bvh_stats,
 )
-from bajo.parser.pbrt import read_pbrt
 
 
 comptime VIEWER_BACKEND = get_defined_int["VIEWER_BACKEND", 0]()
@@ -84,92 +78,6 @@ def _int_arg(text: String) raises -> Int:
     if Float32(integer) != value:
         raise Error("invalid viewer integer: " + text)
     return integer
-
-
-def _viewer_bvh_stats[
-    BACKEND: Int,
-    world_bvh_width: SIMDLength = 16,
-    instance_bvh_width: SIMDLength = 16,
-    build_method: CpuBvhBuildMethod = .SAH,
-    traversal_mode: CpuTraversalMode = .AUTO_COHERENT,
-](data: SceneData, include_traversal: Bool = True) -> String:
-    var result: String
-    if BACKEND == 0:
-        result = "CPU W" + String(Int(world_bvh_width))
-        result += "/I" + String(Int(instance_bvh_width)) + " | "
-        if len(data.spheres()) > 0:
-            result += (
-                "sphere"
-                + String(Int(world_bvh_width))
-                + "/"
-                + build_method.name()
-            )
-        if len(data.triangle_vertices()) > 0:
-            if len(data.spheres()) > 0:
-                result += " "
-            result += (
-                "tri" + String(Int(world_bvh_width)) + "/" + build_method.name()
-            )
-        if len(data.triangle_instances()) > 0:
-            if len(data.spheres()) > 0 or len(data.triangle_vertices()) > 0:
-                result += " "
-            result += (
-                "BLAS"
-                + String(Int(instance_bvh_width))
-                + "/"
-                + build_method.name()
-                + " TLAS"
-                + String(Int(instance_bvh_width))
-                + "/1 LBVH"
-            )
-        if include_traversal:
-            comptime if traversal_mode == .ADAPTIVE:
-                result += " | traversal adaptive-16-8-4-scalar"
-            else:
-                result += " | traversal " + traversal_mode.name()
-    else:
-        result = "GPU | "
-        if len(data.spheres()) > 0:
-            result += "sphere4/4 LBVH"
-        if len(data.triangle_vertices()) > 0:
-            if len(data.spheres()) > 0:
-                result += " "
-            result += "tri8/4 H-PLOC CWBVH8"
-        if len(data.triangle_instances()) > 0:
-            if len(data.spheres()) > 0 or len(data.triangle_vertices()) > 0:
-                result += " "
-            result += "BLAS8/4 H-PLOC CWBVH8"
-            result += " TLAS2/1 LBVH"
-    result += " | S" + String(len(data.spheres()))
-    result += " T" + String(len(data.triangle_vertices()) // 3)
-    result += " I" + String(len(data.triangle_instances()))
-    return result
-
-
-def load_viewer_scene_data(scene: Int, scene_path: String) raises -> SceneData:
-    """Create scene data before either backend prepares acceleration."""
-    match scene:
-        case 0:
-            return make_weekend_scene()
-        case 1:
-            return make_cornell_scene()
-        case 2:
-            return make_mis_showcase_scene()
-        case 3:
-            return make_lbvh_scene()
-        case 4:
-            return make_emissive_instance_scene()
-        case 5:
-            return make_many_lights_scene()
-        case 6:
-            return make_indirect_hall_scene()
-        case 7:
-            return make_specular_transport_scene()
-        case 8 | 9:
-            var parsed = read_pbrt(scene_path)
-            return parsed^.take_data()
-        case _:
-            raise Error("unsupported viewer scene")
 
 
 def _render_gpu_frame[

@@ -9,8 +9,8 @@ from bajo.core.random import Sampler
 from bajo.rt.render_types import Color as LinearColor
 from bajo.rt.image_output import color_to_byte
 from .core import ViewerScene
-from .scenes import load_viewer_scene, viewer_scene_index
-from .raylib import Window, Color, BoundingBox, Vector3, Frame
+from .scenes import load_viewer_scene, viewer_scene_index, viewer_scene_name
+from .raylib import Window, Color, BoundingBox, Vector3, Frame, TextFont
 from .raster import RasterScene, DisplayTexture, raster_camera
 from .worker import RenderWorker
 from .debug import DebugBox, object_boxes
@@ -222,6 +222,7 @@ def _draw_boxes(
 
 
 def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
+    var scene_name = viewer_scene_name(options.scene)
     var scene = ViewerScene(load_viewer_scene(options.scene, options.path))
     var camera = scene.state.camera
     var initial_camera = camera
@@ -250,11 +251,23 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
         c_int(window_width), c_int(window_height)
     )
     var raster = RasterScene(options.library, window, scene.scene_data())
+    var font = TextFont(
+        options.library, String("resources/fonts/DejaVuSans.ttf")
+    )
     var objects = object_boxes(scene.scene_data())
     var worker = RenderWorker(scene^, options.build_method, options.traversal)
     var traced = options.traced
     var backend = options.backend
     var integrator = options.integrator
+    var algorithm_names: List[String] = ["PATH", "NEE", "MIS", "NORMALS", "AO"]
+    var sampler_names: List[String] = [
+        "Independent",
+        "Halton",
+        "R2",
+        "Owen-Sobol",
+        "SZ",
+        "STBN",
+    ]
     var bounds = options.bounds
     var depth = options.bvh_depth
     var boxes = List[DebugBox]()
@@ -332,7 +345,6 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
             changed = True
         if window.is_key_pressed(67):
             next_scene = True
-            break
         var width = max(1, window.width())
         var height = max(1, window.height())
         # Keep the render and raster projection at the same current aspect.
@@ -399,6 +411,7 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
         )
         if (
             worker.idle()
+            and not next_scene
             and error_text == ""
             and (needs_boxes or (traced and samples < max_samples))
         ):
@@ -425,7 +438,8 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
             frame.clear_background(Color(24, 27, 33, 255))
             if traced and texture:
                 frame.draw_texture(texture.value().texture, width, height)
-            if not traced:
+            # Keep a useful view during backend preparation and the first batch.
+            if not traced or not texture:
                 frame.begin_3d(raster_camera(camera))
                 raster.draw(frame)
                 if bounds == 1 or bounds == 3:
@@ -437,69 +451,98 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
                 0,
                 0,
                 width,
-                74 if error_text == "" else 96,
+                110 if error_text == "" else 136,
                 Color(10, 13, 18, 225),
             )
             var mode = String("TRACE") if traced else String("RASTER")
+            if traced and not texture:
+                mode = (
+                    "TRACE (loading; raster preview)" if error_text
+                    == "" else "TRACE ERROR (raster preview)"
+                )
             var backend_name = String("CPU") if backend == 0 else String("GPU")
             var trace_stats = String(
                 t"{samples}/{max_samples} spp | {render_ms} ms"
             )
-            frame.draw_text(
+            frame.draw_text_ex(
+                font.font,
                 String(
-                    t"{mode} | Bajo {backend_name} | integrator"
-                    t" {integrator + 1} | {trace_stats}"
+                    t"{scene_name} | {mode} | Bajo {backend_name} |"
+                    t" {trace_stats}"
                 ),
                 10,
                 8,
+                20,
+                Color(235, 240, 250, 255),
+            )
+            frame.draw_text_ex(
+                font.font,
+                String(
+                    t"Algorithm: {algorithm_names[integrator]} (1-5) | Sampler:"
+                    t" {sampler_names[Int(settings.sampler)]} (P)"
+                ),
+                10,
+                35,
                 18,
                 Color(235, 240, 250, 255),
             )
-            frame.draw_text(
+            frame.draw_text_ex(
+                font.font,
                 String(
                     "WASD/QE move | drag look | Tab raster/trace | G CPU/GPU |"
-                    " 1-5 integrator | C scene"
+                    " C scene"
                 ),
                 10,
-                31,
-                14,
+                62,
+                16,
                 Color(180, 195, 210, 255),
             )
-            frame.draw_text(
+            frame.draw_text_ex(
+                font.font,
                 String(
                     t"B bounds {bounds} | [/] CPU BVH depth {depth} | capped:"
                     t" {len(objects)} objects, {len(boxes)} BVH | R reset | F"
                     t" fullscreen"
                 ),
                 10,
-                51,
-                14,
+                86,
+                16,
                 Color(180, 195, 210, 255),
             )
             if error_text != "":
-                frame.draw_text(
-                    error_text, 10, 75, 14, Color(255, 100, 100, 255)
+                frame.draw_text_ex(
+                    font.font,
+                    error_text,
+                    10,
+                    112,
+                    16,
+                    Color(255, 100, 100, 255),
                 )
         except error:
             window = frame^.end()
             raise error
         window = frame^.end()
+        # EndDrawing polls input. Without it the C press remains latched and
+        # every new session immediately switches again without rendering.
+        if next_scene:
+            break
         if not traced or samples > 0:
             display_frames += 1
         if options.frame_limit and display_frames >= options.frame_limit:
             break
         if options.frame_limit and error_text != "":
             raise Error(error_text)
-    if options.screenshot != "":
-        window.screenshot(options.screenshot)
-    print(
-        "Viewer closed:",
-        samples,
-        "samples; raster mesh count",
-        len(raster.meshes),
-        "draw count",
-        len(raster.draws),
-    )
+    if not next_scene:
+        if options.screenshot != "":
+            window.screenshot(options.screenshot)
+        print(
+            "Viewer closed:",
+            samples,
+            "samples; raster mesh count",
+            len(raster.meshes),
+            "draw count",
+            len(raster.draws),
+        )
     return next_scene
 
 

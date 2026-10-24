@@ -93,6 +93,48 @@ struct Texture(ImplicitlyCopyable, RegisterPassable):
 
 
 @fieldwise_init
+struct Font(ImplicitlyCopyable, RegisterPassable):
+    """raylib Font ABI; glyph data remains owned by TextFont."""
+
+    var base_size: c_int
+    var glyph_count: c_int
+    var glyph_padding: c_int
+    var texture: Texture
+    var rectangles: UInt
+    var glyphs: UInt
+
+
+struct TextFont:
+    """Load once per session and release before closing the window."""
+
+    var library: OwnedDLHandle
+    var font: Font
+
+    def __init__(out self, library_path: String, var path: String) raises:
+        var library = OwnedDLHandle(library_path)
+        var font = library.get_function[Font]("LoadFontEx")(
+            path.as_c_string_span(), c_int(32), UInt(0), c_int(0)
+        )
+        # raylib returns its small default font when loading fails.
+        if (
+            not library.get_function[Bool]("IsFontValid")(font)
+            or font.base_size != 32
+        ):
+            raise Error("could not load viewer font: " + path)
+        library.get_function[NoneType]("SetTextureFilter")(
+            font.texture, c_int(1)
+        )
+        self.font = font
+        self.library = library^
+
+    def __deinit__(deinit self):
+        try:
+            self.library.get_function[NoneType]("UnloadFont")(self.font)
+        except error:
+            abort(String(t"raylib font cleanup failed: {error}"))
+
+
+@fieldwise_init
 struct Shader(ImplicitlyCopyable, RegisterPassable):
     var id: c_uint
     var locs: UInt
@@ -194,6 +236,11 @@ struct Window(
             "DrawRectangle",
             "DrawLineEx",
             "DrawText",
+            "LoadFontEx",
+            "IsFontValid",
+            "SetTextureFilter",
+            "UnloadFont",
+            "DrawTextEx",
             "EndDrawing",
             "CloseWindow",
             "BeginMode3D",
@@ -445,6 +492,24 @@ struct Frame(
     ) raises:
         self.window.library.get_function[NoneType]("DrawText")(
             label.as_c_string_span(), c_int(x), c_int(y), c_int(size), color
+        )
+
+    def draw_text_ex(
+        self,
+        font: Font,
+        var label: String,
+        x: Int,
+        y: Int,
+        size: Int,
+        color: Color,
+    ) raises:
+        self.window.library.get_function[NoneType]("DrawTextEx")(
+            font,
+            label.as_c_string_span(),
+            Vector2(Float32(x), Float32(y)),
+            Float32(size),
+            Float32(0),
+            color,
         )
 
     def begin_3d(self, camera: Camera3D) raises:

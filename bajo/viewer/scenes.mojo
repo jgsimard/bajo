@@ -25,6 +25,24 @@ from bajo.parser.asset_loader import AssetLoader, PathAssetLoader
 comptime BUILTIN_PBRT_PATH = "examples/scenes/pbrt_showcase.pbrt"
 
 
+def viewer_scene_name(scene: Int) raises -> String:
+    var names: List[String] = [
+        "rtiaw",
+        "cornell",
+        "veach",
+        "lbvh",
+        "emissive-instance",
+        "many-lights",
+        "indirect-hall",
+        "specular-transport",
+        "pbrt",
+        "custom PBRT",
+    ]
+    if scene < 0 or scene >= len(names):
+        raise Error("unknown viewer scene")
+    return names[scene]
+
+
 def viewer_scene_index(name: String) raises -> Int:
     """Resolve the scene names supported by the existing viewer CLI."""
     match name:

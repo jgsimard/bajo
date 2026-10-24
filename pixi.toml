@@ -18,8 +18,8 @@ example_rtiaw = "mojo -I . examples/rtiaw.mojo"
 example_cornell = "mojo -I . examples/cornell_box.mojo"
 example_mis_showcase = "mojo -I . examples/mis_showcase.mojo"
 example_pbrt = "mojo -I . examples/pbrt_scene.mojo"
-viewer = { cmd = "mojo run -I . examples/viewer_raylib.mojo", depends-on = ["install_raylib"] }
-viewer_gpu = { cmd = "mojo run -I . --target-accelerator sm_120 examples/viewer_raylib.mojo", depends-on = ["install_raylib"] }
+viewer = { cmd = "bash scripts/run_viewer.sh", depends-on = ["install_raylib"] }
+viewer_gpu = { cmd = "bash scripts/run_viewer.sh --gpu", depends-on = ["install_raylib"] }
 viewer_legacy = "python tools/viewer.py"
 viewer_scene = "mojo run -I . examples/viewer_scene.mojo"
 
@@ -47,7 +47,7 @@ test_gpu = { depends-on = [
   "test_python_gpu",
 ] }
 
-test_python_host = "bash scripts/run_tests.sh test/viewer/test_viewer_extensions.py test/viewer/test_viewer_cpu.py"
+test_python_host = "bash scripts/run_tests.sh test/viewer/test_viewer_extensions.py test/viewer/test_viewer_cpu.py test/viewer/test_viewer_launcher.py"
 test_python_gpu = { cmd = "python test/viewer/test_viewer_gpu.py", env = { BAJO_TEST_GPU = "1" } }
 
 ############

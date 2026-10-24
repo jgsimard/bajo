@@ -66,7 +66,7 @@ current render batch to finish.
 | `R`; `F`; `Esc` | Reset camera; fullscreen; close |
 | `Tab`; `G` | Raster/trace; CPU/GPU tracing backend |
 | `1`–`5`; `P` | PATH/NEE/MIS/NORMALS/AO; cycle sampler |
-| `C` | Next built-in scene |
+| `C` | Next built-in scene (current name appears in the overlay) |
 | `B` | Cycle bounds off / objects / CPU BVH / both |
 | `[` / `]` | Decrease/increase displayed BVH depth |
 | `+` / `-`; `,` / `.` | Adjust maximum samples; path depth |
@@ -83,14 +83,23 @@ For GPU tracing on the default `sm_120` target:
 ```bash
 pixi run viewer_gpu --scene cornell --mode trace --backend gpu
 # Other GPU targets:
-pixi run mojo run -I . --target-accelerator sm_89 examples/viewer_raylib.mojo --backend gpu
+BAJO_GPU_ARCH=sm_89 pixi run viewer_gpu --mode trace --backend gpu
 ```
 
-The launcher compiles the native viewer. Use `pixi run viewer --help` for
+The launcher builds and caches a standalone executable before opening the window.
+Source or compiler changes rebuild it; `pixi run clean` removes the cache. This
+avoids a render-worker stall under `mojo run`. A raster preview stays visible
+until the first traced frame is ready. Use `pixi run viewer --help` for
 scene names, render options, CPU builder/traversal selection, and library path.
 For graphical smoke checks, `--hidden --frames 4 --screenshot /tmp/viewer.png`
 renders a few frames and exits; a working display/OpenGL context is still needed.
 The previous Python viewer remains available as `pixi run viewer_legacy`.
+
+Run the scene-switch input regression with a working display/OpenGL context:
+
+```bash
+BAJO_TEST_VIEWER_GRAPHICS=1 pixi run test viewer/test_viewer_graphics.py
+```
 
 The native core can also be exercised without a window:
 

@@ -44,7 +44,7 @@ The viewer runs in Mojo with raylib 6.2 for the window, input, and raster render
 ```bash
 pixi run viewer
 pixi run viewer --scene cornell --bounds both
-pixi run viewer --scene cornell --mode trace --width 320 --max-spp 32
+pixi run viewer --scene cornell --mode trace --width 320 --max-spp 32 --samples-per-batch 4
 pixi run viewer --pbrt examples/scenes/pbrt_showcase.pbrt
 ```
 
@@ -67,9 +67,29 @@ current render batch to finish.
 | `Tab`; `G` | Raster/trace; CPU/GPU tracing backend |
 | `1`–`5`; `P` | PATH/NEE/MIS/NORMALS/AO; cycle sampler |
 | `C` | Next built-in scene (current name appears in the overlay) |
+| `O` / **Open scene** | Browse and load a PBRT file |
 | `B` | Cycle bounds off / objects / CPU BVH / both |
 | `[` / `]` | Decrease/increase displayed BVH depth |
 | `+` / `-`; `,` / `.` | Adjust maximum samples; path depth |
+| `J` / `K`; batch **− / +** buttons | Smaller/larger samples per batch; increasing past the sample budget selects **all** |
+
+Set `--samples-per-batch N` (alias `--batch-spp`) to a positive sample count, or
+`-1` to render all remaining samples in one batch. The default is 1. The overlay
+shows the selected batch size and completed batch count; `J` / `K` and the batch
+**− / +** buttons adjust it without clearing accumulated samples. Each batch is
+averaged in linear color, with its sample count as the weight; the last batch is
+clamped to the remaining budget. For example, 10 total samples at 4 per batch
+renders batches of 4, 4, and 2. With a fixed batch size, moving-camera previews
+are capped by `--moving-spp`; `-1` always uses the full remaining budget.
+
+Load a custom scene without restarting by clicking **Open scene**, pressing `O`,
+or dropping a `.pbrt` / `.pbrt-v4` file onto the window. In the browser, double-click
+folders/files or select a row and press `Enter` / **Open**. Use `Backspace` / **Up**
+for the parent folder, the mouse wheel or arrow keys to browse, and `Ctrl+V` to
+open a copied file or directory path. `Esc` / **Cancel** closes the browser.
+The loaded filename appears in the overlay. A failed load reports the error
+and keeps the current scene; a successful load resets its camera and accumulation.
+The raster/trace mode and selected algorithm stay as selected.
 
 Bounding boxes appear in raster mode: object bounds in yellow and CPU BVH
 bounds in cyan. The BVH overlay includes top-level instance bounds and transformed
@@ -95,7 +115,7 @@ For graphical smoke checks, `--hidden --frames 4 --screenshot /tmp/viewer.png`
 renders a few frames and exits; a working display/OpenGL context is still needed.
 The previous Python viewer remains available as `pixi run viewer_legacy`.
 
-Run the scene-switch input regression with a working display/OpenGL context:
+Run the scene-switch and file-loading regressions with a working display/OpenGL context:
 
 ```bash
 BAJO_TEST_VIEWER_GRAPHICS=1 pixi run test viewer/test_viewer_graphics.py

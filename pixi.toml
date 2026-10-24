@@ -37,6 +37,7 @@ test_host = { depends-on = [
   { task = "test", args = ["viewer/test_linear_frame.mojo"] },
   { task = "test", args = ["viewer/test_core.mojo"] },
   { task = "test", args = ["viewer/test_native.mojo"] },
+  { task = "test", args = ["viewer/test_batching.mojo"] },
   "test_python_host",
 ] }
 test_gpu = { depends-on = [

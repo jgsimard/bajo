@@ -6,7 +6,7 @@ from std.ffi import c_int
 from bajo.bvh import Camera
 from bajo.core import Vec3W, cross, dot, normalize
 from bajo.core.random import Sampler
-from bajo.rt.render_types import Color as LinearColor
+from bajo.rt.render_types import Color as LinearColor, RenderSettings
 from bajo.rt.image_output import color_to_byte
 from .core import ViewerScene
 from .scenes import load_viewer_scene, viewer_scene_index, viewer_scene_name
@@ -14,6 +14,8 @@ from .raylib import Window, Color, BoundingBox, Vector3, Frame, TextFont
 from .raster import RasterScene, DisplayTexture, raster_camera
 from .worker import RenderWorker
 from .debug import DebugBox, object_boxes
+from .file_picker import FilePicker, contains, is_scene_file
+from .batching import samples_for_batch, smaller_batch, larger_batch
 
 
 struct ViewerOptions(Copyable):
@@ -24,6 +26,7 @@ struct ViewerOptions(Copyable):
     var height: Int
     var max_samples: Int
     var moving_samples: Int
+    var samples_per_batch: Int
     var max_depth: Int
     var integrator: Int
     var backend: Int
@@ -46,6 +49,7 @@ struct ViewerOptions(Copyable):
         self.height = 0
         self.max_samples = 0
         self.moving_samples = 1
+        self.samples_per_batch = 1
         self.max_depth = -1
         self.integrator = 0
         self.backend = 0
@@ -99,6 +103,8 @@ def parse_options() raises -> ViewerOptions:
                 options.height = Int(value)
             case "--max-spp":
                 options.max_samples = Int(value)
+            case "--samples-per-batch" | "--batch-spp":
+                options.samples_per_batch = Int(value)
             case "--moving-spp":
                 options.moving_samples = Int(value)
             case "--max-depth":
@@ -142,6 +148,7 @@ def parse_options() raises -> ViewerOptions:
         or options.height < 0
         or options.max_samples < 0
         or options.moving_samples < 1
+        or (options.samples_per_batch != -1 and options.samples_per_batch < 1)
         or options.max_depth < -1
         or options.max_depth > 32
         or options.frame_limit < 0
@@ -160,6 +167,10 @@ def print_help():
     print("--pbrt PATH  --mode raster|trace  --backend cpu|gpu")
     print("--width N --height N --max-spp N --moving-spp N --max-depth N")
     print(
+        "--samples-per-batch N (or --batch-spp): positive count, -1 for all"
+        " remaining samples"
+    )
+    print(
         "--integrator path|nee|mis|normals|ao --sampler"
         " independent|halton|r2|sobol|sz|stbn"
     )
@@ -171,11 +182,12 @@ def print_help():
         " fullscreen"
     )
     print(
-        "Tab raster/trace; G CPU/GPU; 1-5 integrator; P sampler; C next scene"
+        "Tab raster/trace; G CPU/GPU; 1-5 integrator; P sampler; C next scene;"
+        " O open PBRT"
     )
     print(
         "B bounds; [/] BVH depth; +/- maximum samples; ,/. path depth; Esc"
-        " closes"
+        " closes; J/K smaller/larger batch (-1 = all)"
     )
 
 
@@ -221,28 +233,59 @@ def _draw_boxes(
             )
 
 
-def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
-    var scene_name = viewer_scene_name(options.scene)
-    var scene = ViewerScene(load_viewer_scene(options.scene, options.path))
-    var camera = scene.state.camera
+struct PreparedScene:
+    """Construct a replacement fully before releasing the displayed scene."""
+
+    var camera: Camera
+    var settings: RenderSettings
+    var raster: RasterScene
+    var objects: List[DebugBox]
+    var worker: RenderWorker
+    var name: String
+
+    def __init__(out self, window: Window, options: ViewerOptions) raises:
+        var scene = ViewerScene(load_viewer_scene(options.scene, options.path))
+        var camera = scene.state.camera
+        var settings = scene.state.settings.copy()
+        if options.width:
+            settings.image_width = options.width
+        if options.height:
+            settings.image_height = options.height
+        var max_samples = (
+            options.max_samples if options.max_samples else settings.sample_sequence_length
+        )
+        if options.max_depth >= 0:
+            settings.max_depth = options.max_depth
+        if options.sampler >= 0:
+            settings.sampler = Sampler(options.sampler)
+        settings.samples_per_pixel = 1
+        settings.sample_offset = 0
+        settings.sample_sequence_length = max_samples
+        settings.validate()
+        var raster = RasterScene(options.library, window, scene.scene_data())
+        var objects = object_boxes(scene.scene_data())
+        var worker = RenderWorker(
+            scene^, options.build_method, options.traversal
+        )
+        var name = viewer_scene_name(options.scene)
+        if options.scene == 9:
+            name = "PBRT: " + window.file_name(options.path)
+        self.camera = camera
+        self.settings = settings^
+        self.raster = raster^
+        self.objects = objects^
+        self.worker = worker^
+        self.name = name^
+
+
+def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
+    var view = PreparedScene(window, options)
+    var scene_name = view.name
+    var camera = view.camera
     var initial_camera = camera
-    var settings = scene.state.settings.copy()
-    if options.width:
-        settings.image_width = options.width
-    if options.height:
-        settings.image_height = options.height
-    var max_samples = (
-        options.max_samples if options.max_samples else settings.sample_sequence_length
-    )
-    if options.max_depth >= 0:
-        settings.max_depth = options.max_depth
-    if options.sampler >= 0:
-        settings.sampler = Sampler(options.sampler)
+    var settings = view.settings.copy()
+    var max_samples = settings.sample_sequence_length
     var max_depth = settings.max_depth
-    settings.samples_per_pixel = 1
-    settings.sample_offset = 0
-    settings.sample_sequence_length = max_samples
-    settings.validate()
     var window_width = 960
     var window_height = max(
         240, window_width * settings.image_height // settings.image_width
@@ -250,12 +293,9 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
     window.library.get_function[NoneType]("SetWindowSize")(
         c_int(window_width), c_int(window_height)
     )
-    var raster = RasterScene(options.library, window, scene.scene_data())
     var font = TextFont(
         options.library, String("resources/fonts/DejaVuSans.ttf")
     )
-    var objects = object_boxes(scene.scene_data())
-    var worker = RenderWorker(scene^, options.build_method, options.traversal)
     var traced = options.traced
     var backend = options.backend
     var integrator = options.integrator
@@ -275,6 +315,7 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
     var box_request_in_flight = False
     var generation = UInt64(0)
     var samples = 0
+    var completed_batches = 0
     var linear = List[LinearColor]()
     var rgba = List[UInt8]()
     var texture = Optional[DisplayTexture]()
@@ -283,69 +324,158 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
     var display_frames = 0
     var error_text = String("")
     var next_scene = False
+    var picker = FilePicker()
+    var load_error = String("")
     while not window.should_close():
         var changed = False
-        var dt = min(window.frame_time(), Float32(0.1))
-        if window.mouse_down():
-            var delta = window.mouse_delta()
-            if delta.x != 0 or delta.y != 0:
-                rotate_camera(camera, -delta.x, -delta.y)
-                changed = True
-        var movement = Vec3W(0)
-        if window.is_key_down(87):
-            movement += camera.forward
-        if window.is_key_down(83):
-            movement = movement - camera.forward
-        if window.is_key_down(68):
-            movement += camera.right
-        if window.is_key_down(65):
-            movement = movement - camera.right
-        if window.is_key_down(69):
-            movement.y += 1
-        if window.is_key_down(81):
-            movement.y -= 1
-        if dot(movement, movement) > 0:
-            var speed = Float32(8 if window.is_key_down(340) else 2)
-            camera.origin = camera.origin + normalize(movement) * speed * dt
-            changed = True
-        if window.is_key_pressed(82):
-            camera = initial_camera
-            changed = True
-        if window.is_key_pressed(70):
-            window.toggle_fullscreen()
-        if window.is_key_pressed(258):
-            traced = not traced
-        if window.is_key_pressed(71):
-            backend = 1 - backend
-            changed = True
-        if window.is_key_pressed(80):
-            settings.sampler = Sampler((Int(settings.sampler) + 1) % 6)
-            changed = True
-        for index in range(5):
-            if window.is_key_pressed(49 + index):
-                integrator = index
-                changed = True
-        if window.is_key_pressed(66):
-            bounds = (bounds + 1) % 4
-        if window.is_key_pressed(91):
-            depth = max(0, depth - 1)
-        if window.is_key_pressed(93):
-            depth = min(64, depth + 1)
-        if window.is_key_pressed(61):
-            max_samples *= 2
-            changed = True
-        if window.is_key_pressed(45):
-            max_samples = max(1, max_samples // 2)
-            changed = True
-        if window.is_key_pressed(44):
-            max_depth = max(0, max_depth - 1)
-            changed = True
-        if window.is_key_pressed(46):
-            max_depth = min(32, max_depth + 1)
-            changed = True
-        if window.is_key_pressed(67):
-            next_scene = True
+        var camera_moved = False
         var width = max(1, window.width())
+        var batch_x = 10 if width < 840 else width - 260
+        var batch_y = 112 if width < 840 else 32
+        var dt = min(window.frame_time(), Float32(0.1))
+        if not picker.active:
+            if window.is_key_pressed(256):
+                break
+            if window.is_key_pressed(79) or (
+                window.mouse_pressed()
+                and contains(
+                    window.mouse_position(), window.width() - 148, 58, 138, 28
+                )
+            ):
+                try:
+                    picker.show(window, options.path)
+                    load_error = ""
+                except error:
+                    load_error = String(error)
+        if not picker.active:
+            var batch_click = window.mouse_pressed()
+            var mouse = window.mouse_position()
+            if window.is_key_pressed(74) or (
+                batch_click and contains(mouse, batch_x, batch_y, 28, 28)
+            ):
+                options.samples_per_batch = smaller_batch(
+                    options.samples_per_batch, max_samples
+                )
+            if window.is_key_pressed(75) or (
+                batch_click and contains(mouse, batch_x + 222, batch_y, 28, 28)
+            ):
+                options.samples_per_batch = larger_batch(
+                    options.samples_per_batch, max_samples
+                )
+            if window.mouse_down() and not contains(
+                mouse, batch_x, batch_y, 250, 28
+            ):
+                var delta = window.mouse_delta()
+                if delta.x != 0 or delta.y != 0:
+                    rotate_camera(camera, -delta.x, -delta.y)
+                    camera_moved = True
+                    changed = True
+            var movement = Vec3W(0)
+            if window.is_key_down(87):
+                movement += camera.forward
+            if window.is_key_down(83):
+                movement = movement - camera.forward
+            if window.is_key_down(68):
+                movement += camera.right
+            if window.is_key_down(65):
+                movement = movement - camera.right
+            if window.is_key_down(69):
+                movement.y += 1
+            if window.is_key_down(81):
+                movement.y -= 1
+            if dot(movement, movement) > 0:
+                var speed = Float32(8 if window.is_key_down(340) else 2)
+                camera.origin = camera.origin + normalize(movement) * speed * dt
+                camera_moved = True
+                changed = True
+            if window.is_key_pressed(82):
+                camera = initial_camera
+                changed = True
+            if window.is_key_pressed(70):
+                window.toggle_fullscreen()
+            if window.is_key_pressed(258):
+                traced = not traced
+            if window.is_key_pressed(71):
+                backend = 1 - backend
+                changed = True
+            if window.is_key_pressed(80):
+                settings.sampler = Sampler((Int(settings.sampler) + 1) % 6)
+                changed = True
+            for index in range(5):
+                if window.is_key_pressed(49 + index):
+                    integrator = index
+                    changed = True
+            if window.is_key_pressed(66):
+                bounds = (bounds + 1) % 4
+            if window.is_key_pressed(91):
+                depth = max(0, depth - 1)
+            if window.is_key_pressed(93):
+                depth = min(64, depth + 1)
+            if window.is_key_pressed(61):
+                max_samples *= 2
+                changed = True
+            if window.is_key_pressed(45):
+                max_samples = max(1, max_samples // 2)
+                changed = True
+            if window.is_key_pressed(44):
+                max_depth = max(0, max_depth - 1)
+                changed = True
+            if window.is_key_pressed(46):
+                max_depth = min(32, max_depth + 1)
+                changed = True
+            if window.is_key_pressed(67):
+                next_scene = True
+        var chosen = Optional[String]()
+        if picker.active:
+            try:
+                chosen = picker.update(window)
+            except error:
+                picker.error = String(error)
+        var dropped = window.dropped_files()
+        if len(dropped):
+            chosen = dropped[0]
+        if chosen:
+            try:
+                var path = chosen.take()
+                if not is_scene_file(window, path):
+                    raise Error("Select a .pbrt or .pbrt-v4 scene.")
+                var candidate_options = options.copy()
+                candidate_options.scene = 9
+                candidate_options.path = path
+                var candidate = PreparedScene(window, candidate_options)
+                # Commit only after parsing and raster upload have succeeded.
+                view = candidate^
+                options.scene = 9
+                options.path = path
+                scene_name = view.name
+                camera = view.camera
+                initial_camera = camera
+                settings = view.settings.copy()
+                max_samples = settings.sample_sequence_length
+                max_depth = settings.max_depth
+                samples = 0
+                completed_batches = 0
+                linear.clear()
+                rgba.clear()
+                if texture:
+                    _ = texture.take()
+                boxes.clear()
+                have_boxes = False
+                box_request_in_flight = False
+                render_ms = 0
+                error_text = ""
+                load_error = ""
+                picker.active = False
+                next_scene = False
+                changed = True
+            except error:
+                if picker.active:
+                    picker.error = String(error)
+                else:
+                    load_error = "Scene load failed: " + String(error)
+        width = max(1, window.width())
+        batch_x = 10 if width < 840 else width - 260
+        batch_y = 112 if width < 840 else 32
         var height = max(1, window.height())
         # Keep the render and raster projection at the same current aspect.
         var render_height = max(1, settings.image_width * height // width)
@@ -355,20 +485,21 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
         if changed:
             generation += 1
             samples = 0
+            completed_batches = 0
             linear.clear()
-            moving_time = 0.25
+            moving_time = 0.25 if camera_moved else 0
             error_text = ""
         else:
             moving_time = max(Float32(0), moving_time - dt)
-        if worker.ready():
-            if worker.state[].error != "":
-                error_text = worker.state[].error
+        if view.worker.ready():
+            if view.worker.state[].error != "":
+                error_text = view.worker.state[].error
             if box_request_in_flight:
-                boxes = worker.state[].take_boxes()
+                boxes = view.worker.state[].take_boxes()
                 have_boxes = True
                 box_request_in_flight = False
-            if worker.state[].result:
-                var completed = worker.state[].result.take()
+            if view.worker.state[].result:
+                var completed = view.worker.state[].result.take()
                 if completed.generation == generation:
                     if len(linear) != len(completed.pixels):
                         linear = List[LinearColor](
@@ -379,6 +510,7 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
                             completed.samples
                         )
                     samples += completed.samples
+                    completed_batches += 1
                     render_ms = completed.render_ms
                     rgba.resize(len(linear) * 4, 0)
                     for index in range(len(linear)):
@@ -405,25 +537,28 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
                         )
                     else:
                         window.update_texture(texture.value().texture, rgba)
-            worker.acknowledge()
+            view.worker.acknowledge()
         var needs_boxes = (
             bounds >= 2 and not have_boxes and not box_request_in_flight
         )
         if (
-            worker.idle()
+            view.worker.idle()
             and not next_scene
             and error_text == ""
             and (needs_boxes or (traced and samples < max_samples))
         ):
             var batch = settings.copy()
             batch.max_depth = max_depth
-            batch.samples_per_pixel = min(
-                options.moving_samples if moving_time > 0 else 1,
-                max_samples - samples,
+            batch.samples_per_pixel = samples_for_batch(
+                options.samples_per_batch,
+                samples,
+                max_samples,
+                moving_time > 0,
+                options.moving_samples,
             ) if traced else 1
             batch.sample_offset = samples
             batch.sample_sequence_length = max_samples
-            worker.submit(
+            view.worker.submit(
                 camera,
                 batch,
                 generation,
@@ -433,6 +568,8 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
                 needs_boxes,
             )
             box_request_in_flight = needs_boxes
+        var message = load_error if load_error != "" else error_text
+        var toolbar_height = 138 if width < 840 else 110
         var frame = window^.begin_drawing()
         try:
             frame.clear_background(Color(24, 27, 33, 255))
@@ -441,9 +578,9 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
             # Keep a useful view during backend preparation and the first batch.
             if not traced or not texture:
                 frame.begin_3d(raster_camera(camera))
-                raster.draw(frame)
+                view.raster.draw(frame)
                 if bounds == 1 or bounds == 3:
-                    _draw_boxes(frame, objects, Color(255, 196, 60, 255))
+                    _draw_boxes(frame, view.objects, Color(255, 196, 60, 255))
                 if bounds >= 2 and have_boxes:
                     _draw_boxes(frame, boxes, Color(40, 210, 255, 255), depth)
                 frame.end_3d()
@@ -451,7 +588,7 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
                 0,
                 0,
                 width,
-                110 if error_text == "" else 136,
+                toolbar_height + (26 if message != "" else 0),
                 Color(10, 13, 18, 225),
             )
             var mode = String("TRACE") if traced else String("RASTER")
@@ -462,7 +599,8 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
                 )
             var backend_name = String("CPU") if backend == 0 else String("GPU")
             var trace_stats = String(
-                t"{samples}/{max_samples} spp | {render_ms} ms"
+                t"{samples}/{max_samples} spp | {completed_batches} batches |"
+                t" {render_ms} ms"
             )
             frame.draw_text_ex(
                 font.font,
@@ -501,23 +639,73 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
                 font.font,
                 String(
                     t"B bounds {bounds} | [/] CPU BVH depth {depth} | capped:"
-                    t" {len(objects)} objects, {len(boxes)} BVH | R reset | F"
-                    t" fullscreen"
+                    t" {len(view.objects)} objects, {len(boxes)} BVH | R reset"
+                    t" | F fullscreen"
                 ),
                 10,
                 86,
                 16,
                 Color(180, 195, 210, 255),
             )
-            if error_text != "":
+            var batch_label = String(
+                "all"
+            ) if options.samples_per_batch == -1 else String(
+                t"{options.samples_per_batch} spp"
+            )
+            frame.draw_rectangle(
+                batch_x, batch_y, 28, 28, Color(45, 75, 108, 255)
+            )
+            frame.draw_text_ex(
+                font.font,
+                String("-"),
+                batch_x + 9,
+                batch_y + 3,
+                20,
+                Color(235, 240, 250, 255),
+            )
+            frame.begin_scissor(batch_x + 32, batch_y, 186, 28)
+            frame.draw_text_ex(
+                font.font,
+                String(t"Batch: {batch_label} (J/K)"),
+                batch_x + 36,
+                batch_y + 5,
+                16,
+                Color(235, 240, 250, 255),
+            )
+            frame.end_scissor()
+            frame.draw_rectangle(
+                batch_x + 222, batch_y, 28, 28, Color(45, 75, 108, 255)
+            )
+            frame.draw_text_ex(
+                font.font,
+                String("+"),
+                batch_x + 229,
+                batch_y + 3,
+                20,
+                Color(235, 240, 250, 255),
+            )
+            frame.draw_rectangle(
+                width - 148, 58, 138, 28, Color(45, 75, 108, 255)
+            )
+            frame.draw_text_ex(
+                font.font,
+                String("Open scene (O)"),
+                width - 138,
+                62,
+                16,
+                Color(235, 240, 250, 255),
+            )
+            if message != "":
                 frame.draw_text_ex(
                     font.font,
-                    error_text,
+                    message,
                     10,
-                    112,
+                    toolbar_height + 2,
                     16,
                     Color(255, 100, 100, 255),
                 )
+            if picker.active:
+                picker.draw(frame, font.font, width, height)
         except error:
             window = frame^.end()
             raise error
@@ -539,9 +727,9 @@ def _session(mut window: Window, options: ViewerOptions) raises -> Bool:
             "Viewer closed:",
             samples,
             "samples; raster mesh count",
-            len(raster.meshes),
+            len(view.raster.meshes),
             "draw count",
-            len(raster.draws),
+            len(view.raster.draws),
         )
     return next_scene
 
@@ -559,6 +747,7 @@ def run_viewer(var options: ViewerOptions) raises:
         UInt32(36 + (128 if options.hidden else 0)),
     )
     try:
+        window.set_exit_key(0)
         while _session(window, options):
             options.scene = options.scene + 1 if options.scene < 8 else 0
             options.path = ""

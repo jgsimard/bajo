@@ -1,6 +1,6 @@
 """Reusable raylib C ABI types, window lifetime, input, and drawing calls."""
 
-from std.ffi import OwnedDLHandle, c_int, c_uint
+from std.ffi import OwnedDLHandle, c_int, c_uint, external_call
 from std.os import abort
 from std.memory import Pointer
 
@@ -66,6 +66,24 @@ struct Rectangle(ImplicitlyCopyable, RegisterPassable):
     var y: Float32
     var width: Float32
     var height: Float32
+
+
+@fieldwise_init
+struct FilePathList(ImplicitlyCopyable, RegisterPassable):
+    var count: c_uint
+    var paths: UInt
+
+
+def _copy_c_string(address: UInt) -> String:
+    if not address:
+        return ""
+    var pointer = Pointer[UInt8, MutUntrackedOrigin](
+        unsafe_from_address=Int(address)
+    )
+    var length = Int(external_call["strlen", UInt](pointer))
+    return String(
+        StringSpan(unsafe_from_utf8=ImmSpan(unsafe_ptr=pointer, length=length))
+    )
 
 
 @fieldwise_init
@@ -229,6 +247,25 @@ struct Window(
             "WindowShouldClose",
             "IsKeyDown",
             "IsKeyPressed",
+            "SetExitKey",
+            "GetMousePosition",
+            "IsMouseButtonPressed",
+            "GetMouseWheelMove",
+            "GetTime",
+            "GetClipboardText",
+            "DirectoryExists",
+            "FileExists",
+            "GetDirectoryPath",
+            "GetPrevDirectoryPath",
+            "GetFileName",
+            "GetFileExtension",
+            "LoadDirectoryFiles",
+            "UnloadDirectoryFiles",
+            "IsFileDropped",
+            "LoadDroppedFiles",
+            "UnloadDroppedFiles",
+            "BeginScissorMode",
+            "EndScissorMode",
             "ToggleFullscreen",
             "BeginDrawing",
             "ClearBackground",
@@ -304,6 +341,102 @@ struct Window(
 
     def is_key_pressed(self, key: Int) raises -> Bool:
         return self.library.get_function[Bool]("IsKeyPressed")(c_int(key))
+
+    def set_exit_key(self, key: Int) raises:
+        self.library.get_function[NoneType]("SetExitKey")(c_int(key))
+
+    def mouse_position(self) raises -> Vector2:
+        return self.library.get_function[Vector2]("GetMousePosition")()
+
+    def mouse_pressed(self) raises -> Bool:
+        return self.library.get_function[Bool]("IsMouseButtonPressed")(c_int(0))
+
+    def mouse_wheel(self) raises -> Float32:
+        return self.library.get_function[Float32]("GetMouseWheelMove")()
+
+    def time(self) raises -> Float64:
+        return self.library.get_function[Float64]("GetTime")()
+
+    def clipboard_text(self) raises -> String:
+        return _copy_c_string(
+            self.library.get_function[UInt]("GetClipboardText")()
+        )
+
+    def directory_exists(self, var path: String) raises -> Bool:
+        return self.library.get_function[Bool]("DirectoryExists")(
+            path.as_c_string_span()
+        )
+
+    def canonical_path(self, var path: String) raises -> String:
+        # The supported Linux viewer uses libc to resolve relative paths/symlinks.
+        var address = external_call["realpath", UInt](
+            path.as_c_string_span(), UInt(0)
+        )
+        if not address:
+            raise Error("could not resolve path: " + path)
+        var result = _copy_c_string(address)
+        external_call["free", NoneType](address)
+        return result^
+
+    def file_exists(self, var path: String) raises -> Bool:
+        return self.library.get_function[Bool]("FileExists")(
+            path.as_c_string_span()
+        )
+
+    def directory_path(self, var path: String) raises -> String:
+        return _copy_c_string(
+            self.library.get_function[UInt]("GetDirectoryPath")(
+                path.as_c_string_span()
+            )
+        )
+
+    def parent_directory(self, var path: String) raises -> String:
+        return _copy_c_string(
+            self.library.get_function[UInt]("GetPrevDirectoryPath")(
+                path.as_c_string_span()
+            )
+        )
+
+    def file_name(self, var path: String) raises -> String:
+        return _copy_c_string(
+            self.library.get_function[UInt]("GetFileName")(
+                path.as_c_string_span()
+            )
+        )
+
+    def file_extension(self, var path: String) raises -> String:
+        return _copy_c_string(
+            self.library.get_function[UInt]("GetFileExtension")(
+                path.as_c_string_span()
+            )
+        )
+
+    def directory_files(self, var path: String) raises -> List[String]:
+        var files = self.library.get_function[FilePathList](
+            "LoadDirectoryFiles"
+        )(path.as_c_string_span())
+        var result = List[String](capacity=Int(files.count))
+        var paths = Pointer[UInt, MutUntrackedOrigin](
+            unsafe_from_address=Int(files.paths)
+        )
+        for index in range(Int(files.count)):
+            result.append(_copy_c_string(paths[unsafe_offset=index]))
+        self.library.get_function[NoneType]("UnloadDirectoryFiles")(files)
+        return result^
+
+    def dropped_files(self) raises -> List[String]:
+        var result = List[String]()
+        if self.library.get_function[Bool]("IsFileDropped")():
+            var files = self.library.get_function[FilePathList](
+                "LoadDroppedFiles"
+            )()
+            var paths = Pointer[UInt, MutUntrackedOrigin](
+                unsafe_from_address=Int(files.paths)
+            )
+            for index in range(Int(files.count)):
+                result.append(_copy_c_string(paths[unsafe_offset=index]))
+            self.library.get_function[NoneType]("UnloadDroppedFiles")(files)
+        return result^
 
     def toggle_fullscreen(self) raises:
         self.library.get_function[NoneType]("ToggleFullscreen")()
@@ -479,6 +612,14 @@ struct Frame(
         self.window.library.get_function[NoneType]("DrawRectangle")(
             c_int(x), c_int(y), c_int(width), c_int(height), color
         )
+
+    def begin_scissor(self, x: Int, y: Int, width: Int, height: Int) raises:
+        self.window.library.get_function[NoneType]("BeginScissorMode")(
+            c_int(x), c_int(y), c_int(width), c_int(height)
+        )
+
+    def end_scissor(self) raises:
+        self.window.library.get_function[NoneType]("EndScissorMode")()
 
     def draw_line_ex(
         self, start: Vector2, end: Vector2, thickness: Float32, color: Color

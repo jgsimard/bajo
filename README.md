@@ -113,7 +113,6 @@ until the first traced frame is ready. Use `pixi run viewer --help` for
 scene names, render options, CPU builder/traversal selection, and library path.
 For graphical smoke checks, `--hidden --frames 4 --screenshot /tmp/viewer.png`
 renders a few frames and exits; a working display/OpenGL context is still needed.
-The previous Python viewer remains available as `pixi run viewer_legacy`.
 
 Run the scene-switch and file-loading regressions with a working display/OpenGL context:
 
@@ -154,9 +153,9 @@ numerical regressions. SIMD and launch configurations use representative
 cases rather than exhaustive matrices. Internal tree layouts and diagnostic
 counters are not separate contracts.
 
-The host and GPU tasks include the relevant Mojo and Python tests. Run the
-Python checks separately with `pixi run test_python_host` or
-`pixi run test_python_gpu`; the GPU task enables the viewer GPU integration tests.
+The host task includes the native launcher checks, also available through
+`pixi run test_python_host`. Python is used for test harnesses and benchmark
+plots; the interactive renderer runs entirely in Mojo with raylib.
 
 The test runner accepts a suite path when a smaller run is useful, for
 example `pixi run test core` or `pixi run test bvh/cpu`. With no suite argument,

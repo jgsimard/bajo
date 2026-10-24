@@ -1,4 +1,4 @@
-"""Native file output for viewer frames, without Python or NumPy."""
+"""Linear RGB frame output for the headless Mojo renderer."""
 
 from std.memory import bitcast
 from bajo.core import Vec3W

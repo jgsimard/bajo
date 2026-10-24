@@ -1,4 +1,4 @@
-"""Native viewer state and loading; Python adapters live in common."""
+"""Shared scene loading and state for native viewers."""
 
 from .core import ViewerScene, ViewerState, viewer_camera
 from .scenes import (

@@ -1,4 +1,4 @@
-"""Python-free camera, render settings, and scene ownership for viewers."""
+"""Camera, render settings, and scene ownership for native viewers."""
 
 from std.math import cos, sin
 from bajo.bvh import Camera
@@ -34,13 +34,6 @@ def viewer_camera(
         10.0,
         0.0,
     )
-
-
-struct CpuViewerState:
-    var world: CpuScene[16, 16]
-
-    def __init__(out self, var world: CpuScene[16, 16]):
-        self.world = world^
 
 
 struct ViewerState(Copyable, Writable):

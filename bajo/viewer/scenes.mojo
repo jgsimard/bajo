@@ -1,4 +1,4 @@
-"""Scene selection and loading shared by native and Python viewer frontends."""
+"""Scene selection and loading for native viewer frontends."""
 
 from bajo.bvh import Camera
 from bajo.bvh.cpu import CpuBvhBuildMethod, CpuTraversalMode

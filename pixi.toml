@@ -20,7 +20,6 @@ example_mis_showcase = "mojo -I . examples/mis_showcase.mojo"
 example_pbrt = "mojo -I . examples/pbrt_scene.mojo"
 viewer = { cmd = "bash scripts/run_viewer.sh", depends-on = ["install_raylib"] }
 viewer_gpu = { cmd = "bash scripts/run_viewer.sh --gpu", depends-on = ["install_raylib"] }
-viewer_legacy = "python tools/viewer.py"
 viewer_scene = "mojo run -I . examples/viewer_scene.mojo"
 
 # tests
@@ -34,7 +33,6 @@ test_host = { depends-on = [
   { task = "test", args = ["rt/cpu"] },
   { task = "test", args = ["bvh/cpu"] },
   { task = "test", args = ["sort/cpu"] },
-  { task = "test", args = ["viewer/test_linear_frame.mojo"] },
   { task = "test", args = ["viewer/test_core.mojo"] },
   { task = "test", args = ["viewer/test_native.mojo"] },
   { task = "test", args = ["viewer/test_batching.mojo"] },
@@ -45,11 +43,9 @@ test_gpu = { depends-on = [
   { task = "test", args = ["bvh/gpu"] },
   { task = "test", args = ["rt/gpu"] },
   { task = "test", args = ["gpu"] },
-  "test_python_gpu",
 ] }
 
-test_python_host = "bash scripts/run_tests.sh test/viewer/test_viewer_extensions.py test/viewer/test_viewer_cpu.py test/viewer/test_viewer_launcher.py"
-test_python_gpu = { cmd = "python test/viewer/test_viewer_gpu.py", env = { BAJO_TEST_GPU = "1" } }
+test_python_host = "python test/viewer/test_viewer_launcher.py"
 
 ############
 # benchmarks
@@ -104,5 +100,4 @@ max = ">=26.8.0.dev2026102305,<27"
 python = ">=3.13.17,<3.14"
 polars = ">=2.0.0,<3"
 matplotlib = ">=3.11.2,<4"
-numpy = ">=2.5.4,<3"
 pillow = ">=13.0.0,<14"

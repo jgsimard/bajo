@@ -248,7 +248,6 @@ def prepare_gpu_scene[
     kind, sphere_format, triangle_format, tlas_format, blas_format
 ]:
     """Build the typed owner selected by scene shape and ready BVH formats."""
-    comptime assert kind.is_valid()
     comptime assert sphere_format.layout == .WIDE
     comptime assert tlas_format.layout == .WIDE
     if not (

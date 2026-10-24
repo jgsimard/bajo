@@ -33,12 +33,12 @@ struct GpuRtSceneKind(EnumLike, Equatable, ImplicitlyCopyable):
         NoneType,
     ].values
 
-    var bits: UInt8
+    var _bits: UInt8
 
     def __init__[bits: Int](out self):
         """Construct a scene kind from a compile-time geometry mask."""
         comptime assert 1 <= bits <= 7
-        self.bits = UInt8(bits)
+        self._bits = UInt8(bits)
 
     def __init__(out self, bits: Int) raises:
         """Construct a scene kind from a nonempty geometry mask."""
@@ -46,10 +46,10 @@ struct GpuRtSceneKind(EnumLike, Equatable, ImplicitlyCopyable):
             raise Error(
                 "invalid GPU scene kind: expected a geometry mask from 1 to 7"
             )
-        self.bits = UInt8(bits)
+        self._bits = UInt8(bits)
 
     def _get_enum_discriminant(self) -> Int:
-        return Int(self.bits) - 1
+        return Int(self._bits) - 1
 
     def _unsafe_get_enum_payload[
         id: Int
@@ -60,16 +60,13 @@ struct GpuRtSceneKind(EnumLike, Equatable, ImplicitlyCopyable):
             pass
 
     def has_spheres(self) -> Bool:
-        return Bool(self.bits & UInt8(1))
+        return Bool(self._bits & UInt8(1))
 
     def has_triangles(self) -> Bool:
-        return Bool(self.bits & UInt8(2))
+        return Bool(self._bits & UInt8(2))
 
     def has_instances(self) -> Bool:
-        return Bool(self.bits & UInt8(4))
-
-    def is_valid(self) -> Bool:
-        return self.bits > 0 and self.bits <= UInt8(7)
+        return Bool(self._bits & UInt8(4))
 
 
 @fieldwise_init

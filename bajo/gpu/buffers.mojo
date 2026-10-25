@@ -2,6 +2,20 @@
 
 from max.gpu.host import DeviceBuffer, DeviceContext
 from std.sys import align_of, size_of
+from bajo.core import Frame, Point3f32
+
+
+@always_inline
+def _packed_point3_span[
+    frame: Frame, origin: ImmOrigin
+](points: ImmSpan[Point3f32[frame], origin]) -> ImmSpan[Float32, origin]:
+    """Borrow scalar XYZ words from tightly packed points, preserving bits."""
+    comptime assert size_of[Point3f32[frame]]() == 3 * size_of[Float32]()
+    comptime assert align_of[Point3f32[frame]]() >= align_of[Float32]()
+    return ImmSpan(
+        unsafe_ptr=points.unsafe_ptr().unsafe_bitcast[Float32](),
+        length=len(points) * 3,
+    )
 
 
 def _copy_staging_slice[

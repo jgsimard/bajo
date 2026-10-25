@@ -1,7 +1,7 @@
 from max.gpu.host import DeviceContext, DeviceBuffer
 
 # Keep the existing import path available to callers.
-from bajo.gpu.buffers import _device_span, upload_list
+from bajo.gpu.buffers import _device_span, _packed_point3_span, upload_list
 
 from bajo.bvh.camera import Camera
 from bajo.core import Point3f32, Frame, Rayf32
@@ -102,10 +102,7 @@ def upload_vertices[
     mut ctx: DeviceContext,
     verts: ImmSpan[Point3f32[frame], _],
 ) raises -> DeviceBuffer[.float32]:
-    var flat = List[Float32](capacity=len(verts) * 3)
-    for v in verts:
-        flat.extend([v.x, v.y, v.z])
-    return upload_list(ctx, flat)
+    return upload_list(ctx, _packed_point3_span(verts))
 
 
 def upload_rays[

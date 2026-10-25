@@ -3,7 +3,7 @@ from std.time import perf_counter_ns
 from max.gpu import global_idx
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.gpu.buffers import _device_span, upload_list
+from bajo.gpu.buffers import _device_span, _packed_point3_span, upload_list
 from bajo.bvh.gpu.utils import (
     GpuBuildTimings,
 )
@@ -147,10 +147,14 @@ def _flatten_triangle_sets[
         primitive_counts.append(len(vertices) / 3)
         total_vertex_count += len(vertices)
 
-    var packed_vertices = List[Float32](capacity=total_vertex_count * 3)
+    var packed_vertices = List[Float32](
+        unsafe_uninit_length=total_vertex_count * 3
+    )
+    var offset = 0
     for vertices in vertex_sets:
-        for vertex in vertices:
-            packed_vertices.extend([vertex.x, vertex.y, vertex.z])
+        var words = _packed_point3_span(ImmSpan(vertices))
+        Span(packed_vertices)[offset : offset + len(words)].copy_from(words)
+        offset += len(words)
     return _TriangleHostSegments(
         SegmentOffsets.from_counts(primitive_counts), packed_vertices^
     )
@@ -164,9 +168,8 @@ def _flatten_triangle_sets[
         len(vertices) % 3 == 0,
         "each triangle BLAS must contain complete triangles",
     )
-    var packed_vertices = List[Float32](capacity=len(vertices) * 3)
-    for vertex in vertices:
-        packed_vertices.extend([vertex.x, vertex.y, vertex.z])
+    var packed_vertices = List[Float32](unsafe_uninit_length=len(vertices) * 3)
+    Span(packed_vertices).copy_from(_packed_point3_span(vertices))
     return _TriangleHostSegments(
         SegmentOffsets.single(len(vertices) / 3), packed_vertices^
     )

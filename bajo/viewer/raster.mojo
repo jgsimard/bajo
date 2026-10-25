@@ -76,7 +76,9 @@ def identity_matrix() -> Matrix:
     return Matrix(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
 
 
-def instance_matrix(transform: Affine3f32[.LOCAL, .WORLD]) -> Matrix:
+def instance_matrix[
+    source: CoordinateFrame, target: CoordinateFrame
+](transform: Affine3f32[source, target]) -> Matrix:
     return Matrix(
         transform.m00,
         transform.m01,
@@ -95,6 +97,28 @@ def instance_matrix(transform: Affine3f32[.LOCAL, .WORLD]) -> Matrix:
         0,
         1,
     )
+
+
+def raster_view_matrix(camera: Camera) raises -> Matrix:
+    """Keep the authored camera axes, including PBRT's opposite handedness."""
+    var camera_to_world = Affine3f32[.LOCAL, .WORLD](
+        camera.right.x,
+        camera.up.x,
+        -camera.forward.x,
+        camera.origin.x,
+        camera.right.y,
+        camera.up.y,
+        -camera.forward.y,
+        camera.origin.y,
+        camera.right.z,
+        camera.up.z,
+        -camera.forward.z,
+        camera.origin.z,
+    )
+    var inverse = camera_to_world.inverse()
+    if not inverse.mask[0] or not inverse.inv.is_finite()[0]:
+        raise Error("viewer camera basis must be finite and invertible")
+    return instance_matrix(inverse.inv)
 
 
 def surface_color(surfaces: SurfaceStore, surface: SurfaceId[1]) -> Color:

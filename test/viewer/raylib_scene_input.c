@@ -18,6 +18,7 @@ static int completed_batches;
 static int sample_resets;
 static int batch_control_frame = -1;
 static int batch_setting_four;
+static int orientation_trace;
 
 static void *real_symbol(const char *name) {
     static void *library;
@@ -37,6 +38,7 @@ static bool batch_mode(void) {
 }
 
 bool IsKeyPressed(int key) {
+    if (mode("orientation")) return frames == 3 && key == KEY_TAB;
     if (batch_mode()) {
         if (mode("batch-key") && key == KEY_K) {
             if (batch_control_frame < 0 && completed_samples >= 2) batch_control_frame = frames;
@@ -94,6 +96,7 @@ void UnloadDroppedFiles(FilePathList files) { (void)files; ++dropped_unloaded; }
 
 bool WindowShouldClose(void) {
     // Bound a broken scene-switch loop as well as a normal rendering loop.
+    if (mode("orientation")) return orientation_trace || frames >= 600;
     if (batch_mode()) return (frames >= 8 && total_samples > 0 && completed_samples >= total_samples) || frames >= 600;
     if (mode("drop-trace")) return (frames >= 8 && custom_trace) || frames >= 600;
     return frames >= (mode("cycle") ? 6 : 8) || scenes >= 4;
@@ -129,6 +132,20 @@ void DrawTextEx(Font font, const char *text, Vector2 position, float size, float
 void EndDrawing(void) {
     void (*end)(void) = real_symbol("EndDrawing");
     end();
+    if (mode("orientation")) {
+        const char *image = NULL;
+        if (frames == 2) image = "raster.png";
+        if (completed_samples > 0 && completed_samples >= total_samples && !orientation_trace) {
+            image = "trace.png";
+            orientation_trace = 1;
+        }
+        if (image) {
+            char path[4096];
+            snprintf(path, sizeof(path), "%s/%s", getenv("BAJO_TEST_SCENE_PATH"), image);
+            void (*capture)(const char *) = real_symbol("TakeScreenshot");
+            capture(path);
+        }
+    }
     ++frames;
 }
 

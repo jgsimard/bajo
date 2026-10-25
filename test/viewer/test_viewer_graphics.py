@@ -139,6 +139,49 @@ class ViewerGraphicsTests(unittest.TestCase):
         summary, _ = self.launch("cycle")
         self.assertEqual(summary, (6, 2))
 
+    def test_tab_preserves_pbrt_camera_horizontal_orientation(self):
+        from PIL import Image
+
+        directory = Path(self.temp.name)
+        scene = directory / "asymmetric.pbrt"
+        scene.write_text(
+            'LookAt 0 0 4  0 0 0  0 1 0\n'
+            'Camera "perspective" "float fov" [45]\n'
+            'WorldBegin\n'
+            'AttributeBegin\nTranslate -0.8 -0.5 0\n'
+            'AreaLightSource "diffuse" "rgb L" [1 0 0]\n'
+            'Shape "sphere" "float radius" [0.3]\nAttributeEnd\n'
+            'AttributeBegin\nTranslate 0.8 -0.5 0\n'
+            'AreaLightSource "diffuse" "rgb L" [0 1 0]\n'
+            'Shape "sphere" "float radius" [0.3]\nAttributeEnd\n'
+            'WorldEnd\n'
+        )
+        self.run_viewer(
+            "--pbrt", str(scene), "--width", "128", "--height", "96",
+            "--max-spp", "1", "--max-depth", "1",
+            input_mode="orientation", path=directory,
+        )
+        centers = []
+        for name in ("raster.png", "trace.png"):
+            with Image.open(directory / name) as image:
+                image = image.convert("RGB")
+                red_x, green_x = [], []
+                for y in range(150, image.height):
+                    for x in range(image.width):
+                        r, g, b = image.getpixel((x, y))
+                        if r > 100 and g < 40 and b < 40:
+                            red_x.append(x)
+                        if g > 100 and r < 40 and b < 40:
+                            green_x.append(x)
+                self.assertGreater(len(red_x), 100, name)
+                self.assertGreater(len(green_x), 100, name)
+                centers.append((sum(red_x) / len(red_x), sum(green_x) / len(green_x)))
+        # PBRT's camera +X points toward world -X for this LookAt.
+        for red, green in centers:
+            self.assertGreater(red, green)
+        self.assertAlmostEqual(centers[0][0], centers[1][0], delta=8)
+        self.assertAlmostEqual(centers[0][1], centers[1][1], delta=8)
+
     def test_keyboard_browser_navigates_and_loads_scene_with_spaces(self):
         summary, (browser, custom, error, _) = self.launch("open", self.scene.parent)
         self.assertEqual(summary, (8, 2))

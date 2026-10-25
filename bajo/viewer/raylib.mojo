@@ -298,6 +298,7 @@ struct Window(
             "SetTraceLogLevel",
             "rlDisableBackfaceCulling",
             "rlEnableBackfaceCulling",
+            "rlSetMatrixModelview",
         ]
         for symbol in symbols:
             if not library.check_symbol(symbol):
@@ -615,8 +616,9 @@ struct Frame(
             color,
         )
 
-    def begin_3d(self, camera: Camera3D) raises:
+    def begin_3d(self, camera: Camera3D, view: Matrix) raises:
         self.window.library.get_function[NoneType]("BeginMode3D")(camera)
+        self.window.library.get_function[NoneType]("rlSetMatrixModelview")(view)
         self.window.library.get_function[NoneType]("rlDisableBackfaceCulling")()
 
     def end_3d(self) raises:

@@ -16,7 +16,12 @@ from .scenes import (
     viewer_scene_name,
 )
 from .raylib import Window, Color, BoundingBox, Vector3, Frame, TextFont
-from .raster import RasterScene, DisplayTexture, raster_camera
+from .raster import (
+    RasterScene,
+    DisplayTexture,
+    raster_camera,
+    raster_view_matrix,
+)
 from .worker import RenderWorker
 from .debug import DebugBox, object_boxes
 from .file_picker import FilePicker, contains, is_scene_file
@@ -199,6 +204,9 @@ def print_help():
 
 def rotate_camera(mut camera: Camera, yaw: Float32, pitch: Float32):
     """Rotate the shared basis; preserve camera roll, lens size and FOV."""
+    var handedness: Float32 = (
+        -1 if dot(cross(camera.right, camera.forward), camera.up) < 0 else 1
+    )
     var angle = yaw * 0.006
     var c = cos(angle)
     var s = sin(angle)
@@ -212,7 +220,7 @@ def rotate_camera(mut camera: Camera, yaw: Float32, pitch: Float32):
         camera.right.y,
         -s * camera.right.x + c * camera.right.z,
     )
-    angle = pitch * 0.006
+    angle = pitch * 0.006 * handedness
     var candidate = forward * cos(angle) + cross(right, forward) * sin(angle)
     if abs(candidate.y) < 0.9998:
         forward = candidate
@@ -220,7 +228,7 @@ def rotate_camera(mut camera: Camera, yaw: Float32, pitch: Float32):
     var lens_v = sqrt(dot(camera.defocus_disk_v, camera.defocus_disk_v))
     camera.forward = normalize(forward)
     camera.right = normalize(right)
-    camera.up = normalize(cross(camera.right, camera.forward))
+    camera.up = normalize(cross(camera.right, camera.forward)) * handedness
     camera.defocus_disk_u = camera.right * lens_u
     camera.defocus_disk_v = camera.up * lens_v
 
@@ -557,7 +565,9 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
                 frame.draw_texture(texture.value().texture, width, height)
             # Keep a useful view during backend preparation and the first batch.
             if not traced or not texture:
-                frame.begin_3d(raster_camera(camera))
+                frame.begin_3d(
+                    raster_camera(camera), raster_view_matrix(camera)
+                )
                 view.raster.draw(frame)
                 if bounds == 1 or bounds == 3:
                     _draw_boxes(frame, view.objects, Color(255, 196, 60, 255))

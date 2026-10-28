@@ -67,7 +67,7 @@ struct PrimitiveKind(EnumLike, Equatable, TrivialRegisterPassable, Writable):
     var value: UInt32
 
     def _get_enum_discriminant(self) -> Int:
-        if self == Self.UNKNOWN:
+        if self.value == Self.UNKNOWN.value:
             return 3
         return Int(self.value)
 

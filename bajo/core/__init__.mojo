@@ -15,11 +15,13 @@ from .vec import (
     cross,
     dot,
     longest_axis,
+    orthonormal_basis,
 )
 from .mat import Mat
 from .frame import Frame
 from .ray import Ray
 from .segments import SegmentOffsets
+from .optics import reflect, refract
 
 
 comptime AABB = AxisAlignedBoundingBox[.float32, _]

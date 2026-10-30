@@ -1,7 +1,7 @@
 """Compile-time-specialized traversal kernel for all GPU RT scene shapes."""
 
 from max.gpu import block_dim, global_idx, grid_dim
-from std.math import sqrt, ceildiv, pi
+from std.math import ceildiv, pi
 from max.gpu.host import DeviceContext
 
 from bajo.bvh.constants import PrimitiveKind
@@ -19,6 +19,7 @@ from bajo.core import (
     Rayf32,
     Vec3f32,
     dot,
+    length,
 )
 from bajo.rt.common import (
     equal_area_sphere_to_square,
@@ -41,8 +42,10 @@ from bajo.rt.material_types import (
     NO_TEXTURE,
     Integrator,
     SurfaceId,
+    sample_mix_branch,
 )
 from bajo.rt.lighting_types import _light_importance
+from bajo.rt.texture_math import sample_environment_texture, texture_luminance
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
@@ -119,13 +122,14 @@ def _gpu_environment_radiance(
     var pixel_offset = Int(texture_descs[unsafe_offset=desc_base])
     var width = Int(texture_descs[unsafe_offset=desc_base + 1])
     var height = Int(texture_descs[unsafe_offset=desc_base + 2])
-    var x = min(max(Int(uv.u * Float32(width)), 0), width - 1)
-    var y = min(max(Int(uv.v * Float32(height)), 0), height - 1)
-    var base = pixel_offset + 3 * (y * width + x)
-    return scale * Color(
-        max(texture_pixels[unsafe_offset=base], 0.0),
-        max(texture_pixels[unsafe_offset=base + 1], 0.0),
-        max(texture_pixels[unsafe_offset=base + 2], 0.0),
+    return scale * sample_environment_texture(
+        record_tile[.float32, 3](
+            texture_pixels.unsafe_offset(pixel_offset), width * height
+        ),
+        width,
+        height,
+        uv.u,
+        uv.v,
     )
 
 
@@ -451,7 +455,7 @@ def _gpu_rt_scene_trace_path[
         var sigma_a = Color(scene.medium_absorption.unsafe_offset(base))
         var attenuation = medium_transmittance(
             sigma_a,
-            (closest_t if found else ray.t_max) * sqrt(dot(ray.d, ray.d)),
+            (closest_t if found else ray.t_max) * length(ray.d),
         )
         path.tx *= attenuation.x
         path.ty *= attenuation.y
@@ -513,14 +517,9 @@ def _gpu_rt_scene_trace_path[
                     texture_descs,
                     texture_pixels,
                 )
-                amount *= 0.2126 * color.x + 0.7152 * color.y + 0.0722 * color.z
-            amount = amount.clamp(0.0, 1.0)
-            if random < amount:
-                surface_value = scene.mix_surfaces[unsafe_offset=2 * index + 1]
-                random /= amount
-            else:
-                surface_value = scene.mix_surfaces[unsafe_offset=2 * index]
-                random = (random - amount) / (1.0 - amount)
+                amount *= texture_luminance(color)
+            var branch = sample_mix_branch(amount.clamp(0.0, 1.0), random)
+            surface_value = scene.mix_surfaces[unsafe_offset=2 * index + branch]
     var geometric = orient_surface_normal(ray.d, geometric_outward)
     var oriented = orient_surface_normal(ray.d, outward)
     var normal = oriented.normal

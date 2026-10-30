@@ -571,9 +571,9 @@ def unit_vector_from_samples[
 ](u: SIMD[.float32, length], v: SIMD[.float32, length]) -> Vec3[
     .float32, frame, length
 ]:
-    var theta = 2.0 * pi * u
+    var theta = Float32(2.0 * pi) * u
     var z = 1.0 - 2.0 * v
-    var r = sqrt(1.0 - z * z)
+    var r = sqrt(max(1.0 - z * z, 0.0))
     return Vec3[.float32, frame, length](r * cos(theta), r * sin(theta), z)
 
 

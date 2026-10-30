@@ -1,9 +1,10 @@
 """Device-safe access to GPU material textures and shading normals."""
 
-from std.math import sqrt
 from bajo.rt.texture_math import (
     sample_image_texture,
-    texture_luminance,
+    albedo_from_texture,
+    roughness_from_texture,
+    bump_slope,
     bump_normal,
 )
 from std.memory import bitcast
@@ -64,13 +65,11 @@ def _sample_gpu_lambertian(
     var texture_idx = texture_indices[unsafe_offset=material_idx]
     if texture_idx == NO_TEXTURE:
         return albedo
-    var value = albedo * _sample_gpu_image_texture(
-        texture_idx, u, v, texture_descs, texture_pixels
-    )
-    return Color(
-        value.x.clamp(0.0, 1.0),
-        value.y.clamp(0.0, 1.0),
-        value.z.clamp(0.0, 1.0),
+    return albedo_from_texture(
+        albedo,
+        _sample_gpu_image_texture(
+            texture_idx, u, v, texture_descs, texture_pixels
+        ),
     )
 
 
@@ -97,13 +96,11 @@ def _sample_gpu_coated_albedo(
     ]
     if texture_idx == NO_TEXTURE:
         return albedo
-    var value = albedo * _sample_gpu_image_texture(
-        texture_idx, u, v, texture_descs, texture_pixels
-    )
-    return Color(
-        value.x.clamp(0.0, 1.0),
-        value.y.clamp(0.0, 1.0),
-        value.z.clamp(0.0, 1.0),
+    return albedo_from_texture(
+        albedo,
+        _sample_gpu_image_texture(
+            texture_idx, u, v, texture_descs, texture_pixels
+        ),
     )
 
 
@@ -201,12 +198,8 @@ def _gpu_bump_normal(
         texture_descs,
         texture_pixels,
     )
-    var value_u0 = texture_luminance(color_u0)
-    var value_u1 = texture_luminance(color_u1)
-    var value_v0 = texture_luminance(color_v0)
-    var value_v1 = texture_luminance(color_v1)
-    var slope_u = (value_u1 - value_u0) * width * u_scale * scale
-    var slope_v = (value_v1 - value_v0) * height * v_scale * scale
+    var slope_u = bump_slope(color_u0, color_u1, width, u_scale, scale)
+    var slope_v = bump_slope(color_v0, color_v1, height, v_scale, scale)
     return bump_normal(normal, slope_u, slope_v)
 
 
@@ -267,14 +260,11 @@ def _sample_gpu_coated_parameters(
             texture_descs,
             texture_pixels,
         )
-        var roughness = (
-            (0.2126 * color.x + 0.7152 * color.y + 0.0722 * color.z)
-            * records[material_idx, GpuCoatedDiffuseLayout.ROUGHNESS_SCALE]
-        ).clamp(0.0, 1.0)
-        value.conductor_roughness = (
-            sqrt(roughness) if records[
-                material_idx, GpuCoatedDiffuseLayout.REMAP_ROUGHNESS
-            ]
-            != 0.0 else roughness
+        value.conductor_roughness = roughness_from_texture(
+            color,
+            records[material_idx, GpuCoatedDiffuseLayout.ROUGHNESS_SCALE],
+            records[material_idx, GpuCoatedDiffuseLayout.REMAP_ROUGHNESS].ne(
+                0.0
+            ),
         )
     return value

@@ -22,8 +22,8 @@ struct AxisAlignedBoundingBox[
         p2: Point3[Self.dtype, Self.frame, Self.width],
     ):
         return Self(
-            vmin(vmin(p0, p1), p2),
-            vmax(vmax(p0, p1), p2),
+            vmin(p0, p1, p2),
+            vmax(p0, p1, p2),
         )
 
     @staticmethod

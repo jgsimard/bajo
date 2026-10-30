@@ -1,10 +1,10 @@
 """The native Mojo/raylib viewer: raster presentation and Bajo tracing."""
 
-from std.math import sin, cos, sqrt, min, max
+from std.math import sin, cos, min, max
 from std.sys.arg import argv
 from std.ffi import c_int
 from bajo.bvh import Camera
-from bajo.core import Vec3W, cross, dot, normalize
+from bajo.core import Vec3W, cross, dot, length, normalize
 from bajo.core.random import Sampler
 from bajo.rt.render_types import RenderSettings
 from .core import ViewerScene
@@ -224,8 +224,8 @@ def rotate_camera(mut camera: Camera, yaw: Float32, pitch: Float32):
     var candidate = forward * cos(angle) + cross(right, forward) * sin(angle)
     if abs(candidate.y) < 0.9998:
         forward = candidate
-    var lens_u = sqrt(dot(camera.defocus_disk_u, camera.defocus_disk_u))
-    var lens_v = sqrt(dot(camera.defocus_disk_v, camera.defocus_disk_v))
+    var lens_u = length(camera.defocus_disk_u)
+    var lens_v = length(camera.defocus_disk_v)
     camera.forward = normalize(forward)
     camera.right = normalize(right)
     camera.up = normalize(cross(camera.right, camera.forward)) * handedness

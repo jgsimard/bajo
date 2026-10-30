@@ -6,7 +6,16 @@ Lanes retain independent sample counts, depths, seeds and termination masks.
 
 from std.math import abs, cos, exp, log, pi, sin, sqrt
 from std.memory import bitcast
-from bajo.core import Vec3, cross, dot, length2, normalize
+from bajo.core import (
+    Vec3,
+    cross,
+    dot,
+    length2,
+    normalize,
+    orthonormal_basis,
+    reflect,
+)
+from bajo.core.random import _mix32, _u32_to_unit_float
 from bajo.rt.material_parameters import CoatedParameters
 from bajo.rt.lighting import power_heuristic
 from bajo.rt.shading_types import BsdfEvaluation, BsdfSample
@@ -26,34 +35,12 @@ struct _DielectricSample[length: SIMDLength](Copyable):
 
 
 @always_inline
-def _max_component[
-    length: SIMDLength
-](v: Vec3[.float32, .WORLD, length]) -> SIMD[.float32, length]:
-    return max(v.x, max(v.y, v.z))
-
-
-@always_inline
-def _mix_bits[
-    length: SIMDLength
-](value: SIMD[.uint32, length]) -> SIMD[.uint32, length]:
-    var bits = value
-    bits ^= bits >> 16
-    bits *= 0x7FEB352D
-    bits ^= bits >> 15
-    bits *= 0x846CA68B
-    bits ^= bits >> 16
-    return bits
-
-
-@always_inline
 def _random[
     length: SIMDLength
 ](seed: SIMD[.uint32, length], dimension: SIMD[.uint32, length]) -> SIMD[
     .float32, length
 ]:
-    return (_mix_bits(seed + dimension * 0x9E3779B9) >> 8).cast[
-        .float32
-    ]() * Float32(5.960464477539063e-8)
+    return _u32_to_unit_float(_mix32(seed + dimension * UInt32(0x9E3779B9)))
 
 
 @always_inline
@@ -62,7 +49,7 @@ def _sample_seed[
 ](u: SIMD[.float32, length], v: SIMD[.float32, length]) -> SIMD[
     .uint32, length
 ]:
-    return _mix_bits(
+    return _mix32(
         bitcast[.uint32](u) ^ (bitcast[.uint32](v) * 0x85EBCA6B) ^ 0xC2B2AE35
     )
 
@@ -353,7 +340,7 @@ def _sample_dielectric[
     )
     var reflecting = valid & reflection
     if reflecting.reduce_or():
-        var wi = -wo + wm * (2.0 * dot(wo, wm))
+        var wi = -reflect(wo, wm)
         var ok = reflecting & (wi.z * wo.z).gt(0.0) & wi.z.ne(0.0)
         var pdf = pr / valid.select(total, 1.0)
         var value = fresnel / ok.select(abs(wi.z), 1.0)
@@ -447,9 +434,9 @@ def _fresnel_conductor[
 def _is_diffuse[
     length: SIMDLength
 ](p: CoatedParameters[length]) -> SIMD[.bool, length]:
-    return _max_component(p.conductor_eta).eq(0.0) & _max_component(
-        p.conductor_k
-    ).eq(0.0)
+    return p.conductor_eta.max_component().eq(
+        0.0
+    ) & p.conductor_k.max_component().eq(0.0)
 
 
 @always_inline
@@ -552,7 +539,7 @@ def _sample_substrate[
             wm,
             _sample_ggx_visible_normal(wo, p.conductor_roughness, u, v),
         )
-    var wi = -wo + wm * (2.0 * dot(wo, wm))
+    var wi = -reflect(wo, wm)
     var valid = (wo.z * wi.z).gt(0.0)
     var weight = _fresnel_conductor(dot(wo, wm), p.conductor_eta, p.conductor_k)
     var pdf = SIMD[.float32, length](1.0)
@@ -610,21 +597,6 @@ def _phase_hg[
 
 
 @always_inline
-def _basis[
-    length: SIMDLength
-](normal: Vec3[.float32, .WORLD, length]) -> Tuple[
-    Vec3[.float32, .WORLD, length], Vec3[.float32, .WORLD, length]
-]:
-    var helper = Vec3[.float32, .WORLD, length].select(
-        abs(normal.y).gt(0.99),
-        Vec3[.float32, .WORLD, length](1.0, 0.0, 0.0),
-        Vec3[.float32, .WORLD, length](0.0, 1.0, 0.0),
-    )
-    var tangent = normalize(cross(helper, normal))
-    return tangent, cross(normal, tangent)
-
-
-@always_inline
 def _sample_phase_hg[
     length: SIMDLength
 ](
@@ -646,7 +618,7 @@ def _sample_phase_hg[
         )
     var sine = sqrt(max(SIMD[.float32, length](0.0), 1.0 - cosine * cosine))
     var axis = -wo
-    var tangent, bitangent = _basis(axis)
+    var tangent, bitangent = orthonormal_basis(axis)
     var phi = Float32(2.0 * pi) * u2
     return normalize(
         tangent * (sine * cos(phi))
@@ -766,7 +738,7 @@ def _evaluate_layered[
     var indirect = Vec3[.float32, .WORLD, length](0.0)
     var counts = valid.select(p.n_samples, 0.0).cast[.int64]()
     var depths = valid.select(p.max_depth, 0.0).cast[.int64]()
-    var medium = _max_component(p.layer_albedo).gt(0.0)
+    var medium = p.layer_albedo.max_component().gt(0.0)
     var sample = 0
     while (valid & counts.gt(SIMD[.int64, length](Int64(sample)))).reduce_or():
         # The scalar estimator's stride depends on this lane's own max depth.
@@ -812,9 +784,9 @@ def _evaluate_layered[
         while running.reduce_or():
             var dimension = base + UInt32(6 + depth * 8)
             if depth > 3:
-                var rr = running & _max_component(beta).lt(0.25)
+                var rr = running & beta.max_component().lt(0.25)
                 var q = max(
-                    SIMD[.float32, length](0.0), 1.0 - _max_component(beta)
+                    SIMD[.float32, length](0.0), 1.0 - beta.max_component()
                 )
                 running &= ~(rr & _random(seed, dimension).lt(q))
                 beta = Vec3[.float32, .WORLD, length].select(
@@ -1020,12 +992,12 @@ def _bare_conductor[
 ](p: CoatedParameters[length]) -> SIMD[.bool, length]:
     return (
         (
-            _max_component(p.conductor_eta).gt(0.0)
-            | _max_component(p.conductor_k).gt(0.0)
+            p.conductor_eta.max_component().gt(0.0)
+            | p.conductor_k.max_component().gt(0.0)
         )
         & p.eta.eq(1.0)
         & p.thickness.eq(0.0)
-        & _max_component(p.layer_albedo).eq(0.0)
+        & p.layer_albedo.max_component().eq(0.0)
     )
 
 
@@ -1052,7 +1024,7 @@ def _evaluate_coated_diffuse[
     var n = Vec3[.float32, .WORLD, length].select(
         active, normal, Vec3[.float32, .WORLD, length](0.0, 0.0, 1.0)
     )
-    var tangent, bitangent = _basis(n)
+    var tangent, bitangent = orthonormal_basis(n)
     var wo = _to_local(
         -normalize(
             Vec3[.float32, .WORLD, length].select(active, ray_direction, -n)
@@ -1114,7 +1086,7 @@ def _sample_coated_diffuse[
     var n = Vec3[.float32, .WORLD, length].select(
         active, normal, Vec3[.float32, .WORLD, length](0.0, 0.0, 1.0)
     )
-    var tangent, bitangent = _basis(n)
+    var tangent, bitangent = orthonormal_basis(n)
     var wo = _to_local(
         -normalize(
             Vec3[.float32, .WORLD, length].select(active, ray_direction, -n)
@@ -1176,7 +1148,7 @@ def _sample_coated_diffuse[
         result.ok |= reflected
     var direction = interface_sample.direction
     var z = p.thickness
-    var medium = _max_component(p.layer_albedo).gt(0.0)
+    var medium = p.layer_albedo.max_component().gt(0.0)
     var specular = interface_sample.delta
     var depths = layered.select(p.max_depth, 0.0).cast[.int64]()
     var running = (
@@ -1189,9 +1161,9 @@ def _sample_coated_diffuse[
     while running.reduce_or():
         var dimension = SIMD[.uint32, length](UInt32(1 + depth * 8))
         if depth > 3:
-            var rr = running & _max_component(weight).lt(0.25)
+            var rr = running & weight.max_component().lt(0.25)
             var q = max(
-                SIMD[.float32, length](0.0), 1.0 - _max_component(weight)
+                SIMD[.float32, length](0.0), 1.0 - weight.max_component()
             )
             running &= ~(rr & _random(seed, dimension).lt(q))
             weight = Vec3[.float32, .WORLD, length].select(

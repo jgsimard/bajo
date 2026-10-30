@@ -193,7 +193,7 @@ def render_wavefront_configured[
                     next_chunk_ptr, 1
                 )
 
-        # Explicit core/task partitions both map one callback per arena;
+        # Explicit partitions map one callback per arena;
         # runtime-default mode retains the runtime's partitioning choice.
         comptime if scheduler_mode == .RUNTIME_DEFAULT:
             parallelize(worker, worker_count)

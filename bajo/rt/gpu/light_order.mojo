@@ -1,6 +1,4 @@
 """Group visibility work by the actual sampled light ID."""
-from std.math import ceildiv
-from max.gpu import global_idx, grid_dim, block_dim, lane_id
 from max.gpu.host import DeviceContext
 from bajo.rt.wavefront_contract import (
     WAVE_COUNTER,
@@ -8,9 +6,8 @@ from bajo.rt.wavefront_contract import (
 from bajo.rt.gpu.queue_order import (
     GpuRtQueueOrderScratch,
     gpu_rt_queue_order_enabled,
-    gpu_rt_queue_order_group,
-    gpu_rt_queue_order_init_kernel,
-    gpu_rt_queue_order_scan_kernel,
+    gpu_rt_queue_order_rays,
+    enqueue_gpu_rt_queue_order,
 )
 from bajo.rt.gpu.views import GpuRtTraceQueueView
 
@@ -20,17 +17,12 @@ def gpu_rt_light_order_rays_kernel[scatter: Bool](queues: GpuRtTraceQueueView):
     if active == 0:
         return
     var scratch = GpuRtQueueOrderScratch.from_queues(queues)
-    var idx = global_idx.x
-    var lane = lane_id()
-    # Every lane participates in the match and ballot, including the inactive
-    # tail of the last warp. Mask it out before counting or reserving slots.
-    while idx - lane < active:
-        var valid = idx < active
-        var key = UInt32(0)
-        if valid:
-            key = scratch.light_ids[unsafe_offset=idx]
-        gpu_rt_queue_order_group[scatter](scratch, idx, key, valid)
-        idx += Int(grid_dim.x * block_dim.x)
+
+    @always_inline
+    def key(idx: Int) {imm} -> UInt32:
+        return scratch.light_ids[unsafe_offset=idx]
+
+    gpu_rt_queue_order_rays[scatter](scratch, active, key)
 
 
 def enqueue_gpu_rt_light_order(
@@ -38,16 +30,9 @@ def enqueue_gpu_rt_light_order(
 ) raises:
     if not gpu_rt_queue_order_enabled(Int(queues.capacity), bounce):
         return
-    ctx.enqueue_function[
-        gpu_rt_queue_order_init_kernel[64, WAVE_COUNTER.SHADOW]
-    ](queues, grid_dim=1, block_dim=64)
-    var blocks = min(ceildiv(Int(queues.capacity), 256), 1024)
-    ctx.enqueue_function[gpu_rt_light_order_rays_kernel[False]](
-        queues, grid_dim=blocks, block_dim=256
-    )
-    ctx.enqueue_function[
-        gpu_rt_queue_order_scan_kernel[64, WAVE_COUNTER.SHADOW]
-    ](queues, grid_dim=1, block_dim=64)
-    ctx.enqueue_function[gpu_rt_light_order_rays_kernel[True]](
-        queues, grid_dim=blocks, block_dim=256
-    )
+    enqueue_gpu_rt_queue_order[
+        bin_count=64,
+        counter=WAVE_COUNTER.SHADOW,
+        count_kernel=gpu_rt_light_order_rays_kernel[False],
+        scatter_kernel=gpu_rt_light_order_rays_kernel[True],
+    ](ctx, queues)

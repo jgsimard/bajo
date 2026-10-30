@@ -1,11 +1,14 @@
 """Material, texture, environment, and surface storage types."""
 
-from std.math import sqrt
 from std.sys.info import size_of
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from bajo.rt.texture_math import (
     sample_image_texture,
+    sample_environment_texture,
     texture_luminance,
+    albedo_from_texture,
+    roughness_from_texture,
+    bump_slope,
     bump_normal,
 )
 from std.utils.numerics import isfinite
@@ -61,24 +64,14 @@ struct ImageTexture:
         .float32, .WORLD, length
     ]:
         """Nearest lookup in PBRT's top-to-bottom equal-area image domain."""
-        var x = min(
-            max((u * Float32(self.width)).cast[.int64](), 0),
-            SIMD[.int64, length](self.width - 1),
-        )
-        var y = min(
-            max((v * Float32(self.height)).cast[.int64](), 0),
-            SIMD[.int64, length](self.height - 1),
-        )
-        var pixels = record_tile[.float32, 3](
-            self.pixels.unsafe_ptr(), self.width * self.height
-        )
-        var value = gather_record_vec3(
-            pixels, y * SIMD[.int64, length](self.width) + x
-        )
-        return Vec3[.float32, .WORLD, length](
-            max(value.x, 0.0),
-            max(value.y, 0.0),
-            max(value.z, 0.0),
+        return sample_environment_texture(
+            record_tile[.float32, 3](
+                self.pixels.unsafe_ptr(), self.width * self.height
+            ),
+            self.width,
+            self.height,
+            u,
+            v,
         )
 
 
@@ -233,27 +226,13 @@ comptime PRIMITIVE_INDEX_MASK = UInt32((1 << PRIMITIVE_INDEX_BITS) - 1)
 
 
 @always_inline
-def resolve_mix_surface(
-    var surface: UInt32,
-    references: Pointer[UInt32, ImmutAnyOrigin],
-    amounts: Pointer[Float32, ImmutAnyOrigin],
-    var random: Float32,
-) -> UInt32:
-    """Choose one BSDF per hit, shared by direct lighting and continuation.
-
-    Remapping the variate preserves conditional probabilities for nested mixes.
-    The selected BSDF's value and PDF stay paired for MIS.
-    """
-    while SurfaceId.kind_from_raw(surface) == .MIX:
-        var index = Int(SurfaceId.index_from_raw(surface))
-        var amount = amounts[unsafe_offset=index]
-        if random < amount:
-            surface = references[unsafe_offset=2 * index + 1]
-            random /= amount
-        else:
-            surface = references[unsafe_offset=2 * index]
-            random = (random - amount) / (1.0 - amount)
-    return surface
+def sample_mix_branch(amount: Float32, mut random: Float32) -> Int:
+    """Choose a child and remap its uniform variate for nested mixes."""
+    if random < amount:
+        random /= amount
+        return 1
+    random = (random - amount) / (1.0 - amount)
+    return 0
 
 
 struct Integrator(EnumLike, Equatable, TrivialRegisterPassable, Writable):
@@ -746,12 +725,8 @@ struct SurfaceStore:
         while selected.kind() == .MIX:
             var index = Int(selected.index())
             var amount = self.sample_mix_amount(index, u, v)
-            if random < amount:
-                selected = SurfaceId.from_raw(self.mix_surfaces[2 * index + 1])
-                random /= amount
-            else:
-                selected = SurfaceId.from_raw(self.mix_surfaces[2 * index])
-                random = (random - amount) / (1.0 - amount)
+            var branch = sample_mix_branch(amount, random)
+            selected = SurfaceId.from_raw(self.mix_surfaces[2 * index + branch])
         return selected^
 
     def sample_conductor_roughness[
@@ -782,13 +757,9 @@ struct SurfaceStore:
                 remap[lane] = material.remap_roughness
         if not textures.ne(NO_TEXTURE).reduce_or():
             return roughness
-        var mapped = (
-            scale
-            * texture_luminance(
-                self.sample_image_textures(textures, u * us, v * vs)
-            )
-        ).clamp(0.0, 1.0)
-        mapped = remap.select(sqrt(mapped), mapped)
+        var mapped = roughness_from_texture(
+            self.sample_image_textures(textures, u * us, v * vs), scale, remap
+        )
         return textures.ne(NO_TEXTURE).select(mapped, roughness)
 
     @always_inline
@@ -886,12 +857,10 @@ struct SurfaceStore:
                 textures[lane] = metadata[1]
         if not textures.ne(NO_TEXTURE).reduce_or():
             return albedo
-        var value = albedo * self.sample_image_textures(textures, u, v)
-        var textured = textures.ne(NO_TEXTURE)
-        return Vec3[.float32, .WORLD, length](
-            textured.select(value.x.clamp(0.0, 1.0), albedo.x),
-            textured.select(value.y.clamp(0.0, 1.0), albedo.y),
-            textured.select(value.z.clamp(0.0, 1.0), albedo.z),
+        return albedo_from_texture(
+            albedo,
+            self.sample_image_textures(textures, u, v),
+            textures.ne(NO_TEXTURE),
         )
 
     def shading_normal[
@@ -929,38 +898,22 @@ struct SurfaceStore:
         var tv = v * v_scale
         var du = Float32(0.5) / widths
         var dv = Float32(0.5) / heights
-        var slope_u = (
-            (
-                texture_luminance(
-                    self.sample_image_textures(textures, tu + du, tv)
-                )
-                - texture_luminance(
-                    self.sample_image_textures(textures, tu - du, tv)
-                )
-            )
-            * widths
-            * u_scale
-            * scale
+        var slope_u = bump_slope(
+            self.sample_image_textures(textures, tu - du, tv),
+            self.sample_image_textures(textures, tu + du, tv),
+            widths,
+            u_scale,
+            scale,
         )
-        var slope_v = (
-            (
-                texture_luminance(
-                    self.sample_image_textures(textures, tu, tv + dv)
-                )
-                - texture_luminance(
-                    self.sample_image_textures(textures, tu, tv - dv)
-                )
-            )
-            * heights
-            * v_scale
-            * scale
+        var slope_v = bump_slope(
+            self.sample_image_textures(textures, tu, tv - dv),
+            self.sample_image_textures(textures, tu, tv + dv),
+            heights,
+            v_scale,
+            scale,
         )
         var bumped = bump_normal(normal, slope_u, slope_v)
-        return Vec3[.float32, .WORLD, length](
-            mapped.select(bumped.x, normal.x),
-            mapped.select(bumped.y, normal.y),
-            mapped.select(bumped.z, normal.z),
-        )
+        return Vec3.select(mapped, bumped, normal)
 
     def add_lambertian(
         mut self, albedo: Color, texture_index: UInt32 = NO_TEXTURE

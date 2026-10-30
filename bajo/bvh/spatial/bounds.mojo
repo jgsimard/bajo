@@ -370,14 +370,11 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
                             lower[lane] = Float64(bounds._min[axis])
                             upper[lane] = Float64(bounds._max[axis])
                         var center = (lower + upper) * 0.5
-                        normalized[axis] = max(
-                            SIMD[.float64, width](0.0),
-                            min(
-                                SIMD[.float64, width](1.0),
-                                (center - Float64(box._min[axis]))
-                                / shared_extent,
-                            ),
-                        ).cast[.float32]()
+                        normalized[axis] = (
+                            ((center - Float64(box._min[axis])) / shared_extent)
+                            .clamp(0.0, 1.0)
+                            .cast[.float32]()
+                        )
                 var codes = morton3(normalized[0], normalized[1], normalized[2])
                 comptime for lane in range(width):
                     pairs.unsafe_get(first + lane) = MortonItem(
@@ -394,14 +391,10 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
                             + Float64(bounds._max[axis])
                         ) * 0.5
                         normalized[axis] = Float32(
-                            max(
-                                Float64(0.0),
-                                min(
-                                    Float64(1.0),
-                                    (center - Float64(box._min[axis]))
-                                    / shared_extent,
-                                ),
-                            )
+                            (
+                                (center - Float64(box._min[axis]))
+                                / shared_extent
+                            ).clamp(0.0, 1.0)
                         )
                 pairs.unsafe_get(tail) = MortonItem(
                     morton3(normalized.x, normalized.y, normalized.z), id

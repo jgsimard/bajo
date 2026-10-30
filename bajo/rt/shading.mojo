@@ -1,8 +1,9 @@
 """Host/device-safe BSDF sampling and evaluation primitives."""
 
-from std.math import abs, cos, fma, pi, pow, sin, sqrt
+from std.math import cos, fma, pi, pow, sin, sqrt
 
-from bajo.core import dot, cross, length2, normalize, Frame, Vec3
+from bajo.core import dot, normalize, orthonormal_basis, reflect, refract, Vec3
+from bajo.core.random import unit_vector_from_samples
 from bajo.rt.coated_diffuse import (
     _evaluate_coated_diffuse,
     _sample_coated_diffuse,
@@ -15,6 +16,19 @@ from bajo.rt.shading_types import (
 
 
 comptime INV_PI = 1.0 / pi
+comptime METAL_DELTA_FUZZ_THRESHOLD = 1.0e-4
+
+
+@always_inline
+def _metal_lobe_parameters[
+    length: SIMDLength
+](fuzz: SIMD[.float32, length]) -> Tuple[
+    SIMD[.bool, length], SIMD[.float32, length]
+]:
+    var smooth = fuzz.le(METAL_DELTA_FUZZ_THRESHOLD)
+    var safe_fuzz = smooth.select(Float32(1.0), fuzz)
+    var exponent = max(2.0 / (safe_fuzz * safe_fuzz) - 2.0, 0.0)
+    return smooth, exponent
 
 
 @always_inline
@@ -43,14 +57,12 @@ def _evaluate_metal[
     fuzz: SIMD[.float32, length],
     out_direction: Vec3[.float32, .WORLD, length],
 ) -> BsdfEvaluation[length]:
-    var smooth = fuzz.le(1.0e-4)
-    var safe_fuzz = smooth.select(Float32(1.0), fuzz)
+    var smooth, exponent = _metal_lobe_parameters(fuzz)
     var direction = normalize(out_direction)
     var reflected = normalize(reflect(normalize(ray_direction), normal))
     var surface_valid = dot(normal, direction).gt(0.0)
     var lobe_cosine = max(dot(reflected, direction), 0.0)
     var lobe_valid = lobe_cosine.gt(0.0)
-    var exponent = max(2.0 / (safe_fuzz * safe_fuzz) - 2.0, 0.0)
     var lobe = pow(lobe_cosine, exponent)
     var valid = (~smooth) & surface_valid & lobe_valid
     var value_scale = (exponent + 2.0) * lobe / Float32(2.0 * pi)
@@ -109,11 +121,8 @@ def _sample_lambertian[
     random_u: SIMD[.float32, length],
     random_v: SIMD[.float32, length],
 ) -> BsdfSample[length]:
-    var theta = Float32(2.0 * pi) * random_u
-    var z = 1.0 - 2.0 * random_v
-    var radius = sqrt(max(1.0 - z * z, 0.0))
-    var random_direction = Vec3[.float32, .WORLD, length](
-        radius * cos(theta), radius * sin(theta), z
+    var random_direction = unit_vector_from_samples[.WORLD, length](
+        random_u, random_v
     )
     var scatter_direction = normal + random_direction
     scatter_direction = Vec3.select(
@@ -142,17 +151,11 @@ def _sample_metal[
     random_v: SIMD[.float32, length],
 ) -> BsdfSample[length]:
     var reflected = normalize(reflect(normalize(ray_direction), normal))
-    var smooth = fuzz.le(1.0e-4)
-    var safe_fuzz = smooth.select(Float32(1.0), fuzz)
-    var exponent = max(2.0 / (safe_fuzz * safe_fuzz) - 2.0, 0.0)
+    var smooth, exponent = _metal_lobe_parameters(fuzz)
     var cos_theta = pow(random_u, 1.0 / (exponent + 1.0))
     var sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0))
     var phi = Float32(2.0 * pi) * random_v
-    var helper_y = Vec3[.float32, .WORLD, length](0.0, 1.0, 0.0)
-    var helper_x = Vec3[.float32, .WORLD, length](1.0, 0.0, 0.0)
-    var helper = Vec3.select(abs(reflected.y).gt(0.99), helper_x, helper_y)
-    var tangent = normalize(cross(helper, reflected))
-    var bitangent = cross(reflected, tangent)
+    var tangent, bitangent = orthonormal_basis(reflected)
     var rough_direction = normalize(
         tangent * (cos(phi) * sin_theta)
         + bitangent * (sin(phi) * sin_theta)
@@ -255,27 +258,6 @@ def _sample_material[
             return _sample_dielectric(
                 ray_direction, normal, parameter, front_face, random_u
             )
-
-
-def reflect[
-    dtype: DType, frame: Frame, length: SIMDLength
-](v: Vec3[dtype, frame, length], n: Vec3[dtype, frame, length]) -> Vec3[
-    dtype, frame, length
-]:
-    return v - 2.0 * dot(v, n) * n
-
-
-def refract[
-    dtype: DType, frame: Frame, length: SIMDLength
-](
-    uv: Vec3[dtype, frame, length],
-    n: Vec3[dtype, frame, length],
-    etai_over_etat: SIMD[dtype, length],
-) -> Vec3[dtype, frame, length]:
-    var cos_theta = min(dot(-uv, n), 1.0)
-    var r_out_perp = etai_over_etat * (uv + cos_theta * n)
-    var r_out_parallel = -sqrt(abs(1.0 - length2(r_out_perp))) * n
-    return r_out_perp + r_out_parallel
 
 
 def reflectance[

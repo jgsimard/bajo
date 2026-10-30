@@ -26,9 +26,7 @@ def _draw_alias_column[
     length: SIMDLength = 1
 ](random_u: SIMD[.float32, length], count: Int) -> _AliasDraw[length]:
     var scaled = random_u * Float32(count)
-    var column = min(
-        max(scaled.cast[.int64](), 0), SIMD[.int64, length](count - 1)
-    )
+    var column = scaled.cast[.int64]().clamp(0, SIMD[.int64, length](count - 1))
     return _AliasDraw[length](column, scaled - column.cast[.float32]())
 
 

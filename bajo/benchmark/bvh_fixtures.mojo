@@ -1,7 +1,5 @@
 """Geometry and ray fixtures shared by BVH benchmarks."""
 
-from std.math import max
-
 from bajo.bvh import Camera
 from bajo.core import AABB, Point3f32, Rayf32, Vec3f32
 
@@ -65,7 +63,7 @@ def make_camera_rays_and_params(
     var center = bounds.centroid()
     var extent = bounds.extent()
 
-    var scene_w = max(max(extent.x, extent.y), extent.z)
+    var scene_w = extent.max_component()
     if scene_w < 1.0:
         scene_w = 1.0
 

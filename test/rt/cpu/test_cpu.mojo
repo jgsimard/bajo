@@ -1579,7 +1579,7 @@ def test_wavefront_workers_reuse_chunks_without_changing_pixels() raises:
         90.0,
     )
     var serial = render_wavefront[.PATH, 4, 7, False](settings, camera, world)
-    comptime for mode_idx in range(3):
+    comptime for mode_idx in range(2):
         comptime mode = CpuSchedulerMode(mode_idx)
         var parallel = render_wavefront[.PATH, 4, 7, True, mode](
             settings, camera, world

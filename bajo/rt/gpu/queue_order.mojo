@@ -9,7 +9,10 @@ Stages reuse the index plane in stream order: traversal, coating, visibility.
 
 from std.atomic import Atomic, Ordering
 from std.bit import count_trailing_zeros, pop_count
-from max.gpu import global_idx, lane_id, WARP_SIZE
+from std.builtin.device_passable import DevicePassable
+from std.math import ceildiv
+from max.gpu import global_idx, grid_dim, block_dim, lane_id, WARP_SIZE
+from max.gpu.host import DeviceContext
 from max.gpu.primitives import block, warp
 
 from bajo.rt.wavefront_contract import WavePathFloatAbi, WaveShadowFloatAbi
@@ -104,3 +107,42 @@ def gpu_rt_queue_order_group[
         var rank = UInt32(pop_count(peers & ((Mask(1) << Mask(lane)) - 1)))
         if valid:
             scratch.indices[unsafe_offset=Int(offset + rank)] = UInt32(idx)
+
+
+@always_inline
+def gpu_rt_queue_order_rays[
+    scatter: Bool, KeyFn: def(Int) -> UInt32
+](scratch: GpuRtQueueOrderScratch, active: Int, ref key_fn: KeyFn):
+    var idx = global_idx.x
+    var lane = lane_id()
+    # Entire warps participate in the match and ballot, including inactive
+    # tail lanes. Only valid lanes may load inputs through the key function.
+    while idx - lane < active:
+        var valid = idx < active
+        var key = UInt32(0)
+        if valid:
+            key = key_fn(idx)
+        gpu_rt_queue_order_group[scatter](scratch, idx, key, valid)
+        idx += Int(grid_dim.x * block_dim.x)
+
+
+def enqueue_gpu_rt_queue_order[
+    KernelArgs: TypeList[Trait=AnyType, ...],
+    Args: TypeList[Trait=DevicePassable, ...],
+    //,
+    bin_count: Int,
+    counter: Int,
+    count_kernel: def(*args: *KernelArgs) thin -> None,
+    scatter_kernel: def(*args: *KernelArgs) thin -> None,
+](ctx: DeviceContext, *args: *Args) raises:
+    """Launch ordering stages; kernels take the queue view as argument zero."""
+    var queues = rebind[GpuRtTraceQueueView](args[0])
+    ctx.enqueue_function[gpu_rt_queue_order_init_kernel[bin_count, counter]](
+        queues, grid_dim=1, block_dim=bin_count
+    )
+    var blocks = min(ceildiv(Int(queues.capacity), 256), 1024)
+    ctx.enqueue_function[count_kernel](*args, grid_dim=blocks, block_dim=256)
+    ctx.enqueue_function[gpu_rt_queue_order_scan_kernel[bin_count, counter]](
+        queues, grid_dim=1, block_dim=bin_count
+    )
+    ctx.enqueue_function[scatter_kernel](*args, grid_dim=blocks, block_dim=256)

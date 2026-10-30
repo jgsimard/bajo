@@ -54,4 +54,4 @@ struct MMap:
         return {unsafe_ptr = data, length = self._size}
 
     def as_string_span(self) -> StringSpan[origin_of(self)]:
-        return StringSpan(unsafe_from_utf8=self.as_bytes_span())
+        return {unsafe_from_utf8 = self.as_bytes_span()}

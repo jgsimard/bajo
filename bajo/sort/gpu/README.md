@@ -2,12 +2,11 @@
 
 ![GPU Sorting Benchmark Results](../../../renders/gpu_sort_benchmark_plot.png)
 
-
-The benchmark results are produced with this [benchmark](../../../bench/bench_gpu_sort.mojo) and ploted using this [script](../../../bench/plot_gpu_sort.py)
-
-
+Generate the results with the [sorting benchmark](../../../bench/sort/bench_gpu_sort.mojo)
+and plot them with [plot_gpu_sort.py](../../../bench/sort/plot_gpu_sort.py).
 
 ## Sources
+
 - [Decoupled-Fallback-Paper](https://github.com/b0nes164/Decoupled-Fallback-Paper)
 - [GPUSorting](https://github.com/b0nes164/GPUSorting) by b0nes164 (Thomas Smith)
 - [CUDA Core Compute Libraries](https://github.com/NVIDIA/cccl?tab=License-1-ov-file#readme)

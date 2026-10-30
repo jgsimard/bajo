@@ -8,10 +8,9 @@ from std.testing import (
     assert_false,
     assert_true,
 )
-from bajo.core import Vec3, Vec3f32, normalize
+from bajo.core import Vec3, Vec3f32, normalize, orthonormal_basis
 from bajo.rt.material_parameters import CoatedParameters
 from bajo.rt.coated_diffuse import (
-    _basis,
     _from_local,
     _random,
     _evaluate_coated_diffuse,
@@ -76,7 +75,7 @@ def _check[width: SIMDLength]() raises:
                 normal = Vec3f32[.WORLD](0.0, 1.0, 0.0)
             elif index % 3 == 2:
                 normal = normalize(Vec3f32[.WORLD](1.0, 2.0, 3.0))
-            var tangent, bitangent = _basis(normal)
+            var tangent, bitangent = orthonormal_basis(normal)
             var local = normalize(
                 Vec3f32[.WORLD](
                     Float32(index % 7) * 0.2,

@@ -1,7 +1,8 @@
 """Public CPU ray-tracing API."""
 
 
-from bajo.rt.shading import reflect, reflectance, refract
+from bajo.core import reflect, refract
+from bajo.rt.shading import reflectance
 from .bsdf import evaluate_bsdf, sample_bsdf
 from bajo.rt.image_output import write_ppm_from_colors
 from .scene import CpuScene

@@ -16,7 +16,7 @@ from std.memory import stack_allocation, bitcast
 from std.sys.info import is_gpu
 from std.utils.numerics import isfinite
 from bajo.core import AABB, Frame, Point3f32, Rayf32, Vec3f32, Vec3, cross, dot
-from bajo.core import Point3, AxisAlignedBoundingBox
+from bajo.core import Point3, AxisAlignedBoundingBox, length
 from bajo.bvh.constants import EMPTY_LANE, f32_max
 from .query import BoundsQueryView, BoundsQuery, _gpu_ray_bounds_interval
 from .policy import BATCH_WIDTH, RAY_COUNT_WIDTH
@@ -1927,7 +1927,7 @@ struct MeshQueryView[
                     )
                     var perpendicular = cross(left, right)
                     weight = angle_atan2(
-                        sqrt(dot(perpendicular, perpendicular)),
+                        length(perpendicular),
                         dot(left, right),
                     )
                 n += normal * weight

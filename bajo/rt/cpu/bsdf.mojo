@@ -8,6 +8,7 @@ from bajo.core.random import Rng
 from bajo.rt.material_parameters import CoatedParameters
 from bajo.rt.material_storage import load_coated_parameters, CoatedDiffuseLayout
 from bajo.rt.shading import (
+    METAL_DELTA_FUZZ_THRESHOLD,
     dielectric_geometry,
     _evaluate_coated_diffuse,
     _evaluate_material,
@@ -210,7 +211,7 @@ struct _MaterialParameters[length: SIMDLength]:
                         | (self.parameter.ge(0.0) & self.parameter.le(1.0))
                     ).reduce_and()
                 )
-                eligible &= self.parameter.gt(1.0e-4)
+                eligible &= self.parameter.gt(METAL_DELTA_FUZZ_THRESHOLD)
             if eligible.reduce_or():
                 random_u = eligible.select(rng.f32(), 0.0)
                 random_v = eligible.select(rng.f32(), 0.0)

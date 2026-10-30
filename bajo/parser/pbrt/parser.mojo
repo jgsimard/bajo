@@ -8,7 +8,7 @@ from std.sys import num_logical_cores, simd_width_of
 from bajo.core.random import Sampler
 
 from bajo.bvh import Camera
-from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32, dot
+from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32, dot, length
 from bajo.parser.number import parse_f32_fast_at, parse_int_f32
 from bajo.parser.ply.pack import _pack_ply_mesh
 from bajo.parser.ply.pack import _remove_degenerate_triangles
@@ -1133,15 +1133,9 @@ def _shape[
             var x_axis = builder.state.transform.vector(_VecL(1.0, 0.0, 0.0))
             var y_axis = builder.state.transform.vector(_VecL(0.0, 1.0, 0.0))
             var z_axis = builder.state.transform.vector(_VecL(0.0, 0.0, 1.0))
-            var sx = sqrt(
-                x_axis.x * x_axis.x + x_axis.y * x_axis.y + x_axis.z * x_axis.z
-            )
-            var sy = sqrt(
-                y_axis.x * y_axis.x + y_axis.y * y_axis.y + y_axis.z * y_axis.z
-            )
-            var sz = sqrt(
-                z_axis.x * z_axis.x + z_axis.y * z_axis.y + z_axis.z * z_axis.z
-            )
+            var sx = length(x_axis)
+            var sy = length(y_axis)
+            var sz = length(z_axis)
             if abs(sx - sy) > 1e-5 or abs(sx - sz) > 1e-5:
                 raise Error(
                     "non-uniformly transformed PBRT spheres are not supported"

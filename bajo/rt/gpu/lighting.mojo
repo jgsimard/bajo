@@ -4,6 +4,7 @@ from std.math import pi
 from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.bvh.constants import f32_max
 from bajo.core import Point3f32, Rayf32, Vec3f32, dot, normalize
+from bajo.core.tensor_layout import record_tile
 from bajo.core.random import random_unit_vector
 from bajo.rt.common import (
     equal_area_square_to_sphere,
@@ -21,11 +22,16 @@ from bajo.rt.lighting import (
     _sample_sphere_light_surface,
     _sample_triangle_light_surface,
 )
-from bajo.rt.shading import _evaluate_coated_diffuse, _evaluate_material
+from bajo.rt.shading import (
+    METAL_DELTA_FUZZ_THRESHOLD,
+    _evaluate_coated_diffuse,
+    _evaluate_material,
+)
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.render_types import Color, SamplingConfig
 from bajo.rt.material_types import Integrator, SurfaceId
 from bajo.rt.lighting_types import _light_importance
+from bajo.rt.texture_math import load_environment_texel
 from bajo.rt.scene_data import SceneData
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
@@ -204,7 +210,7 @@ def _sample_direct_light_candidate[
             )
             if (
                 scene.metals[unsafe_offset=material_base + GpuMetalLayout.FUZZ]
-                <= 1.0e-4
+                <= METAL_DELTA_FUZZ_THRESHOLD
             ):
                 return GpuDirectLightSample.make_empty()
 
@@ -270,15 +276,16 @@ def _sample_direct_light_candidate[
                         + GpuTextureDescLayout.PIXEL_OFFSET
                     ]
                 )
-                var base = pixel_offset + 3 * selected_pixel
                 emission = Color(
                     scene.environment_scale_x,
                     scene.environment_scale_y,
                     scene.environment_scale_z,
-                ) * Color(
-                    max(scene.texture_pixels[unsafe_offset=base], 0.0),
-                    max(scene.texture_pixels[unsafe_offset=base + 1], 0.0),
-                    max(scene.texture_pixels[unsafe_offset=base + 2], 0.0),
+                ) * load_environment_texel(
+                    record_tile[.float32, 3](
+                        scene.texture_pixels.unsafe_offset(pixel_offset),
+                        selected_pixel + 1,
+                    ),
+                    Int64(selected_pixel),
                 )
             case .PROCEDURAL:
                 emission = sky_color(direction)

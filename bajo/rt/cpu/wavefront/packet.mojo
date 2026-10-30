@@ -1,6 +1,6 @@
 """Width-generic packet CPU wavefront kernels."""
 
-from std.math import sqrt, iota
+from std.math import iota
 from bajo.rt.continuation import finish_continuation, continuation_medium
 
 from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
@@ -8,7 +8,7 @@ from bajo.core import (
     Point3,
     Ray,
     Vec3,
-    dot,
+    length as vector_length,
 )
 from bajo.rt.render_types import (
     Color,
@@ -377,7 +377,7 @@ def _trace_packets[
                 if (valid_lanes & packet.medium_ids.ne(0)).reduce_or():
                     var distance = surface_hits.hit.select(
                         surface_hits.t, packet.t_max
-                    ) * sqrt(dot(ray_packet.d, ray_packet.d))
+                    ) * vector_length(ray_packet.d)
                     var attenuation = (
                         world.scene_data()
                         .media()

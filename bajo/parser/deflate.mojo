@@ -7,6 +7,7 @@ written output. No speculative memory access extends outside either span.
 """
 
 from std.bit import bit_reverse
+from std.math import clamp
 from std.sys.info import CompilationTarget
 from std.sys.intrinsics import llvm_intrinsic
 
@@ -312,7 +313,7 @@ struct _Huffman:
                 raise Error("incomplete DEFLATE Huffman code")
         # An eight-bit distance root allows byte extraction in the decode loop
         # even when the longest distance code is shorter (libdeflate's layout).
-        self.root = min(7, max(1, longest))
+        self.root = clamp(longest, 1, 7)
         self.paired = False
         if alphabet == 1:
             self.root = 8
@@ -331,8 +332,8 @@ struct _Huffman:
             # prefixes resolve two literals. Near-uniform EXR chunks keep the
             # smaller single-literal loop; fixed trees cannot form pairs here.
             self.paired = pairs >= UInt32(1 << candidate) // 4
-            self.root = candidate if self.paired else min(
-                min(11, root_bits), max(1, longest)
+            self.root = candidate if self.paired else clamp(
+                longest, 1, min(11, root_bits)
             )
         var root_size = 1 << self.root
         var sub_bits = List[UInt8](length=root_size, fill=0)

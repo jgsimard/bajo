@@ -78,24 +78,9 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
     ]:
         return (
             Vec3[.float32, .WORLD, length](
-                dot(
-                    Vec3[.float32, .WORLD, length](
-                        self.red.x[0], self.red.y[0], self.red.z[0]
-                    ),
-                    color,
-                ),
-                dot(
-                    Vec3[.float32, .WORLD, length](
-                        self.green.x[0], self.green.y[0], self.green.z[0]
-                    ),
-                    color,
-                ),
-                dot(
-                    Vec3[.float32, .WORLD, length](
-                        self.blue.x[0], self.blue.y[0], self.blue.z[0]
-                    ),
-                    color,
-                ),
+                dot(self.red.broadcast[length](), color),
+                dot(self.green.broadcast[length](), color),
+                dot(self.blue.broadcast[length](), color),
             )
             * self.exposure
         )

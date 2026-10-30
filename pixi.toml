@@ -53,7 +53,6 @@ test_python_host = "python test/viewer/test_viewer_launcher.py"
 
 # sort
 bench_sort_mojo = { cmd = "bash -lc 'cd bench/sort && mojo run -I ../.. bench_gpu_sort.mojo'" }
-plot_sort = { cmd = "bash -lc 'cd bench/sort && python plot_gpu_sort.py gpu_sort_benchmark_results.csv'" }
 
 
 # parsers: whole-file loading, not individual implementation stages
@@ -98,6 +97,22 @@ libpng = ">=1.6.59,<2"
 mojo = ">=1.3.0.dev2026102914,<2"
 max = ">=26.8.0.dev2026102914,<27"
 python = ">=3.13.18,<3.14"
+
+[feature.plotting.dependencies]
+python = ">=3.13.18,<3.14"
 polars = ">=2.1.0,<3"
 matplotlib = ">=3.11.2,<4"
+
+[feature.plotting.tasks]
+plot_sort = { cmd = "python plot_gpu_sort.py gpu_sort_benchmark_results.csv", cwd = "bench/sort" }
+
+[feature.graphics.dependencies]
 pillow = ">=13.0.0,<14"
+
+[feature.graphics.tasks]
+test_viewer_graphics = { cmd = "python test/viewer/test_viewer_graphics.py", env = { BAJO_TEST_VIEWER_GRAPHICS = "1" }, depends-on = ["install_raylib"] }
+
+[environments]
+default = { features = [], solve-group = "bajo" }
+plotting = { features = ["plotting"], no-default-feature = true, solve-group = "bajo" }
+graphics = { features = ["graphics"], solve-group = "bajo" }

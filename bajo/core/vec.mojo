@@ -403,6 +403,10 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
             case _:
                 comptime assert False, "Geo3 axis index must be in [0, 3)"
 
+    @always_inline
+    def max_component(self) -> SIMD[Self.dtype, Self.width]:
+        return fmax(self.x, fmax(self.y, self.z))
+
     def is_near_zero(
         self,
         eps: Scalar[Self.dtype] = 1.0e-8,
@@ -586,14 +590,36 @@ def normalize[
     return v * inv_l
 
 
-def longest_axis[
+@always_inline
+def orthonormal_basis[
     dtype: DType, frame: Frame, width: SIMDLength
+](normal: Vec3[dtype, frame, width]) -> Tuple[
+    Vec3[dtype, frame, width], Vec3[dtype, frame, width]
+]:
+    """Build tangent and bitangent vectors for each unit-normal lane."""
+    comptime assert dtype.is_floating_point()
+    var helper = Vec3[dtype, frame, width].select(
+        abs(normal.y).gt(Scalar[dtype](0.99)),
+        Vec3[dtype, frame, width](1.0, 0.0, 0.0),
+        Vec3[dtype, frame, width](0.0, 1.0, 0.0),
+    )
+    var tangent = normalize(cross(helper, normal))
+    return tangent, cross(normal, tangent)
+
+
+def longest_axis[
+    dtype: DType, frame: Frame, width: SIMDLength, absolute: Bool = False
 ](v: Vec3[dtype, frame, width]) -> Int:
     comptime assert width == 1
 
     var x = v.x[0]
     var y = v.y[0]
     var z = v.z[0]
+
+    comptime if absolute:
+        x = abs(x)
+        y = abs(y)
+        z = abs(z)
 
     if x > y:
         if x > z:

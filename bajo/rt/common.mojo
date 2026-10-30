@@ -296,10 +296,10 @@ def russian_roulette[
         return RussianRouletteResult[length](
             SIMD[.bool, length](fill=True), throughput
         )
-    var maximum = max(throughput.x, max(throughput.y, throughput.z))
+    var maximum = throughput.max_component()
     var eligible = maximum.gt(0.0)
-    var survival = min(
-        max(maximum, RUSSIAN_ROULETTE_MIN_SURVIVAL),
+    var survival = maximum.clamp(
+        RUSSIAN_ROULETTE_MIN_SURVIVAL,
         RUSSIAN_ROULETTE_MAX_SURVIVAL,
     )
     if not eligible.reduce_or():

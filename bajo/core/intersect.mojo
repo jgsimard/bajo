@@ -12,6 +12,7 @@ from bajo.core.vec import (
     vclamp,
     cross,
     length,
+    longest_axis,
 )
 from bajo.core.aabb import AxisAlignedBoundingBox
 from bajo.core.utils import fmin, fmax
@@ -529,22 +530,6 @@ def intersect_ray_tri[
     )
 
 
-def max_dim[
-    dtype: DType, frame: Frame, width: SIMDLength
-](v: Vec3[dtype, frame, width]) -> Int:
-    comptime assert width == 1
-
-    var x = abs(v.x)
-    var y = abs(v.y)
-    var z = abs(v.z)
-
-    if x > y and x > z:
-        return 0
-    if y > z:
-        return 1
-    return 2
-
-
 def edge_edge_test[
     dtype: DType, frame: Frame, width: SIMDLength
 ](
@@ -831,7 +816,7 @@ def no_div_tri_tri_isect[
 
     # Projection onto intersection line.
     var d_dir = cross(n1, n2)
-    var index = max_dim(d_dir)
+    var index = longest_axis[absolute=True](d_dir)
 
     var res1 = get_intervals(
         v0[index],
@@ -1008,7 +993,7 @@ def project_triangle[
         var length2 = dot(direction, direction)
         var t = Float64(0.0)
         if length2 > 0.0:
-            t = max(0.0, min(1.0, dot(p - start, direction) / length2))
+            t = (dot(p - start, direction) / length2).clamp(0.0, 1.0)
         var q = start + direction * t
         var distance2 = dot(q - p, q - p)
         if distance2 < best.distance2:
@@ -1138,9 +1123,9 @@ def solid_angle[
     var bv = b - p
     var cv = c - p
     var numerator = dot(av, cross(bv, cv))
-    var la = sqrt(dot(av, av))
-    var lb = sqrt(dot(bv, bv))
-    var lc = sqrt(dot(cv, cv))
+    var la = length(av)
+    var lb = length(bv)
+    var lc = length(cv)
     var denominator = (
         la * lb * lc + dot(av, bv) * lc + dot(bv, cv) * la + dot(cv, av) * lb
     )

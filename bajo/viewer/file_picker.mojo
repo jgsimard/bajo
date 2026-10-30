@@ -1,6 +1,6 @@
 """A raylib file browser for PBRT scenes, with no external GUI dependency."""
 
-from std.math import min, max
+from std.math import min, max, clamp
 from .raylib import Window, Frame, Font, Color, Vector2
 
 
@@ -118,11 +118,10 @@ struct FilePicker:
             ) else -1
         self.offset -= Int(window.mouse_wheel() * 3)
         if window.is_key_pressed(264) or window.is_key_pressed(265):
-            self.offset = min(self.offset, self.selected)
-            self.offset = max(self.offset, self.selected - visible + 1)
-        self.offset = max(
-            0, min(self.offset, max(0, len(self.entries) - visible))
-        )
+            self.offset = clamp(
+                self.offset, self.selected - visible + 1, self.selected
+            )
+        self.offset = clamp(self.offset, 0, max(0, len(self.entries) - visible))
         var activate = window.is_key_pressed(257)
         if clicked and contains(mouse, 32, 136, width - 64, visible * 28):
             var selected = self.offset + (Int(mouse.y) - 136) // 28

@@ -162,7 +162,7 @@ def _assert_queue_order[
                             GPU_RT_BVH_TLAS2,
                             scatter,
                         ]
-                    ](scene_view, queues, grid_dim=1, block_dim=256)
+                    ](queues, scene_view, grid_dim=1, block_dim=256)
                 elif mode == 1:
                     ctx.enqueue_function[
                         gpu_rt_material_order_rays_kernel[scatter]

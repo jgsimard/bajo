@@ -12,6 +12,7 @@ from bajo.rt.lighting import (
     _emissive_hit_weight_from_pdf,
 )
 from bajo.rt.shading import (
+    METAL_DELTA_FUZZ_THRESHOLD,
     _sample_coated_diffuse,
     _sample_material,
     dielectric_geometry,
@@ -536,7 +537,7 @@ def _gpu_rt_shade_one[
                 material_data.unsafe_offset(base + GpuMetalLayout.ALBEDO)
             )
             parameter = material_data[unsafe_offset=base + GpuMetalLayout.FUZZ]
-            if parameter > 1.0e-4:
+            if parameter > METAL_DELTA_FUZZ_THRESHOLD:
                 random_u = rng.f32()
                 random_v = rng.f32()
         case _:

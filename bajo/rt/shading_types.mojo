@@ -5,6 +5,13 @@ from bajo.rt.material_types import PrimitiveId, SurfaceId
 
 
 @fieldwise_init
+struct RefractionGeometry[length: SIMDLength](TrivialRegisterPassable):
+    var unit_direction: Vec3[.float32, .WORLD, Self.length]
+    var incident_cosine: SIMD[.float32, Self.length]
+    var transmitted_sine: SIMD[.float32, Self.length]
+
+
+@fieldwise_init
 struct HitRecord(Copyable, Writable):
     var primitive: PrimitiveId
     var p: Point3f32[.WORLD]

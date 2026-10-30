@@ -6,6 +6,7 @@ from bajo.core import Point3f32, Vec3
 from bajo.rt.material_types import PrimitiveId, SurfaceId
 
 
+@fieldwise_init
 struct LightRecord(Copyable, Writable):
     """Finalized world-space emitter geometry and power-distribution entry."""
 
@@ -17,24 +18,6 @@ struct LightRecord(Copyable, Writable):
     var p2: Point3f32[.WORLD]
     var radius: Float32
 
-    def __init__(
-        out self,
-        primitive: PrimitiveId,
-        surface: SurfaceId[1],
-        weight: Float32,
-        p0: Point3f32[.WORLD],
-        p1: Point3f32[.WORLD],
-        p2: Point3f32[.WORLD],
-        radius: Float32,
-    ):
-        self.primitive = primitive.copy()
-        self.surface = surface.copy()
-        self.weight = weight
-        self.p0 = p0
-        self.p1 = p1
-        self.p2 = p2
-        self.radius = radius
-
     @staticmethod
     def triangle(
         primitive: PrimitiveId,
@@ -44,7 +27,7 @@ struct LightRecord(Copyable, Writable):
         p1: Point3f32[.WORLD],
         p2: Point3f32[.WORLD],
     ) -> Self:
-        return Self(primitive, surface, weight, p0, p1, p2, 0.0)
+        return Self(primitive.copy(), surface.copy(), weight, p0, p1, p2, 0.0)
 
     @staticmethod
     def sphere(
@@ -55,8 +38,8 @@ struct LightRecord(Copyable, Writable):
         radius: Float32,
     ) -> Self:
         return Self(
-            primitive,
-            surface,
+            primitive.copy(),
+            surface.copy(),
             weight,
             center,
             Point3f32[.WORLD](0.0),

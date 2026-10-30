@@ -1,5 +1,5 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
-from std.math import abs, fma, sqrt
+from std.math import abs as simd_abs, fma, sqrt
 from std.memory import AddressSpace
 from std.utils.numerics import max_finite
 
@@ -404,6 +404,22 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
                 comptime assert False, "Geo3 axis index must be in [0, 3)"
 
     @always_inline
+    def abs(self) -> Self:
+        return {simd_abs(self.x), simd_abs(self.y), simd_abs(self.z)}
+
+    @always_inline
+    def clamp(
+        self,
+        lower: SIMD[Self.dtype, Self.width],
+        upper: SIMD[Self.dtype, Self.width],
+    ) -> Self:
+        return {
+            self.x.clamp(lower, upper),
+            self.y.clamp(lower, upper),
+            self.z.clamp(lower, upper),
+        }
+
+    @always_inline
     def max_component(self) -> SIMD[Self.dtype, Self.width]:
         return fmax(self.x, fmax(self.y, self.z))
 
@@ -413,16 +429,18 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
     ) -> SIMD[.bool, Self.width]:
         var s = SIMD[Self.dtype, Self.width](eps)
 
-        return abs(self.x).lt(s) & abs(self.y).lt(s) & abs(self.z).lt(s)
+        var magnitude = self.abs()
+        return magnitude.x.lt(s) & magnitude.y.lt(s) & magnitude.z.lt(s)
 
     def is_finite(
         self,
     ) -> SIMD[.bool, Self.width] where Self.dtype.is_floating_point():
         comptime limit = max_finite[Self.dtype]()
+        var magnitude = self.abs()
         return (
-            abs(self.x).le(limit)
-            & abs(self.y).le(limit)
-            & abs(self.z).le(limit)
+            magnitude.x.le(limit)
+            & magnitude.y.le(limit)
+            & magnitude.z.le(limit)
         )
 
     def safe_inv(
@@ -433,9 +451,10 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         comptime zero = SIMD[Self.dtype, Self.width](0.0)
         var e = SIMD[Self.dtype, Self.width](eps)
 
-        var mx = abs(self.x).gt(e)
-        var my = abs(self.y).gt(e)
-        var mz = abs(self.z).gt(e)
+        var magnitude = self.abs()
+        var mx = magnitude.x.gt(e)
+        var my = magnitude.y.gt(e)
+        var mz = magnitude.z.gt(e)
 
         # avoid even forming 1.0 / 0.0 in masked-off lanes
         # necessary ?
@@ -599,7 +618,7 @@ def orthonormal_basis[
     """Build tangent and bitangent vectors for each unit-normal lane."""
     comptime assert dtype.is_floating_point()
     var helper = Vec3[dtype, frame, width].select(
-        abs(normal.y).gt(Scalar[dtype](0.99)),
+        simd_abs(normal.y).gt(Scalar[dtype](0.99)),
         Vec3[dtype, frame, width](1.0, 0.0, 0.0),
         Vec3[dtype, frame, width](0.0, 1.0, 0.0),
     )
@@ -612,14 +631,12 @@ def longest_axis[
 ](v: Vec3[dtype, frame, width]) -> Int:
     comptime assert width == 1
 
-    var x = v.x[0]
-    var y = v.y[0]
-    var z = v.z[0]
-
+    var magnitude = v
     comptime if absolute:
-        x = abs(x)
-        y = abs(y)
-        z = abs(z)
+        magnitude = v.abs()
+    var x = magnitude.x[0]
+    var y = magnitude.y[0]
+    var z = magnitude.z[0]
 
     if x > y:
         if x > z:

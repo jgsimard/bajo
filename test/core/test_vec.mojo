@@ -35,6 +35,32 @@ def test_select_uses_mask_per_simd_lane() raises:
     assert_almost_equal(selected.z[3], -1.0)
 
 
+def test_component_abs_and_clamp_preserve_packet_lanes() raises:
+    var value = Vec3[.float32, .WORLD, 4](
+        SIMD[.float32, 4](-2.0, -0.5, 0.5, 3.0),
+        SIMD[.float32, 4](4.0, -3.0, 2.0, -1.0),
+        SIMD[.float32, 4](-0.25, 0.25, -5.0, 5.0),
+    )
+    assert_vec_equal(
+        value.abs(),
+        Vec3[.float32, .WORLD, 4](
+            SIMD[.float32, 4](2.0, 0.5, 0.5, 3.0),
+            SIMD[.float32, 4](4.0, 3.0, 2.0, 1.0),
+            SIMD[.float32, 4](0.25, 0.25, 5.0, 5.0),
+        ),
+    )
+    var lower = SIMD[.float32, 4](-1.0, 0.0, 0.0, 1.0)
+    var upper = SIMD[.float32, 4](1.0, 1.0, 2.0, 2.0)
+    assert_vec_equal(
+        value.clamp(lower, upper),
+        Vec3[.float32, .WORLD, 4](
+            SIMD[.float32, 4](-1.0, 0.0, 0.5, 2.0),
+            SIMD[.float32, 4](1.0, 0.0, 2.0, 1.0),
+            SIMD[.float32, 4](-0.25, 0.25, 0.0, 2.0),
+        ),
+    )
+
+
 def test_length_normalize() raises:
     var v = Vec3W(3, 0, 0)
     assert_almost_equal(length(v), 3.0)

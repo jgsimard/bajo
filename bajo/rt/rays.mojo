@@ -1,7 +1,9 @@
 """Host/device-safe camera and secondary-ray construction policies."""
 
+from std.utils.numerics import max_finite
+
 from bajo.core.camera import Camera
-from bajo.bvh.constants import f32_max
+
 from bajo.core import Point3, Ray, Vec3, normalize
 from bajo.core.random import Rng, random_on_hemisphere
 
@@ -45,7 +47,7 @@ def spawn_surface_ray[
 ](
     point: Point3[.float32, .WORLD, length],
     direction: Vec3[.float32, .WORLD, length],
-    t_max: SIMD[.float32, length] = f32_max,
+    t_max: SIMD[.float32, length] = max_finite[.float32](),
 ) -> Ray[.float32, .WORLD, length]:
     """Spawn a secondary ray using the renderer's shared lower bound."""
     return Ray[.float32, .WORLD, length](point, direction, RT_RAY_T_MIN, t_max)

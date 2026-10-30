@@ -1,6 +1,8 @@
 """Layout-independent path values shared by CPU SIMD and GPU scalar stages."""
 
-from bajo.bvh.constants import f32_max
+from std.utils.numerics import max_finite
+
+
 from bajo.core import Point3, Vec3
 from bajo.rt.rays import RT_RAY_T_MIN
 
@@ -85,7 +87,7 @@ struct PathContinuation[length: SIMDLength](
             case PathFloatField.DZ:
                 return self.direction.z
             case PathFloatField.T_MAX:
-                return SIMD[.float32, Self.WIDTH](f32_max)
+                return SIMD[.float32, Self.WIDTH](max_finite[.float32]())
             case PathFloatField.TX:
                 return self.throughput.x
             case PathFloatField.TY:

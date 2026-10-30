@@ -4,12 +4,9 @@ from std.sys.intrinsics import llvm_intrinsic
 from std.bit import count_trailing_zeros
 from std.memory import pack_bits
 from layout import Coord, Idx
-from bajo.core.tensor_layout import FieldLayout, FieldTile, field_tile
+from bajo.core.tensor_layout import FieldTile, field_tile
 
 
-comptime PacketFloatLayout[fields: Int, length: SIMDLength] = FieldLayout[
-    fields, type_of(Idx[Int(length)])
-]
 comptime PacketFloatTile[
     fields: Int, length: SIMDLength, origin: Origin
 ] = FieldTile[.float32, fields, type_of(Idx[Int(length)]), origin]

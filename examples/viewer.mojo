@@ -1,5 +1,5 @@
 from bajo.viewer.core import viewer_camera as _viewer_camera
-from bajo.viewer.output import write_linear_frame as _write_linear_frame
+from bajo.rt.image_output import write_linear_rgb
 from std.sys.arg import argv
 from std.sys import has_accelerator, simd_width_of
 from std.sys.defines import get_defined_int
@@ -59,7 +59,7 @@ def _write_viewer_frame(
     linear_output: Bool,
 ) raises:
     if linear_output:
-        _write_linear_frame(path, pixels)
+        write_linear_rgb(path, pixels)
     else:
         write_ppm_from_colors(path, width, height, pixels)
 

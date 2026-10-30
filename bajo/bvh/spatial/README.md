@@ -222,8 +222,7 @@ Exact winding shares packet accumulation, with retained CPU triangle packets
 `SpatialMesh[frame, storage_width]` controls the cache width. Geometry predicates
 share scalar/SIMD implementations, with width 1 as the scalar specialization.
 Reusable triangle projection, normals, ray tests and solid angles live in
-`bajo.core.intersect`; the spatial `geometry` module only reexports them for
-compatibility. Robust spatial ray tests specialize the existing core edge
+`bajo.core.intersect`. Robust spatial ray tests specialize the existing core edge
 predicate for Float64, exact-zero determinants and inclusive intervals.
 `AABB.distance2[furthest]` supplies point traversal and sphere broad phase.
 

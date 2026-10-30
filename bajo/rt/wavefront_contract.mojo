@@ -1,5 +1,7 @@
 """Shared CPU/GPU ABI and orchestration contract for wavefront rendering."""
 
+from std.utils.numerics import max_finite
+
 from std.memory import bitcast
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 
@@ -9,7 +11,7 @@ from bajo.rt.path_values import PathFloatField as WavePathFloatAbi, PathValues
 from bajo.rt.path_store import store_path_values
 from bajo.core.tensor_layout import field_tile
 from bajo.rt.rays import RT_RAY_T_MIN
-from bajo.bvh.constants import f32_max
+
 from bajo.rt.material_types import SurfaceId
 from bajo.rt.shading_types import SurfaceHit
 from bajo.rt.wavefront_queue import (
@@ -389,7 +391,7 @@ def load_device_wave_path[
     var tile = field_tile[.float32, WavePathFloatAbi.PLANES](fields, capacity)
     var packed_id = path_ids[unsafe_offset=idx]
     var t_min = RT_RAY_T_MIN
-    var t_max = f32_max
+    var t_max = max_finite[.float32]()
     comptime if LOAD_BOUNDS:
         t_min = tile[(WavePathFloatAbi.T_MIN, idx)]
         t_max = tile[(WavePathFloatAbi.T_MAX, idx)]

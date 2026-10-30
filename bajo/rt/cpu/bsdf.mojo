@@ -200,7 +200,7 @@ struct _MaterialParameters[length: SIMDLength]:
                 Float32(1.0) / self.parameter, self.parameter
             )
             var geometry = dielectric_geometry(direction, normal, ri)
-            eligible &= geometry[2].le(1.0)
+            eligible &= geometry.transmitted_sine.le(1.0)
             if eligible.reduce_or():
                 random_u = eligible.select(rng.f32(), 0.0)
         else:

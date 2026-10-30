@@ -1,8 +1,10 @@
 """Host-executable checks of the device-safe GPU continuation operation."""
 
+from std.utils.numerics import max_finite
+
 from std.testing import TestSuite, assert_equal
 
-from bajo.bvh.constants import f32_max
+
 from bajo.core import Vec3f32
 from bajo.rt.common import russian_roulette
 from bajo.rt.gpu.path_shading import _continue_gpu_path
@@ -118,7 +120,7 @@ def _test_continuation[
     assert_equal(result.dy, Float32(1.0))
     assert_equal(result.dz, Float32(0.0))
     assert_equal(result.t_min, RT_RAY_T_MIN)
-    assert_equal(result.t_max, f32_max)
+    assert_equal(result.t_max, max_finite[.float32]())
     assert_equal(result.tx, roulette.throughput.x)
     assert_equal(result.ty, roulette.throughput.y)
     assert_equal(result.tz, roulette.throughput.z)

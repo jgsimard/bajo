@@ -2,8 +2,24 @@
 
 from std.algorithm import vectorize
 from std.math import sqrt
+from std.memory import bitcast
 from std.sys import simd_width_of
 from bajo.core.color import Color
+
+
+def write_linear_rgb(path: String, pixels: ImmSpan[Color, _]) raises:
+    """Write tightly packed little-endian Float32 RGB, preserving channel bits.
+    """
+    var bytes = List[UInt8](unsafe_uninit_length=len(pixels) * 12)
+    var index = 0
+    for pixel in pixels:
+        comptime for channel in range(3):
+            var word = bitcast[.uint32](pixel[channel])
+            comptime for byte in range(4):
+                bytes[index + byte] = UInt8(word >> UInt32(byte * 8))
+            index += 4
+    with open(path, "w") as f:
+        f.write_bytes(bytes)
 
 
 @always_inline

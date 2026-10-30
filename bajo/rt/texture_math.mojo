@@ -97,12 +97,7 @@ def albedo_from_texture[
     color: Vec3[.float32, .WORLD, length],
     textured: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
 ) -> Vec3[.float32, .WORLD, length]:
-    var value = albedo * color
-    var clamped = Vec3[.float32, .WORLD, length](
-        value.x.clamp(0.0, 1.0),
-        value.y.clamp(0.0, 1.0),
-        value.z.clamp(0.0, 1.0),
-    )
+    var clamped = (albedo * color).clamp(0.0, 1.0)
     return Vec3.select(textured, clamped, albedo)
 
 

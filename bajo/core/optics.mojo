@@ -49,12 +49,10 @@ def fresnel_dielectric[
     var cosine = cosine_in.clamp(-1.0, 1.0)
     var relative_eta = cosine.lt(0.0).select(1.0 / eta, eta)
     cosine = abs(cosine)
-    var sin2_t = max(SIMD[.float32, length](0.0), 1.0 - cosine * cosine) / (
-        relative_eta * relative_eta
-    )
+    var sin2_t = max(1.0 - cosine * cosine, 0.0) / (relative_eta * relative_eta)
     if sin2_t.ge(1.0).reduce_and():
         return SIMD[.float32, length](1.0)
-    var cos_t = sqrt(max(SIMD[.float32, length](0.0), 1.0 - sin2_t))
+    var cos_t = sqrt(max(1.0 - sin2_t, 0.0))
     var parallel = (relative_eta * cosine - cos_t) / (
         relative_eta * cosine + cos_t
     )
@@ -91,10 +89,7 @@ def fresnel_conductor[
         var rp = (
             rs
             * (c2 * magnitude + s2 * s2 - 2.0 * c * real * s2)
-            / max(
-                SIMD[.float32, length](1.0e-20),
-                c2 * magnitude + s2 * s2 + 2.0 * c * real * s2,
-            )
+            / max(c2 * magnitude + s2 * s2 + 2.0 * c * real * s2, 1.0e-20)
         )
         result[channel] = ((rs + rp) * 0.5).clamp(0.0, 1.0)
     return result

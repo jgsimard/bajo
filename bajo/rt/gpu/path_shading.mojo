@@ -548,7 +548,7 @@ def _gpu_rt_shade_one[
             ]
             var ri = Float32(1.0) / parameter if work.front_face else parameter
             var geometry = dielectric_geometry(ray_direction, normal, ri)
-            if geometry[2] <= 1.0:
+            if geometry.transmitted_sine <= 1.0:
                 random_u = rng.f32()
 
     var sampled = _sample_material[MATERIAL_KIND, 1](

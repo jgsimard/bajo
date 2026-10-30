@@ -1,8 +1,10 @@
 """Prepared GPU light tables and device-safe direct-light sampling."""
 
+from std.utils.numerics import max_finite
+
 from std.math import pi
 from max.gpu.host import DeviceBuffer, DeviceContext
-from bajo.bvh.constants import f32_max, PrimitiveKind
+from bajo.bvh.constants import PrimitiveKind
 from bajo.core import Point3f32, Rayf32, Vec3f32, dot, normalize
 from bajo.core.tensor_layout import record_tile
 from bajo.core.random import random_unit_vector
@@ -304,7 +306,7 @@ def _sample_direct_light_candidate[
             direction,
             surface_cosine,
             light_pdf,
-            f32_max,
+            max_finite[.float32](),
         )
     else:
         if Int(scene.light_count) <= 0:

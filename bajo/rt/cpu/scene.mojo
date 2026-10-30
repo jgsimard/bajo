@@ -1,9 +1,11 @@
 """CPU-prepared scene ownership and traversal."""
 
+from std.utils.numerics import max_finite
+
 from std.bit import count_trailing_zeros
 from std.memory import pack_bits
 
-from bajo.bvh.constants import EMPTY_LANE, PrimitiveKind, f32_max
+from bajo.bvh.constants import EMPTY_LANE, PrimitiveKind
 from bajo.core.geometry import (
     Sphere,
     orient_surface_normal,
@@ -216,7 +218,7 @@ struct _WorldHit(Copyable):
     var surface: SurfaceHit[1]
 
     @staticmethod
-    def miss(t: Float32 = f32_max) -> Self:
+    def miss(t: Float32 = max_finite[.float32]()) -> Self:
         return Self(
             PrimitiveId(PrimitiveKind.SPHERE, UInt32(0)), SurfaceHit[1](t)
         )

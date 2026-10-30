@@ -1,12 +1,14 @@
 """Emission and next-event estimation for CPU path integrators."""
 
+from std.utils.numerics import max_finite
+
 from std.memory import Pointer
 from std.sys.info import size_of
 from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from bajo.rt.lighting_types import LightRecord
 from bajo.core import Point3, Ray, Vec3, dot, normalize
 from bajo.core.random import Rng, unit_vector_from_samples
-from bajo.bvh.constants import f32_max, PrimitiveKind
+from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.common import (
     environment_light_pdf,
     environment_pdf_from_radiance,
@@ -234,7 +236,7 @@ def _sample_environment_candidate[
         emission,
         surface_cosine,
         light_pdf,
-        f32_max,
+        max_finite[.float32](),
     )
 
 

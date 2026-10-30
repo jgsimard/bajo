@@ -13,7 +13,8 @@ from bajo.core.tensor_layout import record_tile
 from std.memory import bitcast
 from std.testing import TestSuite, assert_equal
 
-from bajo.core import Point3f32
+from bajo.core import Point3f32, Vec3f32, normalize
+from test.helpers import assert_vec_equal
 from bajo.rt.material_types import ImageTexture, NO_TEXTURE, SurfaceId
 from bajo.core.color import Color
 from bajo.rt.scene_data import SceneBuilder, SceneData
@@ -24,7 +25,62 @@ from bajo.rt.gpu.materials import (
     _flatten_texture_descs,
     _flatten_texture_pixels,
 )
-from bajo.rt.gpu.textures import _sample_gpu_coated_albedo
+from bajo.rt.gpu.textures import (
+    _sample_gpu_coated_albedo,
+    _GpuImageTextureView,
+    _gpu_bump_normal,
+)
+
+
+def test_texture_view_offsets_wrapping_and_bump_gradients() raises:
+    # A second 2x2 texture follows an unrelated 1x1 texture in packed storage.
+    var descs: List[UInt32] = [0, 1, 1, 3, 2, 2]
+    var pixels: List[Float32] = [
+        10,
+        11,
+        12,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        2,
+        2,
+        2,
+        3,
+        3,
+        3,
+    ]
+    var desc_ptr = (
+        descs.unsafe_ptr()
+        .unsafe_mut_cast[False]()
+        .unsafe_origin_cast[ImmutAnyOrigin]()
+    )
+    var pixel_ptr = (
+        pixels.unsafe_ptr()
+        .unsafe_mut_cast[False]()
+        .unsafe_origin_cast[ImmutAnyOrigin]()
+    )
+    var texture = _GpuImageTextureView.load(1, desc_ptr, pixel_ptr)
+    assert_equal(texture.width, 2)
+    assert_equal(texture.height, 2)
+    assert_vec_equal(texture.sample(0.25, 0.75), Color(0))
+    assert_vec_equal(texture.sample(0.75, 0.75), Color(1))
+    assert_vec_equal(texture.sample(0.25, 0.25), Color(2))
+    assert_vec_equal(texture.sample(1.75, -0.25), Color(1))
+
+    var normal = Vec3f32[.WORLD](0, 0, 1)
+    var bumped = _gpu_bump_normal(
+        normal, 0.25, 0.5, 1, 0.125, 1, 1, desc_ptr, pixel_ptr
+    )
+    assert_vec_equal(bumped, normalize(Vec3f32[.WORLD](-0.25, 0.5, 1)))
+    assert_vec_equal(
+        _gpu_bump_normal(
+            normal, 0.25, 0.5, NO_TEXTURE, 0.125, 1, 1, desc_ptr, pixel_ptr
+        ),
+        normal,
+    )
 
 
 def _world() raises -> SceneData:

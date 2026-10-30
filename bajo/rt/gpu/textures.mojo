@@ -22,6 +22,43 @@ from bajo.rt.gpu.material_layout import (
 )
 
 
+@fieldwise_init
+struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
+    """Borrowed pixels and dimensions decoded from one texture descriptor."""
+
+    var pixels: Pointer[Float32, Self.origin]
+    var width: Int
+    var height: Int
+
+    @staticmethod
+    @always_inline
+    def load(
+        texture_idx: UInt32,
+        texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+        texture_pixels: Pointer[Float32, Self.origin],
+    ) -> Self:
+        var index = Int(texture_idx)
+        var descs = record_tile[.uint32, GpuTextureDescLayout.STRIDE](
+            texture_descs, index + 1
+        )
+        var pixel_offset = Int(descs[index, GpuTextureDescLayout.PIXEL_OFFSET])
+        return {
+            texture_pixels.unsafe_offset(pixel_offset),
+            Int(descs[index, GpuTextureDescLayout.WIDTH]),
+            Int(descs[index, GpuTextureDescLayout.HEIGHT]),
+        }
+
+    @always_inline
+    def sample(self, u: Float32, v: Float32) -> Color:
+        return sample_image_texture(
+            record_tile[.float32, 3](self.pixels, self.width * self.height),
+            self.width,
+            self.height,
+            u,
+            v,
+        )
+
+
 @always_inline
 def _sample_gpu_image_texture(
     texture_idx: UInt32,
@@ -30,23 +67,9 @@ def _sample_gpu_image_texture(
     texture_descs: Pointer[UInt32, ImmutAnyOrigin],
     texture_pixels: Pointer[Float32, ImmutAnyOrigin],
 ) -> Color:
-    var descs = record_tile[.uint32, GpuTextureDescLayout.STRIDE](
-        texture_descs, Int(texture_idx) + 1
-    )
-    var pixel_offset = Int(
-        descs[Int(texture_idx), GpuTextureDescLayout.PIXEL_OFFSET]
-    )
-    var width = Int(descs[Int(texture_idx), GpuTextureDescLayout.WIDTH])
-    var height = Int(descs[Int(texture_idx), GpuTextureDescLayout.HEIGHT])
-    return sample_image_texture(
-        record_tile[.float32, 3](
-            texture_pixels.unsafe_offset(pixel_offset), width * height
-        ),
-        width,
-        height,
-        u,
-        v,
-    )
+    return _GpuImageTextureView.load(
+        texture_idx, texture_descs, texture_pixels
+    ).sample(u, v)
 
 
 @always_inline
@@ -163,41 +186,17 @@ def _gpu_bump_normal(
 ) -> Vec3f32[.WORLD]:
     if texture_idx == NO_TEXTURE or scale == 0.0:
         return normal
-    var descs = record_tile[.uint32, GpuTextureDescLayout.STRIDE](
-        texture_descs, Int(texture_idx) + 1
+    var texture = _GpuImageTextureView.load(
+        texture_idx, texture_descs, texture_pixels
     )
-    var width = Float32(descs[Int(texture_idx), GpuTextureDescLayout.WIDTH])
-    var height = Float32(descs[Int(texture_idx), GpuTextureDescLayout.HEIGHT])
+    var width = Float32(texture.width)
+    var height = Float32(texture.height)
     var texture_u = u * u_scale
     var texture_v = v * v_scale
-    var color_u0 = _sample_gpu_image_texture(
-        texture_idx,
-        texture_u - Float32(0.5) / width,
-        texture_v,
-        texture_descs,
-        texture_pixels,
-    )
-    var color_u1 = _sample_gpu_image_texture(
-        texture_idx,
-        texture_u + Float32(0.5) / width,
-        texture_v,
-        texture_descs,
-        texture_pixels,
-    )
-    var color_v0 = _sample_gpu_image_texture(
-        texture_idx,
-        texture_u,
-        texture_v - Float32(0.5) / height,
-        texture_descs,
-        texture_pixels,
-    )
-    var color_v1 = _sample_gpu_image_texture(
-        texture_idx,
-        texture_u,
-        texture_v + Float32(0.5) / height,
-        texture_descs,
-        texture_pixels,
-    )
+    var color_u0 = texture.sample(texture_u - Float32(0.5) / width, texture_v)
+    var color_u1 = texture.sample(texture_u + Float32(0.5) / width, texture_v)
+    var color_v0 = texture.sample(texture_u, texture_v - Float32(0.5) / height)
+    var color_v1 = texture.sample(texture_u, texture_v + Float32(0.5) / height)
     var slope_u = bump_slope(color_u0, color_u1, width, u_scale, scale)
     var slope_v = bump_slope(color_v0, color_v1, height, v_scale, scale)
     return bump_normal(normal, slope_u, slope_v)

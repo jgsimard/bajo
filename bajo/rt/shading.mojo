@@ -20,6 +20,7 @@ from bajo.rt.material_types import MaterialKind
 from bajo.rt.shading_types import (
     BsdfEvaluation,
     BsdfSample,
+    RefractionGeometry,
 )
 
 
@@ -191,17 +192,13 @@ def dielectric_geometry[
     direction: Vec3[.float32, .WORLD, length],
     normal: Vec3[.float32, .WORLD, length],
     relative_eta: SIMD[.float32, length],
-) -> Tuple[
-    Vec3[.float32, .WORLD, length],
-    SIMD[.float32, length],
-    SIMD[.float32, length],
-]:
+) -> RefractionGeometry[length]:
     """Shared refraction geometry for BSDF sampling and its conditional RNG draw.
     """
     var unit_direction = normalize(direction)
     var cos_theta = min(dot(-unit_direction, normal), 1.0)
     var sin_theta = sqrt(max(1.0 - cos_theta * cos_theta, 0.0))
-    return (unit_direction, cos_theta, relative_eta * sin_theta)
+    return {unit_direction, cos_theta, relative_eta * sin_theta}
 
 
 @always_inline
@@ -218,9 +215,9 @@ def _sample_dielectric[
         Float32(1.0) / refraction_index, refraction_index
     )
     var geometry = dielectric_geometry(ray_direction, normal, ri)
-    var unit_direction = geometry[0]
-    var cos_theta = geometry[1]
-    var cannot_refract = geometry[2].gt(1.0)
+    var unit_direction = geometry.unit_direction
+    var cos_theta = geometry.incident_cosine
+    var cannot_refract = geometry.transmitted_sine.gt(1.0)
     var reflection_probability = fresnel_schlick(cos_theta, ri)
     var reflect_sample = cannot_refract | reflection_probability.gt(
         reflect_random

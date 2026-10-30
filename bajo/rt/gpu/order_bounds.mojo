@@ -1,8 +1,10 @@
 """Scene bounds for geometry-independent spatial ray grouping."""
 
+from std.utils.numerics import max_finite
+
 from std.math import min, max
 from std.memory import bitcast
-from bajo.bvh.constants import EMPTY_LANE, f32_max
+from bajo.bvh.constants import EMPTY_LANE
 from bajo.bvh.gpu.compressed_bounds_bvh import _scale_from_exponent
 from bajo.core import Point3f32
 from bajo.rt.gpu.config import GpuRtSceneKind, GpuRtBvhFormat
@@ -18,8 +20,14 @@ def _wide_order_bounds[
 ) -> Tuple[
     Point3f32[.WORLD], Point3f32[.WORLD]
 ]:
-    var low = Point3f32[.WORLD](f32_max, f32_max, f32_max)
-    var high = Point3f32[.WORLD](-f32_max, -f32_max, -f32_max)
+    var low = Point3f32[.WORLD](
+        max_finite[.float32](), max_finite[.float32](), max_finite[.float32]()
+    )
+    var high = Point3f32[.WORLD](
+        -max_finite[.float32](),
+        -max_finite[.float32](),
+        -max_finite[.float32](),
+    )
     var base = Int(root) * 7 * width
     comptime for lane in range(width):
         if (
@@ -58,8 +66,14 @@ def gpu_rt_order_bounds[
     triangle_format: GpuRtBvhFormat,
     tlas_format: GpuRtBvhFormat,
 ](scene: GpuRtSceneView) -> Tuple[Point3f32[.WORLD], Point3f32[.WORLD]]:
-    var low = Point3f32[.WORLD](f32_max, f32_max, f32_max)
-    var high = Point3f32[.WORLD](-f32_max, -f32_max, -f32_max)
+    var low = Point3f32[.WORLD](
+        max_finite[.float32](), max_finite[.float32](), max_finite[.float32]()
+    )
+    var high = Point3f32[.WORLD](
+        -max_finite[.float32](),
+        -max_finite[.float32](),
+        -max_finite[.float32](),
+    )
 
     @always_inline
     def include(a: Point3f32[.WORLD], b: Point3f32[.WORLD]) {mut}:

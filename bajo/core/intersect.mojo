@@ -1170,10 +1170,10 @@ def ray_triangle_interval[
     var e1 = b - a
     var e2 = c - a
     var tv = ray.o - a
-    var m1 = max(max(abs(e1.x), abs(e1.y)), abs(e1.z))
-    var m2 = max(max(abs(e2.x), abs(e2.y)), abs(e2.z))
-    var mt = max(max(abs(tv.x), abs(tv.y)), abs(tv.z))
-    var md = max(max(abs(ray.d.x), abs(ray.d.y)), abs(ray.d.z))
+    var m1 = e1.abs().max_component()
+    var m2 = e2.abs().max_component()
+    var mt = tv.abs().max_component()
+    var md = ray.d.abs().max_component()
     var scale = max(max(m1, m2), max(mt, md))
     if not isfinite(scale) or scale > 1e10 or scale < 1e-10:
         return (-1, 0.0, 0.0)

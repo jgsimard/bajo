@@ -1,6 +1,7 @@
 """Read-only file mapping shared by binary and text asset decoders."""
 
 from std.ffi import external_call
+from std.io.file_descriptor import RawFileDescriptor
 from std.os import SEEK_END
 
 
@@ -24,7 +25,7 @@ struct MMap:
                     UInt(size),
                     Int32(PROT_READ),
                     Int32(MAP_PRIVATE),
-                    Int32(file._get_raw_fd()),
+                    RawFileDescriptor(file),
                     Int64(0),
                 )
                 # mmap returns MAP_FAILED ((void*)-1) on failure

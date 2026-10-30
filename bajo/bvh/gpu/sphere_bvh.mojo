@@ -23,7 +23,8 @@ from bajo.core import (
 )
 from bajo.core.intersect import intersect_ray_sphere
 from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
-from bajo.bvh.types import Hit, Sphere, SphereLeafBlock
+from bajo.bvh.types import Hit, SphereLeafBlock
+from bajo.core.geometry import Sphere
 from bajo.bvh.gpu.wide_layout import (
     GpuWideBoundsBvh,
     enqueue_compact_segmented_buffer,

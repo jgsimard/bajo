@@ -1,6 +1,6 @@
 """Scene selection and loading for native viewer frontends."""
 
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.bvh.cpu import CpuBvhBuildMethod, CpuTraversalMode
 from bajo.core import Point3W
 from bajo.rt.material_types import Integrator

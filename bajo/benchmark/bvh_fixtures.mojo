@@ -1,6 +1,6 @@
 """Geometry and ray fixtures shared by BVH benchmarks."""
 
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.core import AABB, Point3f32, Rayf32, Vec3f32
 
 

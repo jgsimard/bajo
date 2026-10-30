@@ -1,5 +1,7 @@
 """Owning spatial BVH with original item IDs and independent group roots."""
 
+from bajo.core.numerics import finite_f32_key, finite_f32_min, finite_f32_max
+
 from max.algorithm import parallelize
 from bajo.bvh.cpu.parallel import _worker_count
 from bajo.core import AABB, Frame, Point3f32, longest_axis
@@ -14,41 +16,12 @@ from .query import BoundsQueryView
 from .radix import sort_morton30
 from .policy import REFIT_WIDTH, BUILD_WIDTH, MORTON_BUILD_MIN_ITEMS
 from bajo.core.morton import morton3
-from bajo.bvh.cpu.builder.lbvh import (
-    MortonItem,
-    LbvhFrontierTask,
-)
+from bajo.bvh.cpu.builder.lbvh import MortonItem, LbvhFrontierTask
 
 
 # A bounded label scan avoids hashing for the common few-group case. Larger
 # forests discover labels with a directory and partition all groups together.
 comptime _SMALL_GROUP_COUNT = 8
-
-
-@always_inline
-def _finite_key[
-    width: SIMDLength
-](bits: SIMD[.uint32, width]) -> SIMD[.uint32, width]:
-    # IEEE finite values have integer total order after sign reversal.
-    return (bits >> 31).ne(0).select(~bits, bits ^ UInt32(0x80000000))
-
-
-@always_inline
-def _finite_min[
-    width: SIMDLength
-](a: SIMD[.float32, width], b: SIMD[.float32, width]) -> SIMD[.float32, width]:
-    var ua = bitcast[.uint32](a)
-    var ub = bitcast[.uint32](b)
-    return bitcast[.float32](_finite_key(ua).lt(_finite_key(ub)).select(ua, ub))
-
-
-@always_inline
-def _finite_max[
-    width: SIMDLength
-](a: SIMD[.float32, width], b: SIMD[.float32, width]) -> SIMD[.float32, width]:
-    var ua = bitcast[.uint32](a)
-    var ub = bitcast[.uint32](b)
-    return bitcast[.float32](_finite_key(ua).gt(_finite_key(ub)).select(ua, ub))
 
 
 @always_inline
@@ -83,8 +56,8 @@ def _finite_box_properties[frame: Frame](box: AABB[frame]) -> Tuple[Bool, Bool]:
             b & UInt32(0x007FFFFF)
         ) != 0
         # Both representations of zero compare equal for validation.
-        var ka = _finite_key(a)
-        var kb = _finite_key(b)
+        var ka = finite_f32_key(a)
+        var kb = finite_f32_key(b)
         if (a & UInt32(0x7FFFFFFF)) == 0:
             ka = UInt32(0x80000000)
         if (b & UInt32(0x7FFFFFFF)) == 0:
@@ -568,7 +541,8 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
                 var value = masked_load(ptr, valid, SIMD[.float32, width](0.0))
                 comptime if precise:
                     merged = lower.select(
-                        _finite_min(merged, value), _finite_max(merged, value)
+                        finite_f32_min(merged, value),
+                        finite_f32_max(merged, value),
                     )
                 else:
                     merged = lower.select(
@@ -667,8 +641,8 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
             var b = self._node_bounds(right)
             var result = a
             comptime for axis in range(3):
-                result._min[axis] = _finite_min(a._min[axis], b._min[axis])
-                result._max[axis] = _finite_max(a._max[axis], b._max[axis])
+                result._min[axis] = finite_f32_min(a._min[axis], b._min[axis])
+                result._max[axis] = finite_f32_max(a._max[axis], b._max[axis])
             return result
 
     @always_inline
@@ -755,7 +729,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
                     var merged: SIMD[.float32, width]
                     comptime if precise:
                         merged = lower_mask.select(
-                            _finite_min(a, b), _finite_max(a, b)
+                            finite_f32_min(a, b), finite_f32_max(a, b)
                         )
                     else:
                         merged = lower_mask.select(min(a, b), max(a, b))

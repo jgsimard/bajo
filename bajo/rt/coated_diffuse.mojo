@@ -4,6 +4,8 @@ Scalar CPU/GPU shading specializes the same SIMD functions with length=1.
 Lanes retain independent sample counts, depths, seeds and termination masks.
 """
 
+from bajo.core.optics import fresnel_dielectric, fresnel_conductor
+
 from std.math import abs, cos, exp, log, pi, sin, sqrt
 from std.memory import bitcast
 from bajo.core import (
@@ -17,7 +19,7 @@ from bajo.core import (
 )
 from bajo.core.random import _mix32, _u32_to_unit_float
 from bajo.rt.material_parameters import CoatedParameters
-from bajo.rt.lighting import power_heuristic
+from bajo.core.sampling import power_heuristic
 from bajo.rt.shading_types import BsdfEvaluation, BsdfSample
 
 comptime _INV_PI = 1.0 / pi
@@ -51,33 +53,6 @@ def _sample_seed[
 ]:
     return _mix32(
         bitcast[.uint32](u) ^ (bitcast[.uint32](v) * 0x85EBCA6B) ^ 0xC2B2AE35
-    )
-
-
-@always_inline
-def _fresnel_dielectric[
-    length: SIMDLength = 1
-](cosine_in: SIMD[.float32, length], eta: SIMD[.float32, length]) -> SIMD[
-    .float32, length
-]:
-    var cosine = cosine_in.clamp(-1.0, 1.0)
-    var relative_eta = cosine.lt(0.0).select(1.0 / eta, eta)
-    cosine = abs(cosine)
-    var sin2_t = max(SIMD[.float32, length](0.0), 1.0 - cosine * cosine) / (
-        relative_eta * relative_eta
-    )
-    if sin2_t.ge(1.0).reduce_and():
-        return SIMD[.float32, length](1.0)
-    var cos_t = sqrt(max(SIMD[.float32, length](0.0), 1.0 - sin2_t))
-    var parallel = (relative_eta * cosine - cos_t) / (
-        relative_eta * cosine + cos_t
-    )
-    var perpendicular = (cosine - relative_eta * cos_t) / (
-        cosine + relative_eta * cos_t
-    )
-    return sin2_t.ge(1.0).select(
-        SIMD[.float32, length](1.0),
-        0.5 * (parallel * parallel + perpendicular * perpendicular),
     )
 
 
@@ -218,7 +193,7 @@ def _dielectric_f[
     if not valid.reduce_or():
         return SIMD[.float32, length](0.0)
     var alpha = max(alpha_in, SIMD[.float32, length](1.0e-4))
-    var fresnel = _fresnel_dielectric(dot(wo, wm), eta)
+    var fresnel = fresnel_dielectric(dot(wo, wm), eta)
     var result = SIMD[.float32, length](0.0)
     var reflecting = valid & reflection
     if reflecting.reduce_or():
@@ -271,7 +246,7 @@ def _dielectric_pdf[
     if not valid.reduce_or():
         return SIMD[.float32, length](0.0)
     var alpha = max(alpha_in, SIMD[.float32, length](1.0e-4))
-    var fresnel = _fresnel_dielectric(dot(wo, wm), eta)
+    var fresnel = fresnel_dielectric(dot(wo, wm), eta)
     var pr = fresnel
     var pt = 1.0 - fresnel
     if flags == 1:
@@ -320,7 +295,7 @@ def _sample_dielectric[
         wm = Vec3[.float32, .WORLD, length].select(
             smooth, wm, _sample_ggx_visible_normal(wo, alpha_in, u1, u2)
         )
-    var fresnel = _fresnel_dielectric(dot(wo, wm), eta)
+    var fresnel = fresnel_dielectric(dot(wo, wm), eta)
     var pr = fresnel
     var pt = 1.0 - fresnel
     if flags == 1:
@@ -398,39 +373,6 @@ def _sample_dielectric[
 
 
 @always_inline
-def _fresnel_conductor[
-    length: SIMDLength = 1
-](
-    cosine: SIMD[.float32, length],
-    eta: Vec3[.float32, .WORLD, length],
-    k: Vec3[.float32, .WORLD, length],
-) -> Vec3[.float32, .WORLD, length]:
-    var c = abs(cosine).clamp(0.0, 1.0)
-    var c2 = c * c
-    var s2 = 1.0 - c2
-    var result = Vec3[.float32, .WORLD, length](0.0)
-    comptime for channel in range(3):
-        var e2 = eta[channel] * eta[channel]
-        var k2 = k[channel] * k[channel]
-        var t = e2 - k2 - s2
-        var magnitude = sqrt(t * t + 4.0 * e2 * k2)
-        var real = sqrt(max(SIMD[.float32, length](0.0), (magnitude + t) * 0.5))
-        var rs = (magnitude + c2 - 2.0 * c * real) / max(
-            SIMD[.float32, length](1.0e-20), magnitude + c2 + 2.0 * c * real
-        )
-        var rp = (
-            rs
-            * (c2 * magnitude + s2 * s2 - 2.0 * c * real * s2)
-            / max(
-                SIMD[.float32, length](1.0e-20),
-                c2 * magnitude + s2 * s2 + 2.0 * c * real * s2,
-            )
-        )
-        result[channel] = ((rs + rp) * 0.5).clamp(0.0, 1.0)
-    return result
-
-
-@always_inline
 def _is_diffuse[
     length: SIMDLength
 ](p: CoatedParameters[length]) -> SIMD[.bool, length]:
@@ -464,7 +406,7 @@ def _substrate_f[
     if valid.reduce_or():
         var wm = normalize(wo + wi)
         var alpha = max(p.conductor_roughness, SIMD[.float32, length](1.0e-4))
-        var value = _fresnel_conductor(
+        var value = fresnel_conductor(
             dot(wo, wm), p.conductor_eta, p.conductor_k
         ) * (
             _ggx_d(wm, alpha)
@@ -541,7 +483,7 @@ def _sample_substrate[
         )
     var wi = -reflect(wo, wm)
     var valid = (wo.z * wi.z).gt(0.0)
-    var weight = _fresnel_conductor(dot(wo, wm), p.conductor_eta, p.conductor_k)
+    var weight = fresnel_conductor(dot(wo, wm), p.conductor_eta, p.conductor_k)
     var pdf = SIMD[.float32, length](1.0)
     if (conductor & valid & ~smooth).reduce_or():
         var rough_pdf = _substrate_pdf(wo, wi, p)

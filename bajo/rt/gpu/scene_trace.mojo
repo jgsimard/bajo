@@ -8,9 +8,7 @@ from bajo.bvh.constants import PrimitiveKind
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.tlas import _trace_tlas_ray
 from bajo.bvh.gpu.trace import trace_bounds_bvh
-from bajo.bvh.gpu.triangle_trace import (
-    _intersect_triangle_leaf,
-)
+from bajo.bvh.gpu.triangle_trace import _intersect_triangle_leaf
 from bajo.bvh.gpu.blas_trace import trace_gpu_blas
 from bajo.core import (
     Affine3f32,
@@ -21,23 +19,18 @@ from bajo.core import (
     dot,
     length,
 )
-from bajo.rt.common import (
-    equal_area_sphere_to_square,
-    path_stage_rng,
-    sky_color,
-)
-from bajo.rt.geometry import (
+from bajo.core.mappings import equal_area_sphere_to_square
+from bajo.rt.common import path_stage_rng, sky_color
+from bajo.core.geometry import (
     orient_surface_normal,
     interpolate_triangle_attribute,
 )
 from bajo.core.tensor_layout import record_tile
 from bajo.rt.lighting import _emissive_hit_weight_from_pdf
 from bajo.rt.rays import make_ao_ray
-from bajo.rt.render_types import (
-    Color,
-    SamplingConfig,
-)
-from bajo.rt.media import medium_transmittance
+from bajo.core.color import Color, luminance
+from bajo.rt.render_types import SamplingConfig
+from bajo.core.optics import medium_transmittance
 from bajo.rt.material_types import (
     NO_TEXTURE,
     Integrator,
@@ -45,7 +38,8 @@ from bajo.rt.material_types import (
     sample_mix_branch,
 )
 from bajo.rt.lighting_types import _light_importance
-from bajo.rt.texture_math import sample_environment_texture, texture_luminance
+from bajo.rt.texture_math import sample_environment_texture
+
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
@@ -82,9 +76,7 @@ from bajo.rt.gpu.queue_order import (
 )
 from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
 from bajo.rt.gpu.spatial_order import gpu_rt_spatial_order_enabled
-from bajo.rt.gpu.light_order import (
-    enqueue_gpu_rt_light_order,
-)
+from bajo.rt.gpu.light_order import enqueue_gpu_rt_light_order
 
 
 comptime GPU_RT_SHADOW_BLOCK_SIZE = 128
@@ -517,7 +509,7 @@ def _gpu_rt_scene_trace_path[
                     texture_descs,
                     texture_pixels,
                 )
-                amount *= texture_luminance(color)
+                amount *= luminance(color)
             var branch = sample_mix_branch(amount.clamp(0.0, 1.0), random)
             surface_value = scene.mix_surfaces[unsafe_offset=2 * index + branch]
     var geometric = orient_surface_normal(ray.d, geometric_outward)

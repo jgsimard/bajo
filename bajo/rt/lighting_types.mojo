@@ -1,5 +1,7 @@
 """Scene light records and sampling distributions."""
 
+from bajo.core.sampling import build_alias_distribution
+
 from bajo.core import Point3f32, Vec3
 from bajo.rt.material_types import PrimitiveId, SurfaceId
 
@@ -85,54 +87,12 @@ struct LightStore:
         var weights = List[Float32](capacity=len(self.records))
         for record in self.records:
             weights.append(record.weight)
-        _build_alias_distribution(
+        build_alias_distribution(
             Span(weights),
             Float64(self.total_weight),
             self.alias_probabilities,
             self.alias_indices,
         )
-
-
-def _build_alias_distribution(
-    weights: Span[Float32, _],
-    total: Float64,
-    mut probabilities: List[Float32],
-    mut indices: List[UInt32],
-):
-    """Shared Walker-Vose construction for finite emitters and image lights.
-
-    Float64 workspace avoids overflow during normalization and cancellation
-    while balancing columns. Zero-total distributions stay empty.
-    """
-    var count = len(weights)
-    probabilities = List[Float32]()
-    indices = List[UInt32]()
-    if count == 0 or total <= 0.0:
-        return
-    probabilities = List[Float32](length=count, fill=1.0)
-    indices = List[UInt32](
-        length=count, fill_with=lambda (i: Int) -> UInt32: UInt32(i)
-    )
-    var scaled = List[Float64](length=count, fill=0.0)
-    var small = List[Int](capacity=count)
-    var large = List[Int](capacity=count)
-    for i in range(count):
-        scaled[i] = Float64(weights[i]) / total * Float64(count)
-        if scaled[i] < 1.0:
-            small.append(i)
-        else:
-            large.append(i)
-    while len(small) > 0 and len(large) > 0:
-        var small_idx = small.pop()
-        var large_idx = large.pop()
-        probabilities[small_idx] = Float32(scaled[small_idx]).clamp(0.0, 1.0)
-        indices[small_idx] = UInt32(large_idx)
-        scaled[large_idx] = scaled[large_idx] + scaled[small_idx] - 1.0
-        if scaled[large_idx] < 1.0:
-            small.append(large_idx)
-        else:
-            large.append(large_idx)
-    # Unpaired columns already have probability one and alias themselves.
 
 
 @always_inline

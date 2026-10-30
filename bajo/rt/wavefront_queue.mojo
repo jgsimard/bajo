@@ -7,7 +7,7 @@ from layout import Coord
 from bajo.rt.path_values import PathContinuation, PathFloatField
 from bajo.rt.path_store import store_path_values
 
-from bajo.rt.packet_layout import (
+from bajo.core.packet_layout import (
     PacketFloatTile,
     packet_float_tile,
     compact_packet_floats,
@@ -19,7 +19,7 @@ from bajo.rt.packet_layout import (
     append_masked_lanes,
 )
 from bajo.core import Rayf32
-from bajo.rt.render_types import Color
+from bajo.core.color import Color
 from bajo.rt.shading_types import SurfaceHit
 from bajo.rt.material_types import SURFACE_INDEX_MASK
 

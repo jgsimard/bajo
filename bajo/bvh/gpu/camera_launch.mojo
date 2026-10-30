@@ -3,7 +3,7 @@
 from std.math import ceildiv
 from max.gpu.host import DeviceBuffer
 
-from bajo.bvh.camera import Camera
+from bajo.core.camera import Camera
 from bajo.bvh.constants import f32_max
 from bajo.bvh.types import Hit
 from bajo.core import Point3f32, Rayf32, Vec3f32, normalize

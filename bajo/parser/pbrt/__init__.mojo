@@ -20,7 +20,7 @@ from bajo.parser.asset_loader import (
     AssetLoader,
 )
 from .parser import _parse_pbrt, _parse_pbrt_camera
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.rt.scene_description import SceneDescription
 
 

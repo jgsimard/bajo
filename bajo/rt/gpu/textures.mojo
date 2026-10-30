@@ -10,7 +10,7 @@ from bajo.rt.texture_math import (
 from std.memory import bitcast
 from bajo.core import Vec3f32
 from bajo.core.tensor_layout import record_tile
-from bajo.rt.render_types import Color
+from bajo.core.color import Color
 from bajo.rt.material_types import NO_TEXTURE, SurfaceId
 from bajo.rt.gpu.material_layout import (
     GpuRgbMaterialLayout,

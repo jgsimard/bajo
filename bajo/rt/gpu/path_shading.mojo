@@ -17,9 +17,10 @@ from bajo.rt.shading import (
     _sample_material,
     dielectric_geometry,
 )
-from bajo.rt.render_types import Color, SamplingConfig
+from bajo.core.color import Color
+from bajo.rt.render_types import SamplingConfig
 from bajo.rt.rays import spawn_surface_ray
-from bajo.rt.media import medium_transmittance
+from bajo.core.optics import medium_transmittance
 from bajo.rt.gpu.lighting import GpuDirectLightSample
 from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
 from bajo.rt.gpu.queue_order import GpuRtQueueOrderScratch

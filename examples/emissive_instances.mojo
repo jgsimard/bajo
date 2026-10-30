@@ -2,14 +2,10 @@
 
 from std.math import max
 
-from bajo.bvh.host_utils import compute_bounds
+from bajo.core.aabb import compute_bounds
 from bajo.core import Affine3f32, Point3f32, Vec3f32
 from bajo.parser.obj.pack import pack_obj_triangles
-from bajo.rt import (
-    Color,
-    SceneBuilder,
-    SceneData,
-)
+from bajo.rt import Color, SceneBuilder, SceneData
 
 
 comptime EMISSIVE_BUNNY_PATH = "assets/bunny/bunny.obj"

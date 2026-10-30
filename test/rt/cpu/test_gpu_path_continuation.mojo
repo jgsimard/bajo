@@ -9,7 +9,8 @@ from bajo.rt.gpu.path_shading import _continue_gpu_path
 from bajo.rt.gpu.wavefront_contract import load_gpu_rt_path
 from bajo.rt.material_types import Integrator
 from bajo.rt.rays import RT_RAY_T_MIN
-from bajo.rt.render_types import Color, RenderSettings, SamplingConfig
+from bajo.core.color import Color
+from bajo.rt.render_types import RenderSettings, SamplingConfig
 from bajo.rt.shading_types import BsdfSample
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,

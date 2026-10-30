@@ -4,26 +4,24 @@ from std.sys import has_accelerator
 from std.bit import pop_count
 from std.math import abs
 from std.memory import bitcast
-from std.testing import (
-    TestSuite,
-    assert_true,
-    assert_almost_equal,
-)
+from std.testing import TestSuite, assert_true, assert_almost_equal
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32
-from bajo.bvh.camera import Camera
+from bajo.core.camera import Camera
 from bajo.bvh.constants import f32_max
-from bajo.bvh.host_utils import compute_bounds, sphere_bounds
-from bajo.bvh.cpu import CpuBlasSet
-from bajo.bvh.types import Instance, Sphere, Hit
+from bajo.core.aabb import compute_bounds
+from bajo.core.geometry import sphere_bounds, Sphere
+from bajo.bvh.cpu import CpuBlasSet, build_cpu_triangle_blas_set
+from bajo.bvh.types import Instance, Hit
+
 from bajo.bvh.gpu.utils import upload_camera
 from bajo.bvh.gpu import GpuBvhLayout
 from bajo.bvh.gpu.compressed_bounds_bvh import CWBVH_META_BASE, CWBVH_NODE_WORDS
 from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_blas_set
 from bajo.bvh.gpu.sphere_bvh import build_gpu_sphere_blas_set
 from bajo.bvh.gpu.tlas import build_gpu_tlas
-from bajo.bvh.cpu import build_cpu_triangle_blas_set
+
 from bajo.bvh.cpu.tlas import CpuTlas
 from test.bvh.fixtures import (
     _camera_for_bounds,

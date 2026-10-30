@@ -7,7 +7,7 @@ from bajo.core.tensor_layout import record_tile
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.bvh.gpu import GpuBvhBuildMethod
 from bajo.rt.gpu.bounce import (
     enqueue_gpu_rt_bounce,
@@ -28,8 +28,8 @@ from bajo.rt.gpu.resources import (
 )
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
+from bajo.core.color import Color
 from bajo.rt.render_types import (
-    Color,
     RenderResult,
     RenderSettings,
     RenderTimings,

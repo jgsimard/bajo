@@ -5,7 +5,7 @@ from max.gpu import global_idx
 from max.gpu.host import DeviceContext
 from bajo.core import AABB, Point3f32, Vec3f32, Rayf32, Vec3
 from bajo.bvh.gpu.utils import upload_list, _device_span
-from bajo.bvh.spatial.query import (
+from bajo.core.intersect import (
     ray_overlaps_bounds,
     ray_overlaps_bounds_cached,
     sphere_overlaps_bounds,

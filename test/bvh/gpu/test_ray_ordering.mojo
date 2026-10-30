@@ -17,8 +17,10 @@ from bajo.bvh.gpu import (
     build_gpu_triangle_blas_set,
 )
 from bajo.bvh.gpu.utils import upload_list, upload_rays
-from bajo.bvh.host_utils import compute_bounds, sphere_bounds
-from bajo.bvh.types import Hit, Instance, Sphere
+from bajo.core.aabb import compute_bounds
+from bajo.core.geometry import sphere_bounds, Sphere
+from bajo.bvh.types import Hit, Instance
+
 from bajo.core import AABB, Affine3f32, Point3f32, Quat, Rayf32, Vec3f32
 
 

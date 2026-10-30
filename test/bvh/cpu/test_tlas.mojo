@@ -1,11 +1,9 @@
 from std.testing import TestSuite, assert_true, assert_almost_equal
 
 from bajo.bvh.constants import PrimitiveKind
-from bajo.bvh.types import Instance, Sphere, Hit
-from bajo.bvh.cpu import (
-    build_cpu_sphere_blas_set,
-    build_cpu_triangle_blas_set,
-)
+from bajo.bvh.types import Instance, Hit
+from bajo.core.geometry import Sphere
+from bajo.bvh.cpu import build_cpu_sphere_blas_set, build_cpu_triangle_blas_set
 from bajo.bvh.cpu.tlas import CpuTlas
 from bajo.core import (
     AABB,

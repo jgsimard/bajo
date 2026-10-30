@@ -4,7 +4,7 @@ from std.ffi import OwnedDLHandle, c_int
 from std.math import atan, pi
 from std.memory import Pointer
 from std.os import abort
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.core import (
     Affine3f32,
     Point3f32,

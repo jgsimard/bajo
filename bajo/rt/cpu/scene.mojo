@@ -4,7 +4,11 @@ from std.bit import count_trailing_zeros
 from std.memory import pack_bits
 
 from bajo.bvh.constants import EMPTY_LANE, PrimitiveKind, f32_max
-from bajo.bvh import Sphere
+from bajo.core.geometry import (
+    Sphere,
+    orient_surface_normal,
+    interpolate_triangle_attribute,
+)
 from bajo.bvh.cpu import (
     CpuBlasSet,
     CpuBvhBuildMethod,
@@ -31,19 +35,10 @@ from bajo.core import (
     Vec3f32,
     dot,
 )
-from bajo.rt.geometry import (
-    orient_surface_normal,
-    interpolate_triangle_attribute,
-)
+
 from bajo.core.tensor_layout import record_tile
-from bajo.rt.material_types import (
-    PrimitiveId,
-    SurfaceId,
-)
-from bajo.rt.shading_types import (
-    HitRecord,
-    SurfaceHit,
-)
+from bajo.rt.material_types import PrimitiveId, SurfaceId
+from bajo.rt.shading_types import HitRecord, SurfaceHit
 from bajo.rt.scene_data import SceneData
 from bajo.rt.media import SceneMedia
 from bajo.rt.material_storage import pack_coated_materials

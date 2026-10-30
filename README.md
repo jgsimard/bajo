@@ -227,7 +227,7 @@ are ignored by Git.
 
 ## Repository layout
 
-- [`bajo/core`](bajo/core/) — vectors, matrices, quaternions, transforms, rays, and intersections
+- [`bajo/core`](bajo/core/) — math, geometry, cameras, optics, sampling, color, and SIMD packet utilities
 - [`bajo/parser`](bajo/parser/) — pure-Mojo OBJ/MTL/PBRT loading
 - [`bajo/bvh`](bajo/bvh/) — CPU/GPU BVH construction and traversal
 - [`bajo/rt`](bajo/rt/) — CPU and GPU ray-tracing and shading pipelines

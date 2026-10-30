@@ -1,6 +1,6 @@
 """Owned progressive pixels and generation tracking for the native viewer."""
 
-from bajo.rt.render_types import Color
+from bajo.core.color import Color
 from bajo.rt.image_output import color_to_byte
 from .worker import CompletedFrame
 

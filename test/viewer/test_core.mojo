@@ -8,12 +8,13 @@ from std.testing import (
     assert_raises,
     assert_true,
 )
-from bajo.bvh.host_utils import compute_bounds
+from bajo.core.aabb import compute_bounds
 from bajo.core import Affine3f32, Point3f32, Point3W, Vec3f32
 from bajo.core.random import Sampler
 from bajo.parser.asset_loader import MemoryAssetLoader
 from bajo.rt.material_types import Integrator
-from bajo.rt.render_types import Color, RenderSettings
+from bajo.core.color import Color
+from bajo.rt.render_types import RenderSettings
 from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.scene_description import SceneDescription
 from bajo.viewer import (

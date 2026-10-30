@@ -3,7 +3,7 @@
 from std.math import sin, cos, min, max
 from std.sys.arg import argv
 from std.ffi import c_int
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.core import Vec3W, cross, dot, length, normalize
 from bajo.core.random import Sampler
 from bajo.rt.render_types import RenderSettings

@@ -1,23 +1,14 @@
 from test.helpers import assert_vec_equal
 from test.rt.helpers import assert_pixels_close, assert_pixels_equal
 
-from std.testing import (
-    TestSuite,
-    assert_equal,
-    assert_raises,
-    assert_true,
-)
+from std.testing import TestSuite, assert_equal, assert_raises, assert_true
 from max.gpu.host import DeviceContext
 
-from bajo.bvh.camera import Camera
-from bajo.bvh.host_utils import compute_bounds
+from bajo.core.camera import Camera
+from bajo.core.aabb import compute_bounds
 from bajo.core import Affine3f32, Point3f32, Point3W, Vec3f32, Vec3W
 from bajo.core.random import Sampler
-from bajo.rt.cpu import (
-    CpuScene,
-    CpuSchedulerMode,
-    render_wavefront,
-)
+from bajo.rt.cpu import CpuScene, CpuSchedulerMode, render_wavefront
 from bajo.rt.gpu import (
     GPU_RT_BVH_WIDE4,
     GpuRtBvhFormat,
@@ -30,21 +21,15 @@ from bajo.rt.gpu import (
     update_gpu_camera,
 )
 from bajo.bvh.constants import PrimitiveKind
-from bajo.rt.render_types import (
-    Color,
-    RenderResult,
-    RenderSettings,
-)
+from bajo.core.color import Color
+from bajo.rt.render_types import RenderResult, RenderSettings
 from bajo.rt.material_types import (
     Environment,
     ImageTexture,
     Integrator,
     SurfaceId,
 )
-from bajo.rt.scene_data import (
-    SceneBuilder,
-    SceneData,
-)
+from bajo.rt.scene_data import SceneBuilder, SceneData
 from examples.cornell_box import make_cornell_scene
 from examples.stress_scenes import (
     make_indirect_hall_scene,

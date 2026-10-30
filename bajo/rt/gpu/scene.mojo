@@ -3,7 +3,8 @@
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.gpu.buffers import upload_list
-from bajo.bvh import Camera, Sphere
+from bajo.core.camera import Camera
+from bajo.core.geometry import Sphere
 from bajo.bvh.gpu import (
     GpuBlasSet,
     GpuBvhBuildMethod,

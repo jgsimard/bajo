@@ -4,7 +4,7 @@ from std.math import abs
 from std.testing import TestSuite, assert_equal, assert_true
 from max.gpu.host import DeviceBuffer, DeviceContext
 
-from bajo.bvh.camera import Camera
+from bajo.core.camera import Camera
 from bajo.bvh.constants import (
     PrimitiveKind,
     SPHERE_LEAF_PACKED_STRIDE,
@@ -19,9 +19,11 @@ from bajo.bvh.gpu.sphere_bvh import build_gpu_sphere_blas_set
 from bajo.bvh.gpu.tlas import build_gpu_tlas
 from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_blas_set
 from bajo.bvh.gpu.utils import upload_camera
-from bajo.bvh.host_utils import compute_bounds, sphere_bounds
+from bajo.core.aabb import compute_bounds
+from bajo.core.geometry import sphere_bounds, Sphere
 from bajo.bvh.gpu import GpuBlasSet, GpuBvhLayout
-from bajo.bvh.types import BlasDescLayout, Hit, Instance, Sphere
+from bajo.bvh.types import BlasDescLayout, Hit, Instance
+
 from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32
 from test.bvh.fixtures import _make_camera_ray
 

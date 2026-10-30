@@ -2,22 +2,9 @@
 
 from std.math import max
 
-from bajo.bvh.host_utils import compute_bounds
-from bajo.core import (
-    AABB,
-    Affine3f32,
-    Point3,
-    Point3W,
-    Rayf32,
-    Vec3f32,
-    Vec3W,
-)
-from bajo.rt import (
-    Camera,
-    Color,
-    SceneBuilder,
-    CpuScene,
-)
+from bajo.core.aabb import compute_bounds
+from bajo.core import AABB, Affine3f32, Point3, Point3W, Rayf32, Vec3f32, Vec3W
+from bajo.rt import Camera, Color, SceneBuilder, CpuScene
 from .bvh_fixtures import make_grid_triangles, make_hit_and_miss_rays
 
 

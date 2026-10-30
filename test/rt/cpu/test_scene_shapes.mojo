@@ -5,7 +5,7 @@ from std.testing import (
     assert_true,
 )
 
-from bajo.bvh.host_utils import compute_bounds
+from bajo.core.aabb import compute_bounds
 from bajo.core import Point3W, cross, dot, length
 from bajo.rt import Color, SceneBuilder
 

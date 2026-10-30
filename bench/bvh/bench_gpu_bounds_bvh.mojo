@@ -6,7 +6,8 @@ from max.gpu.host import DeviceContext, DeviceBuffer
 
 from bajo.core import AABB, Point3f32, Rayf32, SegmentOffsets
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
-from bajo.bvh.host_utils import compute_bounds, sphere_bounds
+from bajo.core.aabb import compute_bounds
+from bajo.core.geometry import sphere_bounds, Sphere
 from bajo.bvh.constants import (
     GPU_BOUNDS_BVH_BLOCK_SIZE,
     GPU_STACK_SIZE,
@@ -14,13 +15,15 @@ from bajo.bvh.constants import (
     TRI_LEAF_VERTEX_STRIDE,
     f32_max,
 )
-from bajo.bvh.cpu import CpuBlasSet
-from bajo.bvh.types import Hit, Sphere
 from bajo.bvh.cpu import (
+    CpuBlasSet,
     build_cpu_sphere_blas_set,
     build_cpu_triangle_blas_set,
     trace_blas_set,
 )
+from bajo.bvh.types import Hit
+
+
 from bajo.bvh.gpu.sphere_bvh import (
     GpuSphereBvh,
     build_gpu_sphere_bvh,
@@ -54,10 +57,7 @@ from bajo.bvh.gpu.utils import (
     upload_rays,
     upload_vertices,
 )
-from bajo.benchmark.bvh_reporting import (
-    GpuBenchResult,
-    TablePrinter,
-)
+from bajo.benchmark.bvh_reporting import GpuBenchResult, TablePrinter
 from bajo.benchmark.bvh_fixtures import make_camera_rays_and_params
 from bajo.benchmark.gpu_bvh_fixtures import (
     Cwbvh8BenchBvh,

@@ -15,23 +15,30 @@ from std.math import abs, sqrt, max, min, pi
 from std.memory import stack_allocation, bitcast
 from std.sys.info import is_gpu
 from std.utils.numerics import isfinite
-from bajo.core import AABB, Frame, Point3f32, Rayf32, Vec3f32, Vec3, cross, dot
-from bajo.core import Point3, AxisAlignedBoundingBox, length
+from bajo.core import (
+    AABB,
+    Frame,
+    Point3f32,
+    Rayf32,
+    Vec3f32,
+    Vec3,
+    cross,
+    dot,
+    Point3,
+    AxisAlignedBoundingBox,
+    length,
+)
+
 from bajo.bvh.constants import EMPTY_LANE, f32_max
-from .query import BoundsQueryView, BoundsQuery, _gpu_ray_bounds_interval
-from .policy import BATCH_WIDTH, RAY_COUNT_WIDTH
-from .winding import WindingView, DeviceWindingView
-from .ordered_traversal import evaluate_child_pair, traverse_ordered
-from .adjacency import NormalSignFaces
-from .gpu_geometry import (
+from bajo.bvh.spatial.query import BoundsQueryView, BoundsQuery
+from bajo.core.intersect import (
+    _gpu_ray_bounds_interval,
     ray_triangle_filter,
     ray_triangle_interval,
     project_triangle_filtered,
     project_triangle_filtered_with_exactness,
     triangle_normal_f32,
     normal_sign_filter,
-)
-from bajo.core.intersect import (
     project_triangle,
     TriangleProjection,
     intersect_triangle,
@@ -40,6 +47,11 @@ from bajo.core.intersect import (
     vector64,
     angle_atan2,
 )
+from .policy import BATCH_WIDTH, RAY_COUNT_WIDTH
+from .winding import WindingView, DeviceWindingView
+from .ordered_traversal import evaluate_child_pair, traverse_ordered
+from .adjacency import NormalSignFaces
+
 
 comptime INV_4_PI = 1.0 / (4.0 * pi)
 

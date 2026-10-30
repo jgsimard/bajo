@@ -13,12 +13,10 @@ from bajo.core.intersect import (
     project_triangle,
     angle_atan2,
     intersect_triangle,
-)
-from bajo.bvh.constants import EMPTY_LANE
-from bajo.bvh.spatial.query import (
     ray_overlaps_bounds,
     ray_overlaps_bounds_cached,
 )
+from bajo.bvh.constants import EMPTY_LANE
 
 
 def check_closest[

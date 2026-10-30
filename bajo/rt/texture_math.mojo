@@ -1,5 +1,7 @@
 """Texture addressing and bump-normal math shared by host and device accessors."""
 
+from bajo.core.color import luminance
+
 from std.math import floor, sqrt
 from bajo.core import Vec3, normalize, orthonormal_basis
 from bajo.core.tensor_layout import RecordTile, gather_record_vec3
@@ -88,17 +90,6 @@ def sample_environment_texture[
 
 
 @always_inline
-def texture_luminance[
-    length: SIMDLength = 1
-](color: Vec3[.float32, .WORLD, length]) -> SIMD[.float32, length]:
-    return (
-        Float32(0.2126) * color.x
-        + Float32(0.7152) * color.y
-        + Float32(0.0722) * color.z
-    )
-
-
-@always_inline
 def albedo_from_texture[
     length: SIMDLength = 1
 ](
@@ -123,7 +114,7 @@ def roughness_from_texture[
     scale: SIMD[.float32, length],
     remap: SIMD[.bool, length],
 ) -> SIMD[.float32, length]:
-    var roughness = (scale * texture_luminance(color)).clamp(0.0, 1.0)
+    var roughness = (scale * luminance(color)).clamp(0.0, 1.0)
     if remap.reduce_or():
         roughness = remap.select(sqrt(roughness), roughness)
     return roughness
@@ -139,12 +130,7 @@ def bump_slope[
     uv_scale: SIMD[.float32, length],
     scale: SIMD[.float32, length],
 ) -> SIMD[.float32, length]:
-    return (
-        (texture_luminance(after) - texture_luminance(before))
-        * texels
-        * uv_scale
-        * scale
-    )
+    return (luminance(after) - luminance(before)) * texels * uv_scale * scale
 
 
 @always_inline

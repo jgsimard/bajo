@@ -3,7 +3,7 @@
 from std.algorithm import vectorize
 from std.math import sqrt
 from std.sys import simd_width_of
-from bajo.rt.render_types import Color
+from bajo.core.color import Color
 
 
 @always_inline

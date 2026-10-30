@@ -1,4 +1,6 @@
-from bajo.bvh import Camera, Instance, Sphere
+from bajo.core.camera import Camera
+from bajo.bvh import Instance
+from bajo.core.geometry import Sphere
 from bajo.core.random import Sampler
 from .cpu import (
     CpuScene,
@@ -11,12 +13,8 @@ from .cpu import (
 )
 from .gpu import render_gpu
 from .scene_description import SceneDescription
-from .render_types import (
-    Color,
-    RenderResult,
-    RenderSettings,
-    RenderTimings,
-)
+from bajo.core.color import Color
+from .render_types import RenderResult, RenderSettings, RenderTimings
 from .material_types import (
     Dielectric,
     Emissive,
@@ -41,5 +39,6 @@ from .shading_types import (
 )
 from .scene_data import SceneBuilder, SceneData
 
-from .media import SceneMedia, medium_transmittance
+from bajo.rt.media import SceneMedia
+from bajo.core.optics import medium_transmittance
 from .film import FilmResponse

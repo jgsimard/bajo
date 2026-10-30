@@ -18,7 +18,8 @@ from bajo.bvh.cpu.bounds_bvh import (
     BinaryBoundsBvh,
     _checked_typed_leaf_range,
 )
-from bajo.bvh.types import Hit, Sphere, SphereLeafBlock
+from bajo.bvh.types import Hit, SphereLeafBlock
+from bajo.core.geometry import Sphere
 
 
 @always_inline

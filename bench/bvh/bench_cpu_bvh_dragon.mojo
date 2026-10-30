@@ -2,12 +2,14 @@ from std.math import round
 from std.time import perf_counter_ns
 
 from bajo.bvh.constants import f32_max
-from bajo.bvh.cpu import build_cpu_triangle_blas_set, trace_blas_set
-from bajo.bvh.host_utils import compute_bounds
 from bajo.bvh.cpu import (
+    build_cpu_triangle_blas_set,
+    trace_blas_set,
     CpuBlasSet,
     CpuBvhBuildMethod,
 )
+from bajo.core.aabb import compute_bounds
+
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.core import Point3f32, Rayf32

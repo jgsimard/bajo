@@ -3,7 +3,7 @@ from std.math import max
 from test.rt.helpers import assert_pixels_equal
 from std.testing import TestSuite, assert_true
 from max.gpu.host import DeviceContext
-from bajo.bvh.host_utils import compute_bounds
+from bajo.core.aabb import compute_bounds
 from bajo.rt import Camera, Color, RenderSettings, SceneBuilder
 from bajo.rt.gpu.scene import prepare_gpu_scene
 from bajo.rt.gpu.render import enqueue_render_gpu

@@ -11,21 +11,15 @@ from std.testing import (
     assert_false,
     assert_true,
 )
-from bajo.core import Vec3f32
-from bajo.core import Point3f32, Rayf32
+from bajo.core import Vec3f32, Point3f32, Rayf32
+
 from bajo.core.random import Rng
 from bajo.parser.pbrt import parse_pbrt
-from bajo.rt import (
-    CpuScene,
-    SurfaceStore,
-    Color,
-    render_wavefront,
-)
+from bajo.rt import CpuScene, SurfaceStore, Color, render_wavefront
 from bajo.rt.cpu.bsdf import evaluate_bsdf, sample_bsdf
 from bajo.rt.shading_types import ShadingPoint
+from bajo.core.optics import fresnel_conductor, fresnel_dielectric
 from bajo.rt.coated_diffuse import (
-    _fresnel_conductor,
-    _fresnel_dielectric,
     _sample_substrate,
     _substrate_f,
     _substrate_pdf,
@@ -36,7 +30,7 @@ from bajo.rt.coated_diffuse import (
 def test_complex_fresnel_normal_grazing_and_dielectric_limit() raises:
     var eta = Vec3f32[.WORLD](1.2, 0.95, 0.65)
     var k = Vec3f32[.WORLD](7.3, 6.7, 5.6)
-    var normal = _fresnel_conductor(1.0, eta, k)
+    var normal = fresnel_conductor(1.0, eta, k)
     for lane in range(3):
         var e = eta.x[0] if lane == 0 else eta.y[0] if lane == 1 else eta.z[0]
         var extinction = (
@@ -51,14 +45,14 @@ def test_complex_fresnel_normal_grazing_and_dielectric_limit() raises:
             == 1 else normal.z[0]
         )
         assert_almost_equal(actual, expected, atol=1.0e-6)
-    var grazing = _fresnel_conductor(0.0, eta, k)
+    var grazing = fresnel_conductor(0.0, eta, k)
     assert_almost_equal(grazing.x[0], 1.0, atol=1.0e-6)
     for c in [0.1, 0.3, 0.7, 1.0]:
-        var value = _fresnel_conductor(
+        var value = fresnel_conductor(
             Float32(c), Vec3f32[.WORLD](1.5), Vec3f32[.WORLD](0.0)
         )
         assert_almost_equal(
-            value.x[0], _fresnel_dielectric(Float32(c), 1.5), atol=1.0e-5
+            value.x[0], fresnel_dielectric(Float32(c), 1.5), atol=1.0e-5
         )
 
 
@@ -103,7 +97,7 @@ def test_ggx_conductor_samples_match_bsdf_and_pdf() raises:
     assert_true(smooth.delta[0])
     assert_equal(smooth.pdf[0], Float32(1.0))
     assert_almost_equal(
-        smooth.weight.x[0], _fresnel_conductor(1.0, eta, k).x[0], atol=1.0e-6
+        smooth.weight.x[0], fresnel_conductor(1.0, eta, k).x[0], atol=1.0e-6
     )
 
 

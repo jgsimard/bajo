@@ -10,11 +10,8 @@ from bajo.core import (
     Vec3,
     length as vector_length,
 )
-from bajo.rt.render_types import (
-    Color,
-    RenderSettings,
-    SamplingConfig,
-)
+from bajo.core.color import Color
+from bajo.rt.render_types import RenderSettings, SamplingConfig
 from bajo.rt.material_types import (
     Environment,
     MaterialKind,

@@ -4,7 +4,7 @@ from std.memory import bitcast
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 
 from bajo.core import Point3f32, Rayf32, Vec3f32
-from bajo.rt.render_types import Color
+from bajo.core.color import Color
 from bajo.rt.path_values import PathFloatField as WavePathFloatAbi, PathValues
 from bajo.rt.path_store import store_path_values
 from bajo.core.tensor_layout import field_tile

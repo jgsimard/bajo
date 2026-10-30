@@ -1,4 +1,5 @@
 """Backend-neutral BVH value types."""
 
-from .camera import Camera
-from .types import Hit, Instance, Sphere
+from bajo.core.camera import Camera
+from bajo.bvh.types import Hit, Instance
+from bajo.core.geometry import Sphere

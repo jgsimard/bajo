@@ -9,7 +9,7 @@ from std.testing import (
 )
 from max.gpu.host import DeviceContext
 
-from bajo.bvh.camera import Camera
+from bajo.core.camera import Camera
 from bajo.bvh.types import Hit
 from bajo.bvh.gpu.camera_launch import validate_camera_launch
 from bajo.bvh.gpu.ray_launch import validate_ray_launch

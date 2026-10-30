@@ -9,12 +9,11 @@ from bajo.core.intersect import (
     project_triangle,
     intersect_triangle,
     triangle_normal,
-)
-from bajo.bvh.spatial.gpu_geometry import (
     ray_triangle_interval,
     project_triangle_filtered,
     triangle_normal_f32,
 )
+
 from bajo.bvh.gpu.utils import _device_span, upload_list
 
 

@@ -1,15 +1,10 @@
-from std.math import tan
+"""Pinhole and thin-lens camera geometry and ray generation."""
 
-from bajo.bvh.constants import f32_max
-from bajo.core import (
-    Vec3f32,
-    normalize,
-    cross,
-    Point3f32,
-    Ray,
-    Rayf32,
-)
-from bajo.core.utils import degrees_to_radians
+from std.math import tan
+from std.utils.numerics import max_finite
+from .vec import Vec3, Point3, normalize, cross
+from .ray import Ray
+from .utils import degrees_to_radians
 
 
 @fieldwise_init
@@ -24,14 +19,14 @@ struct Camera(TrivialRegisterPassable, Writable):
     comptime DEFOCUS_DISK_U = 14
     comptime DEFOCUS_DISK_V = 17
 
-    var origin: Point3f32[.WORLD]
-    var forward: Vec3f32[.WORLD]
-    var right: Vec3f32[.WORLD]
-    var up: Vec3f32[.WORLD]
+    var origin: Point3[.float32, .WORLD]
+    var forward: Vec3[.float32, .WORLD]
+    var right: Vec3[.float32, .WORLD]
+    var up: Vec3[.float32, .WORLD]
     var fov_scale: Float32
     var focus_dist: Float32
-    var defocus_disk_u: Vec3f32[.WORLD]
-    var defocus_disk_v: Vec3f32[.WORLD]
+    var defocus_disk_u: Vec3[.float32, .WORLD]
+    var defocus_disk_v: Vec3[.float32, .WORLD]
 
     def __init__(out self, data: ImmSpan[Float32, _], base: Int = 0):
         debug_assert["safe", _use_compiler_assume=True](
@@ -39,24 +34,28 @@ struct Camera(TrivialRegisterPassable, Writable):
             "Camera load is outside the input span",
         )
         var fields = data.unsafe_ptr().unsafe_offset(base)
-        self.origin = Point3f32[.WORLD](fields.unsafe_offset(Self.ORIGIN))
-        self.forward = Vec3f32[.WORLD](fields.unsafe_offset(Self.FORWARD))
-        self.right = Vec3f32[.WORLD](fields.unsafe_offset(Self.RIGHT))
-        self.up = Vec3f32[.WORLD](fields.unsafe_offset(Self.UP))
+        self.origin = Point3[.float32, .WORLD](
+            fields.unsafe_offset(Self.ORIGIN)
+        )
+        self.forward = Vec3[.float32, .WORLD](
+            fields.unsafe_offset(Self.FORWARD)
+        )
+        self.right = Vec3[.float32, .WORLD](fields.unsafe_offset(Self.RIGHT))
+        self.up = Vec3[.float32, .WORLD](fields.unsafe_offset(Self.UP))
         self.fov_scale = fields[unsafe_offset=Self.FOV]
         self.focus_dist = fields[unsafe_offset=Self.FOCUS_DIST]
-        self.defocus_disk_u = Vec3f32[.WORLD](
+        self.defocus_disk_u = Vec3[.float32, .WORLD](
             fields.unsafe_offset(Self.DEFOCUS_DISK_U)
         )
-        self.defocus_disk_v = Vec3f32[.WORLD](
+        self.defocus_disk_v = Vec3[.float32, .WORLD](
             fields.unsafe_offset(Self.DEFOCUS_DISK_V)
         )
 
     def __init__(
         out self,
-        origin: Point3f32[.WORLD],
-        target: Point3f32[.WORLD],
-        world_up: Vec3f32[.WORLD],
+        origin: Point3[.float32, .WORLD],
+        target: Point3[.float32, .WORLD],
+        world_up: Vec3[.float32, .WORLD],
         fov_scale: Float32,
         focus_dist: Float32 = 1.0,
         defocus_angle: Float32 = 0.0,
@@ -76,9 +75,9 @@ struct Camera(TrivialRegisterPassable, Writable):
 
     @staticmethod
     def from_vfov(
-        origin: Point3f32[.WORLD],
-        target: Point3f32[.WORLD],
-        world_up: Vec3f32[.WORLD],
+        origin: Point3[.float32, .WORLD],
+        target: Point3[.float32, .WORLD],
+        world_up: Vec3[.float32, .WORLD],
         vfov: Float32,
         focus_dist: Float32 = 1.0,
         defocus_angle: Float32 = 0.0,
@@ -99,7 +98,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         py_i: Int,
         width: Int,
         height: Int,
-    ) -> Rayf32[.WORLD]:
+    ) -> Ray[.float32, .WORLD]:
         return self.make_ray_sampled(
             Float32(px_i),
             Float32(py_i),
@@ -118,7 +117,7 @@ struct Camera(TrivialRegisterPassable, Writable):
         py_i: Int,
         width: Int,
         inv_height: Float32,
-    ) -> Rayf32[.WORLD]:
+    ) -> Ray[.float32, .WORLD]:
         var screen_x = (
             2.0 * (Float32(px_i) + 0.5) - Float32(width)
         ) * inv_height
@@ -129,7 +128,9 @@ struct Camera(TrivialRegisterPassable, Writable):
             + self.right * (screen_x * self.fov_scale)
             + self.up * (screen_y * self.fov_scale)
         )
-        return Rayf32[.WORLD](self.origin, direction, 0.0, f32_max)
+        return Ray[.float32, .WORLD](
+            self.origin, direction, 0.0, max_finite[.float32]()
+        )
 
     def make_ray_sampled[
         length: SIMDLength = 1
@@ -166,7 +167,7 @@ struct Camera(TrivialRegisterPassable, Writable):
             ray_origin,
             normalize(dir),
             t_min,
-            f32_max,
+            max_finite[.float32](),
         )
 
     def flatten(self) -> List[Float32]:

@@ -6,7 +6,7 @@ from std.reflection import reflect
 from std.builtin.rebind import downcast, rebind
 from max.gpu.host import DeviceContext, DeviceGraph, DeviceGraphBuilder
 
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.bvh.gpu import GpuBvhBuildMethod
 from bajo.rt.gpu.config import (
     GpuRtBvhFormat,
@@ -27,11 +27,7 @@ from bajo.rt.gpu.views import (
     GpuRtTraceQueueView,
     gpu_rt_trace_queue_view,
 )
-from bajo.rt.render_types import (
-    RenderResult,
-    RenderSettings,
-    RenderTimings,
-)
+from bajo.rt.render_types import RenderResult, RenderSettings, RenderTimings
 from bajo.rt.material_types import Integrator
 from bajo.rt.scene_data import SceneData
 

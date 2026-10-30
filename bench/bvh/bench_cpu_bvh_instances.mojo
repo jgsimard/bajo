@@ -6,15 +6,19 @@ from std.time import perf_counter_ns
 from bajo.benchmark.bvh_fixtures import make_camera_rays_and_params
 from bajo.benchmark.bvh_reporting import TablePrinter
 from bajo.bvh.constants import PrimitiveKind, TraceMode, f32_max
-from bajo.bvh.cpu import CpuBlasSet, CpuBvhBuildMethod
-from bajo.bvh.cpu import build_cpu_triangle_blas_set
+from bajo.bvh.cpu import (
+    CpuBlasSet,
+    CpuBvhBuildMethod,
+    build_cpu_triangle_blas_set,
+)
+
 from bajo.bvh.cpu.blas_set import (
     trace_blas_set,
     trace_blas_set_packet,
     trace_blas_set_packet_any_hit,
 )
 from bajo.bvh.cpu.tlas import CpuTlas
-from bajo.bvh.host_utils import compute_bounds
+from bajo.core.aabb import compute_bounds
 from bajo.bvh.types import Instance
 from bajo.core import (
     AABB,

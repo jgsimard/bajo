@@ -20,8 +20,10 @@ from bajo.core import (
 )
 from bajo.core.intersect import intersect_ray_sphere, intersect_ray_tri
 from bajo.bvh.constants import PrimitiveKind, TraceMode
-from bajo.bvh.types import Hit, Instance, Sphere
-from bajo.bvh.host_utils import compute_bounds, sphere_bounds
+from bajo.bvh.types import Hit, Instance
+from bajo.core.geometry import Sphere, sphere_bounds
+from bajo.core.aabb import compute_bounds
+
 from bajo.bvh.gpu.ray_launch import _load_packed_ray, _store_packed_hit
 from bajo.bvh.gpu.sphere_bvh import (
     build_gpu_sphere_blas_set,

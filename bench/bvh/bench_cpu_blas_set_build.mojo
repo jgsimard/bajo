@@ -15,7 +15,7 @@ from bajo.bvh.cpu import (
     build_cpu_triangle_blas_set,
     trace_blas_set,
 )
-from bajo.bvh.types import Sphere
+from bajo.core.geometry import Sphere
 from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.core.utils import ns_to_ms
 

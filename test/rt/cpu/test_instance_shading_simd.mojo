@@ -1,7 +1,7 @@
 """Instance attribute interpolation across packet widths and inactive lanes."""
 
 from std.testing import TestSuite, assert_almost_equal, assert_equal
-from bajo.bvh.host_utils import compute_bounds
+from bajo.core.aabb import compute_bounds
 from bajo.core import Affine3f32, Point3f32, Point3, Ray, Rayf32, Vec3, Vec3f32
 from bajo.rt import Color, CpuScene, SceneBuilder
 from bajo.rt.scene_data import SceneData

@@ -1,15 +1,8 @@
-from std.math import abs
 from std.memory import bitcast
 from layout import Idx
 from bajo.core.tensor_layout import field_tile, record_tile
 
-from bajo.core import (
-    AABB,
-    Vec3f32,
-    Affine3f32,
-    Point3f32,
-    Frame,
-)
+from bajo.core import AABB, Affine3f32, Frame
 from bajo.bvh.constants import (
     f32_max,
     EMPTY_LANE,
@@ -111,24 +104,6 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
             ),
             records[idx, Self.T],
         )
-
-
-@fieldwise_init
-struct Sphere[frame: Frame = .WORLD](TrivialRegisterPassable):
-    comptime STRIDE = 4
-    var center: Point3f32[Self.frame]
-    var radius: Float32
-
-    def physical_radius(self) -> Float32:
-        return abs(self.radius)
-
-    def for_acceleration(self) -> Self:
-        """Return acceleration geometry without the shading-orientation sign."""
-        return Self(self.center, self.physical_radius())
-
-    def bounds(self) -> AABB[Self.frame]:
-        var r = Vec3f32[Self.frame](self.physical_radius())
-        return AABB[Self.frame](self.center - r, self.center + r)
 
 
 @fieldwise_init

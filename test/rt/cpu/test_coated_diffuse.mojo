@@ -11,16 +11,16 @@ from bajo.core import dot, Vec3f32
 from bajo.rt.coated_diffuse import (
     _dielectric_f,
     _evaluate_coated_diffuse,
-    _fresnel_dielectric,
     _sample_coated_diffuse,
     _sample_dielectric,
 )
+from bajo.core.optics import fresnel_dielectric
 
 
 def test_exact_dielectric_fresnel() raises:
-    assert_almost_equal(_fresnel_dielectric(1.0, 1.5), 0.04, atol=1.0e-6)
+    assert_almost_equal(fresnel_dielectric(1.0, 1.5), 0.04, atol=1.0e-6)
     # A ray leaving glass beyond the critical angle must totally reflect.
-    assert_almost_equal(_fresnel_dielectric(-0.5, 1.5), 1.0)
+    assert_almost_equal(fresnel_dielectric(-0.5, 1.5), 1.0)
 
 
 def test_ggx_dielectric_normal_incidence_value() raises:

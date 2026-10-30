@@ -1,6 +1,6 @@
 """Host/device-safe camera and secondary-ray construction policies."""
 
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.bvh.constants import f32_max
 from bajo.core import Point3, Ray, Vec3, normalize
 from bajo.core.random import Rng, random_on_hemisphere

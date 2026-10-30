@@ -1,7 +1,7 @@
 """Linear Float32 RGB image output for CPU/GPU benchmark comparisons."""
 
 from std.memory import bitcast
-from bajo.rt.render_types import Color
+from bajo.core.color import Color
 
 
 def write_linear(path: String, pixels: ImmSpan[Color, _]) raises:

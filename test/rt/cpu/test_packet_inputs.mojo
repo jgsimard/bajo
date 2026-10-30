@@ -2,8 +2,9 @@
 from std.memory import bitcast
 from std.testing import TestSuite, assert_equal, assert_almost_equal
 from bajo.core import Vec3
-from bajo.rt.media import SceneMedia, medium_transmittance
-from bajo.rt.render_types import Color
+from bajo.rt.media import SceneMedia
+from bajo.core.optics import medium_transmittance
+from bajo.core.color import Color
 from bajo.rt.material_types import SurfaceStore, MaterialKind
 from bajo.rt.cpu.bsdf import _MaterialParameters
 

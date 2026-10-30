@@ -11,7 +11,7 @@ from bajo.rt.gpu.wavefront_contract import (
     enqueue_wavefront_advance,
     enqueue_wavefront_contract_probe,
 )
-from bajo.rt.render_types import Color
+from bajo.core.color import Color
 from bajo.rt.material_types import SurfaceId
 from bajo.rt.wavefront_contract import (
     PackedWavePathQueue,

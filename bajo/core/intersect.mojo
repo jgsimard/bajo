@@ -1,6 +1,7 @@
 from std.math import fma, abs, clamp, sqrt, min, max, pi
 from std.sys.info import is_gpu
-from std.utils.numerics import max_finite
+from std.utils.numerics import max_finite, isfinite
+from std.memory import bitcast
 
 from bajo.core.vec import (
     Vec2,
@@ -1132,3 +1133,554 @@ def solid_angle[
     return numerator.eq(0.0).select(
         0.0, 2.0 * angle_atan2(numerator, denominator)
     )
+
+
+@always_inline
+def ray_triangle_filter[
+    frame: Frame
+](
+    ray: Ray[.float32, frame],
+    a: Point3[.float32, frame],
+    b: Point3[.float32, frame],
+    c: Point3[.float32, frame],
+) -> Int:
+    """Certified miss/hit, or -1 when the Float64 predicate is required."""
+    return ray_triangle_interval(ray, a, b, c)[0]
+
+
+@always_inline
+def ray_triangle_interval[
+    frame: Frame
+](
+    ray: Ray[.float32, frame],
+    a: Point3[.float32, frame],
+    b: Point3[.float32, frame],
+    c: Point3[.float32, frame],
+) -> Tuple[Int, Float32, Float32]:
+    """Return (status, distance, error); a certified hit has status 1.
+
+    The distance interval encloses the Float64 hit. Status 0 means a certified
+    miss and -1 requires Float64; their distance/error fields are unused.
+    Certification excludes determinant, barycentric and interval boundaries.
+
+    Absolute forward-error margins use the magnitudes of all triple products,
+    so cancellation does not make the filter overconfident. Subnormal and
+    overflowing arithmetic stays on the robust double-precision path.
+    """
+    var e1 = b - a
+    var e2 = c - a
+    var tv = ray.o - a
+    var m1 = max(max(abs(e1.x), abs(e1.y)), abs(e1.z))
+    var m2 = max(max(abs(e2.x), abs(e2.y)), abs(e2.z))
+    var mt = max(max(abs(tv.x), abs(tv.y)), abs(tv.z))
+    var md = max(max(abs(ray.d.x), abs(ray.d.y)), abs(ray.d.z))
+    var scale = max(max(m1, m2), max(mt, md))
+    if not isfinite(scale) or scale > 1e10 or scale < 1e-10:
+        return (-1, 0.0, 0.0)
+    var de = m1 * m2 * md * 0.000008
+    var ue = mt * m2 * md * 0.000008
+    var ve = mt * m1 * md * 0.000008
+    var te = mt * m1 * m2 * 0.000008
+    if de < 1e-30 or ue < 1e-30 or ve < 1e-30 or te < 1e-30:
+        return (-1, 0.0, 0.0)
+    var p = cross(ray.d, e2)
+    var det = dot(e1, p)
+    var ad = abs(det)
+    if ad <= de:
+        return (-1, 0.0, 0.0)
+    var orientation = Float32(1.0 if det > 0.0 else -1.0)
+    var u = dot(tv, p) * orientation
+    var q = cross(tv, e1)
+    var v = dot(ray.d, q) * orientation
+    var w = ad - u - v
+    var we = de + ue + ve
+    if u < -ue or v < -ve or w < -we:
+        return (0, 0.0, 0.0)
+    var ts = dot(e2, q) * orientation
+    var t = ts / ad
+    var error = (te + abs(t) * de) / (ad - de) + abs(t) * 0.000002
+    if not isfinite(error) or error < 1e-30:
+        return (-1, 0.0, 0.0)
+    if t < ray.t_min - error or t > ray.t_max + error:
+        return (0, 0.0, 0.0)
+    if (
+        u > ue
+        and v > ve
+        and w > we
+        and t > ray.t_min + error
+        and t < ray.t_max - error
+    ):
+        return (1, t, error)
+    return (-1, 0.0, 0.0)
+
+
+@always_inline
+def project_triangle_filtered[
+    frame: Frame
+](
+    point: Point3[.float32, frame],
+    a: Point3[.float32, frame],
+    b: Point3[.float32, frame],
+    c: Point3[.float32, frame],
+) -> Tuple[TriangleProjection[frame], Float64]:
+    var hit, error, _ = project_triangle_filtered_with_exactness(point, a, b, c)
+    return (hit, error)
+
+
+@always_inline
+def project_triangle_filtered_with_exactness[
+    frame: Frame
+](
+    point: Point3[.float32, frame],
+    a: Point3[.float32, frame],
+    b: Point3[.float32, frame],
+    c: Point3[.float32, frame],
+) -> Tuple[TriangleProjection[frame], Float64, Bool]:
+    """Filtered region projection for well-conditioned faces.
+
+    Ill-conditioned geometry retains the double cross-product predicate.
+    Close comparisons and provisional winners are refined with that predicate too.
+    The third result is true only when project_triangle computed every field;
+    certified vertex results still need its canonical endpoint/barycentric form.
+    """
+    var ab32 = b - a
+    var ac32 = c - a
+    var ap32 = point - a
+    var bp32 = point - b
+    var cp32 = point - c
+    var edge_scale = Float32(0.0)
+    var point_scale = Float32(0.0)
+    comptime for axis in range(3):
+        edge_scale = max(edge_scale, max(abs(ab32[axis]), abs(ac32[axis])))
+        point_scale = max(
+            point_scale,
+            max(abs(ap32[axis]), max(abs(bp32[axis]), abs(cp32[axis]))),
+        )
+    var margin = edge_scale * point_scale * 0.000008
+    if isfinite(margin) and margin > 1e-30:
+        var d1 = dot(ab32, ap32)
+        var d2 = dot(ac32, ap32)
+        var d3 = dot(ab32, bp32)
+        var d4 = dot(ac32, bp32)
+        var d5 = dot(ab32, cp32)
+        var d6 = dot(ac32, cp32)
+        var corner = -1
+        if d1 < -margin and d2 < -margin:
+            corner = 0
+        elif d3 > margin and d3 - d4 > margin * 2.0:
+            corner = 1
+        elif d6 > margin and d6 - d5 > margin * 2.0:
+            corner = 2
+        if corner >= 0:
+            var vertex = a if corner == 0 else b if corner == 1 else c
+            var q = vector64(vertex)
+            var delta = q - vector64(point)
+            return (
+                TriangleProjection(
+                    q,
+                    Float64(1.0 if corner == 0 else 0.0),
+                    Float64(1.0 if corner == 1 else 0.0),
+                    dot(delta, delta),
+                ),
+                0.0,
+                False,
+            )
+    var n32 = cross(ab32, ac32)
+    var edge2 = max(dot(ab32, ab32), dot(ac32, ac32))
+    var area2 = dot(n32, n32)
+    var magnitude = max(edge_scale, point_scale)
+    comptime for axis in range(3):
+        magnitude = max(
+            magnitude,
+            max(
+                max(abs(a[axis]), abs(b[axis])),
+                max(abs(c[axis]), abs(point[axis])),
+            ),
+        )
+    if (
+        not isfinite(area2)
+        or magnitude > 1e8
+        or magnitude < 1e-8
+        or area2 <= edge2 * edge2 * 0.0625
+    ):
+        return (project_triangle(point, a, b, c), 0.0, True)
+    var av = Vec3[.float32, frame](a.x, a.y, a.z)
+    var bv = Vec3[.float32, frame](b.x, b.y, b.z)
+    var cv = Vec3[.float32, frame](c.x, c.y, c.z)
+    var pv = Vec3[.float32, frame](point.x, point.y, point.z)
+    var uv = closest_point_to_triangle(av, bv, cv, pv)
+    var q = av + ab32 * uv.y + ac32 * (1.0 - uv.x - uv.y)
+    var delta = q - pv
+    var distance2 = dot(delta, delta)
+    var position_error = magnitude * 0.00001
+    var error = (
+        2.0 * sqrt(distance2) + position_error
+    ) * position_error + distance2 * 0.000002
+    if not isfinite(distance2) or not isfinite(error):
+        return (project_triangle(point, a, b, c), 0.0, True)
+    return (
+        TriangleProjection(
+            Vec3[.float64, frame](Float64(q.x), Float64(q.y), Float64(q.z)),
+            Float64(uv.x),
+            Float64(uv.y),
+            Float64(distance2),
+        ),
+        Float64(error),
+        False,
+    )
+
+
+@always_inline
+def triangle_normal_f32[
+    frame: Frame
+](
+    a: Point3[.float32, frame],
+    b: Point3[.float32, frame],
+    c: Point3[.float32, frame],
+) -> Vec3[.float32, frame]:
+    """Robust normal with exact Float32 shortcuts for structured directions.
+
+    Float32 input coordinates bound the nonzero Float64 cross product away
+    from overflow/underflow. Axis directions round to +/-1. Equal-magnitude nonzero
+    components round to +/-1/sqrt(count), far from a Float32 rounding boundary.
+    Other normals retain the original Float64 normalization.
+    """
+    var n = cross(vector64(b) - vector64(a), vector64(c) - vector64(a))
+    var nonzero = Int(n.x != 0.0) + Int(n.y != 0.0) + Int(n.z != 0.0)
+    var magnitude = max(abs(n.x), max(abs(n.y), abs(n.z)))
+    if (
+        isfinite(magnitude)
+        and magnitude > 0.0
+        and (
+            (n.x == 0.0 or abs(n.x) == magnitude)
+            and (n.y == 0.0 or abs(n.y) == magnitude)
+            and (n.z == 0.0 or abs(n.z) == magnitude)
+        )
+    ):
+        comptime unit2 = Float32(1.0 / sqrt(Float64(2.0)))
+        comptime unit3 = Float32(1.0 / sqrt(Float64(3.0)))
+        var unit = (
+            Float32(1.0) if nonzero == 1 else unit2 if nonzero == 2 else unit3
+        )
+        var result = Vec3[.float32, frame](0.0)
+        comptime for axis in range(3):
+            result[axis] = (
+                Float32(n[axis]) if n[axis]
+                == 0.0 else -unit if n[axis]
+                < 0.0 else unit
+            )
+        return result
+    var length2 = dot(n, n)
+    if length2 > 0.0:
+        n = n / sqrt(length2)
+        return Vec3[.float32, frame](Float32(n.x), Float32(n.y), Float32(n.z))
+    return Vec3[.float32, frame](0.0)
+
+
+@always_inline
+def normal_sign_filter[
+    frame: Frame
+](
+    point: Point3[.float32, frame],
+    closest: Point3[.float32, frame],
+    a: Point3[.float32, frame],
+    b: Point3[.float32, frame],
+    c: Point3[.float32, frame],
+) -> Int:
+    """Return +/-1 only for a certified original Float64 normal-dot sign.
+
+    Return zero for uncertain, nonfinite or out-of-range inputs. The caller
+    preserves the original normalized Float64 calculation for those cases.
+    """
+    var largest = UInt32(0)
+    comptime for axis in range(3):
+        var values = (point[axis], closest[axis], a[axis], b[axis], c[axis])
+        comptime for i in range(5):
+            var value = values[i]
+            largest = max(largest, bitcast[.uint32](value) & UInt32(0x7FFFFFFF))
+    if largest > UInt32(0x501502F9):
+        return 0
+    var e1 = b - a
+    var e2 = c - a
+    var delta = point - closest
+    var total = Float32(0)
+    var permanent = Float32(0)
+    comptime for axis in range(3):
+        comptime j = (axis + 1) % 3
+        comptime k = (axis + 2) % 3
+        var normal = e1[j] * e2[k] - e1[k] * e2[j]
+        total += normal * delta[axis]
+        var upper = abs(e1[j] * e2[k]) + abs(e1[k] * e2[j])
+        permanent += upper * abs(delta[axis])
+    # P sums absolute cross-product terms times the absolute displacement.
+    # 2^-12 * P is deliberately much larger than gamma_64 for Float32,
+    # covering edge/delta subtraction, cross/dot rounding, and the much
+    # smaller Float64 normalization/dot error. FMA contraction is included.
+    # The input limit M <= 1e10 prevents overflow. Even a loose 256 *
+    # min_normal_f32 * M^2 allowance for underflow/FTZ is below 1e-14.
+    # A positive normal length preserves sign; degeneracy stays uncertain.
+    var error = permanent * Float32(0.000244140625) + Float32(1e-14)
+    if total > error:
+        return 1
+    if total < -error:
+        return -1
+    return 0
+
+
+@always_inline
+def ray_overlaps_bounds[
+    frame: Frame
+](
+    ray: Ray[.float32, frame],
+    bounds: AxisAlignedBoundingBox[.float32, frame],
+    cutoff: Float32,
+    radius: Float32 = 0.0,
+) -> Bool:
+    """Conservative expanded-box slab test; handles parallel and zero rays."""
+    var lower = Float64(ray.t_min)
+    var upper = Float64(min(ray.t_max, cutoff))
+    if lower > upper:
+        return False
+    comptime for axis in range(3):
+        var origin = Float64(ray.o[axis])
+        var direction = Float64(ray.d[axis])
+        var lo = Float64(bounds._min[axis]) - Float64(radius)
+        var hi = Float64(bounds._max[axis]) + Float64(radius)
+        if direction == 0.0:
+            if origin < lo or origin > hi:
+                return False
+        else:
+            var a = (lo - origin) / direction
+            var b = (hi - origin) / direction
+            lower = max(lower, min(a, b))
+            upper = min(upper, max(a, b))
+            if lower > upper:
+                return False
+    return True
+
+
+@always_inline
+def _gpu_ray_bounds_interval[
+    frame: Frame
+](
+    ray: Ray[.float32, frame],
+    bounds: AxisAlignedBoundingBox[.float32, frame],
+    cutoff: Float32,
+    radius: Float32,
+    inverse: Vec3[.float64, frame],
+) -> Tuple[Int, Float32]:
+    """Return 0/1 for separated intervals, -1 when Float64 is needed.
+
+    Bound both interval endpoints by the largest per-axis error. Strict
+    comparisons use twice that error; uncertain intervals retain Float64.
+    The generous margin
+    covers Float32 subtraction, reciprocal conversion and multiplication;
+    overflow, underflow and touching intervals use the original exact test.
+    """
+    var lower = ray.t_min
+    var upper = min(ray.t_max, cutoff)
+    var interval_error = Float32(0.0)
+    if lower > upper:
+        return (0, 0.0)
+    comptime for axis in range(3):
+        var origin = ray.o[axis]
+        var lo = bounds._min[axis] - radius
+        var hi = bounds._max[axis] + radius
+        var scale = max(abs(bounds._min[axis]), abs(bounds._max[axis]))
+        var error = (scale + abs(radius) + abs(origin)) * 0.000002
+        if not isfinite(error) or error < 1e-30:
+            return (-1, 0.0)
+        if ray.d[axis] == 0.0:
+            if origin < lo - error or origin > hi + error:
+                return (0, 0.0)
+            if origin <= lo + error or origin >= hi - error:
+                return (-1, 0.0)
+        else:
+            var direction = abs(ray.d[axis])
+            if direction < 1e-30 or direction > 1e30:
+                return (-1, 0.0)
+            var inv = Float32(inverse[axis])
+            var a = (lo - origin) * inv
+            var b = (hi - origin) * inv
+            error = error * abs(inv) + max(abs(a), abs(b)) * 0.000002
+            if not isfinite(error) or error < 1e-30:
+                return (-1, 0.0)
+            interval_error = max(interval_error, error)
+            lower = max(lower, min(a, b))
+            upper = min(upper, max(a, b))
+            if lower > upper + interval_error * 2.0:
+                return (0, 0.0)
+    if lower < upper - interval_error * 2.0:
+        return (1, lower - interval_error)
+    return (-1, 0.0)
+
+
+@always_inline
+def _ray_overlaps_bounds_cached_impl[
+    frame: Frame, width: SIMDLength = 1
+](
+    ray: Ray[.float32, frame],
+    bounds: AxisAlignedBoundingBox[.float32, frame, width],
+    cutoff: Float32,
+    radius: Float32,
+    inverse: Vec3[.float64, frame],
+    active: SIMD[.bool, width] = SIMD[.bool, width](fill=True),
+) -> SIMD[.bool, width]:
+    var lower = SIMD[.float64, width](Float64(ray.t_min))
+    var upper = SIMD[.float64, width](Float64(min(ray.t_max, cutoff)))
+    var valid = active & lower.le(upper)
+    comptime if width == 1:
+        if not valid[0]:
+            return valid
+    comptime for axis in range(3):
+        var origin = SIMD[.float64, width](Float64(ray.o[axis]))
+        var lo = bounds._min[axis].cast[.float64]() - Float64(radius)
+        var hi = bounds._max[axis].cast[.float64]() + Float64(radius)
+        if ray.d[axis] == 0.0:
+            valid &= origin.ge(lo) & origin.le(hi)
+            comptime if width == 1:
+                if not valid[0]:
+                    return valid
+        else:
+            var a = (lo - origin) * inverse[axis]
+            var b = (hi - origin) * inverse[axis]
+            lower = max(lower, min(a, b))
+            upper = min(upper, max(a, b))
+            comptime if width == 1:
+                if lower[0] > upper[0]:
+                    if (
+                        lower[0] - upper[0]
+                        <= max(abs(lower[0]), abs(upper[0])) * 1e-14
+                    ):
+                        var box = AxisAlignedBoundingBox[.float32, frame](
+                            Point3[.float32, frame](
+                                bounds._min.x[0],
+                                bounds._min.y[0],
+                                bounds._min.z[0],
+                            ),
+                            Point3[.float32, frame](
+                                bounds._max.x[0],
+                                bounds._max.y[0],
+                                bounds._max.z[0],
+                            ),
+                        )
+                        return SIMD[.bool, width](
+                            fill=ray_overlaps_bounds(ray, box, cutoff, radius)
+                        )
+                    return SIMD[.bool, width](fill=False)
+    var result = valid & lower.le(upper)
+    var boundary = abs(upper - lower).le(max(abs(lower), abs(upper)) * 1e-14)
+    comptime for lane in range(width):
+        if active[lane] and boundary[lane]:
+            var box = AxisAlignedBoundingBox[.float32, frame](
+                Point3[.float32, frame](
+                    bounds._min.x[lane],
+                    bounds._min.y[lane],
+                    bounds._min.z[lane],
+                ),
+                Point3[.float32, frame](
+                    bounds._max.x[lane],
+                    bounds._max.y[lane],
+                    bounds._max.z[lane],
+                ),
+            )
+            result[lane] = ray_overlaps_bounds(ray, box, cutoff, radius)
+    return result
+
+
+@no_inline
+def _ray_overlaps_bounds_cached_exact[
+    frame: Frame, width: SIMDLength = 1
+](
+    ray: Ray[.float32, frame],
+    bounds: AxisAlignedBoundingBox[.float32, frame, width],
+    cutoff: Float32,
+    radius: Float32,
+    inverse: Vec3[.float64, frame],
+    active: SIMD[.bool, width] = SIMD[.bool, width](fill=True),
+) -> SIMD[.bool, width]:
+    # Keep uncertain GPU slabs in a separate function; the common Float32
+    # traversal path need not inline the full Float64 boundary calculation.
+    return _ray_overlaps_bounds_cached_impl(
+        ray, bounds, cutoff, radius, inverse, active
+    )
+
+
+@always_inline
+def ray_overlaps_bounds_cached[
+    frame: Frame, width: SIMDLength = 1
+](
+    ray: Ray[.float32, frame],
+    bounds: AxisAlignedBoundingBox[.float32, frame, width],
+    cutoff: Float32,
+    radius: Float32,
+    inverse: Vec3[.float64, frame],
+    active: SIMD[.bool, width] = SIMD[.bool, width](fill=True),
+) -> SIMD[.bool, width]:
+    """Cached scalar/SIMD slabs with division fallback near interval boundaries.
+    """
+    comptime if is_gpu() and width == 1:
+        if not active[0]:
+            return active
+        var box = AxisAlignedBoundingBox[.float32, frame](
+            Point3[.float32, frame](
+                bounds._min.x[0], bounds._min.y[0], bounds._min.z[0]
+            ),
+            Point3[.float32, frame](
+                bounds._max.x[0], bounds._max.y[0], bounds._max.z[0]
+            ),
+        )
+        var filtered = _gpu_ray_bounds_interval(
+            ray, box, cutoff, radius, inverse
+        )[0]
+        if filtered >= 0:
+            return SIMD[.bool, width](fill=filtered == 1)
+        return _ray_overlaps_bounds_cached_exact(
+            ray, bounds, cutoff, radius, inverse, active
+        )
+    return _ray_overlaps_bounds_cached_impl(
+        ray, bounds, cutoff, radius, inverse, active
+    )
+
+
+@no_inline
+def _sphere_overlaps_exact[
+    frame: Frame, width: SIMDLength
+](
+    center: Point3[.float32, frame],
+    radius: Float32,
+    bounds: AxisAlignedBoundingBox[.float32, frame, width],
+) -> SIMD[.bool, width]:
+    # Preserve touching and extreme-scale results without inlining this
+    # calculation into every node visited by the GPU Float32 filter.
+    return bounds.distance2(center).le(Float64(radius) * Float64(radius))
+
+
+@always_inline
+def sphere_overlaps_bounds[
+    frame: Frame, width: SIMDLength = 1
+](
+    center: Point3[.float32, frame],
+    radius: Float32,
+    bounds: AxisAlignedBoundingBox[.float32, frame, width],
+) -> SIMD[.bool, width]:
+    comptime if is_gpu() and width == 1:
+        var distance2 = Float32(0.0)
+        comptime for axis in range(3):
+            var delta = max(
+                max(
+                    bounds._min[axis][0] - center[axis],
+                    center[axis] - bounds._max[axis][0],
+                ),
+                Float32(0.0),
+            )
+            distance2 += delta * delta
+        var radius2 = radius * radius
+        var scale = max(distance2, radius2)
+        # Normal finite arithmetic away from tangency is unambiguous. Retain
+        # Float64 for tiny/overflowing distances and touching spheres.
+        if isfinite(scale) and scale > 1e-30:
+            if abs(distance2 - radius2) > scale * 0.000002:
+                return SIMD[.bool, width](fill=distance2 < radius2)
+        return _sphere_overlaps_exact(center, radius, bounds)
+    return bounds.distance2(center).le(Float64(radius) * Float64(radius))

@@ -15,7 +15,7 @@ from std.testing import TestSuite, assert_equal
 
 from bajo.core import Point3f32
 from bajo.rt.material_types import ImageTexture, NO_TEXTURE, SurfaceId
-from bajo.rt.render_types import Color
+from bajo.core.color import Color
 from bajo.rt.scene_data import SceneBuilder, SceneData
 from bajo.rt.gpu.material_layout import _load_gpu_coated_parameters
 from bajo.rt.gpu.materials import (

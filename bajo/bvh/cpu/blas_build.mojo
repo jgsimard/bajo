@@ -25,17 +25,10 @@ from bajo.bvh.cpu.triangle_bvh import (
 )
 from bajo.bvh.cpu.parallel import _worker_count
 from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
-from bajo.bvh.types import (
-    BlasDesc,
-    BlasDescLayout,
-    Sphere,
-    SphereLeafBlock,
-)
+from bajo.bvh.types import BlasDesc, BlasDescLayout, SphereLeafBlock
+from bajo.core.geometry import Sphere
 from bajo.bvh.wide_meta import _pack_wide_meta, wide_node_tile
-from bajo.core import (
-    Frame,
-    Point3f32,
-)
+from bajo.core import Frame, Point3f32
 
 comptime CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES = 4096
 comptime EXACT_MULTI_BLAS_MIN_PRIMITIVES = 4096

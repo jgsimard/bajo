@@ -19,7 +19,7 @@ from bajo.core.intersect import intersect_ray_aabb_rcp
 from bajo.bvh.cpu.blas_storage import CpuBlasSet
 from bajo.bvh.cpu.build_method import CpuBvhBuildMethod
 from bajo.bvh.types import BlasDesc, Hit, Instance
-from bajo.bvh.camera import Camera
+from bajo.core.camera import Camera
 from bajo.bvh.cpu.blas_set import (
     _debug_check_blas_index,
     _trace_blas_desc_precomputed_rcp,
@@ -37,14 +37,9 @@ from bajo.bvh.cpu.bounds_bvh import (
     BoundsItem,
     _checked_typed_leaf_range,
 )
-from bajo.bvh.cpu.trace import (
-    trace_bounds_bvh,
-    trace_bounds_bvh_leaf_rcp,
-)
+from bajo.bvh.cpu.trace import trace_bounds_bvh, trace_bounds_bvh_leaf_rcp
 from bajo.bvh.cpu.packet import trace_packet_stack_bounds_bvh
-from bajo.bvh.cpu.triangle_bvh import (
-    _trace_triangle_packet_primitive,
-)
+from bajo.bvh.cpu.triangle_bvh import _trace_triangle_packet_primitive
 from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref
 
 

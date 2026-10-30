@@ -4,31 +4,24 @@ from std.memory import Pointer
 from std.sys.info import size_of
 from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from bajo.rt.lighting_types import LightRecord
-from bajo.core import (
-    Point3,
-    Ray,
-    Vec3,
-    dot,
-    normalize,
-)
+from bajo.core import Point3, Ray, Vec3, dot, normalize
 from bajo.core.random import Rng, unit_vector_from_samples
-from bajo.bvh.constants import f32_max
+from bajo.bvh.constants import f32_max, PrimitiveKind
 from bajo.rt.common import (
     environment_light_pdf,
     environment_pdf_from_radiance,
     environment_radiance,
-    equal_area_square_to_sphere,
 )
+from bajo.core.mappings import equal_area_square_to_sphere
+from bajo.core.sampling import draw_alias_column, resolve_alias_draw
 from bajo.rt.lighting import (
-    _draw_alias_column,
     _emissive_hit_light_pdf,
     _emissive_hit_weight_from_pdf,
     _finish_direct_light_geometry,
-    _resolve_alias_draw,
     _sample_sphere_light_surface,
     _sample_triangle_light_surface,
 )
-from bajo.bvh.constants import PrimitiveKind
+
 from bajo.rt.material_types import (
     Integrator,
     MaterialKind,
@@ -37,10 +30,7 @@ from bajo.rt.material_types import (
     SURFACE_INDEX_MASK,
     SURFACE_INDEX_BITS,
 )
-from bajo.rt.shading_types import (
-    ShadingPoint,
-    SurfaceHit,
-)
+from bajo.rt.shading_types import ShadingPoint, SurfaceHit
 from .scene import CpuScene
 
 
@@ -190,10 +180,10 @@ def _sample_environment_candidate[
     ref data = world.scene_data()
     var local_direction: Vec3[.float32, .LOCAL, length]
     if len(data.environment_alias_probabilities()) > 0:
-        var draw = _draw_alias_column(
+        var draw = draw_alias_column(
             random_u, len(data.environment_alias_probabilities())
         )
-        var pixel_idx = _resolve_alias_draw(
+        var pixel_idx = resolve_alias_draw(
             draw,
             data.environment_alias_probabilities()
             .unsafe_ptr()
@@ -287,11 +277,11 @@ def _sample_direct_light_candidate[
     ](
         0.0
     )
-    var draw = _draw_alias_column(
+    var draw = draw_alias_column(
         finite_lanes.select(finite_u.clamp(0.0, 0.99999994), 0.0),
         len(lights.records),
     )
-    var selected = _resolve_alias_draw(
+    var selected = resolve_alias_draw(
         draw,
         lights.alias_probabilities.unsafe_ptr().unsafe_gather(draw.column),
         lights.alias_indices.unsafe_ptr().unsafe_gather(draw.column),

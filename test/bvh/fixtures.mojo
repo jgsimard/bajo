@@ -2,9 +2,10 @@ from std.math import max
 from max.gpu.host import DeviceBuffer
 
 from bajo.core import AABB, Vec3f32, Point3f32, Frame, Rayf32
-from bajo.bvh.camera import Camera
+from bajo.core.camera import Camera
 from bajo.bvh.cpu import CpuBlasSet, trace_blas_set
-from bajo.bvh.types import Sphere, Hit
+from bajo.core.geometry import Sphere
+from bajo.bvh.types import Hit
 from bajo.core.intersect import intersect_ray_tri, intersect_ray_sphere
 from bajo.bvh.constants import EMPTY_LANE, f32_max
 

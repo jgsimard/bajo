@@ -4,15 +4,12 @@ from std.math import pi
 from std.utils.numerics import isfinite
 
 from bajo.core import AABB, Affine3f32, Point3f32
-from bajo.bvh import Instance, Sphere
+from bajo.bvh import Instance
+from bajo.core.geometry import Sphere, triangle_area, triangle_is_valid
 from bajo.bvh.constants import PrimitiveKind
-from bajo.rt.geometry import triangle_area, triangle_is_valid
-from bajo.rt.lighting_types import (
-    LightRecord,
-    LightStore,
-    _light_importance,
-    _build_alias_distribution,
-)
+
+from bajo.rt.lighting_types import LightRecord, LightStore, _light_importance
+from bajo.core.sampling import build_alias_distribution
 from bajo.rt.material_types import (
     NO_TEXTURE,
     Environment,
@@ -20,7 +17,7 @@ from bajo.rt.material_types import (
     SurfaceId,
     SurfaceStore,
 )
-from bajo.rt.render_types import Color
+from bajo.core.color import Color
 from bajo.rt.media import SceneMedia
 
 
@@ -692,7 +689,7 @@ struct SceneData:
                     raise Error(
                         "environment importance integral must be finite"
                     )
-                _build_alias_distribution(
+                build_alias_distribution(
                     Span(weights),
                     total,
                     self._environment_alias_probabilities,

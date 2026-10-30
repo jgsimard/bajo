@@ -16,7 +16,7 @@ from bajo.bvh.gpu.utils import (
     upload_list,
     upload_vertices,
 )
-from bajo.bvh.host_utils import compute_bounds
+from bajo.core.aabb import compute_bounds
 from bajo.bvh.types import Hit
 from bajo.benchmark.bvh_fixtures import make_camera_rays_and_params
 from bajo.core import Frame

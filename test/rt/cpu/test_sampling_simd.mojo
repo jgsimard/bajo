@@ -12,7 +12,8 @@ from std.testing import (
 from bajo.core import Affine3f32, Point3, Point3f32, Vec3, Vec3f32, Rayf32
 from bajo.core.random import Rng, Sampler
 from bajo.rt.common import path_stage_rng
-from bajo.rt.render_types import Color, SamplingConfig
+from bajo.core.color import Color
+from bajo.rt.render_types import SamplingConfig
 from bajo.rt.material_types import (
     Environment,
     MaterialKind,
@@ -24,14 +25,16 @@ from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.cpu import CpuScene
 from bajo.rt.cpu.lighting import _sample_direct_light_candidate
 from bajo.rt.shading_types import ShadingPoint
+from bajo.core.sampling import (
+    draw_alias_column,
+    resolve_alias_draw,
+    build_alias_distribution,
+)
 from bajo.rt.lighting import (
-    _draw_alias_column,
-    _resolve_alias_draw,
     _emissive_hit_light_pdf,
     _emissive_hit_weight_from_pdf,
 )
 from bajo.rt.cpu.bsdf import _MaterialParameters, sample_bsdf
-from bajo.rt.lighting_types import _build_alias_distribution
 
 
 def _streams[length: SIMDLength]() raises:
@@ -180,7 +183,7 @@ def test_alias_distribution_preserves_sparse_hdr_weights_and_zero_boundary() rai
         total += Float64(weight)
     var probabilities = List[Float32]()
     var indices = List[UInt32]()
-    _build_alias_distribution(Span(weights), total, probabilities, indices)
+    build_alias_distribution(Span(weights), total, probabilities, indices)
     var reconstructed = List[Float64](length=len(weights), fill=0)
     for column in range(len(weights)):
         assert_true(probabilities[column] >= 0 and probabilities[column] <= 1)
@@ -195,12 +198,12 @@ def test_alias_distribution_preserves_sparse_hdr_weights_and_zero_boundary() rai
         assert_almost_equal(
             reconstructed[i], Float64(weights[i]) / total, atol=1e-8
         )
-    var draw = _draw_alias_column(Float32(0), len(weights))
-    assert_true(_resolve_alias_draw(draw, probabilities[0], indices[0]) != 0)
-    draw = _draw_alias_column(Float32(1), len(weights))
+    var draw = draw_alias_column(Float32(0), len(weights))
+    assert_true(resolve_alias_draw(draw, probabilities[0], indices[0]) != 0)
+    draw = draw_alias_column(Float32(1), len(weights))
     assert_equal(Int(draw.column), len(weights) - 1)
     var zeros = List[Float32](length=3, fill=0)
-    _build_alias_distribution(Span(zeros), 0, probabilities, indices)
+    build_alias_distribution(Span(zeros), 0, probabilities, indices)
     assert_equal(len(probabilities), 0)
     assert_equal(len(indices), 0)
 

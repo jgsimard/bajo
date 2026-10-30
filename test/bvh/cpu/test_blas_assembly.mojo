@@ -19,7 +19,8 @@ from bajo.bvh.cpu import (
     trace_blas_set_packet_any_hit,
 )
 from bajo.bvh.gpu.triangle_bvh import _flatten_triangle_sets
-from bajo.bvh.types import BlasDesc, Sphere, SphereLeafBlock, Hit
+from bajo.bvh.types import BlasDesc, SphereLeafBlock, Hit
+from bajo.core.geometry import Sphere
 from bajo.core import Point3, Point3f32, Ray, Rayf32, Vec3, Vec3f32
 
 

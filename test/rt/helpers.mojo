@@ -2,7 +2,7 @@
 
 from std.testing import assert_almost_equal, assert_equal
 
-from bajo.rt.render_types import Color
+from bajo.core.color import Color
 
 
 def assert_pixels_close(

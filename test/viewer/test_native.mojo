@@ -7,7 +7,7 @@ from std.testing import (
     assert_almost_equal,
     assert_true,
 )
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.core import Affine3f32, Point3W, Vec3W, Vec3f32, cross, dot
 from bajo.parser.asset_loader import MemoryAssetLoader
 from bajo.viewer.core import ViewerScene, viewer_camera

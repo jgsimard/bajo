@@ -8,12 +8,14 @@ from std.testing import (
     assert_almost_equal,
     assert_true,
 )
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.core import Point3f32, Vec3f32, dot
 from bajo.rt import CpuScene, render_wavefront
-from bajo.rt.render_types import Color, RenderSettings
+from bajo.core.color import Color
+from bajo.rt.render_types import RenderSettings
 from bajo.rt.scene_data import SceneBuilder
-from bajo.rt.media import SceneMedia, medium_transmittance, transmitted_medium
+from bajo.rt.media import SceneMedia, transmitted_medium
+from bajo.core.optics import medium_transmittance
 from bajo.rt.material_types import ImageTexture
 from bajo.rt.material_storage import pack_coated_materials
 from bajo.rt.shading import _sample_dielectric

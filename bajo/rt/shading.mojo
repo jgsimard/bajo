@@ -1,8 +1,16 @@
 """Host/device-safe BSDF sampling and evaluation primitives."""
 
-from std.math import cos, fma, pi, pow, sin, sqrt
+from std.math import cos, pi, pow, sin, sqrt
 
-from bajo.core import dot, normalize, orthonormal_basis, reflect, refract, Vec3
+from bajo.core import (
+    dot,
+    fresnel_schlick,
+    normalize,
+    orthonormal_basis,
+    reflect,
+    refract,
+    Vec3,
+)
 from bajo.core.random import unit_vector_from_samples
 from bajo.rt.coated_diffuse import (
     _evaluate_coated_diffuse,
@@ -213,7 +221,7 @@ def _sample_dielectric[
     var unit_direction = geometry[0]
     var cos_theta = geometry[1]
     var cannot_refract = geometry[2].gt(1.0)
-    var reflection_probability = reflectance(cos_theta, ri)
+    var reflection_probability = fresnel_schlick(cos_theta, ri)
     var reflect_sample = cannot_refract | reflection_probability.gt(
         reflect_random
     )
@@ -258,16 +266,3 @@ def _sample_material[
             return _sample_dielectric(
                 ray_direction, normal, parameter, front_face, random_u
             )
-
-
-def reflectance[
-    dtype: DType, length: SIMDLength
-](cosine: SIMD[dtype, length], ref_idx: SIMD[dtype, length]) -> SIMD[
-    dtype, length
-]:
-    var root = (1.0 - ref_idx) / (1.0 + ref_idx)
-    var r2 = root * root
-    var x = 1.0 - cosine
-    var x2 = x * x
-    var x5 = x2 * x2 * x
-    return fma(1.0 - r2, x5, r2)

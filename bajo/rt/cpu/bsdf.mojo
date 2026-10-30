@@ -15,7 +15,7 @@ from bajo.rt.shading import (
     _sample_coated_diffuse,
     _sample_material,
 )
-from bajo.rt.render_types import Color
+from bajo.core.color import Color
 from bajo.rt.material_types import (
     MaterialKind,
     Metal,

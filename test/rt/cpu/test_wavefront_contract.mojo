@@ -2,7 +2,7 @@ from std.testing import TestSuite, assert_equal, assert_false, assert_true
 from std.sys import size_of
 
 from bajo.core import Point3f32, Rayf32, Vec3f32
-from bajo.rt.render_types import Color
+from bajo.core.color import Color
 from bajo.rt.material_types import SurfaceId
 from bajo.rt.shading_types import SurfaceHit
 from bajo.rt.wavefront_contract import (

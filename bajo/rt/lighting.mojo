@@ -1,47 +1,13 @@
 """Host/device-safe light selection, surface sampling, PDFs, and weighting."""
 
+from bajo.core.sampling import power_heuristic
+
 from std.math import sqrt
 
-from bajo.core import (
-    Point3,
-    Vec3,
-    cross,
-    dot,
-    length2,
-    normalize,
-)
+from bajo.core import Point3, Vec3, cross, dot, length2, normalize
 from bajo.rt.rays import RT_RAY_T_MIN, RT_SHADOW_END_OFFSET
 from bajo.rt.material_types import Integrator
 from bajo.rt.lighting_types import _light_importance
-
-
-@fieldwise_init
-struct _AliasDraw[length: SIMDLength = 1](TrivialRegisterPassable):
-    var column: SIMD[.int64, Self.length]
-    var fraction: SIMD[.float32, Self.length]
-
-
-@always_inline
-def _draw_alias_column[
-    length: SIMDLength = 1
-](random_u: SIMD[.float32, length], count: Int) -> _AliasDraw[length]:
-    var scaled = random_u * Float32(count)
-    var column = scaled.cast[.int64]().clamp(0, SIMD[.int64, length](count - 1))
-    return _AliasDraw[length](column, scaled - column.cast[.float32]())
-
-
-@always_inline
-def _resolve_alias_draw[
-    length: SIMDLength = 1
-](
-    draw: _AliasDraw[length],
-    probability: SIMD[.float32, length],
-    alias_index: SIMD[.uint32, length],
-) -> SIMD[.int64, length]:
-    # Strict comparison prevents a zero-weight column from winning at u=0.
-    return draw.fraction.lt(probability).select(
-        draw.column, alias_index.cast[.int64]()
-    )
 
 
 @fieldwise_init
@@ -174,22 +140,6 @@ def _finish_direct_light_geometry[
         ),
         valid.select(shadow_t_max, 0.0),
     )
-
-
-@always_inline
-def power_heuristic[
-    length: SIMDLength = 1
-](
-    pdf_a: SIMD[.float32, length],
-    pdf_b: SIMD[.float32, length],
-) -> SIMD[
-    .float32, length
-]:
-    var a2 = pdf_a * pdf_a
-    var b2 = pdf_b * pdf_b
-    var denominator = a2 + b2
-    var nonzero = denominator.gt(0.0)
-    return nonzero.select(a2 / nonzero.select(denominator, 1.0), 0.0)
 
 
 @always_inline

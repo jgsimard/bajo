@@ -4,7 +4,7 @@ from std.math import round
 from std.time import perf_counter_ns
 
 from bajo.bvh.constants import f32_max
-from bajo.core import Ray
+from bajo.core import Ray, Frame, Point3, Point3f32, Vec3, Rayf32
 from bajo.bvh.cpu import (
     AdaptiveStreamHitSink,
     build_cpu_triangle_blas_set,
@@ -12,14 +12,13 @@ from bajo.bvh.cpu import (
     trace_blas_set_adaptive_stream,
     trace_blas_set_packet,
     trace_blas_set_packet_any_hit,
-)
-from bajo.bvh.types import Hit
-from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh.cpu import (
     CpuBlasSet,
     CpuBvhBuildMethod,
 )
-from bajo.core import Frame, Point3, Point3f32, Vec3, Rayf32
+from bajo.bvh.types import Hit
+from bajo.core.aabb import compute_bounds
+
+
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.benchmark.bvh_fixtures import (

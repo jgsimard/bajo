@@ -5,21 +5,18 @@ from std.testing import (
     assert_almost_equal,
     assert_raises,
     assert_true,
+    assert_equal,
 )
 
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.parser import MemoryAssetLoader
-from bajo.parser.pbrt import (
-    parse_pbrt,
-    read_pbrt,
-    read_pbrt_camera,
-)
+from bajo.parser.pbrt import parse_pbrt, read_pbrt, read_pbrt_camera
 from bajo.parser.number import parse_f32_at, parse_int_f32
 from bajo.parser.pbrt.parser import _Lexer
 from std.sys import simd_width_of
 from bajo.parser.asset_loader import AssetLoader
 from bajo.parser.ply import PlyMesh
-from std.testing import assert_equal
+
 from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.rt import CpuScene, EnvironmentKind, ImageTexture, render_wavefront
 

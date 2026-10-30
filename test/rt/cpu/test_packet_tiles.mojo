@@ -9,7 +9,8 @@ from bajo.rt.common import russian_roulette
 from bajo.rt.path_values import PathContinuation, PathFloatField
 from bajo.rt.path_store import store_path_values
 from bajo.core.tensor_layout import field_tile
-from bajo.rt.render_types import Color, RenderSettings, SamplingConfig
+from bajo.core.color import Color
+from bajo.rt.render_types import RenderSettings, SamplingConfig
 from bajo.rt.wavefront_queue import (
     PathPacket,
     ShadePacket,

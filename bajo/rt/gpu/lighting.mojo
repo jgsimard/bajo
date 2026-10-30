@@ -2,33 +2,29 @@
 
 from std.math import pi
 from max.gpu.host import DeviceBuffer, DeviceContext
-from bajo.bvh.constants import f32_max
+from bajo.bvh.constants import f32_max, PrimitiveKind
 from bajo.core import Point3f32, Rayf32, Vec3f32, dot, normalize
 from bajo.core.tensor_layout import record_tile
 from bajo.core.random import random_unit_vector
-from bajo.rt.common import (
-    equal_area_square_to_sphere,
-    path_stage_rng,
-    path_stage_seed,
-    sky_color,
-)
+from bajo.core.mappings import equal_area_square_to_sphere
+from bajo.rt.common import path_stage_rng, path_stage_seed, sky_color
 from bajo.rt.lighting import (
     _direct_light_scale,
-    _draw_alias_column,
     _finish_direct_light_geometry,
     _DirectLightGeometrySample,
     _LightSurfaceSample,
-    _resolve_alias_draw,
     _sample_sphere_light_surface,
     _sample_triangle_light_surface,
 )
+from bajo.core.sampling import draw_alias_column, resolve_alias_draw
 from bajo.rt.shading import (
     METAL_DELTA_FUZZ_THRESHOLD,
     _evaluate_coated_diffuse,
     _evaluate_material,
 )
-from bajo.bvh.constants import PrimitiveKind
-from bajo.rt.render_types import Color, SamplingConfig
+
+from bajo.core.color import Color
+from bajo.rt.render_types import SamplingConfig
 from bajo.rt.material_types import Integrator, SurfaceId
 from bajo.rt.lighting_types import _light_importance
 from bajo.rt.texture_math import load_environment_texel
@@ -40,10 +36,7 @@ from bajo.rt.wavefront_contract import (
 )
 from bajo.rt.gpu.views import GpuRtSceneView
 from bajo.rt.gpu.upload import _upload_nonempty
-from bajo.rt.gpu.material_layout import (
-    GpuMetalLayout,
-    GpuTextureDescLayout,
-)
+from bajo.rt.gpu.material_layout import GpuMetalLayout, GpuTextureDescLayout
 from bajo.rt.gpu.textures import (
     _sample_gpu_lambertian,
     _sample_gpu_coated_albedo,
@@ -228,11 +221,11 @@ def _sample_direct_light_candidate[
         var selected_pixel = 0
         var local_direction: Vec3f32[.LOCAL]
         if Int(scene.environment_alias_count) > 0:
-            var draw = _draw_alias_column(
+            var draw = draw_alias_column(
                 rng.f32(), Int(scene.environment_alias_count)
             )
             selected_pixel = Int(
-                _resolve_alias_draw(
+                resolve_alias_draw(
                     draw,
                     scene.environment_alias_probabilities[
                         unsafe_offset=draw.column
@@ -320,12 +313,12 @@ def _sample_direct_light_candidate[
         var finite_u = (
             selection_u - environment_probability
         ) / finite_probability if finite_probability > 0.0 else 0.0
-        var draw = _draw_alias_column(
+        var draw = draw_alias_column(
             min(finite_u, Float32(0.99999994)), Int(scene.light_count)
         )
         var packed_column = scene.light_kinds[unsafe_offset=draw.column]
         var alias_probability = scene.light_fields[unsafe_offset=draw.column]
-        var selected_idx = _resolve_alias_draw(
+        var selected_idx = resolve_alias_draw(
             draw, alias_probability, packed_column >> UInt32(4)
         )
         light_id = UInt32(selected_idx)

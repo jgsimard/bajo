@@ -6,11 +6,7 @@ from std.sys.arg import argv
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceContext
 
-from bajo.bvh.constants import (
-    PrimitiveKind,
-    TRI_LEAF_PACKED_STRIDE,
-    WideNode,
-)
+from bajo.bvh.constants import PrimitiveKind, TRI_LEAF_PACKED_STRIDE, WideNode
 from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_NODE_WORDS,
     CWBVH_TRIANGLE_WORDS,
@@ -22,7 +18,7 @@ from bajo.bvh.gpu.triangle_bvh import (
     build_gpu_triangle_bvh,
 )
 from bajo.bvh.gpu.utils import upload_vertices
-from bajo.bvh.host_utils import compute_bounds
+from bajo.core.aabb import compute_bounds
 from bajo.bvh.gpu import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.types import BlasDescLayout, Instance
 from bajo.core import AABB, Affine3f32, Point3f32

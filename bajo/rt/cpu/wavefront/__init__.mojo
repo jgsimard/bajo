@@ -6,10 +6,10 @@ from std.math import ceildiv
 from std.sys import num_logical_cores
 from std.time import perf_counter_ns
 
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
+from bajo.core.color import Color
 from bajo.rt.render_types import (
-    Color,
     RenderResult,
     RenderSettings,
     RenderTimings,

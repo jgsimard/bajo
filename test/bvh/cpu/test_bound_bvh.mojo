@@ -24,8 +24,18 @@ from bajo.bvh.cpu import (
     CpuBlasSet,
     CpuBvhBuildMethod,
     CpuTraversalMode,
+    AdaptiveStreamHitSink,
+    build_cpu_sphere_blas_set,
+    build_cpu_triangle_blas_set,
+    trace_blas_set,
+    trace_blas_set_adaptive_stream,
+    trace_blas_set_packet,
+    trace_blas_set_packet_any_hit,
+    trace_blas_set_packet_adaptive,
+    trace_blas_set_packet_selected,
 )
-from bajo.bvh.types import BlasDesc, Hit, Sphere
+from bajo.bvh.types import BlasDesc, Hit
+from bajo.core.geometry import Sphere
 from bajo.core.random import Rng
 from bajo.bvh.constants import (
     EMPTY_LANE,
@@ -45,32 +55,15 @@ from bajo.bvh.cpu.packet import (
     _coherent_packet_frustum,
     _intersect_coherent_packet_frustum,
 )
-from bajo.bvh.tagged_ref import (
-    decode_ref_index,
-    is_leaf_ref,
-    encode_leaf_ref,
-)
-from bajo.bvh.cpu.builder.hploc import (
-    _HplocClusterBounds,
-    _nearest_neighbors,
-)
+from bajo.bvh.tagged_ref import decode_ref_index, is_leaf_ref, encode_leaf_ref
+from bajo.bvh.cpu.builder.hploc import _HplocClusterBounds, _nearest_neighbors
 from bajo.bvh.cpu.builder.lbvh import (
     MortonItem,
     _radix_sort_morton_pairs,
     _radix_sort_morton_pairs_parallel,
 )
 from bajo.bvh.cpu.builder.sah import _find_sah_split, _partition_items_by_bin
-from bajo.bvh.cpu import (
-    AdaptiveStreamHitSink,
-    build_cpu_sphere_blas_set,
-    build_cpu_triangle_blas_set,
-    trace_blas_set,
-    trace_blas_set_adaptive_stream,
-    trace_blas_set_packet,
-    trace_blas_set_packet_any_hit,
-    trace_blas_set_packet_adaptive,
-    trace_blas_set_packet_selected,
-)
+
 from bajo.bvh.cpu.trace import (
     _extract_f32_lane,
     _extract_u32_lane,

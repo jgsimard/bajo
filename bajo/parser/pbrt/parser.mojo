@@ -7,15 +7,13 @@ from std.memory import pack_bits
 from std.sys import num_logical_cores, simd_width_of
 from bajo.core.random import Sampler
 
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32, dot, length
 from bajo.parser.number import parse_f32_fast_at, parse_int_f32
-from bajo.parser.ply.pack import _pack_ply_mesh
-from bajo.parser.ply.pack import _remove_degenerate_triangles
-from bajo.rt.render_types import (
-    Color,
-    RenderSettings,
-)
+from bajo.parser.ply.pack import _pack_ply_mesh, _remove_degenerate_triangles
+
+from bajo.core.color import Color
+from bajo.rt.render_types import RenderSettings
 from bajo.rt.material_types import (
     Environment,
     ImageTexture,

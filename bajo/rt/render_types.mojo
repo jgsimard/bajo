@@ -2,12 +2,9 @@
 
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 
-from bajo.core import Vec3f32
+from bajo.core.color import Color
 from bajo.rt.film import FilmResponse
 from bajo.core.random import Sampler
-
-
-comptime Color = Vec3f32[.WORLD]
 
 
 struct RenderSettings(Copyable, Writable):

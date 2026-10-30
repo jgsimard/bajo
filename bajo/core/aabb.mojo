@@ -220,3 +220,14 @@ struct AxisAlignedBoundingBox[
             self._min.unsafe_convert[new_frame=new_frame](),
             self._max.unsafe_convert[new_frame=new_frame](),
         )
+
+
+def compute_bounds[
+    frame: Frame
+](verts: ImmSpan[Point3[.float32, frame], _]) -> AxisAlignedBoundingBox[
+    .float32, frame
+]:
+    var bounds = AxisAlignedBoundingBox[.float32, frame].invalid()
+    for vert in verts:
+        bounds.grow(vert)
+    return bounds

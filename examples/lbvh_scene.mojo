@@ -2,13 +2,8 @@
 
 from std.math import cos, sin
 
-from bajo.bvh.host_utils import compute_bounds
-from bajo.core import (
-    AABB,
-    Point3f32,
-    Quat,
-    Vec3f32,
-)
+from bajo.core.aabb import compute_bounds
+from bajo.core import AABB, Point3f32, Quat, Vec3f32
 from bajo.core.random import Rng
 from examples.mesh_helpers import (
     normalized_instance_scale,
@@ -16,12 +11,7 @@ from examples.mesh_helpers import (
 )
 from bajo.core.utils import degrees_to_radians
 from bajo.parser.obj.pack import pack_obj_triangles
-from bajo.rt import (
-    Camera,
-    Color,
-    SceneBuilder,
-    SceneData,
-)
+from bajo.rt import Camera, Color, SceneBuilder, SceneData
 
 
 comptime LBVH_OBJ_PATHS = (

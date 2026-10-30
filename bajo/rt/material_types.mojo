@@ -5,18 +5,18 @@ from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from bajo.rt.texture_math import (
     sample_image_texture,
     sample_environment_texture,
-    texture_luminance,
     albedo_from_texture,
     roughness_from_texture,
     bump_slope,
     bump_normal,
 )
+from bajo.core.color import luminance, Color
 from std.utils.numerics import isfinite
 
 from bajo.core import Affine3f32, Vec3
 from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from bajo.bvh.constants import PrimitiveKind
-from bajo.rt.render_types import Color
+
 
 comptime NO_TEXTURE = UInt32.MAX
 
@@ -55,7 +55,7 @@ struct ImageTexture:
     ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> SIMD[
         .float32, length
     ]:
-        return texture_luminance(self.sample(u, v))
+        return luminance(self.sample(u, v))
 
     @always_inline
     def sample_environment[

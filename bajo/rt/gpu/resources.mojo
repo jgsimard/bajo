@@ -4,17 +4,11 @@ from std.math import ceildiv, min
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.gpu.buffers import upload_list
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.bvh.gpu.utils import upload_camera
-from bajo.rt.render_types import (
-    Color,
-    RenderSettings,
-    SamplingConfig,
-)
-from bajo.rt.material_types import (
-    Integrator,
-    SurfaceId,
-)
+from bajo.core.color import Color
+from bajo.rt.render_types import RenderSettings, SamplingConfig
+from bajo.rt.material_types import Integrator, SurfaceId
 from bajo.rt.wavefront_contract import WAVE_PATH_ID_MASK
 from bajo.rt.gpu.common_kernels import (
     GPU_RT_BLOCK_SIZE,

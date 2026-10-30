@@ -10,12 +10,12 @@ from std.testing import (
     assert_false,
 )
 from std.sys import num_logical_cores, simd_width_of
-from std.math import ceildiv
+from std.math import ceildiv, pi, sqrt
 from std.memory import bitcast
-from std.math import pi, sqrt
 
-from bajo.bvh.camera import Camera
-from bajo.bvh.host_utils import compute_bounds
+
+from bajo.core.camera import Camera
+from bajo.core.aabb import compute_bounds
 from bajo.core import (
     AABB,
     Affine3f32,
@@ -55,25 +55,26 @@ from bajo.rt import (
     sample_bsdf,
 )
 from examples.cornell_box import make_cornell_scene
-from bajo.rt.cpu import reflect, reflectance
+from bajo.rt.cpu import reflect, fresnel_schlick
 from bajo.rt.common import (
     environment_light_pdf,
     environment_pdf_from_radiance,
     environment_radiance,
-    equal_area_square_to_sphere,
-    equal_area_sphere_to_square,
     path_stage_rng,
     path_stage_seed,
     russian_roulette,
 )
+from bajo.core.mappings import (
+    equal_area_square_to_sphere,
+    equal_area_sphere_to_square,
+)
+from bajo.core.sampling import draw_alias_column, resolve_alias_draw
 from bajo.rt.lighting import (
-    _draw_alias_column,
     _emissive_hit_light_pdf,
     _emissive_hit_weight_from_pdf,
-    _resolve_alias_draw,
     _solid_angle_light_pdf,
 )
-from bajo.rt.geometry import (
+from bajo.core.geometry import (
     orient_surface_normal,
     triangle_area,
     triangle_is_valid,
@@ -254,14 +255,14 @@ def test_materials_own_domain_validation() raises:
     assert_vec_equal(surfaces.emitted_radiance(light, False), Color(0.0))
 
 
-def test_reflect_and_reflectance() raises:
+def test_reflect_and_fresnel_schlick() raises:
     var reflected = reflect(
         Vec3f32[.WORLD](1.0, -1.0, 0.0),
         Vec3f32[.WORLD](0.0, 1.0, 0.0),
     )
     assert_vec_equal(reflected, Vec3f32[.WORLD](1.0, 1.0, 0.0))
 
-    assert_almost_equal(reflectance(1.0, 1.5), 0.04, atol=1e-5)
+    assert_almost_equal(fresnel_schlick(1.0, 1.5), 0.04, atol=1e-5)
 
 
 def test_surface_id_is_packed() raises:
@@ -354,11 +355,11 @@ def test_light_alias_table_matches_power_distribution() raises:
 
 
 def test_shared_light_selection_and_pdf_contract() raises:
-    var draw = _draw_alias_column(0.45, 3)
+    var draw = draw_alias_column(0.45, 3)
     assert_equal(draw.column, 1)
     assert_almost_equal(draw.fraction, 0.35, atol=1.0e-6)
-    assert_equal(_resolve_alias_draw(draw, 0.25, UInt32(2)), 2)
-    assert_equal(_resolve_alias_draw(draw, 0.50, UInt32(2)), 1)
+    assert_equal(resolve_alias_draw(draw, 0.25, UInt32(2)), 2)
+    assert_equal(resolve_alias_draw(draw, 0.50, UInt32(2)), 1)
     assert_almost_equal(_solid_angle_light_pdf(4.0, 0.5, Color(3.0), 6.0), 4.0)
 
 

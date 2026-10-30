@@ -4,9 +4,9 @@ from std.testing import TestSuite, assert_true
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext
 from bajo.core import Point3f32, dot
-from bajo.core.intersect import triangle_normal, vector64
+from bajo.core.intersect import triangle_normal, vector64, normal_sign_filter
 from bajo.bvh.gpu.utils import upload_list, _device_span
-from bajo.bvh.spatial.gpu_geometry import normal_sign_filter
+
 
 comptime CASES = 65536
 

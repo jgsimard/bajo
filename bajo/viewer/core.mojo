@@ -1,7 +1,7 @@
 """Camera, render settings, and scene ownership for native viewers."""
 
 from std.math import cos, sin
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.core import Point3W, Vec3W
 from bajo.core.utils import degrees_to_radians

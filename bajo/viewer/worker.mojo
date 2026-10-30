@@ -9,9 +9,10 @@ from std.ffi import external_call, c_int
 from std.memory import Pointer
 from std.memory.alloc import unsafe_alloc
 from std.sys import has_accelerator
-from bajo.bvh import Camera
+from bajo.core.camera import Camera
 from bajo.rt.material_types import Integrator
-from bajo.rt.render_types import RenderSettings, RenderResult, Color
+from bajo.core.color import Color
+from bajo.rt.render_types import RenderSettings, RenderResult
 from bajo.rt.cpu.wavefront import render_wavefront_configured
 from bajo.bvh.cpu import CpuTraversalMode
 from bajo.rt.gpu.prepared_renderer import GpuRtPreparedRenderer

@@ -10,8 +10,9 @@ from max.gpu.host import DeviceContext, DeviceBuffer
 
 from bajo.core import Vec3f32, Point3f32, AABB, Rayf32, cross, normalize
 from bajo.core.intersect import intersect_ray_tri
-from bajo.bvh.types import Sphere, Hit
-from bajo.bvh.host_utils import sphere_bounds
+from bajo.core.geometry import Sphere, sphere_bounds
+from bajo.bvh.types import Hit
+
 from bajo.bvh.constants import (
     EMPTY_LANE,
     SPHERE_LEAF_PACKED_STRIDE,
@@ -19,15 +20,10 @@ from bajo.bvh.constants import (
     WideNode,
     f32_max,
 )
-from bajo.bvh.cpu import (
-    build_cpu_triangle_blas_set,
-    trace_blas_set,
-)
+from bajo.bvh.cpu import build_cpu_triangle_blas_set, trace_blas_set
 from bajo.bvh.gpu.builder import GpuBvhBuildMethod
 from bajo.bvh.gpu.builder.segmented_build import build_single_segment_wide
-from bajo.bvh.gpu.wide_layout import (
-    _wide_node_load_meta,
-)
+from bajo.bvh.gpu.wide_layout import _wide_node_load_meta
 from bajo.bvh.gpu.quality import (
     measure_binary_bvh_quality,
     measure_wide_bvh_quality,

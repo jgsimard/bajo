@@ -8,12 +8,7 @@ from std.math import max, round
 from std.sys import has_accelerator
 from std.time import perf_counter_ns
 
-from bajo.core import (
-    AABB,
-    Quat,
-    Vec3f32,
-    Point3f32,
-)
+from bajo.core import AABB, Quat, Vec3f32, Point3f32
 from bajo.core.utils import ns_to_ms, ns_to_mrays_per_s
 from bajo.bvh.cpu import CpuTlas, build_cpu_triangle_blas_set
 from bajo.bvh.gpu import (
@@ -22,8 +17,9 @@ from bajo.bvh.gpu import (
     build_gpu_triangle_blas_set,
     build_gpu_tlas,
 )
-from bajo.bvh.host_utils import compute_bounds
-from bajo.bvh import Camera, Hit, Instance
+from bajo.core.aabb import compute_bounds
+from bajo.core.camera import Camera
+from bajo.bvh import Hit, Instance
 from bajo.parser.obj.pack import pack_obj_triangles
 from bajo.bvh.constants import MISS_PRIM
 from bajo.bvh.gpu.utils import upload_list
@@ -33,7 +29,7 @@ from examples.mesh_helpers import (
     bottom_centered_transform,
 )
 from bajo.rt.image_output import write_ppm_from_colors
-from bajo.rt.render_types import Color
+from bajo.core.color import Color
 
 comptime OBJ_PATHS = (
     "./assets/bunny/bunny.obj",

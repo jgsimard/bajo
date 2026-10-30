@@ -2,16 +2,12 @@ from std.sys import has_accelerator
 from std.testing import TestSuite, assert_true, assert_almost_equal
 from max.gpu.host import DeviceContext
 
-from bajo.core import (
-    AABB,
-    Vec3f32,
-    Affine3f32,
-    Point3f32,
-    Rayf32,
-)
+from bajo.core import AABB, Vec3f32, Affine3f32, Point3f32, Rayf32
 from bajo.bvh.gpu import GpuBlasSet, GpuBvhLayout
-from bajo.bvh.types import Hit, Instance, Sphere
-from bajo.bvh.host_utils import compute_bounds, sphere_bounds
+from bajo.bvh.types import Hit, Instance
+from bajo.core.geometry import Sphere, sphere_bounds
+from bajo.core.aabb import compute_bounds
+
 from bajo.bvh.cpu.tlas import CpuTlas
 from bajo.bvh.cpu import (
     build_cpu_sphere_blas_set,
@@ -23,10 +19,7 @@ from bajo.bvh.gpu.sphere_bvh import build_gpu_sphere_blas_set
 from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_blas_set
 from bajo.bvh.gpu.utils import upload_camera
 
-from test.bvh.fixtures import (
-    _make_camera_ray,
-    _make_single_triangle_scene,
-)
+from test.bvh.fixtures import _make_camera_ray, _make_single_triangle_scene
 
 
 def test_gpu_tlas_triangle_camera_translated_single_instance_hit() raises:

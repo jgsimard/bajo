@@ -1,31 +1,13 @@
 """Runtime absorption media and geometry-owned medium boundaries."""
 
-from std.math import exp
+from bajo.core.optics import medium_transmittance
+
+
 from std.sys.info import size_of
-from std.utils.numerics import max_finite
+
 from bajo.core import Vec3
 from bajo.core.tensor_layout import record_tile, gather_record_vec3
-from bajo.rt.render_types import Color
-
-
-@always_inline
-def medium_transmittance[
-    length: SIMDLength = 1
-](
-    sigma_a: Vec3[.float32, .WORLD, length],
-    distance: SIMD[.float32, length],
-) -> Vec3[.float32, .WORLD, length]:
-    # Mask the distance before multiplication: zero absorption is transparent
-    # even for infinite segments, without forming 0 * infinity.
-    var result = Vec3[.float32, .WORLD, length](0.0)
-    comptime for axis in range(3):
-        var depth = sigma_a[axis] * sigma_a[axis].ne(0.0).select(distance, 0.0)
-        # SIMD exp may clamp its argument; preserve exact zero for an
-        # infinitely absorbing segment (including overflowed optical depth).
-        result[axis] = depth.gt(max_finite[.float32]()).select(
-            Float32(0.0), exp(-depth)
-        )
-    return result
+from bajo.core.color import Color
 
 
 @always_inline

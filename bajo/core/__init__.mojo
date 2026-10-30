@@ -21,7 +21,7 @@ from .mat import Mat
 from .frame import Frame
 from .ray import Ray
 from .segments import SegmentOffsets
-from .optics import reflect, refract
+from .optics import reflect, refract, fresnel_schlick
 
 
 comptime AABB = AxisAlignedBoundingBox[.float32, _]
@@ -41,3 +41,8 @@ comptime Mat22 = Mat[_, 2, 2, _]
 comptime Mat33 = Mat[_, 3, 3, _]
 comptime Mat44 = Mat[_, 4, 4, _]
 comptime Mat33f32 = Mat[.float32, 3, 3, _]
+
+
+from .camera import Camera
+from .geometry import Sphere
+from .color import Color

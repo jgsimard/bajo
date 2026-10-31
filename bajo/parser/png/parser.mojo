@@ -11,6 +11,7 @@ from bajo.parser.checksum import crc32
 from bajo.parser.deflate import inflate_zlib
 from bajo.parser.png.filters import _unfilter_rgb
 from bajo.core.image import ImageTexture
+from bajo.parser.png.data import parse_data_png
 
 
 from bajo.core.color import (
@@ -209,13 +210,28 @@ def _parse_png_libpng(bytes: ImmSpan[UInt8, _]) raises -> ImageTexture:
     return ImageTexture(width, height, pixels^)
 
 
-def parse_png(bytes: ImmSpan[UInt8, _]) raises -> ImageTexture:
+def parse_png(
+    bytes: ImmSpan[UInt8, _],
+    *,
+    linear: Bool = False,
+    preserve_alpha: Bool = False,
+) raises -> ImageTexture:
+    if linear or preserve_alpha:
+        var data = parse_data_png(bytes)
+        if not linear:
+            for index in range(len(data.pixels)):
+                data.pixels[index] = _srgb_to_linear(data.pixels[index])
+        return data^
     var image = _try_parse_png_simd(bytes)
     if image:
         return image.take()
     return _parse_png_libpng(bytes)
 
 
-def read_png(path: String) raises -> ImageTexture:
+def read_png(
+    path: String, *, linear: Bool = False, preserve_alpha: Bool = False
+) raises -> ImageTexture:
     var mapped = MMap(path)
-    return parse_png(mapped.as_bytes_span())
+    return parse_png(
+        mapped.as_bytes_span(), linear=linear, preserve_alpha=preserve_alpha
+    )

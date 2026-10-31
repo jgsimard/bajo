@@ -88,6 +88,7 @@ def _accumulate_direct_light_packet[
     samples_per_pixel: Int,
     sampling: SamplingConfig,
     stage: UInt32,
+    sample_base: Int = -1,
 ):
     """Evaluate collected NEE candidates with packet-wide BSDF and MIS math."""
     comptime assert Integrator.uses_direct_lighting[integrator]
@@ -148,15 +149,34 @@ def _accumulate_direct_light_packet[
     var is_lambertian = lights.surface_kinds.eq(MaterialKind.LAMBERTIAN.value)
     var is_metal = lights.surface_kinds.eq(MaterialKind.METAL.value)
     var is_coated = lights.surface_kinds.eq(MaterialKind.COATED_DIFFUSE.value)
+    var is_dielectric = lights.surface_kinds.eq(MaterialKind.DIELECTRIC.value)
+    var dielectric = _MaterialParameters[length]()
+    dielectric.gather[.DIELECTRIC](
+        surfaces, lights.surface_indices, lights.sample.valid & is_dielectric
+    )
+    var glass = dielectric.evaluate[.DIELECTRIC](
+        ray_direction,
+        lights.point.normal,
+        lights.sample.direction,
+        active=lights.sample.valid & is_dielectric,
+        front_face=lights.point.front_face,
+    )
     var value = Vec3.select(
-        is_coated,
-        coated.value,
-        Vec3.select(is_lambertian, lambertian.value, metal.value),
+        is_dielectric,
+        glass.value,
+        Vec3.select(
+            is_coated,
+            coated.value,
+            Vec3.select(is_lambertian, lambertian.value, metal.value),
+        ),
     )
-    var pdf = is_coated.select(
-        coated.pdf, is_lambertian.select(lambertian.pdf, metal.pdf)
+    var pdf = is_dielectric.select(
+        glass.pdf,
+        is_coated.select(
+            coated.pdf, is_lambertian.select(lambertian.pdf, metal.pdf)
+        ),
     )
-    var supported = is_lambertian | is_metal | is_coated
+    var supported = is_lambertian | is_metal | is_coated | is_dielectric
     var ok = lights.sample.valid & supported & pdf.gt(0.0)
     var scale = _direct_light_scale[integrator, length](
         lights.sample.surface_cosine,
@@ -169,7 +189,10 @@ def _accumulate_direct_light_packet[
     var blue = paths.tz * value.z * lights.sample.emission.z * scale
     for lane in range(lane_count):
         if ok[lane]:
-            var pixel_idx = Int(paths.path_ids[lane]) / samples_per_pixel
+            var pixel_idx = (
+                Int(paths.path_ids[lane]) - sample_base if sample_base
+                >= 0 else Int(paths.path_ids[lane]) / samples_per_pixel
+            )
             pixels[pixel_idx] += Color(red[lane], green[lane], blue[lane])
 
 
@@ -222,6 +245,7 @@ def _accumulate_environment_packet[
     surfaces: SurfaceStore,
     world: CpuScene[world_bvh_width, instance_bvh_width],
     bounce: Int,
+    sample_base: Int = -1,
 ):
     if not misses.reduce_or():
         return
@@ -238,7 +262,10 @@ def _accumulate_environment_packet[
     var blue = packet.tz * emission.z * weight
     for lane in range(lane_count):
         if misses[lane]:
-            var pixel_idx = Int(packet.path_ids[lane]) / samples_per_pixel
+            var pixel_idx = (
+                Int(packet.path_ids[lane]) - sample_base if sample_base
+                >= 0 else Int(packet.path_ids[lane]) / samples_per_pixel
+            )
             pixels[pixel_idx] += Color(red[lane], green[lane], blue[lane])
 
 
@@ -301,77 +328,11 @@ def _trace_packets[
     mut metal_queue: PacketShadeQueue[length],
     mut dielectric_queue: PacketShadeQueue[length],
     mut coated_diffuse_queue: PacketShadeQueue[length],
+    sample_base: Int = -1,
 ):
-    # Avoid generating discarded continuations in depth-one preview renders.
-    # Keep the regular multi-bounce specialization unchanged.
-    comptime if Integrator.is_path_tracing[integrator]:
-        if settings.max_depth == 1:
-            _trace_packets_impl[
-                False,
-                length,
-                integrator,
-                world_bvh_width,
-                instance_bvh_width,
-                traversal_mode,
-                *adaptive_packet_sizes,
-            ](
-                settings,
-                sampling,
-                world,
-                pixels,
-                active_paths,
-                next_paths,
-                lambertian_queue,
-                metal_queue,
-                dielectric_queue,
-                coated_diffuse_queue,
-            )
-            return
-    _trace_packets_impl[
-        True,
-        length,
-        integrator,
-        world_bvh_width,
-        instance_bvh_width,
-        traversal_mode,
-        *adaptive_packet_sizes,
-    ](
-        settings,
-        sampling,
-        world,
-        pixels,
-        active_paths,
-        next_paths,
-        lambertian_queue,
-        metal_queue,
-        dielectric_queue,
-        coated_diffuse_queue,
+    var bounce_count = (
+        settings.max_depth + 1 if Integrator.is_path_tracing[integrator] else 1
     )
-
-
-def _trace_packets_impl[
-    continue_paths: Bool,
-    length: SIMDLength,
-    integrator: Integrator,
-    world_bvh_width: SIMDLength,
-    instance_bvh_width: SIMDLength,
-    traversal_mode: CpuTraversalMode,
-    *adaptive_packet_sizes: SIMDLength,
-](
-    settings: RenderSettings,
-    sampling: SamplingConfig,
-    world: CpuScene[world_bvh_width, instance_bvh_width],
-    pixels: MutSpan[Color, _],
-    mut active_paths: PacketPathQueue[length],
-    mut next_paths: PacketPathQueue[length],
-    mut lambertian_queue: PacketShadeQueue[length],
-    mut metal_queue: PacketShadeQueue[length],
-    mut dielectric_queue: PacketShadeQueue[length],
-    mut coated_diffuse_queue: PacketShadeQueue[length],
-):
-    var bounce_count = settings.max_depth if Integrator.is_path_tracing[
-        integrator
-    ] else 1
     for bounce in range(bounce_count):
         if len(active_paths) == 0:
             break
@@ -426,18 +387,19 @@ def _trace_packets_impl[
                                 )
                                 .value[0]
                             )
-            if world.has_displacement():
-                surface_hits.normal = (
-                    world.scene_data()
-                    .surfaces()
-                    .shading_normal(
-                        surface_hits.surface,
-                        surface_hits.normal,
-                        surface_hits.uv_u,
-                        surface_hits.uv_v,
-                        surface_hits.hit & valid_lanes,
-                    )
+            surface_hits.normal = (
+                world.scene_data()
+                .surfaces()
+                .shading_normal(
+                    surface_hits.surface,
+                    surface_hits.normal,
+                    surface_hits.uv_u,
+                    surface_hits.uv_v,
+                    surface_hits.hit & valid_lanes,
+                    surface_hits.dpdu,
+                    surface_hits.front_face,
                 )
+            )
 
             comptime if Integrator.is_path_tracing[integrator]:
                 if (valid_lanes & packet.medium_ids.ne(0)).reduce_or():
@@ -456,21 +418,11 @@ def _trace_packets_impl[
                 var emitting = (
                     valid_lanes
                     & surface_hits.hit
-                    & surface_hits.front_face
-                    & (surface_hits.surface.value >> SURFACE_INDEX_BITS).eq(
-                        MaterialKind.EMISSIVE.value
-                    )
+                    & surface_hits.emission_visible
+                    & surface_hits.emission.max_component().gt(0.0)
                 )
                 if emitting.reduce_or():
-                    var emission = (
-                        world.scene_data()
-                        .surfaces()
-                        .emitted_radiance(
-                            surface_hits.surface,
-                            surface_hits.front_face,
-                            emitting,
-                        )
-                    )
+                    var emission = surface_hits.emission
                     var weight = _emissive_hit_weight[integrator](
                         world,
                         ray_packet,
@@ -488,41 +440,63 @@ def _trace_packets_impl[
                         if emitting[lane]:
                             var pixel_idx = (
                                 Int(packet.path_ids[lane])
+                                - sample_base if sample_base
+                                >= 0 else Int(packet.path_ids[lane])
                                 / settings.samples_per_pixel
                             )
                             pixels[pixel_idx] += Color(
                                 red[lane], green[lane], blue[lane]
                             )
 
+                _accumulate_environment_packet[
+                    length,
+                    integrator,
+                    world_bvh_width,
+                    instance_bvh_width,
+                ](
+                    pixels,
+                    packet,
+                    lane_count,
+                    misses,
+                    settings.samples_per_pixel,
+                    world.scene_data().environment(),
+                    world.scene_data().surfaces(),
+                    world,
+                    bounce,
+                    sample_base,
+                )
+                # The terminal vertex contributes emitted light, but cannot
+                # sample direct illumination or start another scattering event.
+                if bounce == settings.max_depth:
+                    continue
+
+                # Gather ray/throughput rows once, after per-lane attenuation;
+                # append one compact tile per material, preserving lane order.
+                var shade = ShadePacket[length]()
+                shade.set_paths(packet)
+                shade.set_hits(surface_hits)
                 var valid_shade = surface_hits.hit & valid_lanes
                 var kinds = surface_hits.surface.value >> SURFACE_INDEX_BITS
-                comptime if continue_paths:
-                    # Gather ray/throughput rows once, after per-lane attenuation;
-                    # append one compact tile per material, preserving lane order.
-                    var shade = ShadePacket[length]()
-                    shade.set_paths(packet)
-                    shade.set_hits(surface_hits)
-                    lambertian_queue.append_packet_masked(
-                        shade,
-                        kinds.eq(MaterialKind.LAMBERTIAN.value) & valid_shade,
-                        lane_count,
-                    )
-                    metal_queue.append_packet_masked(
-                        shade,
-                        kinds.eq(MaterialKind.METAL.value) & valid_shade,
-                        lane_count,
-                    )
-                    dielectric_queue.append_packet_masked(
-                        shade,
-                        kinds.eq(MaterialKind.DIELECTRIC.value) & valid_shade,
-                        lane_count,
-                    )
-                    coated_diffuse_queue.append_packet_masked(
-                        shade,
-                        kinds.eq(MaterialKind.COATED_DIFFUSE.value)
-                        & valid_shade,
-                        lane_count,
-                    )
+                lambertian_queue.append_packet_masked(
+                    shade,
+                    kinds.eq(MaterialKind.LAMBERTIAN.value) & valid_shade,
+                    lane_count,
+                )
+                metal_queue.append_packet_masked(
+                    shade,
+                    kinds.eq(MaterialKind.METAL.value) & valid_shade,
+                    lane_count,
+                )
+                dielectric_queue.append_packet_masked(
+                    shade,
+                    kinds.eq(MaterialKind.DIELECTRIC.value) & valid_shade,
+                    lane_count,
+                )
+                coated_diffuse_queue.append_packet_masked(
+                    shade,
+                    kinds.eq(MaterialKind.COATED_DIFFUSE.value) & valid_shade,
+                    lane_count,
+                )
 
                 comptime if Integrator.uses_direct_lighting[integrator]:
                     direct_lights.point = ShadingPoint[length].from_hit(
@@ -543,6 +517,7 @@ def _trace_packets_impl[
                         direct_lights.point,
                         light_rng,
                         valid_shade & kinds.ne(MaterialKind.EMISSIVE.value),
+                        kinds.eq(MaterialKind.DIELECTRIC.value),
                     )
                     if (
                         direct_lights.sample.valid & packet.medium_ids.ne(0)
@@ -575,23 +550,8 @@ def _trace_packets_impl[
                         settings.samples_per_pixel,
                         sampling,
                         wavefront_rng_stage(UInt32(bounce)),
+                        sample_base,
                     )
-                _accumulate_environment_packet[
-                    length,
-                    integrator,
-                    world_bvh_width,
-                    instance_bvh_width,
-                ](
-                    pixels,
-                    packet,
-                    lane_count,
-                    misses,
-                    settings.samples_per_pixel,
-                    world.scene_data().environment(),
-                    world.scene_data().surfaces(),
-                    world,
-                    bounce,
-                )
             else:
                 var color = Vec3[.float32, .WORLD, length](0.0)
                 comptime if integrator == .NORMALS:
@@ -632,13 +592,17 @@ def _trace_packets_impl[
                         )
                 for lane in range(lane_count):
                     var pixel_idx = (
-                        Int(packet.path_ids[lane]) // settings.samples_per_pixel
+                        Int(packet.path_ids[lane]) - sample_base if sample_base
+                        >= 0 else Int(packet.path_ids[lane])
+                        // settings.samples_per_pixel
                     )
                     pixels[pixel_idx] += Color(
                         color.x[lane], color.y[lane], color.z[lane]
                     )
 
-        comptime if continue_paths and Integrator.is_path_tracing[integrator]:
+        comptime if Integrator.is_path_tracing[integrator]:
+            if bounce == settings.max_depth:
+                break
             _shade_material_packets[.LAMBERTIAN, length](
                 next_paths,
                 lambertian_queue,

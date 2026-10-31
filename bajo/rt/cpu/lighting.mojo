@@ -1,12 +1,14 @@
 """Emission and next-event estimation for CPU path integrators."""
 
 from std.utils.numerics import max_finite
+from std.math import abs
 
 from std.memory import Pointer
 from std.sys.info import size_of
-from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from bajo.rt.lighting_types import LightRecord
 from bajo.core import Point3, Ray, Vec3, dot, normalize
+from bajo.core import Point3f32
+from bajo.rt.opacity import opacity_accepts, opacity_point_sample
 from bajo.core.random import Rng, unit_vector_from_samples
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.common import (
@@ -22,14 +24,13 @@ from bajo.rt.lighting import (
     _finish_direct_light_geometry,
     _sample_sphere_light_surface,
     _sample_triangle_light_surface,
+    light_sample_uv,
 )
 
 from bajo.rt.material_types import (
     Integrator,
     MaterialKind,
-    Emissive,
     PRIMITIVE_INDEX_BITS,
-    SURFACE_INDEX_MASK,
     SURFACE_INDEX_BITS,
 )
 from bajo.rt.shading_types import ShadingPoint, SurfaceHit
@@ -82,9 +83,10 @@ def _emissive_hit_weight[
             light_pdf = _emissive_hit_light_pdf(
                 ray.d,
                 hit.t,
-                hit.normal,
+                hit.geometric_normal,
                 emission,
                 world.scene_data().total_light_weight(),
+                hit.emission_two_sided,
             )
     return _emissive_hit_weight_from_pdf[integrator](
         UInt32(bounce), previous_delta, previous_bsdf_pdf, light_pdf
@@ -103,21 +105,34 @@ def light_pdf_for_emissive_hit[
     active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
 ) -> SIMD[.float32, length]:
     ref data = world.scene_data()
+    var radiance = hit.emission
+    var legacy = (hit.surface.value >> SURFACE_INDEX_BITS).eq(
+        MaterialKind.EMISSIVE.value
+    )
+    if (legacy & active).reduce_or():
+        radiance = Vec3.select(
+            legacy,
+            data.surfaces().emitted_radiance(
+                hit.surface, hit.front_face, legacy & active
+            ),
+            radiance,
+        )
     var emitting = (
         active
-        & hit.front_face
-        & (hit.surface.value >> SURFACE_INDEX_BITS).eq(
-            MaterialKind.EMISSIVE.value
-        )
+        & hit.hit
+        & hit.emission_visible
+        & radiance.max_component().gt(0.0)
     )
     if not emitting.reduce_or():
         return 0.0
-    var radiance = data.surfaces().emitted_radiance(
-        hit.surface, hit.front_face, emitting
-    )
     return emitting.select(
         _emissive_hit_light_pdf(
-            ray.d, hit.t, hit.normal, radiance, data.total_light_weight()
+            ray.d,
+            hit.t,
+            hit.geometric_normal,
+            radiance,
+            data.total_light_weight(),
+            hit.emission_two_sided,
         ),
         0.0,
     )
@@ -178,6 +193,7 @@ def _sample_environment_candidate[
     random_u: SIMD[.float32, length],
     random_v: SIMD[.float32, length],
     jitter_v: SIMD[.float32, length],
+    allow_transmission: SIMD[.bool, length] = SIMD[.bool, length](fill=False),
 ) -> _DirectLightSample[length]:
     ref data = world.scene_data()
     var local_direction: Vec3[.float32, .LOCAL, length]
@@ -220,7 +236,10 @@ def _sample_environment_candidate[
             + transform.m22 * local_direction.z,
         )
     )
-    var surface_cosine = max(dot(point.normal, direction), 0.0)
+    var cosine = dot(point.normal, direction)
+    var surface_cosine = allow_transmission.select(
+        abs(cosine), max(cosine, 0.0)
+    )
     var emission = environment_radiance(
         data.environment(), data.surfaces(), direction
     )
@@ -249,6 +268,7 @@ def _sample_direct_light_candidate[
     point: ShadingPoint[length],
     mut rng: Rng[length],
     active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+    allow_transmission: SIMD[.bool, length] = SIMD[.bool, length](fill=False),
 ) -> _DirectLightSample[length]:
     """Select and sample emitters across a packet; scalar is width one."""
     ref data = world.scene_data()
@@ -266,7 +286,9 @@ def _sample_direct_light_candidate[
     if environment_lanes.reduce_or():
         if len(data.environment_alias_probabilities()) > 0:
             jitter_v = rng.f32()
-        result = _sample_environment_candidate(world, point, u, v, jitter_v)
+        result = _sample_environment_candidate(
+            world, point, u, v, jitter_v, allow_transmission
+        )
         result.valid &= environment_lanes
     var finite_lanes = active & ~environment_lanes
     if len(lights.records) == 0 or not finite_lanes.reduce_or():
@@ -319,15 +341,15 @@ def _sample_direct_light_candidate[
     var spheres = (primitives >> PRIMITIVE_INDEX_BITS).eq(
         PrimitiveKind.SPHERE.value
     ) & finite_lanes
-    var surfaces = Pointer(to=lights.records[0].surface.value).unsafe_gather(
-        offsets
+    var radiance = Pointer(to=lights.records[0].radiance.x)
+    var emission = Vec3[.float32, .WORLD, length](
+        radiance.unsafe_gather(offsets),
+        radiance.unsafe_gather(offsets + 1),
+        radiance.unsafe_gather(offsets + 2),
     )
-    comptime assert size_of[Emissive]() == 3 * size_of[Float32]()
-    var radiance = record_tile[.float32, 3](
-        Pointer(to=data.surfaces().emissives[0].radiance.x),
-        len(data.surfaces().emissives),
+    var two_sided = (
+        Pointer(to=lights.records[0].flags).unsafe_gather(offsets).ne(0)
     )
-    var emission = gather_record_vec3(radiance, surfaces & SURFACE_INDEX_MASK)
     # Finite emitters and uniform environments share the two draws; image
     # environments use u for alias selection, v and jitter_v for pixel jitter.
     var surface_sample = _sample_triangle_light_surface(p0, p1, p2, u, v)
@@ -340,9 +362,45 @@ def _sample_direct_light_candidate[
         surface_sample.normal = Vec3.select(
             spheres, sphere.normal, surface_sample.normal
         )
+        surface_sample.u = spheres.select(sphere.u, surface_sample.u)
+        surface_sample.v = spheres.select(sphere.v, surface_sample.v)
         surface_sample.valid |= spheres
+    if len(data.opacity().records):
+        var uv_fields = Pointer(to=lights.records[0].uv0_u)
+        var uv = light_sample_uv(
+            uv_fields.unsafe_gather(offsets),
+            uv_fields.unsafe_gather(offsets + 1),
+            uv_fields.unsafe_gather(offsets + 2),
+            uv_fields.unsafe_gather(offsets + 3),
+            uv_fields.unsafe_gather(offsets + 4),
+            uv_fields.unsafe_gather(offsets + 5),
+            surface_sample.u,
+            surface_sample.v,
+        )
+        var texture_u = spheres.select(surface_sample.u, uv[0])
+        var texture_v = spheres.select(surface_sample.v, uv[1])
+        for lane in range(Int(length)):
+            if finite_lanes[lane]:
+                if case .Some(opacity) = data.opacity().records.get(
+                    primitives[lane]
+                ):
+                    var p = surface_sample.point
+                    surface_sample.valid[lane] &= opacity_accepts(
+                        opacity.evaluate(
+                            data.surfaces(), texture_u[lane], texture_v[lane]
+                        ),
+                        opacity_point_sample(
+                            Point3f32[.WORLD](p.x[lane], p.y[lane], p.z[lane])
+                        ),
+                    )
     var geometry = _finish_direct_light_geometry(
-        point.p, point.normal, surface_sample, emission, total_weight
+        point.p,
+        point.normal,
+        surface_sample,
+        emission,
+        total_weight,
+        allow_transmission,
+        two_sided,
     )
     result.valid |= finite_lanes & geometry.valid
     result.direction = Vec3.select(

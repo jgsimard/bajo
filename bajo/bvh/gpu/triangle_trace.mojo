@@ -24,6 +24,7 @@ from bajo.bvh.gpu.trace import (
     trace_bounds_bvh_with_stats,
 )
 from bajo.bvh.types import Hit
+from bajo.bvh.filter import TriangleHitFilter, AcceptAllTriangles
 from bajo.core.intersect import (
     intersect_ray_tri_edges_any,
     intersect_ray_tri_edges,
@@ -354,13 +355,15 @@ def _intersect_cwbvh_indexed_triangle[
 
 
 @always_inline
-def _trace_cwbvh8_triangles_impl[
+def _trace_cwbvh8_filtered_impl[
     frame: Frame,
     mode: TraceMode,
     max_leaf_size: Int = 3,
     stack_capacity: Int = GPU_STACK_SIZE,
     indexed_triangles: Bool = False,
     collect_stats: Bool = False,
+    Filter: TriangleHitFilter = AcceptAllTriangles,
+    filter_hits: Bool = False,
 ](
     nodes: ImmPointer[Float32, _],
     triangles: ImmPointer[Float32, _],
@@ -369,6 +372,7 @@ def _trace_cwbvh8_triangles_impl[
     root_idx: UInt32,
     ray: Rayf32[frame],
     mut stats: GpuTraversalStats,
+    ref filter: Filter,
 ) -> Hit[frame]:
     """Traverse CWBVH8 with compressed node/triangle task masks."""
     var hit = Hit[frame].miss(ray.t_max)
@@ -455,7 +459,16 @@ def _trace_cwbvh8_triangles_impl[
             comptime if collect_stats:
                 stats.primitive_tests += 1
             var triangle_hit: Bool
-            comptime if indexed_triangles:
+            comptime if filter_hits:
+                comptime assert not indexed_triangles
+                triangle_hit = _intersect_cwbvh_triangle_filtered[frame, mode](
+                    triangles,
+                    triangle_group_base + UInt32(triangle_bit),
+                    ray,
+                    hit,
+                    filter,
+                )
+            elif indexed_triangles:
                 triangle_hit = _intersect_cwbvh_indexed_triangle[frame, mode](
                     primitive_ids,
                     vertices,
@@ -488,6 +501,97 @@ def _trace_cwbvh8_triangles_impl[
                 hit.normal.unsafe_convert[new_kind=GeoKind.VECTOR]()
             ).unsafe_convert[new_kind=GeoKind.NORMAL]()
     return hit
+
+
+@always_inline
+def _intersect_cwbvh_triangle_filtered[
+    frame: Frame, mode: TraceMode, Filter: TriangleHitFilter
+](
+    triangles: ImmPointer[Float32, _],
+    triangle_idx: UInt32,
+    ray: Rayf32[frame],
+    mut hit: Hit[frame],
+    ref filter: Filter,
+) -> Bool:
+    var base = Int(triangle_idx) * CWBVH_TRIANGLE_WORDS
+    var e1_record = triangles.unsafe_load[width=4, alignment=16](base)
+    var e2_record = triangles.unsafe_load[width=4, alignment=16](base + 4)
+    var v0_record = triangles.unsafe_load[width=4, alignment=16](base + 8)
+    var e1 = Vec3f32[frame](e1_record[0], e1_record[1], e1_record[2])
+    var e2 = Vec3f32[frame](e2_record[0], e2_record[1], e2_record[2])
+    var v0 = Point3f32[frame](v0_record[0], v0_record[1], v0_record[2])
+    var candidate = intersect_ray_tri_edges_scaled(
+        ray.o, ray.d, v0, e1, e2, hit.t, ray.t_min
+    )
+    if not candidate.mask:
+        return False
+    var primitive = bitcast[.uint32](v0_record)[3]
+    var inv_det = 1.0 / candidate.abs_det
+    var u = candidate.u_scaled * inv_det
+    var v = candidate.v_scaled * inv_det
+    if not filter.accept(primitive, u, v):
+        return False
+    comptime if mode == .CLOSEST_HIT:
+        hit.t = candidate.t_scaled * inv_det
+        hit.u = u
+        hit.v = v
+        hit.prim = primitive
+        hit.inst = EMPTY_LANE
+        hit.normal = cross(e1, e2).unsafe_convert[new_kind=GeoKind.NORMAL]()
+    return True
+
+
+@always_inline
+def _trace_cwbvh8_triangles_impl[
+    frame: Frame,
+    mode: TraceMode,
+    max_leaf_size: Int = 3,
+    stack_capacity: Int = GPU_STACK_SIZE,
+    indexed_triangles: Bool = False,
+    collect_stats: Bool = False,
+](
+    nodes: ImmPointer[Float32, _],
+    triangles: ImmPointer[Float32, _],
+    primitive_ids: ImmPointer[UInt32, _],
+    vertices: ImmPointer[Float32, _],
+    root_idx: UInt32,
+    ray: Rayf32[frame],
+    mut stats: GpuTraversalStats,
+) -> Hit[frame]:
+    var filter = AcceptAllTriangles()
+    return _trace_cwbvh8_filtered_impl[
+        frame,
+        mode,
+        max_leaf_size,
+        stack_capacity,
+        indexed_triangles,
+        collect_stats,
+    ](nodes, triangles, primitive_ids, vertices, root_idx, ray, stats, filter)
+
+
+@always_inline
+def trace_cwbvh8_triangles_filtered[
+    frame: Frame, mode: TraceMode, Filter: TriangleHitFilter
+](
+    nodes: ImmPointer[Float32, _],
+    triangles: ImmPointer[Float32, _],
+    root_idx: UInt32,
+    ray: Rayf32[frame],
+    ref filter: Filter,
+) -> Hit[frame]:
+    var stats = GpuTraversalStats.zero()
+    return _trace_cwbvh8_filtered_impl[
+        frame, mode, 3, GPU_STACK_SIZE, False, False, Filter, True
+    ](
+        nodes,
+        triangles,
+        triangles.unsafe_bitcast[UInt32](),
+        triangles,
+        root_idx,
+        ray,
+        stats,
+        filter,
+    )
 
 
 @always_inline

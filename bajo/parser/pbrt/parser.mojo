@@ -28,11 +28,18 @@ from bajo.rt.material_types import (
 )
 from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.media import SceneMedia
+from bajo.rt.opacity import Opacity
+from bajo.rt.emission import AreaEmitter
+from bajo.rt.material_types import PrimitiveId
+from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.film import FilmResponse
+from bajo.rt.filter import ReconstructionFilter
 from bajo.rt.scene_description import SceneDescription
 
 from bajo.parser.asset_loader import AssetLoader, PathAssetLoader
 from bajo.parser.pbrt.spectrum import _named_optical_constant, _blackbody_rgb
+from bajo.parser.pbrt.optical_data import named_optical_spectrum
+from bajo.core.spectrum import PiecewiseLinearSpectrum
 
 
 comptime _Transform = Affine3f32[.LOCAL, .WORLD]
@@ -403,6 +410,7 @@ struct _GraphicsState(Copyable):
     var surface: SurfaceId[1]
     var area_light: Bool
     var emission: Color
+    var emission_two_sided: Bool
     var reverse_orientation: Bool
     var medium_boundary: UInt32
 
@@ -438,9 +446,11 @@ struct _Builder(
     var color_textures: Dict[String, _ColorTexture]
     var scalar_textures: Dict[String, _FloatTexture]
     var image_paths: List[String]
+    var image_data_encoding: List[Bool]
     var image_indices: Dict[String, UInt32]
     var ply_assets: Dict[String, _PlyAsset]
     var ply_paths: List[String]
+    var optical_indices: Dict[String, UInt32]
     var state: _GraphicsState
     var attribute_stack: List[_GraphicsState]
     var transform_stack: List[_Transform]
@@ -452,6 +462,8 @@ struct _Builder(
     var max_depth: Int
     var integrator: Integrator
     var film: FilmResponse
+    var film_uses_cie1931: Bool
+    var filter: ReconstructionFilter
     var environment: Environment
     var has_environment: Bool
 
@@ -462,15 +474,18 @@ struct _Builder(
         self.color_textures = Dict[String, _ColorTexture]()
         self.scalar_textures = Dict[String, _FloatTexture]()
         self.image_paths = List[String]()
+        self.image_data_encoding = List[Bool]()
         self.image_indices = Dict[String, UInt32]()
         self.ply_assets = Dict[String, _PlyAsset]()
         self.ply_paths = List[String]()
+        self.optical_indices = Dict[String, UInt32]()
         var default_surface = self.scene.surfaces.add_lambertian(Color(0.5))
         self.state = _GraphicsState(
             _Transform.identity(),
             default_surface^,
             False,
             Color(0.0),
+            False,
             False,
             UInt32(0),
         )
@@ -481,18 +496,26 @@ struct _Builder(
         self.image_height = 480
         self.samples_per_pixel = 16
         self.sampler = .INDEPENDENT
-        self.max_depth = 8
-        self.integrator = .PATH
+        self.max_depth = 5
+        # PBRT path/volpath combine light and BSDF sampling with MIS. Bistro
+        # has no participating media, so its default uses this surface path.
+        self.integrator = .MIS
         self.environment = Environment.black()
         self.film = FilmResponse()
+        self.film_uses_cie1931 = True
+        self.filter = ReconstructionFilter.gaussian()
         self.has_environment = False
 
-    def image_index(mut self, path: String) raises -> UInt32:
-        if case .Some(index) = self.image_indices.get(path):
+    def image_index(
+        mut self, path: String, data_encoding: Bool = False
+    ) raises -> UInt32:
+        var key = ("data:" if data_encoding else "color:") + path
+        if case .Some(index) = self.image_indices.get(key):
             return index
         var index = UInt32(len(self.image_paths))
         self.image_paths.append(path)
-        self.image_indices[path] = index
+        self.image_data_encoding.append(data_encoding)
+        self.image_indices[key] = index
         return index
 
     def _opposite_ply_mesh(
@@ -676,7 +699,11 @@ struct _Builder(
             image_idx: Int,
         ) {imm, mut loaded_images, mut image_errors}:
             try:
-                var image = loader.read_image_texture(
+                var image = loader.read_data_texture(
+                    self.image_paths[image_idx]
+                ) if self.image_data_encoding[
+                    image_idx
+                ] else loader.read_image_texture(
                     self.image_paths[image_idx]
                 )
                 loaded_images[image_idx] = image^
@@ -708,6 +735,8 @@ struct _Builder(
             debug_assert(stored_idx == UInt32(image_idx))
 
         self.camera_options.image_width = self.image_width
+        if self.film_uses_cie1931:
+            self.film.use_cie1931()
         self.camera_options.image_height = self.image_height
         var camera = self.camera_options.to_camera()
         var settings = RenderSettings(
@@ -719,6 +748,7 @@ struct _Builder(
             self.sampler,
         )
         settings.film = self.film.copy()
+        settings.filter = self.filter
         self.scene.set_environment(self.environment)
         return (camera, settings^)
 
@@ -785,7 +815,7 @@ def _parse_transform_matrix[
     var matrix = Mat[.float32, 4, 4, .LOCAL](uninitialized=True)
     for row in range(4):
         for column in range(4):
-            matrix[row][column] = _parse_f32(values[4 * row + column])
+            matrix[row][column] = _parse_f32(values[4 * column + row])
     return Affine3f32[.LOCAL, To].from_matrix(matrix)
 
 
@@ -932,6 +962,8 @@ def _optical_constant(
 ) raises -> Color:
     var values = params.values("spectrum " + name)
     if len(values) == 0:
+        if params.has("float " + name):
+            return Color(params.f32("float " + name, 1.0))
         return params.color(name, default)
     if len(values) == 1:
         var text = values[0]
@@ -979,6 +1011,35 @@ def _optical_constant(
     )
 
 
+def _retain_named_optical_spectrum(
+    mut builder: _Builder, key: String
+) raises -> UInt32:
+    if case .Some(index) = builder.optical_indices.get(key):
+        return index
+    var spectrum = named_optical_spectrum(key)
+    var index = UInt32(len(builder.scene.surfaces.optical_spectra))
+    builder.scene.surfaces.optical_spectra.append(spectrum^)
+    builder.optical_indices[key] = index
+    return index
+
+
+def _retain_optical_spectrum(
+    mut builder: _Builder, params: _Parameters, name: String
+) raises -> UInt32:
+    """Keep authored spectral data independently of legacy RGB parameters."""
+    var values = params.values("spectrum " + name)
+    if len(values) == 1 and values[0].find("metal-") == 0:
+        return _retain_named_optical_spectrum(builder, String(values[0]))
+    if len(values) >= 4 and len(values) % 2 == 0:
+        var spectrum = PiecewiseLinearSpectrum(
+            [_parse_f32(value) for value in values]
+        )
+        var index = UInt32(len(builder.scene.surfaces.optical_spectra))
+        builder.scene.surfaces.optical_spectra.append(spectrum^)
+        return index
+    return NO_TEXTURE
+
+
 def _material_roughness(
     params: _Parameters, prefix: String, default: Float32
 ) raises -> Float32:
@@ -993,6 +1054,23 @@ def _material_roughness(
 
 
 def _surface(
+    mut builder: _Builder,
+    model: StringSpan,
+    params: _Parameters,
+    source_path: String = "",
+) raises -> SurfaceId[1]:
+    var surface = _surface_parameters(builder, model, params)
+    var normal_map = params.string_or_empty("string normalmap")
+    if normal_map.byte_length():
+        var filename = std.os.path.join(
+            std.os.path.dirname(source_path), String(normal_map)
+        )
+        var image = builder.image_index(filename, data_encoding=True)
+        builder.scene.surfaces.normal_maps[surface.value[0]] = image
+    return surface^
+
+
+def _surface_parameters(
     mut builder: _Builder, model: StringSpan, params: _Parameters
 ) raises -> SurfaceId[1]:
     match model:
@@ -1018,9 +1096,54 @@ def _surface(
             )
         case "coatedconductor":
             var interface_eta = params.f32("float interface.eta", 1.5)
-            return builder.scene.surfaces.add_coated_conductor(
-                _optical_constant(params, "conductor.eta", Color(1.0)),
-                _optical_constant(params, "conductor.k", Color(1.0)),
+            var has_reflectance = (
+                params.has("texture reflectance")
+                or params.has("rgb reflectance")
+                or params.has("color reflectance")
+                or params.has("float reflectance")
+            )
+            var has_eta = (
+                params.has("spectrum conductor.eta")
+                or params.has("rgb conductor.eta")
+                or params.has("color conductor.eta")
+                or params.has("float conductor.eta")
+            )
+            var has_k = (
+                params.has("spectrum conductor.k")
+                or params.has("rgb conductor.k")
+                or params.has("color conductor.k")
+                or params.has("float conductor.k")
+            )
+            if has_reflectance and (has_eta or has_k):
+                raise Error(
+                    "coatedconductor reflectance cannot be combined with"
+                    " conductor eta/k"
+                )
+            if has_reflectance:
+                var r = _color_texture_parameter(
+                    builder, params, "reflectance", Color(1.0)
+                )
+                return builder.scene.surfaces.add_coated_conductor_reflectance(
+                    r.scale,
+                    _material_roughness(params, "conductor.", 0.0),
+                    _material_roughness(params, "interface.", 0.0),
+                    interface_eta,
+                    params.f32("float thickness", 0.01),
+                    params.color("albedo", Color(0.0)),
+                    params.f32("float g", 0.0),
+                    params.integer("integer maxdepth", 10),
+                    params.integer("integer nsamples", 1),
+                    r.image_index,
+                )
+            var surface = builder.scene.surfaces.add_coated_conductor(
+                _optical_constant(
+                    params,
+                    "conductor.eta",
+                    _named_optical_constant("metal-Cu-eta"),
+                ),
+                _optical_constant(
+                    params, "conductor.k", _named_optical_constant("metal-Cu-k")
+                ),
                 _material_roughness(params, "conductor.", 0.0),
                 _material_roughness(params, "interface.", 0.0),
                 interface_eta,
@@ -1030,6 +1153,26 @@ def _surface(
                 params.integer("integer maxdepth", 10),
                 params.integer("integer nsamples", 1),
             )
+            var eta_spectrum = _retain_optical_spectrum(
+                builder, params, "conductor.eta"
+            )
+            var k_spectrum = _retain_optical_spectrum(
+                builder, params, "conductor.k"
+            )
+            if not has_eta:
+                eta_spectrum = _retain_named_optical_spectrum(
+                    builder, "metal-Cu-eta"
+                )
+            if not has_k:
+                k_spectrum = _retain_named_optical_spectrum(
+                    builder, "metal-Cu-k"
+                )
+            ref material = builder.scene.surfaces.coated_diffuses[
+                Int(surface.index())
+            ]
+            material.conductor_eta_spectrum = eta_spectrum
+            material.conductor_k_spectrum = k_spectrum
+            return surface^
         case "coateddiffuse":
             var reflectance = _color_texture_parameter(
                 builder, params, "reflectance", Color(0.5)
@@ -1086,9 +1229,15 @@ def _surface(
                 var bump = _scalar_parameter(
                     builder, params, "displacement", 0.0
                 )
+                var eta_spectrum = _retain_optical_spectrum(
+                    builder, params, "eta"
+                )
+                var k_spectrum = _retain_optical_spectrum(builder, params, "k")
                 ref material = builder.scene.surfaces.coated_diffuses[
                     Int(surface.index())
                 ]
+                material.conductor_eta_spectrum = eta_spectrum
+                material.conductor_k_spectrum = k_spectrum
                 material.roughness_texture_index = roughness.image_index
                 material.roughness_scale = roughness.scale
                 material.roughness_u_scale = roughness.u_scale
@@ -1115,9 +1264,12 @@ def _surface(
             )
             var surface = builder.scene.surfaces.add_dielectric(eta.y)
             var bump = _scalar_parameter(builder, params, "displacement", 0.0)
+            var eta_spectrum = _retain_optical_spectrum(builder, params, "eta")
             ref material = builder.scene.surfaces.dielectrics[
                 Int(surface.index())
             ]
+            material.eta_spectrum = eta_spectrum
+            material.roughness = _material_roughness(params, "", 0.0)
             material.displacement_texture_index = bump.image_index
             material.displacement_scale = bump.scale
             material.displacement_u_scale = bump.u_scale
@@ -1137,8 +1289,6 @@ def _shape[
     loader: Loader,
 ) raises:
     var surface = builder.state.surface.copy()
-    if builder.state.area_light:
-        surface = builder.scene.surfaces.add_emissive(builder.state.emission)
 
     match kind:
         case "sphere":
@@ -1187,6 +1337,23 @@ def _shape[
                     "unindexed PBRT trianglemesh must contain triangles"
                 )
             var point_count = len(points) / 3
+            var normals = params.values("normal N")
+            if len(normals) == 0:
+                normals = params.values("normal3 N")
+            var texcoords = params.values("point2 uv")
+            if len(texcoords) == 0:
+                texcoords = params.values("float uv")
+            if len(texcoords) == 0:
+                texcoords = params.values("float st")
+            if len(normals) != 0 and len(normals) != 3 * point_count:
+                raise Error("PBRT trianglemesh N must match the vertex count")
+            if len(texcoords) != 0 and len(texcoords) != 2 * point_count:
+                raise Error("PBRT trianglemesh uv must match the vertex count")
+            var attributed = len(normals) != 0 or len(texcoords) != 0
+            var local_vertices = List[_PointL]()
+            var packed_normals = List[Float32]()
+            var packed_texcoords = List[Float32]()
+            var local_bounds = AABB[.LOCAL].invalid()
             # Leave unused point strings unevaluated and retain the original
             # index-before-coordinate validation order.
             var vertices = List[Optional[_PointW]](
@@ -1240,6 +1407,35 @@ def _shape[
                     or i2 >= point_count
                 ):
                     raise Error("PBRT trianglemesh index is out of range")
+                if attributed:
+                    # Store source-space attributes with the source-space mesh.
+                    # Existing instance shading applies the inverse transpose to
+                    # interpolated normals and keeps UVs attached to each corner.
+                    # Swapping indices also swaps every vertex attribute.
+                    if builder.state.reverse_orientation:
+                        var swap = i1
+                        i1 = i2
+                        i2 = swap
+                    for index in [i0, i1, i2]:
+                        var source = 3 * index
+                        var point = _PointL(
+                            _parse_f32(points[source]),
+                            _parse_f32(points[source + 1]),
+                            _parse_f32(points[source + 2]),
+                        )
+                        local_vertices.append(point)
+                        local_bounds.grow(point)
+                        if len(normals):
+                            for axis in range(3):
+                                packed_normals.append(
+                                    _parse_f32(normals[source + axis])
+                                )
+                        if len(texcoords):
+                            for axis in range(2):
+                                packed_texcoords.append(
+                                    _parse_f32(texcoords[2 * index + axis])
+                                )
+                    continue
                 var p0 = vertex(i0)
                 var p1 = vertex(i1)
                 var p2 = vertex(i2)
@@ -1247,6 +1443,15 @@ def _shape[
                     builder.scene.add_triangle(p0, p2, p1, surface)
                 else:
                     builder.scene.add_triangle(p0, p1, p2, surface)
+            if attributed and len(local_vertices):
+                _ = builder.scene.add_owned_triangle_mesh_instance(
+                    local_vertices^,
+                    packed_normals^,
+                    packed_texcoords^,
+                    transform,
+                    local_bounds,
+                    surface,
+                )
             return
     raise Error("unsupported PBRT shape: " + kind)
 
@@ -1321,6 +1526,12 @@ def _parse_text[
                     raise Error("film ISO must be finite and positive")
                 var sensor = params.string_or_empty("string sensor")
                 builder.film = FilmResponse(iso / 100.0)
+                builder.film_uses_cie1931 = sensor != StringSpan(
+                    "canon_eos_5d_mkiv"
+                )
+                builder.film.max_component_value = params.f32(
+                    "float maxcomponentvalue", builder.film.max_component_value
+                )
                 if sensor == StringSpan("canon_eos_5d_mkiv"):
                     # RGB least-squares approximation of PBRT's Canon response,
                     # calibrated with its 24 color swatches under 6500 K daylight.
@@ -1338,6 +1549,7 @@ def _parse_text[
                     "cie1931"
                 ):
                     raise Error("unsupported PBRT sensor: " + String(sensor))
+                builder.film.validate()
                 builder.image_width = params.integer("integer xresolution", 640)
                 builder.image_height = params.integer(
                     "integer yresolution", 480
@@ -1365,11 +1577,37 @@ def _parse_text[
                     raise Error(
                         "only the PBRT path/volpath integrators are supported"
                     )
-                builder.integrator = .PATH
+                builder.integrator = .MIS
                 var params = _parse_params(lexer)
-                builder.max_depth = params.integer("integer maxdepth", 8)
+                builder.max_depth = params.integer("integer maxdepth", 5)
 
-            case "PixelFilter" | "Accelerator":
+            case "PixelFilter":
+                var filter_name = lexer.next().value
+                var params = _parse_params(lexer)
+                if filter_name == "gaussian":
+                    builder.filter = ReconstructionFilter.gaussian(
+                        params.f32("float xradius", 1.5),
+                        params.f32("float yradius", 1.5),
+                        params.f32("float sigma", 0.5),
+                    )
+                elif filter_name == "box":
+                    builder.filter = ReconstructionFilter(
+                        x_radius=params.f32("float xradius", 0.5),
+                        y_radius=params.f32("float yradius", 0.5),
+                    )
+                elif filter_name == "triangle":
+                    builder.filter = ReconstructionFilter.triangle(
+                        params.f32("float xradius", 2),
+                        params.f32("float yradius", 2),
+                    )
+                else:
+                    raise Error(
+                        "unsupported PBRT reconstruction filter: "
+                        + String(filter_name)
+                    )
+                builder.filter.validate()
+
+            case "Accelerator":
                 # Bajo supplies these implementation details itself, but consuming
                 # their declarations keeps ordinary PBRT scene headers portable.
                 _ = _named_params(lexer)
@@ -1453,7 +1691,7 @@ def _parse_text[
             case "Material":
                 var model = lexer.next().value
                 builder.state.surface = _surface(
-                    builder, model, _parse_params(lexer)
+                    builder, model, _parse_params(lexer), path
                 )
 
             case "MakeNamedMaterial":
@@ -1462,11 +1700,11 @@ def _parse_text[
                 var model = params.string("string type")
                 if model:
                     builder.named_materials[name] = _surface(
-                        builder, model.value(), params
+                        builder, model.value(), params, path
                     )
                 else:
                     builder.named_materials[name] = _surface(
-                        builder, StringSpan("diffuse"), params
+                        builder, StringSpan("diffuse"), params, path
                     )
 
             case "NamedMaterial":
@@ -1520,6 +1758,9 @@ def _parse_text[
                 builder.state.emission = emission * params.f32(
                     "float scale", 1.0
                 )
+                builder.state.emission_two_sided = params.string_or_empty(
+                    "bool twosided"
+                ) == StringSpan("true")
 
             case "MakeNamedMedium":
                 var name = String(lexer.next().value)
@@ -1557,13 +1798,65 @@ def _parse_text[
                 var sphere_begin = len(builder.scene.spheres)
                 var triangle_begin = len(builder.scene.triangle_surfaces)
                 var instance_begin = len(builder.scene.triangle_instances)
+                var shape_kind = lexer.next().value
+                var shape_params = _parse_params(lexer)
+                var alpha = _scalar_parameter(
+                    builder, shape_params, "alpha", 1.0
+                )
                 _shape(
                     builder,
-                    lexer.next().value,
-                    _parse_params(lexer),
+                    shape_kind,
+                    shape_params,
                     path,
                     loader,
                 )
+                if builder.state.area_light:
+                    var emitter = AreaEmitter(
+                        builder.state.emission, builder.state.emission_two_sided
+                    )
+                    for index in range(
+                        sphere_begin, len(builder.scene.spheres)
+                    ):
+                        builder.scene.emission.records[
+                            PrimitiveId(.SPHERE, UInt32(index)).value
+                        ] = emitter.copy()
+                    for index in range(
+                        triangle_begin, len(builder.scene.triangle_surfaces)
+                    ):
+                        builder.scene.emission.records[
+                            PrimitiveId(.TRIANGLE, UInt32(index)).value
+                        ] = emitter.copy()
+                    for index in range(
+                        instance_begin, len(builder.scene.triangle_instances)
+                    ):
+                        builder.scene.emission.records[
+                            PrimitiveId(.TRIANGLE_INSTANCE, UInt32(index)).value
+                        ] = emitter.copy()
+                if alpha.scale != 1.0 or alpha.image_index != NO_TEXTURE:
+                    var opacity = Opacity(
+                        alpha.scale,
+                        alpha.image_index,
+                        alpha.u_scale,
+                        alpha.v_scale,
+                    )
+                    for index in range(
+                        sphere_begin, len(builder.scene.spheres)
+                    ):
+                        builder.scene.opacity.records[
+                            PrimitiveId(.SPHERE, UInt32(index)).value
+                        ] = opacity.copy()
+                    for index in range(
+                        triangle_begin, len(builder.scene.triangle_surfaces)
+                    ):
+                        builder.scene.opacity.records[
+                            PrimitiveId(.TRIANGLE, UInt32(index)).value
+                        ] = opacity.copy()
+                    for index in range(
+                        instance_begin, len(builder.scene.triangle_instances)
+                    ):
+                        builder.scene.opacity.records[
+                            PrimitiveId(.TRIANGLE_INSTANCE, UInt32(index)).value
+                        ] = opacity.copy()
                 var boundary = builder.state.medium_boundary
                 if boundary != 0:
                     for index in range(

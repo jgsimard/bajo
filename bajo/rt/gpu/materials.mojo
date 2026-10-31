@@ -5,6 +5,10 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.rt.material_storage import pack_coated_materials
 from bajo.rt.material_types import NO_TEXTURE
 from bajo.rt.scene_data import SceneData
+from bajo.rt.gpu.opacity_tables import GpuOpacityTables
+from bajo.rt.gpu.emission import GpuEmissionTables
+from bajo.rt.gpu.spectra import GpuMaterialSpectra
+from bajo.rt.gpu.texture_storage import pack_texture_tables
 from bajo.rt.gpu.upload import _upload_nonempty
 from bajo.rt.gpu.material_layout import (
     GpuRgbMaterialLayout,
@@ -109,6 +113,7 @@ def _flatten_dielectrics(world: SceneData) -> List[Float32]:
                 material.displacement_u_scale,
                 material.displacement_v_scale,
                 bitcast[.float32](material.displacement_texture_index),
+                material.roughness,
             ]
         )
     return out^
@@ -169,6 +174,11 @@ struct GpuRtMaterials:
     var coated_diffuse_texture_indices: DeviceBuffer[.uint32]
     var texture_descs: DeviceBuffer[.uint32]
     var texture_pixels: DeviceBuffer[.float32]
+    var normal_maps: DeviceBuffer[.uint32]
+    var normal_map_count: Int32
+    var opacity: GpuOpacityTables
+    var emission: GpuEmissionTables
+    var spectra: GpuMaterialSpectra
     var mix_surfaces: DeviceBuffer[.uint32]
     var mix_amounts: DeviceBuffer[.float32]
     var mix_texture_indices: DeviceBuffer[.uint32]
@@ -203,10 +213,22 @@ struct GpuRtMaterials:
         self.coated_diffuse_texture_indices = _upload_nonempty(
             ctx, _flatten_coated_diffuse_texture_indices(world)
         )
-        self.texture_descs = _upload_nonempty(
-            ctx, _flatten_texture_descs(world)
-        )
-        self.texture_pixels = _upload_texture_pixels(ctx, world)
+        var textures = pack_texture_tables(world.surfaces())
+        self.texture_descs = _upload_nonempty(ctx, textures.descriptors)
+        self.texture_pixels = _upload_nonempty(ctx, textures.words)
+        var normal_keys = List[UInt32]()
+        for entry in world.surfaces().normal_maps.items():
+            normal_keys.append(entry.key)
+        sort(normal_keys)
+        var normal_maps = List[UInt32](capacity=2 * len(normal_keys))
+        for key in normal_keys:
+            normal_maps.append(key)
+            normal_maps.append(world.surfaces().normal_maps[key])
+        self.normal_maps = _upload_nonempty(ctx, normal_maps)
+        self.normal_map_count = Int32(len(normal_keys))
+        self.opacity = GpuOpacityTables(ctx, world)
+        self.emission = GpuEmissionTables(ctx, world)
+        self.spectra = GpuMaterialSpectra(ctx, world.surfaces())
         self.mix_surfaces = _upload_nonempty(ctx, world.surfaces().mix_surfaces)
         self.mix_amounts = _upload_nonempty(ctx, world.surfaces().mix_amounts)
         self.mix_texture_indices = _upload_nonempty(

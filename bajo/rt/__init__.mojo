@@ -42,3 +42,4 @@ from .scene_data import SceneBuilder, SceneData
 from bajo.rt.media import SceneMedia
 from bajo.core.optics import medium_transmittance
 from .film import FilmResponse
+from .filter import ReconstructionFilter

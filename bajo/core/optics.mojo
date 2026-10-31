@@ -5,6 +5,21 @@ from .frame import Frame
 from .vec import Vec3, dot, length2
 
 
+@always_inline
+def conductor_k_from_reflectance[
+    length: SIMDLength = 1
+](reflectance: Vec3[.float32, .WORLD, length]) -> Vec3[
+    .float32, .WORLD, length
+]:
+    """PBRT's eta=1 conductor parameterization from normal reflectance."""
+    var r = reflectance.clamp(0.0, 0.9999)
+    return Vec3[.float32, .WORLD, length](
+        2.0 * sqrt(r.x) / sqrt(1.0 - r.x),
+        2.0 * sqrt(r.y) / sqrt(1.0 - r.y),
+        2.0 * sqrt(r.z) / sqrt(1.0 - r.z),
+    )
+
+
 def reflect[
     dtype: DType, frame: Frame, length: SIMDLength
 ](v: Vec3[dtype, frame, length], n: Vec3[dtype, frame, length]) -> Vec3[

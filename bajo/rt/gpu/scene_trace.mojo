@@ -5,6 +5,13 @@ from std.math import ceildiv, pi
 from max.gpu.host import DeviceContext
 
 from bajo.bvh.constants import PrimitiveKind
+from bajo.bvh.types import Hit
+from bajo.rt.gpu.opacity import (
+    gpu_opacity_value,
+    trace_gpu_opacity_triangles,
+    trace_gpu_opacity_instances,
+    trace_gpu_opacity_spheres,
+)
 from bajo.bvh.gpu.sphere_bvh import _intersect_sphere_leaf
 from bajo.bvh.gpu.tlas import _trace_tlas_ray
 from bajo.bvh.gpu.trace import trace_bounds_bvh
@@ -26,7 +33,11 @@ from bajo.core.geometry import (
     interpolate_triangle_attribute,
 )
 from bajo.core.tensor_layout import record_tile
-from bajo.rt.lighting import _emissive_hit_weight_from_pdf
+from bajo.rt.lighting import (
+    _emissive_hit_weight_from_pdf,
+    _emissive_hit_light_pdf,
+)
+from bajo.rt.gpu.emission import gpu_emitter
 from bajo.rt.rays import make_ao_ray
 from bajo.core.color import Color, luminance
 from bajo.rt.render_types import SamplingConfig
@@ -39,7 +50,12 @@ from bajo.rt.material_types import (
     sample_mix_branch,
 )
 from bajo.rt.lighting_types import _light_importance
-from bajo.rt.texture_math import sample_environment_texture
+from bajo.rt.material_types import PrimitiveId
+from bajo.rt.opacity import (
+    opacity_accepts,
+    opacity_point_sample,
+    opacity_sphere_uv,
+)
 
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.wavefront_contract import (
@@ -61,6 +77,8 @@ from bajo.rt.gpu.common_kernels import (
 )
 from bajo.rt.gpu.lighting import _sample_direct_light_candidate
 from bajo.rt.gpu.textures import (
+    _GpuImageTextureView,
+    _gpu_normal_map,
     _gpu_coated_shading_normal,
     _gpu_dielectric_shading_normal,
     _sample_gpu_image_texture,
@@ -111,19 +129,9 @@ def _gpu_environment_radiance(
 
     var light_direction = scene.environment_world_to_light.vector(direction)
     var uv = equal_area_sphere_to_square(light_direction)
-    var desc_base = 3 * Int(scene.environment_texture_index)
-    var pixel_offset = Int(texture_descs[unsafe_offset=desc_base])
-    var width = Int(texture_descs[unsafe_offset=desc_base + 1])
-    var height = Int(texture_descs[unsafe_offset=desc_base + 2])
-    return scale * sample_environment_texture(
-        record_tile[.float32, 3](
-            texture_pixels.unsafe_offset(pixel_offset), width * height
-        ),
-        width,
-        height,
-        uv.u,
-        uv.v,
-    )
+    return scale * _GpuImageTextureView.load(
+        scene.environment_texture_index, texture_descs, texture_pixels
+    ).sample_environment(uv.u, uv.v)
 
 
 @always_inline
@@ -142,6 +150,7 @@ def _gpu_rt_scene_trace_path[
     queues: GpuRtTraceQueueView,
     sampling: SamplingConfig,
     bounce: UInt32,
+    allow_scattering: Bool = True,
 ):
     comptime assert (
         scene_kind.has_spheres()
@@ -197,9 +206,11 @@ def _gpu_rt_scene_trace_path[
     var medium_boundary = UInt32(0)
     var geometric_outward = Vec3f32[.WORLD](0.0)
     var found = False
+    var dpdu = Vec3f32[.WORLD](0.0)
     var closest_t = ray.t_max
     var outward = Vec3f32[.WORLD](0.0)
     var surface_value = UInt32(0)
+    var primitive_value = UInt32.MAX
     var uv_u = Float32(0.0)
     var uv_v = Float32(0.0)
 
@@ -215,15 +226,21 @@ def _gpu_rt_scene_trace_path[
         var signed_radii = spheres.signed_radii.unsafe_origin_cast[
             ImmutAnyOrigin
         ]()
-        var sphere_hit = trace_bounds_bvh[
-            .WORLD,
-            sphere_format.node_width,
-            .CLOSEST_HIT,
-            _intersect_sphere_leaf[
-                .WORLD, sphere_format.leaf_width, .CLOSEST_HIT
-            ],
-            sphere_format.node_width == 2,
-        ](sphere_nodes, leaf_spheres, sphere_root, ray)
+        var sphere_hit: Hit[.WORLD]
+        if scene.opacity.count > 0:
+            sphere_hit = trace_gpu_opacity_spheres[sphere_format, .CLOSEST_HIT](
+                scene, ray
+            )
+        else:
+            sphere_hit = trace_bounds_bvh[
+                .WORLD,
+                sphere_format.node_width,
+                .CLOSEST_HIT,
+                _intersect_sphere_leaf[
+                    .WORLD, sphere_format.leaf_width, .CLOSEST_HIT
+                ],
+                sphere_format.node_width == 2,
+            ](sphere_nodes, leaf_spheres, sphere_root, ray)
         if sphere_hit.is_hit():
             found = True
             closest_t = sphere_hit.t
@@ -234,6 +251,10 @@ def _gpu_rt_scene_trace_path[
             if signed_radii[unsafe_offset=sphere_idx] < 0.0:
                 outward = -outward
             geometric_outward = outward
+            primitive_value = PrimitiveId(.SPHERE, sphere_hit.prim).value
+            var sphere_uv = opacity_sphere_uv(outward)
+            uv_u = sphere_uv[0]
+            uv_v = sphere_uv[1]
             medium_boundary = scene.sphere_media[
                 unsafe_offset=sphere_idx
             ] if sphere_idx < Int(scene.sphere_media_count) else UInt32(0)
@@ -255,28 +276,34 @@ def _gpu_rt_scene_trace_path[
         var triangle_ray = Rayf32[.WORLD](ray.o, ray.d, ray.t_min, closest_t)
         # A separate GPU function avoids slow fused traversal/shading code
         # for large static MIS queues, without additional dispatch variants.
-        var triangle_hit = trace_gpu_blas[
-            .WORLD,
-            triangle_format.node_width,
-            .CLOSEST_HIT,
-            _intersect_triangle_leaf[
+        var triangle_hit: Hit[.WORLD]
+        if scene.opacity.count > 0:
+            triangle_hit = trace_gpu_opacity_triangles[
+                triangle_format, .CLOSEST_HIT
+            ](scene, triangle_ray)
+        else:
+            triangle_hit = trace_gpu_blas[
                 .WORLD,
-                triangle_format.leaf_width,
+                triangle_format.node_width,
                 .CLOSEST_HIT,
-                triangle_format.leaf_width > triangle_format.node_width
-                or triangle_format.leaf_width == 8,
-            ],
-            triangle_format.layout,
-            triangle_format.node_width == 4,
-        ](
-            triangle_nodes,
-            leaf_vertices,
-            triangle_root,
-            triangle_ray,
-            scene_kind == .TRIANGLES
-            and integrator == .MIS
-            and capacity >= GPU_RT_LARGE_QUEUE_MIN_CAPACITY,
-        )
+                _intersect_triangle_leaf[
+                    .WORLD,
+                    triangle_format.leaf_width,
+                    .CLOSEST_HIT,
+                    triangle_format.leaf_width > triangle_format.node_width
+                    or triangle_format.leaf_width == 8,
+                ],
+                triangle_format.layout,
+                triangle_format.node_width == 4,
+            ](
+                triangle_nodes,
+                leaf_vertices,
+                triangle_root,
+                triangle_ray,
+                scene_kind == .TRIANGLES
+                and integrator == .MIS
+                and capacity >= GPU_RT_LARGE_QUEUE_MIN_CAPACITY,
+            )
         if triangle_hit.is_hit() and triangle_hit.t < closest_t:
             found = True
             closest_t = triangle_hit.t
@@ -285,6 +312,9 @@ def _gpu_rt_scene_trace_path[
             ]()
             geometric_outward = outward
             var triangle_idx = Int(triangle_hit.prim)
+            primitive_value = PrimitiveId(.TRIANGLE, triangle_hit.prim).value
+            uv_u = triangle_hit.u + triangle_hit.v
+            uv_v = triangle_hit.v
             medium_boundary = scene.triangle_media[
                 unsafe_offset=triangle_idx
             ] if triangle_idx < Int(scene.triangle_media_count) else UInt32(0)
@@ -334,33 +364,39 @@ def _gpu_rt_scene_trace_path[
             ImmutAnyOrigin
         ]()
         var instance_ray = Rayf32[.WORLD](ray.o, ray.d, ray.t_min, closest_t)
-        var instance_hit = _trace_tlas_ray[
-            tlas_format.node_width,
-            tlas_format.leaf_width,
-            blas_format.node_width,
-            blas_format.leaf_width,
-            .CLOSEST_HIT,
-            _intersect_triangle_leaf[
-                .LOCAL,
+        var instance_hit: Hit[.WORLD]
+        if scene.opacity.count > 0:
+            instance_hit = trace_gpu_opacity_instances[
+                tlas_format, blas_format, .CLOSEST_HIT
+            ](scene, instance_ray)
+        else:
+            instance_hit = _trace_tlas_ray[
+                tlas_format.node_width,
+                tlas_format.leaf_width,
+                blas_format.node_width,
                 blas_format.leaf_width,
                 .CLOSEST_HIT,
-                blas_format.leaf_width > blas_format.node_width
-                or blas_format.leaf_width == 8,
-            ],
-            blas_format.layout,
-        ](
-            tlas_nodes,
-            tlas_leaf_instances,
-            inst_inv_transform,
-            inst_blas_indices,
-            blas_descs,
-            blas_nodes,
-            blas_leaves,
-            Int(instance_count_i32),
-            Int(instances.blas_count),
-            tlas_root,
-            instance_ray,
-        )
+                _intersect_triangle_leaf[
+                    .LOCAL,
+                    blas_format.leaf_width,
+                    .CLOSEST_HIT,
+                    blas_format.leaf_width > blas_format.node_width
+                    or blas_format.leaf_width == 8,
+                ],
+                blas_format.layout,
+            ](
+                tlas_nodes,
+                tlas_leaf_instances,
+                inst_inv_transform,
+                inst_blas_indices,
+                blas_descs,
+                blas_nodes,
+                blas_leaves,
+                Int(instance_count_i32),
+                Int(instances.blas_count),
+                tlas_root,
+                instance_ray,
+            )
         if instance_hit.is_hit() and instance_hit.t < closest_t:
             found = True
             closest_t = instance_hit.t
@@ -369,13 +405,39 @@ def _gpu_rt_scene_trace_path[
             ]()
             geometric_outward = outward
             var instance_idx = Int(instance_hit.inst)
+            primitive_value = PrimitiveId(
+                .TRIANGLE_INSTANCE, instance_hit.inst
+            ).value
+            uv_u = instance_hit.u + instance_hit.v
+            uv_v = instance_hit.v
             medium_boundary = scene.instance_media[
                 unsafe_offset=instance_idx
             ] if instance_idx < Int(scene.instance_media_count) else UInt32(0)
             var mesh_idx = Int(inst_blas_indices[unsafe_offset=instance_idx])
             var triangle_idx = Int(instance_hit.prim)
+            var inverse_span = Span(
+                unsafe_ptr=inst_inv_transform,
+                length=Int(instance_count_i32) * Affine3f32.STRIDE,
+            )
+            var inverse = Affine3f32[.WORLD, .LOCAL].load(
+                inverse_span, instance_idx * Affine3f32.STRIDE
+            )
             var texcoord_offset = texcoord_offsets[unsafe_offset=mesh_idx]
             if texcoord_offset != UInt32.MAX:
+                # Tangents use three floats per triangle; UVs use six.
+                var tangent_offset = (
+                    Int(texcoord_offset) // 2 + 3 * triangle_idx
+                )
+                var tangent_ptr = instances.tangents.unsafe_offset(
+                    tangent_offset
+                )
+                var tangent = Vec3f32[.LOCAL](
+                    tangent_ptr[unsafe_offset=0],
+                    tangent_ptr[unsafe_offset=1],
+                    tangent_ptr[unsafe_offset=2],
+                )
+                var forward = inverse.inverse()
+                dpdu = forward.inv.vector(tangent)
                 var records = record_tile[.float32, 6](
                     vertex_texcoords.unsafe_offset(Int(texcoord_offset)),
                     triangle_idx + 1,
@@ -418,13 +480,6 @@ def _gpu_rt_scene_trace_path[
                         instance_hit.v,
                     ),
                 ).unsafe_convert[new_kind=GeoKind.NORMAL]()
-                var inverse_span = Span(
-                    unsafe_ptr=inst_inv_transform,
-                    length=Int(instance_count_i32) * Affine3f32.STRIDE,
-                )
-                var inverse = Affine3f32[.WORLD, .LOCAL].load(
-                    inverse_span, instance_idx * Affine3f32.STRIDE
-                )
                 var shading_normal = (
                     Affine3f32[.LOCAL, .WORLD]
                     .normal_from_inverse(local_normal, inverse)
@@ -518,6 +573,18 @@ def _gpu_rt_scene_trace_path[
     var geometric = orient_surface_normal(ray.d, geometric_outward)
     var oriented = orient_surface_normal(ray.d, outward)
     var normal = oriented.normal
+    normal = _gpu_normal_map(
+        surface_value,
+        normal,
+        dpdu,
+        uv_u,
+        uv_v,
+        geometric.front_face,
+        scene.normal_maps.unsafe_origin_cast[ImmutAnyOrigin](),
+        Int(scene.normal_map_count),
+        texture_descs,
+        texture_pixels,
+    )
     normal = _gpu_coated_shading_normal(
         surface_value,
         normal,
@@ -563,6 +630,41 @@ def _gpu_rt_scene_trace_path[
         )
         return
 
+    comptime if Integrator.is_path_tracing[integrator]:
+        var emitter = gpu_emitter(scene, primitive_value, surface_value)
+        if (
+            emitter.radiance.max_component() > 0.0
+            and (geometric.front_face or emitter.two_sided)
+            and opacity_accepts(
+                gpu_opacity_value(scene.opacity, primitive_value, uv_u, uv_v),
+                opacity_point_sample(ray.at(closest_t)),
+            )
+        ):
+            var light_pdf = Float32(0.0)
+            comptime if integrator == .MIS:
+                if bounce > 0 and not path.delta:
+                    light_pdf = _emissive_hit_light_pdf(
+                        ray.d,
+                        closest_t,
+                        geometric.normal,
+                        emitter.radiance,
+                        scene.total_light_weight,
+                        emitter.two_sided,
+                    )
+            var weight = _emissive_hit_weight_from_pdf[integrator](
+                bounce, path.delta, path.bsdf_pdf, light_pdf
+            )
+            _accumulate_sample(
+                sample_radiance,
+                capacity,
+                sample_base,
+                path.path_id,
+                Color(path.tx, path.ty, path.tz) * emitter.radiance * weight,
+            )
+
+    if not allow_scattering:
+        return
+
     comptime if Integrator.uses_direct_lighting[integrator]:
         var direct = _sample_direct_light_candidate[integrator, light_kind](
             path,
@@ -575,6 +677,7 @@ def _gpu_rt_scene_trace_path[
             scene,
             sampling,
             bounce,
+            front_face=geometric.front_face,
         )
         _append_direct_light_shadow(
             direct, path, ray.at(closest_t), scene, queues
@@ -611,6 +714,7 @@ def _gpu_rt_scene_trace_path[
         sampling,
         medium_boundary,
         geometric.normal,
+        emission_visible=False,
     )
 
 
@@ -629,6 +733,7 @@ def _gpu_rt_scene_trace_one[
     queues: GpuRtTraceQueueView,
     sampling: SamplingConfig,
     bounce: UInt32,
+    allow_scattering: Bool,
 ):
     var src_path_ids = queues.src_path_ids.unsafe_origin_cast[ImmutAnyOrigin]()
     var src_path_fields = queues.src_path_fields.unsafe_origin_cast[
@@ -645,7 +750,7 @@ def _gpu_rt_scene_trace_one[
         tlas_format,
         blas_format,
         light_kind,
-    ](idx, path, scene, queues, sampling, bounce)
+    ](idx, path, scene, queues, sampling, bounce, allow_scattering)
 
 
 def gpu_rt_primary_scene_trace_kernel[
@@ -683,6 +788,8 @@ def gpu_rt_primary_scene_trace_kernel[
         height_i32,
         samples_per_pixel_i32,
         sampling,
+        queues.sample_radiance.unsafe_origin_cast[MutAnyOrigin](),
+        capacity,
     )
     clear_gpu_rt_sample(
         queues.sample_radiance.unsafe_origin_cast[MutAnyOrigin](),
@@ -721,6 +828,7 @@ def gpu_rt_scene_trace_kernel[
     queues: GpuRtTraceQueueView,
     sampling_arg: GpuRtSamplingConfig,
     bounce: UInt32,
+    allow_scattering: UInt32,
 ):
     var sampling = sampling_arg.load()
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
@@ -744,7 +852,7 @@ def gpu_rt_scene_trace_kernel[
             tlas_format,
             blas_format,
             light_kind,
-        ](path_idx, scene, queues, sampling, bounce)
+        ](path_idx, scene, queues, sampling, bounce, allow_scattering != 0)
         idx += stride
 
 
@@ -758,6 +866,23 @@ def _trace_scene_any[
 ](
     scene: GpuRtSceneView, ray: Rayf32[.WORLD], separate_traversal: Bool = False
 ) -> Bool:
+    if scene.opacity.count > 0:
+        comptime if scene_kind.has_spheres():
+            if trace_gpu_opacity_spheres[sphere_format, .ANY_HIT](
+                scene, ray
+            ).is_occluded():
+                return True
+        comptime if scene_kind.has_triangles():
+            if trace_gpu_opacity_triangles[triangle_format, .ANY_HIT](
+                scene, ray
+            ).is_occluded():
+                return True
+        comptime if scene_kind.has_instances():
+            if trace_gpu_opacity_instances[tlas_format, blas_format, .ANY_HIT](
+                scene, ray
+            ).is_occluded():
+                return True
+        return False
     comptime if scene_kind.has_spheres():
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.spheres))
         var spheres = scene.spheres.unsafe_value()

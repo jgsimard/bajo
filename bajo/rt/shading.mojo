@@ -1,6 +1,6 @@
 """Host/device-safe BSDF sampling and evaluation primitives."""
 
-from std.math import cos, pi, pow, sin, sqrt
+from std.math import abs, cos, pi, pow, sin, sqrt
 
 from bajo.core import (
     dot,
@@ -15,6 +15,9 @@ from bajo.core.random import unit_vector_from_samples
 from bajo.rt.coated_diffuse import (
     _evaluate_coated_diffuse,
     _sample_coated_diffuse,
+    _dielectric_f,
+    _dielectric_pdf,
+    _sample_dielectric as _sample_dielectric_interface,
 )
 from bajo.rt.material_types import MaterialKind
 from bajo.rt.shading_types import (
@@ -94,6 +97,8 @@ def _evaluate_material[
     albedo: Vec3[.float32, .WORLD, length],
     parameter: SIMD[.float32, length],
     out_direction: Vec3[.float32, .WORLD, length],
+    roughness: SIMD[.float32, length] = 0.0,
+    front_face: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
 ) -> BsdfEvaluation[length]:
     """Evaluate one homogeneous material group at compile time."""
     comptime match MATERIAL_KIND:
@@ -104,10 +109,25 @@ def _evaluate_material[
                 ray_direction, normal, albedo, parameter, out_direction
             )
         case .DIELECTRIC:
+            var tangent, bitangent = orthonormal_basis(normal)
+            var wo_world = -normalize(ray_direction)
+            var wi_world = normalize(out_direction)
+            var wo = Vec3[.float32, .WORLD, length](
+                dot(wo_world, tangent),
+                dot(wo_world, bitangent),
+                dot(wo_world, normal),
+            )
+            var wi = Vec3[.float32, .WORLD, length](
+                dot(wi_world, tangent),
+                dot(wi_world, bitangent),
+                dot(wi_world, normal),
+            )
+            var eta = front_face.select(parameter, 1.0 / parameter)
+            var value = _dielectric_f(wo, wi, roughness, eta, True)
             return BsdfEvaluation[length](
-                Vec3[.float32, .WORLD, length](0.0),
-                SIMD[.float32, length](0.0),
-                SIMD[.bool, length](fill=True),
+                Vec3[.float32, .WORLD, length](value, value, value),
+                _dielectric_pdf(wo, wi, roughness, eta, 0),
+                roughness.lt(1.0e-3) | eta.eq(1.0),
             )
         case .EMISSIVE:
             return BsdfEvaluation[length](
@@ -210,31 +230,34 @@ def _sample_dielectric[
     refraction_index: SIMD[.float32, length],
     front_face: SIMD[.bool, length],
     reflect_random: SIMD[.float32, length],
+    roughness: SIMD[.float32, length] = 0.0,
+    normal_random_u: SIMD[.float32, length] = 0.0,
+    normal_random_v: SIMD[.float32, length] = 0.0,
 ) -> BsdfSample[length]:
-    var ri = front_face.select(
-        Float32(1.0) / refraction_index, refraction_index
+    var eta = front_face.select(refraction_index, 1.0 / refraction_index)
+    var tangent, bitangent = orthonormal_basis(normal)
+    var outgoing = -normalize(ray_direction)
+    var wo = Vec3[.float32, .WORLD, length](
+        dot(outgoing, tangent), dot(outgoing, bitangent), dot(outgoing, normal)
     )
-    var geometry = dielectric_geometry(ray_direction, normal, ri)
-    var unit_direction = geometry.unit_direction
-    var cos_theta = geometry.incident_cosine
-    var cannot_refract = geometry.transmitted_sine.gt(1.0)
-    var reflection_probability = fresnel_schlick(cos_theta, ri)
-    var reflect_sample = cannot_refract | reflection_probability.gt(
-        reflect_random
+    var sampled = _sample_dielectric_interface(
+        wo,
+        roughness,
+        eta,
+        reflect_random,
+        normal_random_u,
+        normal_random_v,
+        True,
     )
-    var reflected = reflect(unit_direction, normal)
-    var refracted = refract(unit_direction, normal, ri)
-    var direction = normalize(Vec3.select(reflect_sample, reflected, refracted))
-    var pdf = reflect_sample.select(
-        cannot_refract.select(Float32(1.0), reflection_probability),
-        Float32(1.0) - reflection_probability,
-    )
+    var wi = sampled.direction
+    var direction = normalize(tangent * wi.x + bitangent * wi.y + normal * wi.z)
+    var weight = sampled.value * abs(wi.z) / sampled.ok.select(sampled.pdf, 1.0)
     return BsdfSample[length](
         direction,
-        Vec3[.float32, .WORLD, length](1.0, 1.0, 1.0),
-        pdf,
-        SIMD[.bool, length](fill=True),
-        SIMD[.bool, length](fill=True),
+        Vec3[.float32, .WORLD, length](weight, weight, weight),
+        sampled.pdf,
+        sampled.delta,
+        sampled.ok,
     )
 
 
@@ -249,6 +272,8 @@ def _sample_material[
     front_face: SIMD[.bool, length],
     random_u: SIMD[.float32, length],
     random_v: SIMD[.float32, length],
+    roughness: SIMD[.float32, length] = 0.0,
+    random_w: SIMD[.float32, length] = 0.0,
 ) -> BsdfSample[length]:
     """Dispatch one homogeneous SIMD material group at compile time."""
     comptime match MATERIAL_KIND:
@@ -261,5 +286,12 @@ def _sample_material[
         case _:
             comptime assert MATERIAL_KIND == .DIELECTRIC
             return _sample_dielectric(
-                ray_direction, normal, parameter, front_face, random_u
+                ray_direction,
+                normal,
+                parameter,
+                front_face,
+                random_u,
+                roughness,
+                random_v,
+                random_w,
             )

@@ -33,6 +33,10 @@ trait AssetLoader:
     def read_image_texture(self, path: String) raises -> ImageTexture:
         ...
 
+    def read_data_texture(self, path: String) raises -> ImageTexture:
+        """Custom loaders may already supply decoded linear samples."""
+        return self.read_image_texture(path)
+
 
 @fieldwise_init
 struct PathAssetLoader(AssetLoader, Copyable):
@@ -45,7 +49,12 @@ struct PathAssetLoader(AssetLoader, Copyable):
     def read_image_texture(self, path: String) raises -> ImageTexture:
         if _is_exr_path(path):
             return read_exr(path)
-        return read_png(path)
+        return read_png(path, preserve_alpha=True)
+
+    def read_data_texture(self, path: String) raises -> ImageTexture:
+        if _is_exr_path(path):
+            return read_exr(path)
+        return read_png(path, linear=True, preserve_alpha=True)
 
 
 struct MemoryAssetLoader(AssetLoader):
@@ -81,5 +90,14 @@ struct MemoryAssetLoader(AssetLoader):
         if path in self.image_files:
             if _is_exr_path(path):
                 return parse_exr(self.image_files[path])
-            return parse_png(self.image_files[path])
+            return parse_png(self.image_files[path], preserve_alpha=True)
         raise Error("MemoryAssetLoader: image file not found: " + path)
+
+    def read_data_texture(self, path: String) raises -> ImageTexture:
+        if path in self.image_files:
+            if _is_exr_path(path):
+                return parse_exr(self.image_files[path])
+            return parse_png(
+                self.image_files[path], linear=True, preserve_alpha=True
+            )
+        raise Error("MemoryAssetLoader: data image file not found: " + path)

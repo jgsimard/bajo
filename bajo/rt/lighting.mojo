@@ -2,20 +2,88 @@
 
 from bajo.core.sampling import power_heuristic
 
-from std.math import sqrt
-from bajo.core.geometry import (
-    SurfaceSample,
-    sample_triangle_surface as _sample_triangle_light_surface,
-    sample_sphere_surface as _sample_sphere_light_surface,
-)
+from std.math import abs, sqrt
 
 from bajo.core import Point3, Vec3, cross, dot, length2, normalize
 from bajo.rt.rays import RT_RAY_T_MIN, RT_SHADOW_END_OFFSET
 from bajo.rt.material_types import Integrator
 from bajo.rt.lighting_types import _light_importance
+from bajo.rt.opacity import opacity_sphere_uv
 
 
-comptime _LightSurfaceSample = SurfaceSample[.WORLD, _]
+@fieldwise_init
+struct _LightSurfaceSample[length: SIMDLength = 1](TrivialRegisterPassable):
+    var valid: SIMD[.bool, Self.length]
+    var point: Point3[.float32, .WORLD, Self.length]
+    var normal: Vec3[.float32, .WORLD, Self.length]
+    var u: SIMD[.float32, Self.length]
+    var v: SIMD[.float32, Self.length]
+
+
+@always_inline
+def _sample_triangle_light_surface[
+    length: SIMDLength = 1
+](
+    p0: Point3[.float32, .WORLD, length],
+    p1: Point3[.float32, .WORLD, length],
+    p2: Point3[.float32, .WORLD, length],
+    random_u: SIMD[.float32, length],
+    random_v: SIMD[.float32, length],
+) -> _LightSurfaceSample[length]:
+    var edge1 = p1 - p0
+    var edge2 = p2 - p0
+    var area_vector = cross(edge1, edge2)
+    var twice_area_squared = length2(area_vector)
+    var valid = twice_area_squared.gt(0.0)
+    var root_u = sqrt(random_u)
+    var barycentric1 = root_u * (1.0 - random_v)
+    var barycentric2 = root_u - barycentric1
+    return _LightSurfaceSample[length](
+        valid,
+        p0 + barycentric1 * edge1 + barycentric2 * edge2,
+        Vec3.select(
+            valid,
+            area_vector / sqrt(valid.select(twice_area_squared, 1.0)),
+            Vec3[.float32, .WORLD, length](0.0, 1.0, 0.0),
+        ),
+        barycentric1,
+        barycentric2,
+    )
+
+
+@always_inline
+def _sample_sphere_light_surface[
+    length: SIMDLength = 1
+](
+    center: Point3[.float32, .WORLD, length],
+    radius: SIMD[.float32, length],
+    normal: Vec3[.float32, .WORLD, length],
+) -> _LightSurfaceSample[length]:
+    var uv = opacity_sphere_uv(normal)
+    return _LightSurfaceSample[length](
+        SIMD[.bool, length](fill=True),
+        center + radius * normal,
+        normal,
+        uv[0],
+        uv[1],
+    )
+
+
+@always_inline
+def light_sample_uv[
+    length: SIMDLength = 1
+](
+    u0: SIMD[.float32, length],
+    v0: SIMD[.float32, length],
+    u1: SIMD[.float32, length],
+    v1: SIMD[.float32, length],
+    u2: SIMD[.float32, length],
+    v2: SIMD[.float32, length],
+    b1: SIMD[.float32, length],
+    b2: SIMD[.float32, length],
+) -> Tuple[SIMD[.float32, length], SIMD[.float32, length]]:
+    var b0 = 1.0 - b1 - b2
+    return (b0 * u0 + b1 * u1 + b2 * u2, b0 * v0 + b1 * v1 + b2 * v2)
 
 
 @fieldwise_init
@@ -71,6 +139,8 @@ def _finish_direct_light_geometry[
     light: _LightSurfaceSample[length],
     emission: Vec3[.float32, .WORLD, length],
     total_light_weight: Float32,
+    allow_transmission: SIMD[.bool, length] = SIMD[.bool, length](fill=False),
+    two_sided: SIMD[.bool, length] = SIMD[.bool, length](fill=False),
 ) -> _DirectLightGeometrySample[length]:
     if total_light_weight <= 0.0:
         return _empty_direct_light_geometry[length]()
@@ -79,8 +149,14 @@ def _finish_direct_light_geometry[
     var valid = light.valid & distance_squared.gt(1.0e-8)
     var distance = sqrt(valid.select(distance_squared, 1.0))
     var direction = to_light / distance
-    var surface_cosine = max(dot(normal, direction), 0.0)
-    var light_cosine = max(dot(light.normal, -direction), 0.0)
+    var cosine = dot(normal, direction)
+    var surface_cosine = allow_transmission.select(
+        abs(cosine), max(cosine, 0.0)
+    )
+    var cosine_at_light = dot(light.normal, -direction)
+    var light_cosine = two_sided.select(
+        abs(cosine_at_light), max(cosine_at_light, 0.0)
+    )
     var shadow_t_max = distance - RT_SHADOW_END_OFFSET
     valid &= (
         surface_cosine.gt(0.0)
@@ -94,7 +170,8 @@ def _finish_direct_light_geometry[
         valid.select(
             _solid_angle_light_pdf(
                 distance_squared, light_cosine, emission, total_light_weight
-            ),
+            )
+            * two_sided.select(Float32(2.0), Float32(1.0)),
             0.0,
         ),
         valid.select(shadow_t_max, 0.0),
@@ -110,15 +187,17 @@ def _emissive_hit_light_pdf[
     normal: Vec3[.float32, .WORLD, length],
     emission: Vec3[.float32, .WORLD, length],
     total_light_weight: Float32,
+    two_sided: SIMD[.bool, length] = SIMD[.bool, length](fill=False),
 ) -> SIMD[.float32, length]:
     """Evaluate emissive-hit light PDFs at any width, including one."""
-    var light_cosine = max(dot(normal, -normalize(ray_direction)), 0.0)
+    var cosine = dot(normal, -normalize(ray_direction))
+    var light_cosine = two_sided.select(abs(cosine), max(cosine, 0.0))
     return _solid_angle_light_pdf(
         hit_t * hit_t * length2(ray_direction),
         light_cosine,
         emission,
         total_light_weight,
-    )
+    ) * two_sided.select(Float32(2.0), Float32(1.0))
 
 
 @always_inline

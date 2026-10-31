@@ -28,11 +28,9 @@ struct AxisAlignedBoundingBox[
 
     @staticmethod
     def invalid() -> Self:
-        comptime flt_max = max_finite[Self.dtype]()
-        comptime flt_min = min_finite[Self.dtype]()
         return Self(
-            Point3[Self.dtype, Self.frame, Self.width](flt_max),
-            Point3[Self.dtype, Self.frame, Self.width](flt_min),
+            {max_finite[Self.dtype]()},
+            {min_finite[Self.dtype]()},
         )
 
     @staticmethod
@@ -187,12 +185,8 @@ struct AxisAlignedBoundingBox[
     ) -> Self where (Self.width == 1):
         """Load six consecutive scalars from a caller-validated pointer."""
         return Self(
-            Point3[Self.dtype, Self.frame, Self.width](
-                data.unsafe_offset(base)
-            ),
-            Point3[Self.dtype, Self.frame, Self.width](
-                data.unsafe_offset(base + 3)
-            ),
+            {data.unsafe_offset(base)},
+            {data.unsafe_offset(base + 3)},
         )
 
     def store6(self, data: MutSpan[Scalar[Self.dtype], _], base: Int):

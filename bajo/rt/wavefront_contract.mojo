@@ -87,7 +87,8 @@ struct WaveSampleFloatAbi:
     comptime R = 0
     comptime G = 1
     comptime B = 2
-    comptime PLANES = 3
+    comptime FILTER_WEIGHT = 3
+    comptime PLANES = 4
 
 
 struct WaveShadowFloatAbi:

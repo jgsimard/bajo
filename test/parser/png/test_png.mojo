@@ -1,6 +1,11 @@
 from std.memory import bitcast
 from std.ffi import OwnedDLHandle
-from std.testing import TestSuite, assert_equal, assert_raises
+from std.testing import (
+    TestSuite,
+    assert_equal,
+    assert_raises,
+    assert_almost_equal,
+)
 
 from bajo.parser.png import (
     _linearize_srgb_u8,
@@ -328,6 +333,84 @@ def test_conversion_handles_empty_and_subvector_inputs() raises:
         assert_equal(len(actual), count)
         for index in range(count):
             _assert_exact(encoded, actual, index)
+
+
+def test_linear_data_textures_keep_samples_despite_encoding_metadata() raises:
+    for metadata in ["", "gAMA", "sRGB"]:
+        var bytes = _encode([UInt8(0), 128, 64, 255], 1, 1, metadata=metadata)
+        var image = parse_png(bytes, linear=True)
+        assert_almost_equal(image.pixels[0], Float32(128.0 / 255.0), atol=1e-7)
+        assert_almost_equal(image.pixels[1], Float32(64.0 / 255.0), atol=1e-7)
+        assert_equal(image.pixels[2], Float32(1.0))
+        assert_equal(len(image.alpha), 0)
+
+
+def test_rgba_preserves_unassociated_color_and_linear_alpha() raises:
+    var bytes = _encode(
+        [UInt8(0), 255, 128, 64, 0, 50, 100, 200, 128], 2, 1, color=6
+    )
+    var data = parse_png(bytes, linear=True)
+    assert_equal(len(data.alpha), 2)
+    assert_equal(data.alpha[0], Float32(0.0))
+    assert_almost_equal(data.alpha[1], Float32(128.0 / 255.0), atol=1e-7)
+    assert_equal(data.pixels[0], Float32(1.0))
+    assert_almost_equal(data.pixels[1], Float32(128.0 / 255.0), atol=1e-7)
+    var color = parse_png(bytes, preserve_alpha=True)
+    assert_equal(color.pixels[0], Float32(1.0))
+    assert_almost_equal(
+        color.pixels[1], _srgb_to_linear(Float32(128.0 / 255.0))
+    )
+    assert_equal(color.alpha[0], Float32(0.0))
+    assert_equal(color.alpha[1], data.alpha[1])
+
+
+def test_data_png_palette_and_one_bit_alpha() raises:
+    var encoded = _encode([UInt8(0), 0b01000000], 2, 1, color=3, depth=1)
+    # Insert tRNS after the IHDR and two-entry PLTE, before IDAT.
+    var bytes = List[UInt8](ImmSpan(encoded)[:51])
+    _chunk(bytes, "tRNS", [UInt8(0), 128])
+    bytes.extend(ImmSpan(encoded)[51:])
+    var image = parse_png(bytes, linear=True)
+    assert_equal(image.pixels[0], Float32(1.0))
+    assert_equal(image.pixels[1], Float32(0.0))
+    assert_equal(image.pixels[3], Float32(0.0))
+    assert_equal(image.pixels[4], Float32(1.0))
+    assert_equal(image.alpha[0], Float32(0.0))
+    assert_almost_equal(image.alpha[1], Float32(128.0 / 255.0), atol=1e-7)
+    with assert_raises():
+        _ = parse_png(_encode([UInt8(0), 2], 1, 1, color=3), linear=True)
+
+
+def test_data_png_grayscale_and_sixteen_bit_channels() raises:
+    var bits = parse_png(
+        _encode([UInt8(0), 0b10100000], 3, 1, color=0, depth=1), linear=True
+    )
+    for channel in range(3):
+        assert_equal(bits.pixels[channel], Float32(1.0))
+        assert_equal(bits.pixels[3 + channel], Float32(0.0))
+        assert_equal(bits.pixels[6 + channel], Float32(1.0))
+    var gray = parse_png(
+        _encode([UInt8(0), 0x12, 0x34, 255, 255], 2, 1, color=0, depth=16),
+        linear=True,
+    )
+    assert_almost_equal(gray.pixels[0], Float32(4660.0 / 65535.0), atol=1e-7)
+    assert_equal(gray.pixels[3], Float32(1.0))
+    var ga = parse_png(_encode([UInt8(0), 128, 64], 1, 1, color=4), linear=True)
+    assert_almost_equal(ga.pixels[0], Float32(128.0 / 255.0), atol=1e-7)
+    assert_almost_equal(ga.alpha[0], Float32(64.0 / 255.0), atol=1e-7)
+
+
+def test_data_png_filters_reconstruct_exact_original_samples() raises:
+    for filter in range(5):
+        var bytes = _encode(_rgb_rows(13, 5, filter), 13, 5, split=True)
+        var image = parse_png(bytes, linear=True)
+        for y in range(5):
+            for channel in range(39):
+                assert_almost_equal(
+                    image.pixels[y * 39 + channel],
+                    Float32(_sample(channel, y)) / 255.0,
+                    atol=1e-7,
+                )
 
 
 def run_tests[_discovery: Bool = True]() raises:

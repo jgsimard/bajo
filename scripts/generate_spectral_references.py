@@ -1,0 +1,139 @@
+# SPDX-License-Identifier: Apache-2.0
+# Reference formulas adapted from pbrt, Copyright (c) 1998-2020 Matt Pharr,
+# Wenzel Jakob, and Greg Humphreys. See bajo/parser/pbrt/LICENSE-pbrt.txt.
+"""Generate independent C++ reference values for Mojo spectral regressions.
+
+Usage: python scripts/generate_spectral_references.py spectrum.cpp rgbspectrum_srgb.cpp
+Both arguments are original PBRT sources (the second is rgb2spec_opt's output).
+The reference uses the original CIE/D65 arrays and nested coefficient layout;
+it neither imports Bajo's binary table nor calls the implementation under test.
+"""
+
+from pathlib import Path
+import hashlib
+import re
+import subprocess
+import sys
+import tempfile
+
+REFERENCE = r'''
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include "table.cpp"
+#include "observer.h"
+using RGB = std::array<float,3>;
+float lerp(float t,float a,float b) { return (1-t)*a+t*b; }
+RGB coefficients(RGB rgb) {
+    if (rgb[0]==rgb[1] && rgb[1]==rgb[2])
+        return {0,0,(rgb[0]-.5f)/std::sqrt(rgb[0]*(1-rgb[0]))};
+    int m=(rgb[0]>rgb[1]) ? ((rgb[0]>rgb[2])?0:2) : ((rgb[1]>rgb[2])?1:2);
+    float z=rgb[m], x=rgb[(m+1)%3]*63/z, y=rgb[(m+2)%3]*63/z;
+    int xi=std::min(int(x),62), yi=std::min(int(y),62), zi=0;
+    while (zi<62 && pbrt::sRGBToSpectrumTable_Scale[zi+1]<z) ++zi;
+    float dx=x-xi, dy=y-yi;
+    float dz=(z-pbrt::sRGBToSpectrumTable_Scale[zi]) /
+        (pbrt::sRGBToSpectrumTable_Scale[zi+1]-pbrt::sRGBToSpectrumTable_Scale[zi]);
+    RGB c;
+    for(int i=0;i<3;++i) {
+        auto co=[&](int a,int b,int c) {
+            return pbrt::sRGBToSpectrumTable_Data[m][zi+c][yi+b][xi+a][i];
+        };
+        c[i]=lerp(dz,lerp(dy,lerp(dx,co(0,0,0),co(1,0,0)),
+                               lerp(dx,co(0,1,0),co(1,1,0))),
+                     lerp(dy,lerp(dx,co(0,0,1),co(1,0,1)),
+                               lerp(dx,co(0,1,1),co(1,1,1))));
+    }
+    return c;
+}
+float polynomial(RGB c,float lambda) {
+    float x=std::fma(std::fma(c[0],lambda,c[1]),lambda,c[2]);
+    return std::isinf(x) ? (x>0?1:0) : .5f+x/(2*std::sqrt(1+x*x));
+}
+float d65(float lambda,float scale=1) {
+    int i=std::min(int((lambda-300)/5),105);
+    float t=(lambda-CIE_Illum_D6500[2*i])/5;
+    return lerp(t,CIE_Illum_D6500[2*i+1]*scale,CIE_Illum_D6500[2*i+3]*scale);
+}
+int main() {
+    RGB cases[]={{.2f,.4f,.8f},{.8f,.2f,.4f},{.4f,.8f,.2f},
+        {.8f,.8f,.2f},{.2f,.8f,.8f},{.8f,.2f,.8f},
+        {.00001f,.00002f,.00003f},{1,.2f,0},{0,.2f,1},
+        {0,0,0},{1,1,1},{.37f,.37f,.37f}};
+    float lambdas[]={360,460.3f,550.7f,830};
+    float integral=0;
+    for(int nm=360;nm<=830;++nm) integral+=d65(nm)*CIE_Y[nm-360];
+    float norm=106.856895f/integral;
+    for (auto rgb:cases) {
+        RGB c=coefficients(rgb);
+        for(float x:c) std::printf("%.9g ",x);
+        for(int kind=0;kind<3;++kind) {
+            float scale=kind ? 2*std::max({rgb[0],rgb[1],rgb[2]}) : 1;
+            RGB input=rgb;
+            if(kind) for(float &v:input) v=scale?v/scale:0;
+            RGB p=coefficients(input);
+            for(float lambda:lambdas) std::printf("%.9g ",scale*polynomial(p,lambda)*
+                (kind==2 ? d65(std::round(lambda),norm) : 1));
+        }
+        std::puts("");
+    }
+    for(float u:{0.f,.1f,.25f,.5f,.9f,1.f}) {
+        float lambda=538.f-138.888889f*std::atanh(.85691062f-1.82750197f*u);
+        float c=std::cosh(.0072f*(lambda-538));
+        std::printf("%.9g %.9g\n",lambda,.0039398042f/(c*c));
+    }
+    for(float lambda:lambdas) std::printf("%.9g ",d65(std::round(lambda),norm));
+    std::puts("");
+    float s[]={2,3,5,7}, pdf[]={.1f,.2f,.3f,.4f};
+    for(auto observer:{CIE_X,CIE_Y,CIE_Z}) {
+        float sum=0;
+        for(int i=0;i<4;++i) sum+=observer[int(std::round(lambdas[i]))-360]*s[i]/pdf[i];
+        std::printf("%.9g ",sum*.25f);
+    }
+    std::puts("");
+}
+'''
+
+
+def main():
+    spectrum, table = (Path(p).resolve() for p in sys.argv[1:])
+    text = spectrum.read_text()
+    observer = ''
+    for name in ('CIE_X', 'CIE_Y', 'CIE_Z', 'CIE_Illum_D6500'):
+        body = re.search(rf'const Float {name}\[[^]]*\] = \{{(.*?)\}};', text, re.S)[1]
+        observer += f'const float {name}[] = {{{body}}};\n'
+    with tempfile.TemporaryDirectory(prefix='bajo-spectral-reference-') as tmp:
+        folder = Path(tmp)
+        (folder / 'table.cpp').symlink_to(table)
+        (folder / 'observer.h').write_text(observer)
+        (folder / 'reference.cpp').write_text(REFERENCE)
+        subprocess.run(['g++', '-O2', '-std=c++17', '-ffp-contract=off',
+                        str(folder / 'reference.cpp'), '-o', str(folder / 'reference')], check=True)
+        lines = subprocess.check_output([str(folder / 'reference')], text=True).splitlines()
+    colors = [( .2,.4,.8),(.8,.2,.4),(.4,.8,.2),(.8,.8,.2),(.2,.8,.8),(.8,.2,.8),
+              (.00001,.00002,.00003),(1,.2,0),(0,.2,1),(0,0,0),(1,1,1),(.37,.37,.37)]
+    out = ['# Generated by scripts/generate_spectral_references.py using independent C++.\n',
+           '# Reference: https://github.com/mmp/pbrt-v4/blob/master/src/pbrt/util/color.cpp\n',
+           f'# PBRT spectrum.cpp SHA-256: {hashlib.sha256(spectrum.read_bytes()).hexdigest()}\n',
+           f'# Original generated table SHA-256: {hashlib.sha256(table.read_bytes()).hexdigest()}\n',
+           'from bajo.core.color import Color\n\n',
+           'comptime REFERENCE_RGB: Array[Color, 12] = [\n']
+    out.extend('    Color(' + ', '.join(map(str,c)) + '),\n' for c in colors)
+    out.append(']\n\ncomptime REFERENCE_SPECTRA: Array[SIMD[.float32, 16], 12] = [\n')
+    for row in lines[:12]:
+        # Gray endpoint coefficients are infinite; their spectra are tested below.
+        values = row.split()
+        values = ['0' if v in ('inf','-inf') else v for v in values]
+        out.append('    SIMD[.float32, 16](' + ', '.join(values + ['0']) + '),\n')
+    out.append(']\n\ncomptime REFERENCE_VISIBLE: Array[SIMD[.float32, 2], 6] = [\n')
+    out.extend('    SIMD[.float32, 2](' + ', '.join(row.split()) + '),\n' for row in lines[12:18])
+    out.append(']\n\ncomptime REFERENCE_D65 = SIMD[.float32, 4](' + ', '.join(lines[18].split()) + ')\n')
+    out.append('comptime REFERENCE_SENSOR = Color(' + ', '.join(lines[19].split()) + ')\n')
+    output = Path(__file__).resolve().parents[1] / 'test/rt/spectral_reference.mojo'
+    output.write_text(''.join(out))
+    print(output)
+
+
+if __name__ == '__main__':
+    main()

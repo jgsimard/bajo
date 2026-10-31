@@ -6,7 +6,12 @@ from std.math import ceildiv, floor
 from std.sys import num_logical_cores, simd_width_of
 from bajo.core import Vec3
 from bajo.core.color import _SRGB_U8_VALUES, luminance
-from bajo.core.tensor_layout import RecordTile, gather_record_vec3, record_tile
+from bajo.core.tensor_layout import (
+    RecordTile,
+    gather_record_vec3,
+    gather_record_field,
+    record_tile,
+)
 
 comptime SRGB_SIMD_WIDTH = simd_width_of[Float32]()
 comptime SRGB_CHANNELS_PER_TASK = 4 * 1024 * 1024
@@ -127,17 +132,107 @@ def sample_environment_texture[
     return load_environment_texel(pixels, y * SIMD[.int64, length](width) + x)
 
 
+@always_inline
+def sample_image_texture_bilinear[
+    mut: Bool,
+    origin: Origin[mut=mut],
+    //,
+    length: SIMDLength,
+](
+    pixels: RecordTile[.float32, 3, origin],
+    width: Int,
+    height: Int,
+    u: SIMD[.float32, length],
+    v: SIMD[.float32, length],
+) -> Vec3[.float32, .WORLD, length]:
+    var x = (u - floor(u)) * Float32(width) - 0.5
+    var y = (1.0 - (v - floor(v))) * Float32(height) - 0.5
+    var fx = floor(x)
+    var fy = floor(y)
+    var dx = x - fx
+    var dy = y - fy
+    var x0 = fx.cast[.int64]()
+    var y0 = fy.cast[.int64]()
+    var w = SIMD[.int64, length](width)
+    var h = SIMD[.int64, length](height)
+    var x1 = ((x0 + 1) % w + w) % w
+    var y1 = ((y0 + 1) % h + h) % h
+    x0 = (x0 % w + w) % w
+    y0 = (y0 % h + h) % h
+    var top = (
+        gather_record_vec3(pixels, y0 * w + x0) * (1.0 - dx)
+        + gather_record_vec3(pixels, y0 * w + x1) * dx
+    )
+    var bottom = (
+        gather_record_vec3(pixels, y1 * w + x0) * (1.0 - dx)
+        + gather_record_vec3(pixels, y1 * w + x1) * dx
+    )
+    return top * (1.0 - dy) + bottom * dy
+
+
+@always_inline
+def sample_scalar_texture_bilinear[
+    mut: Bool,
+    origin: Origin[mut=mut],
+    //,
+    length: SIMDLength,
+](
+    pixels: RecordTile[.float32, 1, origin],
+    width: Int,
+    height: Int,
+    u: SIMD[.float32, length],
+    v: SIMD[.float32, length],
+) -> SIMD[.float32, length]:
+    var x = (u - floor(u)) * Float32(width) - 0.5
+    var y = (1.0 - (v - floor(v))) * Float32(height) - 0.5
+    var fx = floor(x)
+    var fy = floor(y)
+    var dx = x - fx
+    var dy = y - fy
+    var x0 = fx.cast[.int64]()
+    var y0 = fy.cast[.int64]()
+    var w = SIMD[.int64, length](width)
+    var h = SIMD[.int64, length](height)
+    var x1 = ((x0 + 1) % w + w) % w
+    var y1 = ((y0 + 1) % h + h) % h
+    x0 = (x0 % w + w) % w
+    y0 = (y0 % h + h) % h
+    var top = (
+        gather_record_field[0](pixels, y0 * w + x0) * (1.0 - dx)
+        + gather_record_field[0](pixels, y0 * w + x1) * dx
+    )
+    var bottom = (
+        gather_record_field[0](pixels, y1 * w + x0) * (1.0 - dx)
+        + gather_record_field[0](pixels, y1 * w + x1) * dx
+    )
+    return top * (1.0 - dy) + bottom * dy
+
+
 struct ImageTexture:
-    """Owning linear RGB image with host-side scalar and SIMD sampling."""
+    """Linear RGB image used by host-side material sampling."""
 
     var width: Int
     var height: Int
     var pixels: List[Float32]
+    var alpha: List[Float32]
+    var has_scalar_alpha: Bool
 
-    def __init__(out self, width: Int, height: Int, var pixels: List[Float32]):
+    def __init__(
+        out self,
+        width: Int,
+        height: Int,
+        var pixels: List[Float32],
+        var alpha: List[Float32] = List[Float32](),
+    ):
         self.width = width
         self.height = height
         self.pixels = pixels^
+        self.alpha = alpha^
+        self.has_scalar_alpha = False
+        for value in self.alpha:
+            if value != 1.0:
+                self.has_scalar_alpha = True
+                break
 
     @always_inline
     def sample[
@@ -162,6 +257,42 @@ struct ImageTexture:
         .float32, length
     ]:
         return luminance(self.sample(u, v))
+
+    @always_inline
+    def sample_bilinear[
+        length: SIMDLength = 1
+    ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> Vec3[
+        .float32, .WORLD, length
+    ]:
+        return sample_image_texture_bilinear(
+            record_tile[.float32, 3](
+                self.pixels.unsafe_ptr(), self.width * self.height
+            ),
+            self.width,
+            self.height,
+            u,
+            v,
+        )
+
+    @always_inline
+    def sample_scalar_bilinear[
+        length: SIMDLength = 1
+    ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> SIMD[
+        .float32, length
+    ]:
+        # PBRT scalar maps use meaningful alpha, otherwise average RGB.
+        if self.has_scalar_alpha:
+            return sample_scalar_texture_bilinear(
+                record_tile[.float32, 1](
+                    self.alpha.unsafe_ptr(), self.width * self.height
+                ),
+                self.width,
+                self.height,
+                u,
+                v,
+            )
+        var rgb = self.sample_bilinear(u, v)
+        return (rgb.x + rgb.y + rgb.z) / 3.0
 
     @always_inline
     def sample_environment[

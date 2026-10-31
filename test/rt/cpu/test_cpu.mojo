@@ -153,8 +153,9 @@ def test_pinhole_primary_paths_preserve_sampler_dimensions_and_signed_zero() rai
                 )
                 var sampling = SamplingConfig.from_settings(settings)
                 var paths = PacketPathQueue[16](17)
+                var weights = List[Float32](length=17, fill=0)
                 _initialize_path_packets_range(
-                    paths, settings, sampling, camera, 0, 17
+                    paths, settings, sampling, camera, 0, 17, MutSpan(weights)
                 )
                 for index in range(len(paths.packets)):
                     var ids = iota[.uint32, 16]() + UInt32(index * 16)
@@ -1006,14 +1007,26 @@ def test_dielectric_scatter_is_explicit() raises:
 
     var scattered = sample_bsdf(surface, surfaces, incoming, point, rng)
     assert_true(scattered.ok)
-    assert_vec_equal(scattered.weight, Color(1.0))
+    assert_vec_equal(
+        scattered.weight,
+        Color(
+            Float32(1.0) if scattered.direction.z[0]
+            > 0.0 else Float32(1.0 / 2.25)
+        ),
+    )
     assert_true(length(scattered.direction) > 0.0)
     assert_true(scattered.delta)
     assert_true(scattered.pdf > 0.0 and scattered.pdf <= 1.0)
 
     var dispatched = sample_bsdf(surface, surfaces, incoming, point, rng)
     assert_true(dispatched.ok)
-    assert_vec_equal(dispatched.weight, Color(1.0))
+    assert_vec_equal(
+        dispatched.weight,
+        Color(
+            Float32(1.0) if dispatched.direction.z[0]
+            > 0.0 else Float32(1.0 / 2.25)
+        ),
+    )
 
 
 def test_world_hit_maps_material_and_normal() raises:

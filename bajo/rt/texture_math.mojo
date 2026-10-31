@@ -3,15 +3,40 @@
 from bajo.core.color import luminance
 
 from std.math import sqrt
-from bajo.core import Vec3
+from bajo.core import Vec3, cross, dot, length2, normalize, orthonormal_basis
 from bajo.core.image import (
     image_pixel_index,
     sample_image_texture,
+    sample_image_texture_bilinear,
+    sample_scalar_texture_bilinear,
     load_environment_texel,
     sample_environment_texture,
 )
 from bajo.core.geometry import normal_from_slopes as bump_normal
 from bajo.core.tensor_layout import RecordTile, gather_record_vec3
+
+
+@always_inline
+def mapped_normal[
+    length: SIMDLength = 1
+](
+    normal: Vec3[.float32, .WORLD, length],
+    dpdu: Vec3[.float32, .WORLD, length],
+    color: Vec3[.float32, .WORLD, length],
+) -> Vec3[.float32, .WORLD, length]:
+    """Transform a linear tangent-space normal using the UV tangent frame."""
+    var projected = dpdu - normal * dot(normal, dpdu)
+    var fallback, _ = orthonormal_basis(normal)
+    var tangent = Vec3.select(
+        length2(projected).gt(1.0e-20), projected, fallback
+    )
+    tangent = normalize(tangent)
+    var bitangent = cross(normal, tangent)
+    var local = color * 2.0 - Vec3[.float32, .WORLD, length](1.0)
+    var result = tangent * local.x + bitangent * local.y + normal * local.z
+    result = Vec3.select(length2(result).gt(1.0e-20), result, normal)
+    result = normalize(result)
+    return Vec3.select(dot(result, normal).lt(0.0), -result, result)
 
 
 @always_inline

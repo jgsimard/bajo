@@ -69,7 +69,7 @@ Shape "sphere"
 """
     )
     var expected = _blackbody_rgb(5500)
-    var actual = scene.data.surfaces().emissives[0].radiance
+    var actual = scene.data.lights().records[0].radiance
     assert_almost_equal(actual.x[0], expected.x[0] * 10)
     assert_true(expected.x > expected.z)
     assert_true(expected.is_finite()[0])

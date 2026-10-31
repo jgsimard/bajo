@@ -33,6 +33,10 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
     var hit: SIMD[.bool, Self.length]
     var medium_boundary: SIMD[.uint32, Self.length]
     var geometric_normal: Vec3[.float32, .WORLD, Self.length]
+    var dpdu: Vec3[.float32, .WORLD, Self.length]
+    var emission_visible: SIMD[.bool, Self.length]
+    var emission: Vec3[.float32, .WORLD, Self.length]
+    var emission_two_sided: SIMD[.bool, Self.length]
 
     def __init__(out self, t_max: SIMD[.float32, Self.length]):
         self = Self(
@@ -75,6 +79,18 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
         geometric_normal: Vec3[.float32, .WORLD, Self.length] = Vec3[
             .float32, .WORLD, Self.length
         ](0.0),
+        dpdu: Vec3[.float32, .WORLD, Self.length] = Vec3[
+            .float32, .WORLD, Self.length
+        ](0.0),
+        emission_visible: SIMD[.bool, Self.length] = SIMD[.bool, Self.length](
+            fill=True
+        ),
+        emission: Vec3[.float32, .WORLD, Self.length] = Vec3[
+            .float32, .WORLD, Self.length
+        ](0.0),
+        emission_two_sided: SIMD[.bool, Self.length] = SIMD[.bool, Self.length](
+            fill=False
+        ),
     ):
         self.normal = normal
         self.surface = surface.copy()
@@ -85,6 +101,10 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
         self.hit = hit
         self.medium_boundary = medium_boundary
         self.geometric_normal = geometric_normal
+        self.dpdu = dpdu
+        self.emission_visible = emission_visible
+        self.emission = emission
+        self.emission_two_sided = emission_two_sided
 
     @always_inline
     def get(self, lane: Int) -> SurfaceHit[1]:
@@ -106,7 +126,41 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
                 self.geometric_normal.y[lane],
                 self.geometric_normal.z[lane],
             ),
+            Vec3f32[.WORLD](
+                self.dpdu.x[lane], self.dpdu.y[lane], self.dpdu.z[lane]
+            ),
+            self.emission_visible[lane],
+            Vec3f32[.WORLD](
+                self.emission.x[lane],
+                self.emission.y[lane],
+                self.emission.z[lane],
+            ),
+            self.emission_two_sided[lane],
         )
+
+    @always_inline
+    def set(mut self, lane: Int, value: SurfaceHit[1]):
+        self.normal.x[lane] = value.normal.x
+        self.normal.y[lane] = value.normal.y
+        self.normal.z[lane] = value.normal.z
+        self.geometric_normal.x[lane] = value.geometric_normal.x
+        self.geometric_normal.y[lane] = value.geometric_normal.y
+        self.geometric_normal.z[lane] = value.geometric_normal.z
+        self.dpdu.x[lane] = value.dpdu.x
+        self.dpdu.y[lane] = value.dpdu.y
+        self.dpdu.z[lane] = value.dpdu.z
+        self.surface.value[lane] = value.surface.value
+        self.uv_u[lane] = value.uv_u
+        self.uv_v[lane] = value.uv_v
+        self.t[lane] = value.t
+        self.front_face[lane] = value.front_face
+        self.hit[lane] = value.hit
+        self.medium_boundary[lane] = value.medium_boundary
+        self.emission_visible[lane] = value.emission_visible
+        self.emission.x[lane] = value.emission.x
+        self.emission.y[lane] = value.emission.y
+        self.emission.z[lane] = value.emission.z
+        self.emission_two_sided[lane] = value.emission_two_sided
 
 
 struct ShadingPoint[length: SIMDLength = 1](Copyable, Writable):

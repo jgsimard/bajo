@@ -285,6 +285,7 @@ def enqueue_gpu_rt_bounce[
     dst_path_fields: DeviceBuffer[.float32],
     sampling: GpuRtSamplingConfig,
     bounce: UInt32,
+    allow_scattering: Bool = True,
 ) raises:
     """Enqueue trace, material, and shadow stages with one launch contract."""
     var trace_block_size = GPU_RT_BLOCK_SIZE
@@ -334,6 +335,7 @@ def enqueue_gpu_rt_bounce[
                         queues,
                         sampling,
                         bounce,
+                        UInt32(1 if allow_scattering else 0),
                         grid_dim=blocks,
                         block_dim=trace_block_size,
                     )
@@ -353,6 +355,7 @@ def enqueue_gpu_rt_bounce[
             queues,
             sampling,
             bounce,
+            UInt32(1 if allow_scattering else 0),
             grid_dim=blocks,
             block_dim=trace_block_size,
         )
@@ -362,6 +365,8 @@ def enqueue_gpu_rt_bounce[
             scene_kind, sphere_format, triangle_format, tlas_format
         ](ctx, scene, queues, bounce)
     enqueue_trace()
+    if not allow_scattering:
+        return
     comptime if Integrator.is_path_tracing[integrator]:
         _enqueue_material_shading[integrator, MAX_BLOCKS](
             ctx,

@@ -4,6 +4,7 @@ from test.runner import TestRunner, module_selected
 
 import test.parser.exr.test_exr as exr_test_exr
 import test.parser.obj.test_obj as obj_test_obj
+import test.parser.pbrt.test_bistro as pbrt_test_bistro
 import test.parser.pbrt.test_bmw as pbrt_test_bmw
 import test.parser.pbrt.test_crown as pbrt_test_crown
 import test.parser.pbrt.test_pbrt as pbrt_test_pbrt
@@ -18,6 +19,11 @@ def main() raises:
         tests.run("test/parser/exr/test_exr.mojo", exr_test_exr.run_tests[True])
     comptime if module_selected["obj_test_obj"]():
         tests.run("test/parser/obj/test_obj.mojo", obj_test_obj.run_tests[True])
+    comptime if module_selected["pbrt_test_bistro"]():
+        tests.run(
+            "test/parser/pbrt/test_bistro.mojo",
+            pbrt_test_bistro.run_tests[True],
+        )
     comptime if module_selected["pbrt_test_bmw"]():
         tests.run(
             "test/parser/pbrt/test_bmw.mojo", pbrt_test_bmw.run_tests[True]

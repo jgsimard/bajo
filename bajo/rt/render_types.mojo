@@ -4,6 +4,7 @@ from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 
 from bajo.core.color import Color
 from bajo.rt.film import FilmResponse
+from bajo.rt.filter import ReconstructionFilter, FilterView
 from bajo.core.random import Sampler
 
 
@@ -12,11 +13,14 @@ struct RenderSettings(Copyable, Writable):
     var image_height: Int
     var samples_per_pixel: Int
     var rng_seed: UInt64
+    # Maximum number of scattering events. The terminal ray still evaluates
+    # surface/environment emission, including primary visibility at depth zero.
     var max_depth: Int
     var sampler: Sampler
     var sample_offset: Int
     var sample_sequence_length: Int
     var film: FilmResponse
+    var filter: ReconstructionFilter
 
     def __init__(
         out self,
@@ -29,6 +33,7 @@ struct RenderSettings(Copyable, Writable):
         sample_offset: Int = 0,
         sample_sequence_length: Int = 0,
         film: FilmResponse = FilmResponse(),
+        filter: ReconstructionFilter = ReconstructionFilter(),
     ):
         debug_assert["safe", _use_compiler_assume=True](
             image_width > 0, "image width must be positive"
@@ -60,10 +65,12 @@ struct RenderSettings(Copyable, Writable):
         self.sample_offset = sample_offset
         self.sample_sequence_length = sequence_length
         self.film = film.copy()
+        self.filter = filter
 
     def validate(self) raises:
         """Validate mutable render settings at a host API boundary."""
         self.film.validate()
+        self.filter.validate()
         if self.image_width <= 0:
             raise Error("image width must be positive")
         if self.image_height <= 0:
@@ -99,10 +106,7 @@ struct RenderSettings(Copyable, Writable):
             raise Error("render requires more than 2^32-1 sample paths")
 
 
-@fieldwise_init
-struct SamplingConfig(
-    Copyable, DevicePassable, TrivialRegisterPassable, Writable
-):
+struct SamplingConfig(Copyable, DevicePassable, ImplicitlyCopyable, Writable):
     """Compact CPU/GPU description of one batch in a pixel sample sequence."""
 
     var seed: UInt64
@@ -111,6 +115,25 @@ struct SamplingConfig(
     var sample_offset: UInt32
     var sequence_length: UInt32
     var image_width: UInt32
+    var filter: FilterView
+
+    def __init__(
+        out self,
+        seed: UInt64,
+        sampler: Sampler,
+        samples_per_pixel: UInt32,
+        sample_offset: UInt32,
+        sequence_length: UInt32,
+        image_width: UInt32,
+        filter: FilterView = FilterView(),
+    ):
+        self.seed = seed
+        self.sampler = sampler
+        self.samples_per_pixel = samples_per_pixel
+        self.sample_offset = sample_offset
+        self.sequence_length = sequence_length
+        self.image_width = image_width
+        self.filter = filter
 
     comptime device_type: AnyType = Self
 
@@ -132,6 +155,7 @@ struct SamplingConfig(
             UInt32(settings.sample_offset),
             UInt32(settings.sample_sequence_length),
             UInt32(settings.image_width),
+            FilterView(settings.filter),
         )
 
 

@@ -12,13 +12,13 @@ from bajo.viewer.worker import CompletedFrame
 from test.viewer.test_accumulation import _frame
 from bajo.benchmark.gpu_harness import gpu_rt_camera
 from bajo.rt.film import FilmResponse
-from bajo.rt.gpu.render import gpu_rt_apply_film_kernel
 
 from bajo.core import Point3f32, Vec3f32
 from bajo.rt.gpu.resources import download_gpu_pixels, update_gpu_camera
 from bajo.rt.gpu.render import enqueue_render_gpu
 from test.rt.gpu.test_gpu import _textured_instance_world
 from bajo.rt import Camera, Color, RenderSettings, SceneBuilder
+from bajo.rt.filter import ReconstructionFilter
 from bajo.rt.wavefront_contract import WavePathFloatAbi, WaveShadowFloatAbi
 from bajo.rt.gpu.queue_layout import GPU_SHADE_PLANES
 from bajo.rt.gpu import (
@@ -103,7 +103,7 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
     var expected_target = renderer.scene.make_render_target(
         renderer.ctx, settings, camera
     )
-    for phase in range(12):
+    for phase in range(17):
         if phase == 1:
             camera = Camera.from_vfov(
                 Point3f32[.WORLD](0.5, 0.0, 3.0),
@@ -134,6 +134,16 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
             renderer.scene.environment_world_to_light.m01 = -0.0
         elif phase == 11:
             renderer.invalidate_graph()
+        elif phase == 12:
+            settings.film.max_component_value = 0.2
+        elif phase == 13:
+            settings.film.sensor_green = Color(7.0, 0.0, 0.0)
+        elif phase == 14:
+            settings.filter = ReconstructionFilter.gaussian(1.5, 0.75, 0.35)
+        elif phase == 15:
+            settings.filter = ReconstructionFilter(x_radius=1.25)
+        elif phase == 16:
+            settings.filter = ReconstructionFilter.triangle()
         update_gpu_camera(renderer.ctx, renderer.target, camera)
         update_gpu_camera(renderer.ctx, expected_target, camera)
         enqueue_render_gpu[.MIS](
@@ -284,7 +294,7 @@ def test_gpu_preview_preserves_weights_across_batch_size_changes_and_resize() ra
             assert_equal(display.rgba[i], cpu.rgba[i])
 
 
-def test_fused_gpu_film_matches_separate_pass_across_sample_chunks() raises:
+def test_gpu_sample_film_matches_across_sample_chunks() raises:
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.5))
     builder.add_sphere(Point3f32[.WORLD](0, 0, -1), 0.5, matte)
@@ -296,20 +306,13 @@ def test_fused_gpu_film_matches_separate_pass_across_sample_chunks() raises:
             var settings = RenderSettings(7, 5, samples, 2026, 3)
             var reference = scene.make_render_target(ctx, settings, camera)
             var candidate = scene.make_render_target(ctx, settings, camera, 12)
-            enqueue_render_gpu[.MIS](ctx, reference, scene, settings)
             settings.film = FilmResponse(
                 1.25,
                 Color(0.9, 0.1, 0.03),
                 Color(0.04, 0.8, 0.06),
                 Color(0.02, 0.07, 1.1),
             )
-            ctx.enqueue_function[gpu_rt_apply_film_kernel](
-                reference.pixels,
-                Int32(reference.pixel_count),
-                settings.film,
-                grid_dim=1,
-                block_dim=128,
-            )
+            enqueue_render_gpu[.MIS](ctx, reference, scene, settings)
             enqueue_render_gpu[.MIS](ctx, candidate, scene, settings)
             var expected = download_gpu_pixels(ctx, reference)
             var actual = download_gpu_pixels(ctx, candidate)

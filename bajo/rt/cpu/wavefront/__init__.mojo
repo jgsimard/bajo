@@ -19,6 +19,7 @@ from bajo.rt.material_types import Integrator, SurfaceStore
 from ..scene import CpuScene
 from ..scheduler_mode import CpuSchedulerMode
 from bajo.rt.wavefront_queue import PacketPathQueue, PacketShadeQueue
+from bajo.rt.filter import FilterSampler
 
 
 from .primary import _initialize_path_packets_range
@@ -43,11 +44,15 @@ struct _PacketQueueArena[length: SIMDLength, integrator: Integrator]:
     var metal: PacketShadeQueue[Self.length]
     var dielectric: PacketShadeQueue[Self.length]
     var coated_diffuse: PacketShadeQueue[Self.length]
+    var samples: List[Color]
+    var weights: List[Float32]
 
     def __init__(out self, capacity: Int, surfaces: SurfaceStore):
         # Two path buffers ping-pong between bounces. Material queues reserve
         # their worst-case size once so appends never grow storage mid-bounce.
         self.active_paths = PacketPathQueue[Self.length](capacity)
+        self.samples = List[Color](length=capacity, fill=Color(0.0))
+        self.weights = List[Float32](length=capacity, fill=1)
         var shade_capacity = capacity if Integrator.is_path_tracing[
             Self.integrator
         ] else 0
@@ -86,6 +91,8 @@ struct CpuWavefrontWorkspace[length: SIMDLength, integrator: Integrator]:
         for worker in range(workers):
             ref arena = self.arenas[worker]
             arena.active_paths.packets.reserve(packets)
+            arena.samples.resize(capacity, fill=Color(0.0))
+            arena.weights.resize(capacity, fill=1)
             comptime if Integrator.is_path_tracing[Self.integrator]:
                 arena.next_paths.packets.reserve(packets)
                 if len(surfaces.lambertians):
@@ -116,8 +123,17 @@ def _trace_packet_range[
     mut queues: _PacketQueueArena[length, integrator],
 ):
     _initialize_path_packets_range[length](
-        queues.active_paths, settings, sampling, camera, path_begin, path_end
+        queues.active_paths,
+        settings,
+        sampling,
+        camera,
+        path_begin,
+        path_end,
+        queues.weights,
     )
+    var count = path_end - path_begin
+    for index in range(count):
+        queues.samples[index] = Color(0.0)
     _trace_packets[
         length,
         integrator,
@@ -129,14 +145,30 @@ def _trace_packet_range[
         settings,
         sampling,
         world,
-        pixels,
+        queues.samples[0:count],
         queues.active_paths,
         queues.next_paths,
         queues.lambertian,
         queues.metal,
         queues.dielectric,
         queues.coated_diffuse,
+        path_begin,
     )
+    # Each worker owns complete pixels. Retain complete path radiance until
+    # sample-level sensor conversion/clamping, then reduce in sample order.
+    var spp = settings.samples_per_pixel
+    for first in range(0, count, spp):
+        var sum = Color(0.0)
+        var weight = Float32(0)
+        for index in range(first, first + spp):
+            sum += (
+                settings.film.apply_sample(queues.samples[index])
+                * queues.weights[index]
+            )
+            weight += queues.weights[index]
+        pixels[
+            (path_begin + first) // spp
+        ] = sum / weight if weight != 0 else Color(0)
 
 
 def render_wavefront_configured[
@@ -198,6 +230,8 @@ def render_wavefront_configured[
 
     settings.validate()
     var sampling = SamplingConfig.from_settings(settings)
+    var filter_sampler = FilterSampler(settings.filter)
+    sampling.filter = filter_sampler.view()
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var path_count = pixel_count * settings.samples_per_pixel
@@ -288,9 +322,10 @@ def render_wavefront_configured[
             )
             path_begin = path_end
     var render_t1 = perf_counter_ns()
+    # SamplingConfig carries an untracked view shared with device code. Keep
+    # its host owner alive until all workers have finished using the tables.
+    _ = filter_sampler^
 
-    var scale_factor = 1.0 / Float32(settings.samples_per_pixel)
-    settings.film.apply_to(pixels, scale_factor)
     var total_t1 = perf_counter_ns()
     return RenderResult(
         pixels^,

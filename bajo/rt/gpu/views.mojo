@@ -6,6 +6,7 @@ from max.gpu.host import DeviceBuffer
 from bajo.core import Affine3f32
 from bajo.rt.material_types import EnvironmentKind
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
+from bajo.rt.gpu.spectra import GpuMaterialSpectraView
 
 
 @always_inline
@@ -62,10 +63,27 @@ struct GpuRtInstanceView(TrivialRegisterPassable):
     var normals: Pointer[Float32, ImmUntrackedOrigin]
     var texcoord_offsets: Pointer[UInt32, ImmUntrackedOrigin]
     var texcoords: Pointer[Float32, ImmUntrackedOrigin]
+    var tangents: Pointer[Float32, ImmUntrackedOrigin]
     var tlas_root: UInt32
     var count: Int32
     var blas_count: Int32
     var surfaces: Pointer[UInt32, ImmUntrackedOrigin]
+
+
+@fieldwise_init
+struct GpuOpacityView(TrivialRegisterPassable):
+    var keys: ImmPointer[UInt32, ImmUntrackedOrigin]
+    var descriptors: ImmPointer[UInt32, ImmUntrackedOrigin]
+    var parameters: ImmPointer[Float32, ImmUntrackedOrigin]
+    var pixels: ImmPointer[Float32, ImmUntrackedOrigin]
+    var count: Int32
+
+
+@fieldwise_init
+struct GpuEmissionView(TrivialRegisterPassable):
+    var keys_and_flags: ImmPointer[UInt32, ImmUntrackedOrigin]
+    var radiance: ImmPointer[Float32, ImmUntrackedOrigin]
+    var count: Int32
 
 
 @fieldwise_init
@@ -89,6 +107,11 @@ struct GpuRtSceneView(Copyable, DevicePassable):
     var coated_diffuse_texture_indices: Pointer[UInt32, ImmUntrackedOrigin]
     var texture_descs: Pointer[UInt32, ImmUntrackedOrigin]
     var texture_pixels: Pointer[Float32, ImmUntrackedOrigin]
+    var normal_maps: Pointer[UInt32, ImmUntrackedOrigin]
+    var normal_map_count: Int32
+    var opacity: GpuOpacityView
+    var emission: GpuEmissionView
+    var spectra: GpuMaterialSpectraView
     var mix_surfaces: Pointer[UInt32, ImmUntrackedOrigin]
     var mix_amounts: Pointer[Float32, ImmUntrackedOrigin]
     var mix_texture_indices: Pointer[UInt32, ImmUntrackedOrigin]

@@ -8,6 +8,8 @@ from bajo.gpu.buffers import upload_list
 from bajo.core.camera import Camera
 from bajo.bvh.gpu.utils import upload_camera
 from bajo.core.color import Color
+from bajo.rt.film import FilmResponse
+from bajo.rt.gpu.filter import GpuFilterTables
 from bajo.rt.render_types import RenderSettings, SamplingConfig
 from bajo.rt.film import FilmResponse
 from bajo.rt.gpu.sampling import GpuRtSamplingConfig
@@ -59,6 +61,7 @@ struct GpuRtRenderTarget:
     var arena: GpuWavefrontArena
     var camera: DeviceBuffer[.float32]
     var pixels: DeviceBuffer[.float32]
+    var filter: GpuFilterTables
 
     def __init__(
         out self,
@@ -68,6 +71,7 @@ struct GpuRtRenderTarget:
         path_capacity: Int = 0,
     ) raises:
         settings.validate()
+        self.filter = GpuFilterTables(ctx, settings.filter)
         self.image_width = settings.image_width
         self.image_height = settings.image_height
         self.samples_per_pixel = settings.samples_per_pixel
@@ -229,6 +233,7 @@ def enqueue_gpu_wavefront[
         DeviceBuffer[.float32],
         GpuRtSamplingConfig,
         UInt32,
+        Bool,
     ) raises thin -> None,
 ](
     ctx: DeviceContext,
@@ -241,9 +246,10 @@ def enqueue_gpu_wavefront[
 ) raises:
     """Compile-time scheduler shared by every geometry specialization."""
     target.validate_compatible(settings)
-    var sampling = GpuRtSamplingConfig(
-        SamplingConfig.from_settings(settings), sample_offset
-    )
+    target.filter.update(ctx, settings.filter)
+    var fixed_sampling = SamplingConfig.from_settings(settings)
+    fixed_sampling.filter = target.filter.view()
+    var sampling = GpuRtSamplingConfig(fixed_sampling, sample_offset)
     var sample_begin = 0
     while sample_begin < target.sample_count:
         var chunk_sample_count = min(
@@ -283,8 +289,10 @@ def enqueue_gpu_wavefront[
                 )
                 enqueue_wavefront_advance(ctx, target.arena)
         comptime if Integrator.is_path_tracing[integrator]:
-            comptime first_bounce = 0 if integrator == .PATH else 1
-            for bounce in range(first_bounce, settings.max_depth):
+            var first_bounce = 0 if integrator == .PATH else 1
+            if settings.max_depth == 0:
+                first_bounce = 0
+            for bounce in range(first_bounce, settings.max_depth + 1):
                 if bounce % 2 == 0:
                     bounce_fn(
                         ctx,
@@ -296,6 +304,7 @@ def enqueue_gpu_wavefront[
                         target.arena.path_b.fields,
                         sampling,
                         UInt32(bounce),
+                        bounce < settings.max_depth,
                     )
                 else:
                     bounce_fn(
@@ -308,6 +317,7 @@ def enqueue_gpu_wavefront[
                         target.arena.path_a.fields,
                         sampling,
                         UInt32(bounce),
+                        bounce < settings.max_depth,
                     )
                 enqueue_wavefront_advance(ctx, target.arena)
         _enqueue_gpu_resolve(

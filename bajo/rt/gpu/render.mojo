@@ -1,9 +1,5 @@
 """Unified prepared and synchronous GPU RT entry points."""
 
-from max.gpu import global_idx
-from std.math import ceildiv
-from bajo.rt.film import FilmResponse
-from bajo.core.tensor_layout import record_tile
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
 
@@ -60,6 +56,7 @@ def _enqueue_scene_bounce[
     dst_path_fields: DeviceBuffer[.float32],
     sampling: SamplingConfig,
     bounce: UInt32,
+    allow_scattering: Bool,
 ) raises:
     enqueue_gpu_rt_bounce[
         integrator,
@@ -82,6 +79,7 @@ def _enqueue_scene_bounce[
         dst_path_fields,
         sampling,
         bounce,
+        allow_scattering,
     )
 
 
@@ -180,15 +178,6 @@ def enqueue_render_gpu[
             SHADOW_MAX_BLOCKS,
         ],
     ](ctx, target, world, settings)
-    if settings.film.is_identity():
-        return
-    ctx.enqueue_function[gpu_rt_apply_film_kernel](
-        target.pixels,
-        Int32(target.pixel_count),
-        settings.film,
-        grid_dim=ceildiv(target.pixel_count, 128),
-        block_dim=128,
-    )
 
 
 def render_gpu_configured[
@@ -283,13 +272,3 @@ def render_gpu[
     return render_gpu_configured[.TRIANGLES, integrator](
         settings, camera, world
     )
-
-
-def gpu_rt_apply_film_kernel(
-    pixels: Pointer[Float32, MutAnyOrigin], count: Int32, film: FilmResponse
-):
-    var index = global_idx.x
-    if index < Int(count):
-        film._apply_block[1](
-            record_tile[.float32, 3](pixels, Int(count)), index
-        )

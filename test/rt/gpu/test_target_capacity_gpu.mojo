@@ -8,6 +8,7 @@ from bajo.rt.gpu.resources import download_gpu_pixels, update_gpu_camera
 from bajo.rt.gpu.render import enqueue_render_gpu
 from test.rt.gpu.test_gpu import _textured_instance_world
 from bajo.rt import Camera, Color, RenderSettings, SceneBuilder
+from bajo.rt.filter import ReconstructionFilter
 from bajo.rt.wavefront_contract import WavePathFloatAbi, WaveShadowFloatAbi
 from bajo.rt.gpu.queue_layout import GPU_SHADE_PLANES
 from bajo.rt.gpu import (
@@ -92,7 +93,7 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
     var expected_target = renderer.scene.make_render_target(
         renderer.ctx, settings, camera
     )
-    for phase in range(12):
+    for phase in range(17):
         if phase == 1:
             camera = Camera.from_vfov(
                 Point3f32[.WORLD](0.5, 0.0, 3.0),
@@ -123,6 +124,16 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
             renderer.scene.environment_world_to_light.m01 = -0.0
         elif phase == 11:
             renderer.invalidate_graph()
+        elif phase == 12:
+            settings.film.max_component_value = 0.2
+        elif phase == 13:
+            settings.film.sensor_green = Color(7.0, 0.0, 0.0)
+        elif phase == 14:
+            settings.filter = ReconstructionFilter.gaussian(1.5, 0.75, 0.35)
+        elif phase == 15:
+            settings.filter = ReconstructionFilter(x_radius=1.25)
+        elif phase == 16:
+            settings.filter = ReconstructionFilter.triangle()
         update_gpu_camera(renderer.ctx, renderer.target, camera)
         update_gpu_camera(renderer.ctx, expected_target, camera)
         enqueue_render_gpu[.MIS](

@@ -747,14 +747,26 @@ def test_dielectric_scatter_is_explicit() raises:
 
     var scattered = sample_bsdf(surface, surfaces, incoming, point, rng)
     assert_true(scattered.ok)
-    assert_vec_equal(scattered.weight, Color(1.0))
+    assert_vec_equal(
+        scattered.weight,
+        Color(
+            Float32(1.0) if scattered.direction.z[0]
+            > 0.0 else Float32(1.0 / 2.25)
+        ),
+    )
     assert_true(length(scattered.direction) > 0.0)
     assert_true(scattered.delta)
     assert_true(scattered.pdf > 0.0 and scattered.pdf <= 1.0)
 
     var dispatched = sample_bsdf(surface, surfaces, incoming, point, rng)
     assert_true(dispatched.ok)
-    assert_vec_equal(dispatched.weight, Color(1.0))
+    assert_vec_equal(
+        dispatched.weight,
+        Color(
+            Float32(1.0) if dispatched.direction.z[0]
+            > 0.0 else Float32(1.0 / 2.25)
+        ),
+    )
 
 
 def test_world_hit_maps_material_and_normal() raises:

@@ -28,7 +28,7 @@ struct MetalLayout:
 
 
 struct CoatedDiffuseLayout:
-    comptime STRIDE = 26
+    comptime STRIDE = 27
     comptime ALBEDO = 0
     comptime ROUGHNESS = 3
     comptime ETA = 4
@@ -47,6 +47,7 @@ struct CoatedDiffuseLayout:
     comptime ROUGHNESS_U_SCALE = 23
     comptime ROUGHNESS_V_SCALE = 24
     comptime REMAP_ROUGHNESS = 25
+    comptime CONDUCTOR_REFLECTANCE = 26
 
     comptime TEXTURE_STRIDE = 3
     comptime ALBEDO_TEXTURE = 0
@@ -55,19 +56,23 @@ struct CoatedDiffuseLayout:
 
 
 struct DielectricLayout:
-    comptime STRIDE = 5
+    comptime STRIDE = 6
     comptime ETA = 0
     comptime DISPLACEMENT_SCALE = 1
     comptime DISPLACEMENT_U_SCALE = 2
     comptime DISPLACEMENT_V_SCALE = 3
     comptime DISPLACEMENT_TEXTURE = 4
+    comptime ROUGHNESS = 5
 
 
 struct TextureDescLayout:
-    comptime STRIDE = 3
+    comptime STRIDE = 4
     comptime PIXEL_OFFSET = 0
     comptime WIDTH = 1
     comptime HEIGHT = 2
+    comptime FORMAT = 3
+    comptime RGB_F32 = UInt32(0)
+    comptime PALETTE_RGB8 = UInt32(1)
 
 
 @always_inline
@@ -173,6 +178,9 @@ def store_coated_material[
     ] = material.roughness_v_scale
     records[(idx, CoatedDiffuseLayout.REMAP_ROUGHNESS)] = Float32(
         1.0 if material.remap_roughness else 0.0
+    )
+    records[(idx, CoatedDiffuseLayout.CONDUCTOR_REFLECTANCE)] = Float32(
+        1.0 if material.conductor_reflectance else 0.0
     )
 
 

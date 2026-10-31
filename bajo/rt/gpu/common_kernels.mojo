@@ -3,14 +3,16 @@
 from max.gpu import global_idx
 
 from bajo.core.camera import Camera
-from bajo.core.random import random_in_unit_disk
-from bajo.rt.common import path_stage_rng
 from bajo.rt.rays import make_camera_ray_from_samples
 from bajo.rt.render_types import SamplingConfig
+from bajo.rt.film import FilmResponse
+from bajo.core.vec import Vec3
+from bajo.core.color import Color
 from bajo.rt.material_types import Integrator
 from bajo.rt.wavefront_contract import DeviceWavePath, WaveSampleFloatAbi
 from bajo.rt.gpu.queue_layout import gpu_rt_radiance_tile
 from bajo.rt.gpu.wavefront_contract import store_gpu_rt_path_values
+from bajo.rt.camera_sampling import sample_camera
 
 
 comptime GPU_RT_BLOCK_SIZE = 64
@@ -40,6 +42,8 @@ def make_gpu_rt_primary_path(
     height_i32: Int32,
     samples_per_pixel_i32: Int32,
     sampling: SamplingConfig,
+    sample_radiance: Pointer[Float32, MutAnyOrigin],
+    capacity: Int,
 ) -> DeviceWavePath:
     var width = Int(width_i32)
     var height = Int(height_i32)
@@ -48,8 +52,9 @@ def make_gpu_rt_primary_path(
     var pixel_idx = Int(path_id) / samples_per_pixel
     var px = pixel_idx % width
     var py = pixel_idx / width
-    var rng = path_stage_rng(sampling, path_id, UInt32(0))
-    var lens = random_in_unit_disk[.WORLD](rng)
+    var samples = sample_camera(sampling, path_id)
+    var radiance = gpu_rt_radiance_tile(sample_radiance, capacity)
+    radiance[(WaveSampleFloatAbi.FILTER_WEIGHT, idx)] = samples.filter_weight
     var camera = Camera(Span(unsafe_ptr=camera_params, length=Camera.STRIDE))
     var ray = make_camera_ray_from_samples(
         camera,
@@ -57,10 +62,10 @@ def make_gpu_rt_primary_path(
         Float32(py),
         Float32(width),
         Float32(height),
-        rng.f32(),
-        rng.f32(),
-        lens.x,
-        lens.y,
+        samples.pixel_u,
+        samples.pixel_v,
+        samples.lens_u,
+        samples.lens_v,
     )
     return DeviceWavePath(
         path_id,
@@ -122,6 +127,8 @@ def gpu_rt_primary_kernel[
             height_i32,
             samples_per_pixel_i32,
             sampling,
+            sample_radiance,
+            capacity,
         ),
         path_ids,
         path_fields,
@@ -138,6 +145,7 @@ def gpu_rt_resolve_kernel(
     pixel_base_i32: Int32,
     pixel_count_i32: Int32,
     samples_per_pixel_i32: Int32,
+    film: FilmResponse = FilmResponse(),
 ):
     var pixel_idx = global_idx.x
     var sample_capacity = Int(sample_capacity_i32)
@@ -149,6 +157,7 @@ def gpu_rt_resolve_kernel(
     var red = Float32(0.0)
     var green = Float32(0.0)
     var blue = Float32(0.0)
+    var weight_sum = Float32(0.0)
     var sample_begin = pixel_idx * samples_per_pixel
     var radiance = gpu_rt_radiance_tile(sample_radiance, sample_capacity)
     if samples_per_pixel % 4 == 0 and sample_capacity % 4 == 0:
@@ -163,18 +172,36 @@ def gpu_rt_resolve_kernel(
             var b = radiance.load[width=4, alignment=16](
                 (WaveSampleFloatAbi.B, sample_idx)
             )
+            var weights = radiance.load[width=4, alignment=16](
+                (WaveSampleFloatAbi.FILTER_WEIGHT, sample_idx)
+            )
+            var samples = (
+                film.apply_sample(Vec3[.float32, .WORLD, 4](r, g, b)) * weights
+            )
             # Retain the original summation order while grouping memory reads.
             comptime for lane in range(4):
-                red += r[lane]
-                green += g[lane]
-                blue += b[lane]
+                red += samples.x[lane]
+                green += samples.y[lane]
+                blue += samples.z[lane]
+                weight_sum += weights[lane]
             sample_idx += 4
     else:
         for sample_idx in range(sample_begin, sample_begin + samples_per_pixel):
-            red += radiance[(WaveSampleFloatAbi.R, sample_idx)]
-            green += radiance[(WaveSampleFloatAbi.G, sample_idx)]
-            blue += radiance[(WaveSampleFloatAbi.B, sample_idx)]
-    var scale = Float32(1.0) / Float32(samples_per_pixel)
+            var sample = film.apply_sample(
+                Color(
+                    radiance[(WaveSampleFloatAbi.R, sample_idx)],
+                    radiance[(WaveSampleFloatAbi.G, sample_idx)],
+                    radiance[(WaveSampleFloatAbi.B, sample_idx)],
+                )
+            )
+            var weight = radiance[
+                (WaveSampleFloatAbi.FILTER_WEIGHT, sample_idx)
+            ]
+            red += sample.x * weight
+            green += sample.y * weight
+            blue += sample.z * weight
+            weight_sum += weight
+    var scale = Float32(1.0) / weight_sum if weight_sum != 0 else Float32(0.0)
     var output_idx = pixel_base + pixel_idx
     pixels[unsafe_offset=3 * output_idx + 0] = red * scale
     pixels[unsafe_offset=3 * output_idx + 1] = green * scale

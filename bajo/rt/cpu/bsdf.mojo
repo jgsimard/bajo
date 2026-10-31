@@ -5,6 +5,7 @@ from std.sys.info import size_of
 from bajo.core import Vec3, Vec3f32, Rayf32, dot
 from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from bajo.core.random import Rng
+from bajo.core.optics import conductor_k_from_reflectance
 from bajo.rt.material_parameters import CoatedParameters
 from bajo.rt.material_storage import load_coated_parameters, CoatedDiffuseLayout
 from bajo.rt.shading import (
@@ -33,11 +34,13 @@ struct _MaterialParameters[length: SIMDLength]:
     var albedo: Vec3[.float32, .WORLD, Self.length]
     # Fuzz/roughness, or the dielectric refraction index.
     var parameter: SIMD[.float32, Self.length]
+    var roughness: SIMD[.float32, Self.length]
     var coated: CoatedParameters[Self.length]
 
     def __init__(out self):
         self.albedo = Vec3[.float32, .WORLD, Self.length](0.0)
         self.parameter = SIMD[.float32, Self.length](1.0)
+        self.roughness = 0.0
         self.coated = CoatedParameters[Self.length]()
 
     @always_inline
@@ -67,6 +70,15 @@ struct _MaterialParameters[length: SIMDLength]:
                     size_of[Dielectric]() // size_of[Float32](),
                     indices,
                     active,
+                )
+                var offsets = active.select(indices, 0).cast[.int]() * (
+                    size_of[Dielectric]() // size_of[Float32]()
+                )
+                self.roughness = active.select(
+                    Pointer(to=surfaces.dielectrics[0].roughness).unsafe_gather(
+                        offsets
+                    ),
+                    0.0,
                 )
 
     @always_inline
@@ -148,6 +160,29 @@ struct _MaterialParameters[length: SIMDLength]:
             if texture_albedo:
                 albedo = surfaces.sample_albedo(surface, u, v, active)
             self.albedo = Vec3.select(active, albedo, self.albedo)
+        comptime if kind == .COATED_DIFFUSE:
+            var from_reflectance = SIMD[.bool, Self.length](fill=False)
+            for lane in range(Self.length):
+                if active[lane]:
+                    from_reflectance[lane] = surfaces.coated_diffuses[
+                        Int(indices[lane])
+                    ].conductor_reflectance
+            if from_reflectance.reduce_or():
+                var r: Vec3[.float32, .WORLD, Self.length]
+                comptime if LOAD_ALBEDO:
+                    r = self.albedo
+                else:
+                    r = surfaces.sample_albedo(surface, u, v, from_reflectance)
+                self.coated.conductor_eta = Vec3.select(
+                    from_reflectance,
+                    Vec3[.float32, .WORLD, Self.length](1.0) / self.coated.eta,
+                    self.coated.conductor_eta,
+                )
+                self.coated.conductor_k = Vec3.select(
+                    from_reflectance,
+                    conductor_k_from_reflectance(r) / self.coated.eta,
+                    self.coated.conductor_k,
+                )
 
     @always_inline
     def evaluate[
@@ -159,6 +194,9 @@ struct _MaterialParameters[length: SIMDLength]:
         outgoing: Vec3[.float32, .WORLD, Self.length],
         estimator_seed: SIMD[.uint32, Self.length] = 0,
         active: SIMD[.bool, Self.length] = SIMD[.bool, Self.length](fill=True),
+        front_face: SIMD[.bool, Self.length] = SIMD[.bool, Self.length](
+            fill=True
+        ),
     ) -> BsdfEvaluation[Self.length]:
         comptime if kind == .COATED_DIFFUSE:
             return _evaluate_coated_diffuse(
@@ -172,7 +210,13 @@ struct _MaterialParameters[length: SIMDLength]:
             )
         else:
             return _evaluate_material[kind, Self.length](
-                direction, normal, self.albedo, self.parameter, outgoing
+                direction,
+                normal,
+                self.albedo,
+                self.parameter,
+                outgoing,
+                self.roughness,
+                front_face,
             )
 
     @always_inline
@@ -191,6 +235,7 @@ struct _MaterialParameters[length: SIMDLength]:
         comptime assert MaterialKind.has_bsdf[kind]
         var random_u = SIMD[.float32, Self.length](0.0)
         var random_v = SIMD[.float32, Self.length](0.0)
+        var random_w = SIMD[.float32, Self.length](0.0)
         var eligible = active
         comptime if kind == .DIELECTRIC:
             debug_assert["safe", _use_compiler_assume=True](
@@ -200,9 +245,15 @@ struct _MaterialParameters[length: SIMDLength]:
                 Float32(1.0) / self.parameter, self.parameter
             )
             var geometry = dielectric_geometry(direction, normal, ri)
-            eligible &= geometry.transmitted_sine.le(1.0)
+            var rough = (
+                active & self.roughness.ge(1.0e-3) & self.parameter.ne(1.0)
+            )
+            eligible &= geometry.transmitted_sine.le(1.0) | rough
             if eligible.reduce_or():
                 random_u = eligible.select(rng.f32(), 0.0)
+            if rough.reduce_or():
+                random_v = rough.select(rng.f32(), 0.0)
+                random_w = rough.select(rng.f32(), 0.0)
         else:
             comptime if kind == .METAL:
                 debug_assert["safe", _use_compiler_assume=True](
@@ -236,6 +287,8 @@ struct _MaterialParameters[length: SIMDLength]:
                 front_face,
                 random_u,
                 random_v,
+                self.roughness,
+                random_w,
             )
         sampled.ok &= active
         return sampled^
@@ -253,7 +306,7 @@ def _evaluate_surface[
     estimator_seed: UInt32,
 ) -> BsdfEvaluation[1]:
     var material = _MaterialParameters[1]()
-    comptime if kind not in [MaterialKind.DIELECTRIC, MaterialKind.EMISSIVE]:
+    comptime if kind != MaterialKind.EMISSIVE:
         material.load[kind](
             surfaces,
             surface.value & SURFACE_INDEX_MASK,
@@ -261,7 +314,9 @@ def _evaluate_surface[
             hit.uv_v,
             True,
         )
-    return material.evaluate[kind](ray.d, hit.normal, outgoing, estimator_seed)
+    return material.evaluate[kind](
+        ray.d, hit.normal, outgoing, estimator_seed, front_face=hit.front_face
+    )
 
 
 @always_inline

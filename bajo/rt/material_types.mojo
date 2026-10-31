@@ -4,6 +4,9 @@ from std.sys.info import size_of
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from bajo.rt.texture_math import (
     sample_image_texture,
+    sample_image_texture_bilinear,
+    sample_scalar_texture_bilinear,
+    mapped_normal,
     sample_environment_texture,
     albedo_from_texture,
     roughness_from_texture,
@@ -11,6 +14,7 @@ from bajo.rt.texture_math import (
     bump_normal,
 )
 from bajo.core.color import luminance, Color
+from bajo.core.spectrum import PiecewiseLinearSpectrum
 from std.utils.numerics import isfinite
 
 from bajo.core import Affine3f32, Vec3
@@ -27,11 +31,25 @@ struct ImageTexture:
     var width: Int
     var height: Int
     var pixels: List[Float32]
+    var alpha: List[Float32]
+    var has_scalar_alpha: Bool
 
-    def __init__(out self, width: Int, height: Int, var pixels: List[Float32]):
+    def __init__(
+        out self,
+        width: Int,
+        height: Int,
+        var pixels: List[Float32],
+        var alpha: List[Float32] = List[Float32](),
+    ):
         self.width = width
         self.height = height
         self.pixels = pixels^
+        self.alpha = alpha^
+        self.has_scalar_alpha = False
+        for value in self.alpha:
+            if value != 1.0:
+                self.has_scalar_alpha = True
+                break
 
     @always_inline
     def sample[
@@ -56,6 +74,42 @@ struct ImageTexture:
         .float32, length
     ]:
         return luminance(self.sample(u, v))
+
+    @always_inline
+    def sample_bilinear[
+        length: SIMDLength = 1
+    ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> Vec3[
+        .float32, .WORLD, length
+    ]:
+        return sample_image_texture_bilinear(
+            record_tile[.float32, 3](
+                self.pixels.unsafe_ptr(), self.width * self.height
+            ),
+            self.width,
+            self.height,
+            u,
+            v,
+        )
+
+    @always_inline
+    def sample_scalar_bilinear[
+        length: SIMDLength = 1
+    ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> SIMD[
+        .float32, length
+    ]:
+        # PBRT scalar maps use meaningful alpha, otherwise average RGB.
+        if self.has_scalar_alpha:
+            return sample_scalar_texture_bilinear(
+                record_tile[.float32, 1](
+                    self.alpha.unsafe_ptr(), self.width * self.height
+                ),
+                self.width,
+                self.height,
+                u,
+                v,
+            )
+        var rgb = self.sample_bilinear(u, v)
+        return (rgb.x + rgb.y + rgb.z) / 3.0
 
     @always_inline
     def sample_environment[
@@ -434,6 +488,9 @@ struct CoatedDiffuse(Copyable, Writable):
     var roughness_u_scale: Float32
     var roughness_v_scale: Float32
     var remap_roughness: Bool
+    var conductor_eta_spectrum: UInt32
+    var conductor_k_spectrum: UInt32
+    var conductor_reflectance: Bool
 
     def __init__(
         out self,
@@ -475,6 +532,9 @@ struct CoatedDiffuse(Copyable, Writable):
         self.roughness_u_scale = 1.0
         self.roughness_v_scale = 1.0
         self.remap_roughness = True
+        self.conductor_eta_spectrum = NO_TEXTURE
+        self.conductor_k_spectrum = NO_TEXTURE
+        self.conductor_reflectance = False
 
     def validate(self) raises:
         if (
@@ -552,6 +612,8 @@ struct CoatedDiffuse(Copyable, Writable):
 
 struct Dielectric(Copyable, Writable):
     var refraction_index: Float32
+    var roughness: Float32
+    var eta_spectrum: UInt32
     var displacement_texture_index: UInt32
     var displacement_scale: Float32
     var displacement_u_scale: Float32
@@ -564,14 +626,23 @@ struct Dielectric(Copyable, Writable):
         displacement_scale: Float32 = 0.0,
         displacement_u_scale: Float32 = 1.0,
         displacement_v_scale: Float32 = 1.0,
+        roughness: Float32 = 0.0,
     ):
         self.refraction_index = refraction_index
+        self.roughness = roughness
+        self.eta_spectrum = NO_TEXTURE
         self.displacement_texture_index = displacement_texture_index
         self.displacement_scale = displacement_scale
         self.displacement_u_scale = displacement_u_scale
         self.displacement_v_scale = displacement_v_scale
 
     def validate(self) raises:
+        if (
+            not isfinite(self.roughness)
+            or self.roughness < 0.0
+            or self.roughness > 1.0
+        ):
+            raise Error("dielectric roughness must be finite and within [0, 1]")
         if (
             not isfinite(self.displacement_scale)
             or not isfinite(self.displacement_u_scale)
@@ -606,6 +677,8 @@ struct SurfaceStore:
     var emissives: List[Emissive]
     var coated_diffuses: List[CoatedDiffuse]
     var image_textures: List[ImageTexture]
+    var optical_spectra: List[PiecewiseLinearSpectrum]
+    var normal_maps: Dict[UInt32, UInt32]
     # Mix nodes refer only to existing surfaces, forming an acyclic graph.
     var mix_surfaces: List[UInt32]
     var mix_amounts: List[Float32]
@@ -619,6 +692,8 @@ struct SurfaceStore:
         self.emissives = List[Emissive]()
         self.coated_diffuses = List[CoatedDiffuse]()
         self.image_textures = List[ImageTexture]()
+        self.optical_spectra = List[PiecewiseLinearSpectrum]()
+        self.normal_maps = Dict[UInt32, UInt32]()
         self.mix_surfaces = List[UInt32]()
         self.mix_amounts = List[Float32]()
         self.mix_texture_indices = List[UInt32]()
@@ -872,7 +947,34 @@ struct SurfaceStore:
         u: SIMD[.float32, length],
         v: SIMD[.float32, length],
         active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+        dpdu: Vec3[.float32, .WORLD, length] = Vec3[.float32, .WORLD, length](
+            0.0
+        ),
+        front_face: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
     ) -> Vec3[.float32, .WORLD, length]:
+        var base_normal = normal
+        for lane in range(Int(length)):
+            if active[lane]:
+                if case .Some(index) = self.normal_maps.get(
+                    surface.value[lane]
+                ):
+                    var outward = Vec3[.float32, .WORLD](
+                        normal.x[lane], normal.y[lane], normal.z[lane]
+                    )
+                    if not front_face[lane]:
+                        outward = -outward
+                    var tangent = Vec3[.float32, .WORLD](
+                        dpdu.x[lane], dpdu.y[lane], dpdu.z[lane]
+                    )
+                    var color = self.image_textures[Int(index)].sample_bilinear(
+                        u[lane], v[lane]
+                    )
+                    var mapped = mapped_normal(outward, tangent, color)
+                    if not front_face[lane]:
+                        mapped = -mapped
+                    base_normal.x[lane] = mapped.x
+                    base_normal.y[lane] = mapped.y
+                    base_normal.z[lane] = mapped.z
         var textures = SIMD[.uint32, length](NO_TEXTURE)
         var scale = SIMD[.float32, length](0.0)
         var u_scale = SIMD[.float32, length](1.0)
@@ -893,7 +995,7 @@ struct SurfaceStore:
                     heights[lane] = Float32(texture.height)
         var mapped = textures.ne(NO_TEXTURE)
         if not mapped.reduce_or():
-            return normal
+            return base_normal
         var tu = u * u_scale
         var tv = v * v_scale
         var du = Float32(0.5) / widths
@@ -912,8 +1014,8 @@ struct SurfaceStore:
             v_scale,
             scale,
         )
-        var bumped = bump_normal(normal, slope_u, slope_v)
-        return Vec3.select(mapped, bumped, normal)
+        var bumped = bump_normal(base_normal, slope_u, slope_v)
+        return Vec3.select(mapped, bumped, base_normal)
 
     def add_lambertian(
         mut self, albedo: Color, texture_index: UInt32 = NO_TEXTURE
@@ -1008,6 +1110,37 @@ struct SurfaceStore:
             )
         )
         return SurfaceId(.COATED_DIFFUSE, index)
+
+    def add_coated_conductor_reflectance(
+        mut self,
+        reflectance: Color,
+        conductor_roughness: Float32,
+        roughness: Float32 = 0.0,
+        eta: Float32 = 1.5,
+        thickness: Float32 = 0.01,
+        layer_albedo: Color = Color(0.0),
+        g: Float32 = 0.0,
+        max_depth: Int = 10,
+        n_samples: Int = 1,
+        texture_index: UInt32 = NO_TEXTURE,
+    ) -> SurfaceId[1]:
+        var surface = self.add_coated_conductor(
+            Color(1.0),
+            Color(0.0),
+            conductor_roughness,
+            roughness,
+            eta,
+            thickness,
+            layer_albedo,
+            g,
+            max_depth,
+            n_samples,
+        )
+        ref material = self.coated_diffuses[Int(surface.index())]
+        material.albedo = reflectance
+        material.texture_index = texture_index
+        material.conductor_reflectance = True
+        return surface^
 
     def add_conductor(
         mut self,

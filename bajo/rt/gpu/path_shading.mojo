@@ -379,6 +379,7 @@ def _route_surface_hit[
     sampling: SamplingConfig,
     medium_boundary: UInt32 = 0,
     geometric_normal: Vec3f32[.WORLD] = Vec3f32[.WORLD](0.0),
+    emission_visible: Bool = True,
 ):
     """Route a geometry-independent oriented hit to output or a BSDF queue."""
 
@@ -400,7 +401,7 @@ def _route_surface_hit[
             )
             return
         case .EMISSIVE:
-            if front_face:
+            if front_face and emission_visible:
                 var material_idx = Int(SurfaceId.index_from_raw(surface_value))
                 var base = GpuRgbMaterialLayout.STRIDE * material_idx
                 var radiance = Color(emissives.unsafe_offset(base))
@@ -410,7 +411,7 @@ def _route_surface_hit[
                         light_pdf = _emissive_hit_light_pdf(
                             ray_direction,
                             hit_t,
-                            normal,
+                            geometric_normal,
                             radiance,
                             total_light_weight,
                         )
@@ -519,8 +520,10 @@ def _gpu_rt_shade_one[
     var normal = Vec3f32[.WORLD](work.nx, work.ny, work.nz)
     var albedo = Color(0.0)
     var parameter = Float32(1.0)
+    var roughness = Float32(0.0)
     var random_u = Float32(0.0)
     var random_v = Float32(0.0)
+    var random_w = Float32(0.0)
     var material_idx = Int(SurfaceId.index_from_raw(work.surface_value))
     var rng = path_stage_rng(
         sampling, path.path_id, wavefront_rng_stage(bounce)
@@ -548,8 +551,16 @@ def _gpu_rt_shade_one[
             ]
             var ri = Float32(1.0) / parameter if work.front_face else parameter
             var geometry = dielectric_geometry(ray_direction, normal, ri)
-            if geometry.transmitted_sine <= 1.0:
+            roughness = material_data[
+                unsafe_offset=GpuDielectricLayout.STRIDE * material_idx
+                + GpuDielectricLayout.ROUGHNESS
+            ]
+            var rough = roughness >= 1.0e-3 and parameter != 1.0
+            if geometry.transmitted_sine <= 1.0 or rough:
                 random_u = rng.f32()
+            if rough:
+                random_v = rng.f32()
+                random_w = rng.f32()
 
     var sampled = _sample_material[MATERIAL_KIND, 1](
         ray_direction,
@@ -559,6 +570,8 @@ def _gpu_rt_shade_one[
         work.front_face,
         random_u,
         random_v,
+        roughness,
+        random_w,
     )
     var boundary = bitcast[.uint32](shade_tile[(GPU_SHADE_BOUNDARY, idx)])
     var geometric = Vec3f32[.WORLD](

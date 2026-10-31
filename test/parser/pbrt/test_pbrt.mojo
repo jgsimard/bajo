@@ -19,6 +19,7 @@ from bajo.parser.ply import PlyMesh
 
 from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.rt import CpuScene, EnvironmentKind, ImageTexture, render_wavefront
+from bajo.rt.material_types import PrimitiveId
 
 
 def _append_ply_text(mut bytes: List[UInt8], text: String):
@@ -228,7 +229,11 @@ Shape "plymesh" "string filename" "assets/shared.ply"
             scene.data.triangle_instance_surfaces()[0].kind() == .LAMBERTIAN
         )
         assert_true(
-            scene.data.triangle_instance_surfaces()[2].kind() == .EMISSIVE
+            scene.data.triangle_instance_surfaces()[2].kind() == .LAMBERTIAN
+        )
+        assert_true(
+            PrimitiveId(.TRIANGLE_INSTANCE, 2).value
+            in scene.data.emission().records
         )
         var albedo = (
             scene.data.surfaces()
@@ -614,7 +619,13 @@ AttributeEnd
     assert_true(
         scene.data.triangle_instance_surfaces()[0].kind() == .LAMBERTIAN
     )
-    assert_true(scene.data.triangle_instance_surfaces()[1].kind() == .EMISSIVE)
+    assert_true(
+        scene.data.triangle_instance_surfaces()[1].kind() == .LAMBERTIAN
+    )
+    assert_true(
+        PrimitiveId(.TRIANGLE_INSTANCE, 1).value
+        in scene.data.emission().records
+    )
     assert_true(len(scene.data.lights().records) == 1)
 
     var world = CpuScene[16, 16](scene^.take_data())
@@ -724,14 +735,28 @@ def test_indexed_mesh_reuses_vertices_and_preserves_unused_values() raises:
         )
 
 
+def test_path_depth_defaults_and_explicit_limits() raises:
+    for header in ["", 'Integrator "path"\n', 'Integrator "volpath"\n']:
+        var scene = parse_pbrt(header + 'WorldBegin\nShape "sphere"')
+        assert_true(scene.settings.max_depth == 5)
+        assert_true(scene.integrator == .MIS)
+    for depth in [0, 1, 9]:
+        var scene = parse_pbrt(
+            'Integrator "volpath" "integer maxdepth" '
+            + String(depth)
+            + '\nWorldBegin\nShape "sphere"'
+        )
+        assert_true(scene.settings.max_depth == depth)
+
+
 def test_numeric_token_views() raises:
     var scene = parse_pbrt(
         'Film "rgb" "integer xresolution" +4 "integer yresolution" [3e0]\n'
         'Sampler "independent" "integer pixelsamples" [2]\n'
         'Integrator "path" "integer maxdepth" 5\n'
         'WorldBegin\nMaterial "diffuse" "rgb reflectance" [.25 +.5 7.5e-1]\n'
-        "Transform[1 0 0 +1e0 0 1 0 -2. 0 0 1 .5 0 0 0 1]\n"
-        "ConcatTransform[1 0 0 0 0 1 0 0 0 0 1 +.5 0 0 0 1]\n"
+        "Transform[1 0 0 0 0 1 0 0 0 0 1 0 +1e0 -2. .5 1]\n"
+        "ConcatTransform[1 0 0 0 0 1 0 0 0 0 1 0 0 0 +.5 1]\n"
         "Translate +.5 0 0\n"
         'Shape "trianglemesh" "point3 P" [0 0 0# adjacent comment\n'
         '1.25E+0 0 0\t0 2.5e-1 0] "integer indices" [+0 1e0 2]\n'

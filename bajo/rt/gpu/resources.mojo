@@ -7,6 +7,8 @@ from bajo.gpu.buffers import upload_list
 from bajo.core.camera import Camera
 from bajo.bvh.gpu.utils import upload_camera
 from bajo.core.color import Color
+from bajo.rt.film import FilmResponse
+from bajo.rt.gpu.filter import GpuFilterTables
 from bajo.rt.render_types import RenderSettings, SamplingConfig
 from bajo.rt.material_types import Integrator, SurfaceId
 from bajo.rt.wavefront_contract import WAVE_PATH_ID_MASK
@@ -55,6 +57,7 @@ struct GpuRtRenderTarget:
     var arena: GpuWavefrontArena
     var camera: DeviceBuffer[.float32]
     var pixels: DeviceBuffer[.float32]
+    var filter: GpuFilterTables
 
     def __init__(
         out self,
@@ -64,6 +67,7 @@ struct GpuRtRenderTarget:
         path_capacity: Int = 0,
     ) raises:
         settings.validate()
+        self.filter = GpuFilterTables(ctx, settings.filter)
         self.image_width = settings.image_width
         self.image_height = settings.image_height
         self.samples_per_pixel = settings.samples_per_pixel
@@ -158,6 +162,7 @@ def _enqueue_gpu_resolve(
     target: GpuRtRenderTarget,
     sample_begin: Int = 0,
     chunk_sample_count: Int = -1,
+    film: FilmResponse = FilmResponse(),
 ) raises:
     """Enqueue sample reduction into `target.pixels` without synchronizing."""
     var active_count = chunk_sample_count
@@ -177,6 +182,7 @@ def _enqueue_gpu_resolve(
         Int32(pixel_begin),
         Int32(chunk_pixel_count),
         Int32(target.samples_per_pixel),
+        film,
         grid_dim=ceildiv(chunk_pixel_count, GPU_RT_BLOCK_SIZE),
         block_dim=GPU_RT_BLOCK_SIZE,
     )
@@ -211,6 +217,7 @@ def enqueue_gpu_wavefront[
         DeviceBuffer[.float32],
         SamplingConfig,
         UInt32,
+        Bool,
     ) raises thin -> None,
 ](
     ctx: DeviceContext,
@@ -221,6 +228,8 @@ def enqueue_gpu_wavefront[
     """Compile-time scheduler shared by every geometry specialization."""
     target.validate_compatible(settings)
     var sampling = SamplingConfig.from_settings(settings)
+    target.filter.update(ctx, settings.filter)
+    sampling.filter = target.filter.view()
     var sample_begin = 0
     while sample_begin < target.sample_count:
         var chunk_sample_count = min(
@@ -260,8 +269,10 @@ def enqueue_gpu_wavefront[
                 )
                 enqueue_wavefront_advance(ctx, target.arena)
         comptime if Integrator.is_path_tracing[integrator]:
-            comptime first_bounce = 0 if integrator == .PATH else 1
-            for bounce in range(first_bounce, settings.max_depth):
+            var first_bounce = 0 if integrator == .PATH else 1
+            if settings.max_depth == 0:
+                first_bounce = 0
+            for bounce in range(first_bounce, settings.max_depth + 1):
                 if bounce % 2 == 0:
                     bounce_fn(
                         ctx,
@@ -273,6 +284,7 @@ def enqueue_gpu_wavefront[
                         target.arena.path_b.fields,
                         sampling,
                         UInt32(bounce),
+                        bounce < settings.max_depth,
                     )
                 else:
                     bounce_fn(
@@ -285,9 +297,12 @@ def enqueue_gpu_wavefront[
                         target.arena.path_a.fields,
                         sampling,
                         UInt32(bounce),
+                        bounce < settings.max_depth,
                     )
                 enqueue_wavefront_advance(ctx, target.arena)
-        _enqueue_gpu_resolve(ctx, target, sample_begin, chunk_sample_count)
+        _enqueue_gpu_resolve(
+            ctx, target, sample_begin, chunk_sample_count, settings.film
+        )
         sample_begin += chunk_sample_count
 
 

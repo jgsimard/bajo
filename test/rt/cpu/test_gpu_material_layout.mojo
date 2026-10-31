@@ -34,7 +34,7 @@ from bajo.rt.gpu.textures import (
 
 def test_texture_view_offsets_wrapping_and_bump_gradients() raises:
     # A second 2x2 texture follows an unrelated 1x1 texture in packed storage.
-    var descs: List[UInt32] = [0, 1, 1, 3, 2, 2]
+    var descs: List[UInt32] = [0, 1, 1, 0, 3, 2, 2, 0]
     var pixels: List[Float32] = [
         10,
         11,
@@ -156,6 +156,7 @@ def test_material_upload_keeps_packed_abi() raises:
         1.0,
         1.0,
         1.0,
+        0.0,
         0.25,
         0.5,
         0.75,
@@ -182,6 +183,7 @@ def test_material_upload_keeps_packed_abi() raises:
         1.0,
         1.0,
         1.0,
+        0.0,
     ]
     assert_equal(len(coated), len(expected))
     for index in range(len(expected)):
@@ -231,7 +233,7 @@ def test_material_texture_tables_address_second_record() raises:
     assert_equal(len(indices), len(expected_indices))
     for index in range(len(expected_indices)):
         assert_equal(indices[index], expected_indices[index])
-    var expected_descs: List[UInt32] = [0, 1, 1, 3, 1, 1]
+    var expected_descs: List[UInt32] = [0, 1, 1, 0, 3, 1, 1, 0]
     assert_equal(len(descs), len(expected_descs))
     for index in range(len(expected_descs)):
         assert_equal(descs[index], expected_descs[index])
@@ -313,7 +315,7 @@ def test_coated_material_tiles_keep_the_same_logical_fields() raises:
         for field in range(CoatedDiffuseLayout.STRIDE):
             assert_equal(cpu[(material, field)], gpu[(material, field)])
     # Distinct physical layouts, with independently specified addresses.
-    assert_equal(rows[26 + 4], surfaces.coated_diffuses[1].eta)
+    assert_equal(rows[27 + 4], surfaces.coated_diffuses[1].eta)
     assert_equal(columns[4 * 5 + 1], surfaces.coated_diffuses[1].eta)
 
 
@@ -334,7 +336,7 @@ def _gathers[length: SIMDLength]() raises:
     # Static extents use the same affine field decoder as dynamic row and
     # column views; they must retain the same logical record coordinates.
     var static_records = TileTensor(
-        Span(rows), row_major(Coord(Idx[5], Idx[26]))
+        Span(rows), row_major(Coord(Idx[5], Idx[27]))
     )
     var general = load_coated_parameters(static_records, ids)
     var uniform = load_coated_parameters(cpu, SIMD[.uint32, length](3), True)

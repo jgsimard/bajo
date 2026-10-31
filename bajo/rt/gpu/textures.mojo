@@ -2,15 +2,20 @@
 
 from bajo.rt.texture_math import (
     sample_image_texture,
+    sample_image_texture_bilinear,
+    image_pixel_index,
+    mapped_normal,
     albedo_from_texture,
     roughness_from_texture,
     bump_slope,
     bump_normal,
 )
 from std.memory import bitcast
+from std.math import floor
 from bajo.core import Vec3f32
 from bajo.core.tensor_layout import record_tile
 from bajo.core.color import Color
+from bajo.core.optics import conductor_k_from_reflectance
 from bajo.rt.material_types import NO_TEXTURE, SurfaceId
 from bajo.rt.gpu.material_layout import (
     GpuRgbMaterialLayout,
@@ -29,6 +34,7 @@ struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
     var pixels: Pointer[Float32, Self.origin]
     var width: Int
     var height: Int
+    var format: UInt32
 
     @staticmethod
     @always_inline
@@ -46,10 +52,32 @@ struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
             texture_pixels.unsafe_offset(pixel_offset),
             Int(descs[index, GpuTextureDescLayout.WIDTH]),
             Int(descs[index, GpuTextureDescLayout.HEIGHT]),
+            descs[index, GpuTextureDescLayout.FORMAT],
         }
 
     @always_inline
+    def texel(self, index: Int) -> Color:
+        if self.format == GpuTextureDescLayout.PALETTE_RGB8:
+            var indices = self.pixels.unsafe_bitcast[UInt32]()[
+                unsafe_offset=256 + index
+            ]
+            return Color(
+                self.pixels[unsafe_offset=Int(indices & UInt32(255))],
+                self.pixels[
+                    unsafe_offset=Int((indices >> UInt32(8)) & UInt32(255))
+                ],
+                self.pixels[
+                    unsafe_offset=Int((indices >> UInt32(16)) & UInt32(255))
+                ],
+            )
+        return Color(self.pixels.unsafe_offset(3 * index))
+
+    @always_inline
     def sample(self, u: Float32, v: Float32) -> Color:
+        if self.format == GpuTextureDescLayout.PALETTE_RGB8:
+            return self.texel(
+                Int(image_pixel_index(self.width, self.height, u, v))
+            )
         return sample_image_texture(
             record_tile[.float32, 3](self.pixels, self.width * self.height),
             self.width,
@@ -57,6 +85,81 @@ struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
             u,
             v,
         )
+
+    @always_inline
+    def sample_bilinear(self, u: Float32, v: Float32) -> Color:
+        if self.format == GpuTextureDescLayout.PALETTE_RGB8:
+            var x = (u - floor(u)) * Float32(self.width) - 0.5
+            var y = (1.0 - (v - floor(v))) * Float32(self.height) - 0.5
+            var fx = floor(x)
+            var fy = floor(y)
+            var dx = x - fx
+            var dy = y - fy
+            var x0 = Int(fx)
+            var y0 = Int(fy)
+            var x1 = ((x0 + 1) % self.width + self.width) % self.width
+            var y1 = ((y0 + 1) % self.height + self.height) % self.height
+            x0 = (x0 % self.width + self.width) % self.width
+            y0 = (y0 % self.height + self.height) % self.height
+            var top = (
+                self.texel(y0 * self.width + x0) * (1.0 - dx)
+                + self.texel(y0 * self.width + x1) * dx
+            )
+            var bottom = (
+                self.texel(y1 * self.width + x0) * (1.0 - dx)
+                + self.texel(y1 * self.width + x1) * dx
+            )
+            return top * (1.0 - dy) + bottom * dy
+        return sample_image_texture_bilinear(
+            record_tile[.float32, 3](self.pixels, self.width * self.height),
+            self.width,
+            self.height,
+            u,
+            v,
+        )
+
+    @always_inline
+    def environment_texel(self, index: Int) -> Color:
+        var value = self.texel(index)
+        return Color(max(value.x, 0.0), max(value.y, 0.0), max(value.z, 0.0))
+
+    @always_inline
+    def sample_environment(self, u: Float32, v: Float32) -> Color:
+        var x = min(max(Int(u * Float32(self.width)), 0), self.width - 1)
+        var y = min(max(Int(v * Float32(self.height)), 0), self.height - 1)
+        return self.environment_texel(y * self.width + x)
+
+
+@always_inline
+def _gpu_normal_map(
+    surface: UInt32,
+    normal: Vec3f32[.WORLD],
+    tangent: Vec3f32[.WORLD],
+    u: Float32,
+    v: Float32,
+    front_face: Bool,
+    maps: Pointer[UInt32, ImmutAnyOrigin],
+    count: Int,
+    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+) -> Vec3f32[.WORLD]:
+    var begin = 0
+    var end = count
+    while begin < end:
+        var middle = (begin + end) // 2
+        var key = maps[unsafe_offset=2 * middle]
+        if key < surface:
+            begin = middle + 1
+        else:
+            end = middle
+    if begin >= count or maps[unsafe_offset=2 * begin] != surface:
+        return normal
+    var texture = _GpuImageTextureView.load(
+        maps[unsafe_offset=2 * begin + 1], texture_descs, texture_pixels
+    )
+    var outward = normal if front_face else -normal
+    var result = mapped_normal(outward, tangent, texture.sample_bilinear(u, v))
+    return result if front_face else -result
 
 
 @always_inline
@@ -265,5 +368,25 @@ def _sample_gpu_coated_parameters(
             records[material_idx, GpuCoatedDiffuseLayout.REMAP_ROUGHNESS].ne(
                 0.0
             ),
+        )
+    var records = record_tile[.float32, GpuCoatedDiffuseLayout.STRIDE](
+        data, material_idx + 1
+    )
+    if (
+        records[material_idx, GpuCoatedDiffuseLayout.CONDUCTOR_REFLECTANCE]
+        != 0.0
+    ):
+        var reflectance = _sample_gpu_coated_albedo(
+            SurfaceId.pack_raw(.COATED_DIFFUSE, UInt32(material_idx)),
+            u,
+            v,
+            data,
+            texture_indices,
+            texture_descs,
+            texture_pixels,
+        )
+        value.conductor_eta = Color(1.0) / value.eta
+        value.conductor_k = (
+            conductor_k_from_reflectance(reflectance) / value.eta
         )
     return value

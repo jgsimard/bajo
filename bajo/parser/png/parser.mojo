@@ -10,6 +10,7 @@ from bajo.parser.checksum import crc32
 from bajo.parser.deflate import inflate_zlib
 from bajo.parser.png.filters import _unfilter_rgb
 from bajo.rt.material_types import ImageTexture
+from bajo.parser.png.data import parse_data_png
 
 
 comptime _SRGB_SIMD_WIDTH = simd_width_of[Float32]()
@@ -262,13 +263,28 @@ def _parse_png_libpng[
 
 def parse_png[
     origin: ImmOrigin
-](bytes: Span[UInt8, origin]) raises -> ImageTexture:
+](
+    bytes: Span[UInt8, origin],
+    *,
+    linear: Bool = False,
+    preserve_alpha: Bool = False,
+) raises -> ImageTexture:
+    if linear or preserve_alpha:
+        var data = parse_data_png(bytes)
+        if not linear:
+            for index in range(len(data.pixels)):
+                data.pixels[index] = _srgb_to_linear(data.pixels[index])
+        return data^
     var image = _try_parse_png_simd(bytes)
     if image:
         return image.take()
     return _parse_png_libpng(bytes)
 
 
-def read_png(path: String) raises -> ImageTexture:
+def read_png(
+    path: String, *, linear: Bool = False, preserve_alpha: Bool = False
+) raises -> ImageTexture:
     var mapped = MMap(path)
-    return parse_png(mapped.as_bytes_span())
+    return parse_png(
+        mapped.as_bytes_span(), linear=linear, preserve_alpha=preserve_alpha
+    )

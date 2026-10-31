@@ -2,7 +2,8 @@
 
 from std.utils.numerics import max_finite
 
-from std.math import pi
+from std.math import abs, pi
+from std.memory import bitcast
 from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.bvh.constants import PrimitiveKind
 from bajo.core import Point3f32, Rayf32, Vec3f32, dot, normalize
@@ -17,6 +18,7 @@ from bajo.rt.lighting import (
     _LightSurfaceSample,
     _sample_sphere_light_surface,
     _sample_triangle_light_surface,
+    light_sample_uv,
 )
 from bajo.core.sampling import draw_alias_column, resolve_alias_draw
 from bajo.rt.shading import (
@@ -29,7 +31,6 @@ from bajo.core.color import Color
 from bajo.rt.render_types import SamplingConfig
 from bajo.rt.material_types import Integrator, SurfaceId
 from bajo.rt.lighting_types import _light_importance
-from bajo.rt.texture_math import load_environment_texel
 from bajo.rt.scene_data import SceneData
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
@@ -38,15 +39,22 @@ from bajo.rt.wavefront_contract import (
 )
 from bajo.rt.gpu.views import GpuRtSceneView
 from bajo.rt.gpu.upload import _upload_nonempty
-from bajo.rt.gpu.material_layout import GpuMetalLayout, GpuTextureDescLayout
+from bajo.rt.gpu.opacity import gpu_opacity_value
+from bajo.rt.opacity import opacity_accepts, opacity_point_sample
+from bajo.rt.gpu.material_layout import (
+    GpuMetalLayout,
+    GpuTextureDescLayout,
+    GpuDielectricLayout,
+)
 from bajo.rt.gpu.textures import (
+    _GpuImageTextureView,
     _sample_gpu_lambertian,
     _sample_gpu_coated_albedo,
     _sample_gpu_coated_parameters,
 )
 
 
-comptime GPU_RT_LIGHT_STRIDE = 14
+comptime GPU_RT_LIGHT_STRIDE = 22
 comptime GPU_RT_LIGHT_P0_X = 0
 comptime GPU_RT_LIGHT_P0_Y = 1
 comptime GPU_RT_LIGHT_P0_Z = 2
@@ -60,9 +68,11 @@ comptime GPU_RT_LIGHT_RADIUS = 9
 comptime GPU_RT_LIGHT_E_X = 10
 comptime GPU_RT_LIGHT_E_Y = 11
 comptime GPU_RT_LIGHT_E_Z = 12
-# Retained in each record to preserve the proven 14-float AoS stride. The
-# selection hot path reads the duplicated dense probability prefix instead.
+# The selection hot path reads the duplicated dense probability prefix.
 comptime GPU_RT_LIGHT_ALIAS_PROBABILITY = 13
+comptime GPU_RT_LIGHT_UV0 = 14
+comptime GPU_RT_LIGHT_PRIMITIVE = 20
+comptime GPU_RT_LIGHT_FLAGS = 21
 
 
 struct GpuRtLights:
@@ -104,9 +114,7 @@ struct GpuRtLights:
                 uniform_kind = sampling_kind
             elif sampling_kind != uniform_kind:
                 homogeneous = False
-            var radiance = (
-                world.surfaces().emissives[Int(light.surface.index())].radiance
-            )
+            var radiance = light.radiance
             kinds.append(
                 (world.lights().alias_indices[light_idx] << UInt32(4))
                 | kind.value
@@ -125,6 +133,18 @@ struct GpuRtLights:
             fields.append(radiance.y)
             fields.append(radiance.z)
             fields.append(world.lights().alias_probabilities[light_idx])
+            fields.extend(
+                [
+                    light.uv0_u,
+                    light.uv0_v,
+                    light.uv1_u,
+                    light.uv1_v,
+                    light.uv2_u,
+                    light.uv2_v,
+                ]
+            )
+            fields.append(bitcast[.float32](light.primitive.value))
+            fields.append(bitcast[.float32](light.flags))
         self.kinds = _upload_nonempty(ctx, kinds)
         self.fields = _upload_nonempty(ctx, fields)
         self.count = len(world.lights().records)
@@ -177,6 +197,7 @@ def _sample_direct_light_candidate[
     scene: GpuRtSceneView,
     sampling: SamplingConfig,
     bounce: UInt32,
+    front_face: Bool = True,
 ) -> GpuDirectLightSample:
     comptime assert Integrator.uses_direct_lighting[integrator]
     comptime assert light_kind in (
@@ -194,8 +215,21 @@ def _sample_direct_light_candidate[
     else:
         if surface_kind == .COATED_DIFFUSE:
             return GpuDirectLightSample.make_empty()
-    if surface_kind == .EMISSIVE or surface_kind == .DIELECTRIC:
+    if surface_kind == .EMISSIVE:
         return GpuDirectLightSample.make_empty()
+    if surface_kind == .DIELECTRIC:
+        var base = GpuDielectricLayout.STRIDE * Int(
+            SurfaceId.index_from_raw(surface_value)
+        )
+        if (
+            scene.dielectrics[
+                unsafe_offset=base + GpuDielectricLayout.ROUGHNESS
+            ]
+            < 1.0e-3
+            or scene.dielectrics[unsafe_offset=base + GpuDielectricLayout.ETA]
+            == 1.0
+        ):
+            return GpuDirectLightSample.make_empty()
 
     comptime if not coated_pass:
         if surface_kind == .METAL:
@@ -262,25 +296,16 @@ def _sample_direct_light_candidate[
         )
         match scene.environment_kind:
             case .IMAGE:
-                var desc_base = GpuTextureDescLayout.STRIDE * Int(
-                    scene.environment_texture_index
-                )
-                var pixel_offset = Int(
-                    scene.texture_descs[
-                        unsafe_offset=desc_base
-                        + GpuTextureDescLayout.PIXEL_OFFSET
-                    ]
-                )
                 emission = Color(
                     scene.environment_scale_x,
                     scene.environment_scale_y,
                     scene.environment_scale_z,
-                ) * load_environment_texel(
-                    record_tile[.float32, 3](
-                        scene.texture_pixels.unsafe_offset(pixel_offset),
-                        selected_pixel + 1,
-                    ),
-                    Int64(selected_pixel),
+                ) * _GpuImageTextureView.load(
+                    scene.environment_texture_index,
+                    scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin](),
+                    scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin](),
+                ).environment_texel(
+                    selected_pixel
                 )
             case .PROCEDURAL:
                 emission = sky_color(direction)
@@ -290,7 +315,10 @@ def _sample_direct_light_candidate[
                     scene.environment_scale_y,
                     scene.environment_scale_z,
                 )
-        var surface_cosine = max(dot(normal, direction), 0.0)
+        var cosine = dot(normal, direction)
+        var surface_cosine = abs(
+            cosine
+        ) if surface_kind == .DIELECTRIC else max(cosine, 0.0)
         var light_pdf = scene.environment_weight / (
             4.0 * pi * scene.total_light_weight
         )
@@ -377,12 +405,46 @@ def _sample_direct_light_candidate[
         emission = Color(
             scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT_E_X)
         )
+        if scene.opacity.count > 0:
+            var texture_u = surface_sample.u
+            var texture_v = surface_sample.v
+            var kind = PrimitiveKind(
+                scene.light_kinds[unsafe_offset=selected_idx] & UInt32(0xF)
+            )
+            if kind != PrimitiveKind.SPHERE:
+                var uv_base = base + GPU_RT_LIGHT_UV0
+                var uv = light_sample_uv(
+                    scene.light_fields[unsafe_offset=uv_base],
+                    scene.light_fields[unsafe_offset=uv_base + 1],
+                    scene.light_fields[unsafe_offset=uv_base + 2],
+                    scene.light_fields[unsafe_offset=uv_base + 3],
+                    scene.light_fields[unsafe_offset=uv_base + 4],
+                    scene.light_fields[unsafe_offset=uv_base + 5],
+                    surface_sample.u,
+                    surface_sample.v,
+                )
+                texture_u = uv[0]
+                texture_v = uv[1]
+            var primitive = bitcast[.uint32](
+                scene.light_fields[unsafe_offset=base + GPU_RT_LIGHT_PRIMITIVE]
+            )
+            surface_sample.valid &= opacity_accepts(
+                gpu_opacity_value(
+                    scene.opacity, primitive, texture_u, texture_v
+                ),
+                opacity_point_sample(surface_sample.point),
+            )
         geometry = _finish_direct_light_geometry(
             incoming_ray.at(hit_t),
             normal,
             surface_sample,
             emission,
             scene.total_light_weight,
+            surface_kind == .DIELECTRIC,
+            bitcast[.uint32](
+                scene.light_fields[unsafe_offset=base + GPU_RT_LIGHT_FLAGS]
+            )
+            != 0,
         )
     if not geometry.valid:
         return GpuDirectLightSample.make_empty()
@@ -390,6 +452,21 @@ def _sample_direct_light_candidate[
     var value = Color(0.0)
     var bsdf_pdf = Float32(0.0)
     match surface_kind:
+        case .DIELECTRIC:
+            var base = GpuDielectricLayout.STRIDE * material_idx
+            var evaluation = _evaluate_material[.DIELECTRIC, 1](
+                incoming_ray.d,
+                normal,
+                Color(0.0),
+                scene.dielectrics[unsafe_offset=base + GpuDielectricLayout.ETA],
+                geometry.direction,
+                scene.dielectrics[
+                    unsafe_offset=base + GpuDielectricLayout.ROUGHNESS
+                ],
+                front_face,
+            )
+            value = evaluation.value
+            bsdf_pdf = evaluation.pdf
         case .LAMBERTIAN:
             comptime if not coated_pass:
                 var evaluation = _evaluate_material[.LAMBERTIAN, 1](

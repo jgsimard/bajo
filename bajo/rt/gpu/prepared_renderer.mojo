@@ -30,6 +30,7 @@ from bajo.rt.gpu.views import (
 from bajo.rt.render_types import RenderResult, RenderSettings, RenderTimings
 from bajo.rt.material_types import Integrator
 from bajo.rt.scene_data import SceneData
+from bajo.rt.filter import FilterView
 
 
 @always_inline
@@ -92,6 +93,7 @@ struct _RenderGraphArguments(Copyable):
     var camera: Int
     var pixels: Int
     var integrator: Integrator
+    var filter: FilterView
 
     def matches(self, other: Self) -> Bool:
         return (
@@ -101,6 +103,7 @@ struct _RenderGraphArguments(Copyable):
             and _same_captured_fields(self.settings, other.settings)
             and _same_scene_capture(self.scene, other.scene)
             and _same_captured_fields(self.queues, other.queues)
+            and _same_captured_fields(self.filter, other.filter)
         )
 
 
@@ -164,6 +167,7 @@ struct GpuRtPreparedRenderer[
         context/target. Captured settings include all sampling and film values.
         """
         self.target.validate_compatible(settings)
+        self.target.filter.update(self.ctx, settings.filter)
         var queues = gpu_rt_trace_queue_view(
             self.target.arena,
             self.target.arena.path_a.path_ids,
@@ -181,6 +185,7 @@ struct GpuRtPreparedRenderer[
             Int(self.target.camera.unsafe_ptr()),
             Int(self.target.pixels.unsafe_ptr()),
             integrator,
+            self.target.filter.view(),
         )
         if (
             not self._graph_arguments

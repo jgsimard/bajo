@@ -4,7 +4,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.gpu.buffers import upload_list
 from bajo.core.camera import Camera
-from bajo.core.geometry import Sphere
+from bajo.core.geometry import Sphere, triangle_uv_tangent
 from bajo.bvh.gpu import (
     GpuBlasSet,
     GpuBvhBuildMethod,
@@ -90,6 +90,7 @@ struct GpuRtScene[
     var _instance_normals: Optional[DeviceBuffer[.float32]]
     var _instance_texcoord_offsets: Optional[DeviceBuffer[.uint32]]
     var _instance_texcoords: Optional[DeviceBuffer[.float32]]
+    var _instance_tangents: Optional[DeviceBuffer[.float32]]
     var materials: GpuRtMaterials
     var lights: GpuRtLights
     var environment_kind: EnvironmentKind
@@ -173,6 +174,7 @@ struct GpuRtScene[
             ref normals = self._instance_normals.value()
             ref texcoord_offsets = self._instance_texcoord_offsets.value()
             ref texcoords = self._instance_texcoords.value()
+            ref tangents = self._instance_tangents.value()
             instances = Optional(
                 GpuRtInstanceView(
                     _immut(tlas._tree.wide_nodes),
@@ -186,6 +188,7 @@ struct GpuRtScene[
                     _immut(normals),
                     _immut(texcoord_offsets),
                     _immut(texcoords),
+                    _immut(tangents),
                     tlas._tree.root_idx,
                     Int32(tlas._inst_count),
                     Int32(blases.blas_count),
@@ -206,6 +209,11 @@ struct GpuRtScene[
             _immut(self.materials.coated_diffuse_texture_indices),
             _immut(self.materials.texture_descs),
             _immut(self.materials.texture_pixels),
+            _immut(self.materials.normal_maps),
+            self.materials.normal_map_count,
+            self.materials.opacity.view(),
+            self.materials.emission.view(),
+            self.materials.spectra.view(),
             _immut(self.materials.mix_surfaces),
             _immut(self.materials.mix_amounts),
             _immut(self.materials.mix_texture_indices),
@@ -331,6 +339,7 @@ def prepare_gpu_scene[
     var instance_normals = Optional[DeviceBuffer[.float32]]()
     var instance_texcoord_offsets = Optional[DeviceBuffer[.uint32]]()
     var instance_texcoords = Optional[DeviceBuffer[.float32]]()
+    var instance_tangents = Optional[DeviceBuffer[.float32]]()
     comptime if kind.has_instances():
         instance_blases = Optional(
             build_gpu_triangle_blas_set[
@@ -362,6 +371,7 @@ def prepare_gpu_scene[
             capacity=len(data.triangle_meshes())
         )
         var texcoords = List[Float32]()
+        var tangents = List[Float32]()
         for mesh_idx in range(len(data.triangle_meshes())):
             ref mesh_normals = data.triangle_mesh_normals()[mesh_idx]
             if len(mesh_normals) == 0:
@@ -375,14 +385,31 @@ def prepare_gpu_scene[
             else:
                 texcoord_offsets.append(UInt32(len(texcoords)))
                 texcoords.extend(Span(mesh_texcoords))
+                ref vertices = data.triangle_meshes()[mesh_idx]
+                for vertex in range(0, len(vertices), 3):
+                    var uv = 2 * vertex
+                    var tangent = triangle_uv_tangent(
+                        vertices[vertex],
+                        vertices[vertex + 1],
+                        vertices[vertex + 2],
+                        mesh_texcoords[uv],
+                        mesh_texcoords[uv + 1],
+                        mesh_texcoords[uv + 2],
+                        mesh_texcoords[uv + 3],
+                        mesh_texcoords[uv + 4],
+                        mesh_texcoords[uv + 5],
+                    )
+                    tangents.extend([tangent.x, tangent.y, tangent.z])
         if len(normals) == 0:
             normals.append(0.0)
         if len(texcoords) == 0:
             texcoords.append(0.0)
+            tangents.append(0.0)
         instance_normal_offsets = Optional(upload_list(ctx, normal_offsets))
         instance_normals = Optional(upload_list(ctx, normals))
         instance_texcoord_offsets = Optional(upload_list(ctx, texcoord_offsets))
         instance_texcoords = Optional(upload_list(ctx, texcoords))
+        instance_tangents = Optional(upload_list(ctx, tangents))
 
     var materials = GpuRtMaterials(ctx, data)
     var lights = GpuRtLights(ctx, data)
@@ -401,6 +428,7 @@ def prepare_gpu_scene[
         instance_normals^,
         instance_texcoord_offsets^,
         instance_texcoords^,
+        instance_tangents^,
         materials^,
         lights^,
         data.environment().kind,

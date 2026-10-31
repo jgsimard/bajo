@@ -1,12 +1,11 @@
 """Packet primary-path generation."""
 
 from std.math import iota
-from bajo.core.random import random_in_unit_disk
 from bajo.core.camera import Camera
 from bajo.rt.render_types import RenderSettings, SamplingConfig
-from bajo.rt.common import path_stage_rng
 from bajo.rt.rays import make_camera_ray_from_samples
 from bajo.rt.wavefront_queue import PacketPathQueue, PathPacket
+from bajo.rt.camera_sampling import sample_camera
 
 
 def _initialize_path_packets_range[
@@ -18,6 +17,7 @@ def _initialize_path_packets_range[
     camera: Camera,
     path_begin: Int,
     path_end: Int,
+    weights: MutSpan[Float32, _],
 ):
     """Fill a reusable queue with primary paths for one render range."""
     paths.clear()
@@ -30,12 +30,11 @@ def _initialize_path_packets_range[
         var pixel_ids = ids / UInt32(settings.samples_per_pixel)
         var px = (pixel_ids % UInt32(settings.image_width)).cast[.float32]()
         var py = (pixel_ids / UInt32(settings.image_width)).cast[.float32]()
-        var rng = path_stage_rng(sampling, ids, UInt32(0))
-        var lens = random_in_unit_disk[.WORLD, length](rng)
-        var lens_u = lens.x
-        var lens_v = lens.y
-        var pixel_u = rng.f32()
-        var pixel_v = rng.f32()
+        var samples = sample_camera(sampling, ids)
+        for lane in range(lane_count):
+            weights[packet_begin - path_begin + lane] = samples.filter_weight[
+                lane
+            ]
         packet.path_ids = ids
 
         var ray = make_camera_ray_from_samples[length](
@@ -44,10 +43,10 @@ def _initialize_path_packets_range[
             py,
             width,
             height,
-            pixel_u,
-            pixel_v,
-            lens_u,
-            lens_v,
+            samples.pixel_u,
+            samples.pixel_v,
+            samples.lens_u,
+            samples.lens_v,
         )
         packet.ox = ray.o.x
         packet.oy = ray.o.y

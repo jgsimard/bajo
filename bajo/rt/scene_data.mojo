@@ -16,9 +16,13 @@ from bajo.rt.material_types import (
     PrimitiveId,
     SurfaceId,
     SurfaceStore,
+    PRIMITIVE_INDEX_BITS,
+    PRIMITIVE_INDEX_MASK,
 )
 from bajo.core.color import Color
 from bajo.rt.media import SceneMedia
+from bajo.rt.opacity import SceneOpacity
+from bajo.rt.emission import AreaEmitter, SceneEmission
 
 
 struct SceneBuilder(
@@ -39,6 +43,8 @@ struct SceneBuilder(
     var surfaces: SurfaceStore
     var environment: Environment
     var media: SceneMedia
+    var opacity: SceneOpacity
+    var emission: SceneEmission
 
     def __init__(
         out self,
@@ -74,6 +80,8 @@ struct SceneBuilder(
         self.surfaces = surfaces^
         self.environment = environment.copy()
         self.media = SceneMedia()
+        self.opacity = SceneOpacity()
+        self.emission = SceneEmission()
 
     def set_environment(mut self, environment: Environment):
         self.environment = environment.copy()
@@ -279,6 +287,8 @@ struct SceneBuilder(
             self.surfaces^,
             self.environment,
             self.media^,
+            self.opacity^,
+            self.emission^,
         )
 
     def abort(deinit self):
@@ -302,6 +312,8 @@ struct SceneData:
     var _surfaces: SurfaceStore
     var _lights: LightStore
     var _media: SceneMedia
+    var _opacity: SceneOpacity
+    var _emission: SceneEmission
     var _environment: Environment
     var _environment_weight: Float32
     var _environment_alias_probabilities: List[Float32]
@@ -321,6 +333,8 @@ struct SceneData:
         var surfaces: SurfaceStore,
         environment: Environment,
         var media: SceneMedia = SceneMedia(),
+        var opacity: SceneOpacity = SceneOpacity(),
+        var emission: SceneEmission = SceneEmission(),
     ) raises:
         self._spheres = spheres^
         self._sphere_surfaces = sphere_surfaces^
@@ -334,6 +348,8 @@ struct SceneData:
         self._surfaces = surfaces^
         self._lights = LightStore()
         self._media = media^
+        self._opacity = opacity^
+        self._emission = emission^
         self._environment = environment.copy()
         self._environment_weight = 0.0
         self._environment_alias_probabilities = List[Float32]()
@@ -344,6 +360,21 @@ struct SceneData:
         if not isfinite(self.total_light_weight()):
             raise Error("combined light weight must be finite")
         self._lights.build_alias_table()
+
+    def opacity(self) -> ref[self._opacity] SceneOpacity:
+        return self._opacity
+
+    def emission(self) -> ref[self._emission] SceneEmission:
+        return self._emission
+
+    def emitter(self, primitive: UInt32, surface: SurfaceId[1]) -> AreaEmitter:
+        if case .Some(value) = self._emission.records.get(primitive):
+            return value.copy()
+        if surface.kind() == .EMISSIVE:
+            return AreaEmitter(
+                self._surfaces.emissives[Int(surface.index())].radiance
+            )
+        return AreaEmitter()
 
     def spheres(self) -> ref[self._spheres] List[Sphere[.WORLD]]:
         return self._spheres
@@ -446,6 +477,27 @@ struct SceneData:
             len(self._triangle_instances),
         )
         self._validate_materials()
+        self._emission.validate(
+            len(self._spheres),
+            len(self._triangle_surfaces),
+            len(self._triangle_instances),
+        )
+        for entry in self._opacity.records.items():
+            var primitive = entry.key >> PRIMITIVE_INDEX_BITS
+            var index = entry.key & PRIMITIVE_INDEX_MASK
+            var count = (
+                len(self._triangle_surfaces) if primitive
+                == PrimitiveKind.TRIANGLE.value else len(
+                    self._spheres
+                ) if primitive
+                == PrimitiveKind.SPHERE.value else len(
+                    self._triangle_instances
+                ) if primitive
+                == PrimitiveKind.TRIANGLE_INSTANCE.value else 0
+            )
+            if index >= UInt32(count):
+                raise Error("opacity primitive index is out of range")
+            entry.value.validate(len(self._surfaces.image_textures))
 
         if not self._environment.world_to_light.is_finite()[0]:
             raise Error("environment transform must be finite")
@@ -562,7 +614,7 @@ struct SceneData:
             finalized_instance.inv_transform = inverse.inv.copy()
             finalized_instance.bounds = world_bounds
 
-    def _validate_materials(self) raises:
+    def _validate_materials(mut self) raises:
         if len(self._surfaces.mix_texture_indices) != len(
             self._surfaces.mix_amounts
         ) or len(self._surfaces.mix_uv_scales) != 2 * len(
@@ -595,6 +647,11 @@ struct SceneData:
                     raise Error("mix material must reference an existing BSDF")
                 if surface.kind() == .MIX and Int(surface.index()) >= index:
                     raise Error("mix material references must be acyclic")
+        for entry in self._surfaces.normal_maps.items():
+            if not self._surfaces.contains(SurfaceId.from_raw(entry.key)):
+                raise Error("normal map material is out of range")
+            if entry.value >= UInt32(len(self._surfaces.image_textures)):
+                raise Error("normal map image index is out of range")
         for material in self._surfaces.lambertians:
             material.validate()
             if (
@@ -616,6 +673,12 @@ struct SceneData:
         for material in self._surfaces.dielectrics:
             material.validate()
             if (
+                material.eta_spectrum != NO_TEXTURE
+                and material.eta_spectrum
+                >= UInt32(len(self._surfaces.optical_spectra))
+            ):
+                raise Error("dielectric optical spectrum index is out of range")
+            if (
                 material.displacement_texture_index != NO_TEXTURE
                 and material.displacement_texture_index
                 >= UInt32(len(self._surfaces.image_textures))
@@ -626,6 +689,16 @@ struct SceneData:
 
         for material in self._surfaces.coated_diffuses:
             material.validate()
+            for spectrum in [
+                material.conductor_eta_spectrum,
+                material.conductor_k_spectrum,
+            ]:
+                if spectrum != NO_TEXTURE and spectrum >= UInt32(
+                    len(self._surfaces.optical_spectra)
+                ):
+                    raise Error(
+                        "conductor optical spectrum index is out of range"
+                    )
             if (
                 material.roughness_texture_index != NO_TEXTURE
                 and material.roughness_texture_index
@@ -656,6 +729,21 @@ struct SceneData:
                 raise Error("image texture dimensions must be positive")
             if len(texture.pixels) != 3 * texture.width * texture.height:
                 raise Error("image texture RGB storage has an invalid length")
+            if (
+                len(texture.alpha) != 0
+                and len(texture.alpha) != texture.width * texture.height
+            ):
+                raise Error("image texture alpha storage has an invalid length")
+            for value in texture.alpha:
+                if not isfinite(value) or value < 0.0 or value > 1.0:
+                    raise Error(
+                        "image texture alpha must be finite and within [0, 1]"
+                    )
+            texture.has_scalar_alpha = False
+            for value in texture.alpha:
+                if value != 1.0:
+                    texture.has_scalar_alpha = True
+                    break
             for channel in texture.pixels:
                 if not isfinite(channel) or channel < 0.0:
                     raise Error(
@@ -716,15 +804,18 @@ struct SceneData:
 
     def _build_light_store(mut self) raises:
         for idx, surface in enumerate(self._triangle_surfaces):
-            if surface.kind() == .EMISSIVE:
-                var radiance = self._surfaces.emissives[
-                    Int(surface.index())
-                ].radiance
+            var emitter = self.emitter(
+                PrimitiveId(.TRIANGLE, UInt32(idx)).value, surface
+            )
+            if emitter.radiance.max_component() > 0.0:
+                var radiance = emitter.radiance
                 ref p0 = self._triangle_vertices[3 * idx + 0]
                 ref p1 = self._triangle_vertices[3 * idx + 1]
                 ref p2 = self._triangle_vertices[3 * idx + 2]
-                var weight = triangle_area(p0, p1, p2) * _light_importance(
-                    radiance
+                var weight = (
+                    triangle_area(p0, p1, p2)
+                    * _light_importance(radiance)
+                    * Float32(2.0 if emitter.two_sided else 1.0)
                 )
                 if not isfinite(weight):
                     raise Error("triangle light weight must be finite")
@@ -737,18 +828,21 @@ struct SceneData:
                             p0,
                             p1,
                             p2,
+                            radiance=radiance,
+                            two_sided=emitter.two_sided,
                         )
                     )
 
         for idx, surface in enumerate(self._sphere_surfaces):
-            if surface.kind() == .EMISSIVE:
-                var radiance = self._surfaces.emissives[
-                    Int(surface.index())
-                ].radiance
+            var emitter = self.emitter(
+                PrimitiveId(.SPHERE, UInt32(idx)).value, surface
+            )
+            if emitter.radiance.max_component() > 0.0:
+                var radiance = emitter.radiance
                 var radius = self._spheres[idx].physical_radius()
                 var weight = (
                     4.0 * pi * radius * radius * _light_importance(radiance)
-                )
+                ) * Float32(2.0 if emitter.two_sided else 1.0)
                 if not isfinite(weight):
                     raise Error("sphere light weight must be finite")
                 if weight > 0.0:
@@ -759,17 +853,21 @@ struct SceneData:
                             weight,
                             self._spheres[idx].center,
                             radius,
+                            radiance,
+                            emitter.two_sided,
                         )
                     )
 
         for instance_idx, surface in enumerate(
             self._triangle_instance_surfaces
         ):
-            if surface.kind() != .EMISSIVE:
+            var emitter = self.emitter(
+                PrimitiveId(.TRIANGLE_INSTANCE, UInt32(instance_idx)).value,
+                surface,
+            )
+            if emitter.radiance.max_component() <= 0.0:
                 continue
-            var radiance = self._surfaces.emissives[
-                Int(surface.index())
-            ].radiance
+            var radiance = emitter.radiance
             var transform = self._triangle_instances[
                 instance_idx
             ].transform.copy()
@@ -787,10 +885,29 @@ struct SceneData:
                 var p2 = transform.point(
                     self._triangle_meshes[mesh_idx][base + 2]
                 )
+                var u0 = Float32(0.0)
+                var v0 = Float32(0.0)
+                var u1 = Float32(1.0)
+                var v1 = Float32(0.0)
+                var u2 = Float32(1.0)
+                var v2 = Float32(1.0)
+                ref uvs = self._triangle_mesh_texcoords[mesh_idx]
+                if len(uvs):
+                    var uv = 6 * triangle_idx
+                    u0 = uvs[uv]
+                    v0 = uvs[uv + 1]
+                    u1 = uvs[uv + 2]
+                    v1 = uvs[uv + 3]
+                    u2 = uvs[uv + 4]
+                    v2 = uvs[uv + 5]
                 if reverses_orientation:
                     swap(p1, p2)
-                var weight = triangle_area(p0, p1, p2) * (
-                    _light_importance(radiance)
+                    swap(u1, u2)
+                    swap(v1, v2)
+                var weight = (
+                    triangle_area(p0, p1, p2)
+                    * (_light_importance(radiance))
+                    * Float32(2.0 if emitter.two_sided else 1.0)
                 )
                 if not isfinite(weight):
                     raise Error("triangle instance light weight must be finite")
@@ -806,6 +923,14 @@ struct SceneData:
                             p0,
                             p1,
                             p2,
+                            u0,
+                            v0,
+                            u1,
+                            v1,
+                            u2,
+                            v2,
+                            radiance,
+                            emitter.two_sided,
                         )
                     )
 

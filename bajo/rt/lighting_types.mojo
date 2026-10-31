@@ -3,6 +3,7 @@
 from bajo.core.sampling import build_alias_distribution
 
 from bajo.core import Point3f32, Vec3
+from bajo.core.color import Color
 from bajo.rt.material_types import PrimitiveId, SurfaceId
 
 
@@ -17,6 +18,14 @@ struct LightRecord(Copyable, Writable):
     var p1: Point3f32[.WORLD]
     var p2: Point3f32[.WORLD]
     var radius: Float32
+    var uv0_u: Float32
+    var uv0_v: Float32
+    var uv1_u: Float32
+    var uv1_v: Float32
+    var uv2_u: Float32
+    var uv2_v: Float32
+    var radiance: Color
+    var flags: UInt32
 
     @staticmethod
     def triangle(
@@ -26,8 +35,32 @@ struct LightRecord(Copyable, Writable):
         p0: Point3f32[.WORLD],
         p1: Point3f32[.WORLD],
         p2: Point3f32[.WORLD],
+        uv0_u: Float32 = 0.0,
+        uv0_v: Float32 = 0.0,
+        uv1_u: Float32 = 1.0,
+        uv1_v: Float32 = 0.0,
+        uv2_u: Float32 = 1.0,
+        uv2_v: Float32 = 1.0,
+        radiance: Color = Color(0.0),
+        two_sided: Bool = False,
     ) -> Self:
-        return Self(primitive.copy(), surface.copy(), weight, p0, p1, p2, 0.0)
+        return Self(
+            primitive.copy(),
+            surface.copy(),
+            weight,
+            p0,
+            p1,
+            p2,
+            0.0,
+            uv0_u,
+            uv0_v,
+            uv1_u,
+            uv1_v,
+            uv2_u,
+            uv2_v,
+            radiance,
+            UInt32(two_sided),
+        )
 
     @staticmethod
     def sphere(
@@ -36,6 +69,8 @@ struct LightRecord(Copyable, Writable):
         weight: Float32,
         center: Point3f32[.WORLD],
         radius: Float32,
+        radiance: Color = Color(0.0),
+        two_sided: Bool = False,
     ) -> Self:
         return Self(
             primitive.copy(),
@@ -45,6 +80,14 @@ struct LightRecord(Copyable, Writable):
             Point3f32[.WORLD](0.0),
             Point3f32[.WORLD](0.0),
             radius,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            radiance,
+            UInt32(two_sided),
         )
 
 

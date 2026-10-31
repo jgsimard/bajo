@@ -186,10 +186,11 @@ def _dielectric_f[
     eta: SIMD[.float32, length],
     radiance: Bool,
 ) -> SIMD[.float32, length]:
-    if not alpha_in.ge(1.0e-3).reduce_or():
+    var rough = alpha_in.ge(1.0e-3) & eta.ne(1.0)
+    if not rough.reduce_or():
         return SIMD[.float32, length](0.0)
     var wm, etap, reflection, valid = _dielectric_geometry(wo, wi, eta)
-    valid &= alpha_in.ge(1.0e-3)
+    valid &= rough
     if not valid.reduce_or():
         return SIMD[.float32, length](0.0)
     var alpha = max(alpha_in, SIMD[.float32, length](1.0e-4))
@@ -235,10 +236,11 @@ def _dielectric_pdf[
     eta: SIMD[.float32, length],
     flags: Int,
 ) -> SIMD[.float32, length]:
-    if not alpha_in.ge(1.0e-3).reduce_or():
+    var rough = alpha_in.ge(1.0e-3) & eta.ne(1.0)
+    if not rough.reduce_or():
         return SIMD[.float32, length](0.0)
     var wm, etap, reflection, valid = _dielectric_geometry(wo, wi, eta)
-    valid &= alpha_in.ge(1.0e-3)
+    valid &= rough
     if flags == 1:
         valid &= reflection
     elif flags == 2:
@@ -289,7 +291,7 @@ def _sample_dielectric[
     radiance: Bool,
     flags: Int = 0,
 ) -> _DielectricSample[length]:
-    var smooth = alpha_in.lt(1.0e-3)
+    var smooth = alpha_in.lt(1.0e-3) | eta.eq(1.0)
     var wm = Vec3[.float32, .WORLD, length](0.0, 0.0, 1.0)
     if (~smooth).reduce_or():
         wm = Vec3[.float32, .WORLD, length].select(
@@ -637,7 +639,7 @@ def _layered_pdf[
         )
         var ok = sampling & wos.ok & wis.ok
         var substrate_pdf = _substrate_pdf(-wos.direction, -wis.direction, p)
-        var smooth = p.roughness.lt(1.0e-3)
+        var smooth = p.roughness.lt(1.0e-3) | p.eta.eq(1.0)
         sum += (ok & smooth).select(substrate_pdf, 0.0)
         var rough = ok & ~smooth
         if rough.reduce_or():
@@ -840,9 +842,9 @@ def _evaluate_layered[
             if bottom.reduce_or():
                 var target = -wis.direction
                 var substrate_pdf = _substrate_pdf(-direction, target, p)
-                var nee_weight = p.roughness.ge(1.0e-3).select(
-                    power_heuristic(wis.pdf, substrate_pdf), 1.0
-                )
+                var nee_weight = (
+                    p.roughness.ge(1.0e-3) & p.eta.ne(1.0)
+                ).select(power_heuristic(wis.pdf, substrate_pdf), 1.0)
                 var contribution = (
                     beta
                     * _substrate_f(-direction, target, albedo, p)
@@ -876,7 +878,7 @@ def _evaluate_layered[
                     -direction, wi, p.roughness, p.eta, 2
                 )
                 var exit_weight = (
-                    p.roughness.ge(1.0e-3) & ~reflected.delta
+                    p.roughness.ge(1.0e-3) & p.eta.ne(1.0) & ~reflected.delta
                 ).select(power_heuristic(reflected.pdf, exit_pdf), 1.0)
                 contribution = (
                     beta

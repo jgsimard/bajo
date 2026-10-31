@@ -3,8 +3,12 @@
 from bajo.core.color import luminance
 
 from std.math import floor, sqrt
-from bajo.core import Vec3, normalize, orthonormal_basis
-from bajo.core.tensor_layout import RecordTile, gather_record_vec3
+from bajo.core import Vec3, cross, dot, length2, normalize, orthonormal_basis
+from bajo.core.tensor_layout import (
+    RecordTile,
+    gather_record_vec3,
+    gather_record_field,
+)
 
 
 @always_inline
@@ -44,6 +48,105 @@ def sample_image_texture[
     v: SIMD[.float32, length],
 ) -> Vec3[.float32, .WORLD, length]:
     return gather_record_vec3(pixels, image_pixel_index(width, height, u, v))
+
+
+@always_inline
+def sample_image_texture_bilinear[
+    mut: Bool,
+    origin: Origin[mut=mut],
+    //,
+    length: SIMDLength,
+](
+    pixels: RecordTile[.float32, 3, origin],
+    width: Int,
+    height: Int,
+    u: SIMD[.float32, length],
+    v: SIMD[.float32, length],
+) -> Vec3[.float32, .WORLD, length]:
+    var x = (u - floor(u)) * Float32(width) - 0.5
+    var y = (1.0 - (v - floor(v))) * Float32(height) - 0.5
+    var fx = floor(x)
+    var fy = floor(y)
+    var dx = x - fx
+    var dy = y - fy
+    var x0 = fx.cast[.int64]()
+    var y0 = fy.cast[.int64]()
+    var w = SIMD[.int64, length](width)
+    var h = SIMD[.int64, length](height)
+    var x1 = ((x0 + 1) % w + w) % w
+    var y1 = ((y0 + 1) % h + h) % h
+    x0 = (x0 % w + w) % w
+    y0 = (y0 % h + h) % h
+    var top = (
+        gather_record_vec3(pixels, y0 * w + x0) * (1.0 - dx)
+        + gather_record_vec3(pixels, y0 * w + x1) * dx
+    )
+    var bottom = (
+        gather_record_vec3(pixels, y1 * w + x0) * (1.0 - dx)
+        + gather_record_vec3(pixels, y1 * w + x1) * dx
+    )
+    return top * (1.0 - dy) + bottom * dy
+
+
+@always_inline
+def sample_scalar_texture_bilinear[
+    mut: Bool,
+    origin: Origin[mut=mut],
+    //,
+    length: SIMDLength,
+](
+    pixels: RecordTile[.float32, 1, origin],
+    width: Int,
+    height: Int,
+    u: SIMD[.float32, length],
+    v: SIMD[.float32, length],
+) -> SIMD[.float32, length]:
+    var x = (u - floor(u)) * Float32(width) - 0.5
+    var y = (1.0 - (v - floor(v))) * Float32(height) - 0.5
+    var fx = floor(x)
+    var fy = floor(y)
+    var dx = x - fx
+    var dy = y - fy
+    var x0 = fx.cast[.int64]()
+    var y0 = fy.cast[.int64]()
+    var w = SIMD[.int64, length](width)
+    var h = SIMD[.int64, length](height)
+    var x1 = ((x0 + 1) % w + w) % w
+    var y1 = ((y0 + 1) % h + h) % h
+    x0 = (x0 % w + w) % w
+    y0 = (y0 % h + h) % h
+    var top = (
+        gather_record_field[0](pixels, y0 * w + x0) * (1.0 - dx)
+        + gather_record_field[0](pixels, y0 * w + x1) * dx
+    )
+    var bottom = (
+        gather_record_field[0](pixels, y1 * w + x0) * (1.0 - dx)
+        + gather_record_field[0](pixels, y1 * w + x1) * dx
+    )
+    return top * (1.0 - dy) + bottom * dy
+
+
+@always_inline
+def mapped_normal[
+    length: SIMDLength = 1
+](
+    normal: Vec3[.float32, .WORLD, length],
+    dpdu: Vec3[.float32, .WORLD, length],
+    color: Vec3[.float32, .WORLD, length],
+) -> Vec3[.float32, .WORLD, length]:
+    """Transform a linear tangent-space normal using the UV tangent frame."""
+    var projected = dpdu - normal * dot(normal, dpdu)
+    var fallback, _ = orthonormal_basis(normal)
+    var tangent = Vec3.select(
+        length2(projected).gt(1.0e-20), projected, fallback
+    )
+    tangent = normalize(tangent)
+    var bitangent = cross(normal, tangent)
+    var local = color * 2.0 - Vec3[.float32, .WORLD, length](1.0)
+    var result = tangent * local.x + bitangent * local.y + normal * local.z
+    result = Vec3.select(length2(result).gt(1.0e-20), result, normal)
+    result = normalize(result)
+    return Vec3.select(dot(result, normal).lt(0.0), -result, result)
 
 
 @always_inline

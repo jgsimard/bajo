@@ -141,6 +141,24 @@ class ViewerGraphicsTests(unittest.TestCase):
         summary, _ = self.launch("cycle")
         self.assertEqual(summary, (6, 2))
 
+    def test_linear_sessions_and_meshes_close_before_the_window(self):
+        for mode, path in (("cycle", ""), ("open", self.scene.parent)):
+            with self.subTest(mode=mode):
+                result = self.run_viewer("--bounds", "both", input_mode=mode, path=path)
+                self.assertIn(
+                    "OWNERSHIP_TEST meshes=0 drawing=0 scene=0 scissor=0 errors=0 partial_unloads=0",
+                    result.stdout,
+                )
+
+    def test_failed_mesh_upload_releases_partial_resources(self):
+        result = self.run_viewer(input_mode="upload-failure", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not upload raster mesh", result.stderr)
+        self.assertIn(
+            "OWNERSHIP_TEST meshes=0 drawing=0 scene=0 scissor=0 errors=0 partial_unloads=1",
+            result.stdout,
+        )
+
     def test_tab_preserves_pbrt_camera_horizontal_orientation(self):
         from PIL import Image
 

@@ -19,6 +19,12 @@ static int sample_resets;
 static int batch_control_frame = -1;
 static int batch_setting_four;
 static int orientation_trace;
+static int live_meshes;
+static int drawing;
+static int scene_3d;
+static int scissor;
+static int ownership_errors;
+static int partial_mesh_unloads;
 
 static void *real_symbol(const char *name) {
     static void *library;
@@ -35,6 +41,65 @@ static bool mode(const char *name) {
 
 static bool batch_mode(void) {
     return mode("batch") || mode("batch-key") || mode("batch-click");
+}
+
+void BeginDrawing(void) {
+    if (drawing || scene_3d || scissor) ++ownership_errors;
+    drawing = 1;
+    void (*begin)(void) = real_symbol("BeginDrawing");
+    begin();
+}
+
+void BeginMode3D(Camera3D camera) {
+    if (!drawing || scene_3d) ++ownership_errors;
+    scene_3d = 1;
+    void (*begin)(Camera3D) = real_symbol("BeginMode3D");
+    begin(camera);
+}
+
+void EndMode3D(void) {
+    if (!drawing || !scene_3d) ++ownership_errors;
+    scene_3d = 0;
+    void (*end)(void) = real_symbol("EndMode3D");
+    end();
+}
+
+void BeginScissorMode(int x, int y, int width, int height) {
+    if (!drawing || scissor) ++ownership_errors;
+    scissor = 1;
+    void (*begin)(int, int, int, int) = real_symbol("BeginScissorMode");
+    begin(x, y, width, height);
+}
+
+void EndScissorMode(void) {
+    if (!drawing || !scissor) ++ownership_errors;
+    scissor = 0;
+    void (*end)(void) = real_symbol("EndScissorMode");
+    end();
+}
+
+void UploadMesh(Mesh *mesh, bool dynamic) {
+    if (mode("upload-failure")) return;
+    void (*upload)(Mesh *, bool) = real_symbol("UploadMesh");
+    upload(mesh, dynamic);
+    if (mesh->vaoId) ++live_meshes;
+}
+
+Mesh GenMeshSphere(float radius, int rings, int slices) {
+    Mesh (*generate)(float, int, int) = real_symbol("GenMeshSphere");
+    int before = live_meshes;
+    Mesh mesh = generate(radius, rings, slices);
+    // Native generation can call the interposed UploadMesh itself.
+    if (mesh.vaoId && live_meshes == before) ++live_meshes;
+    return mesh;
+}
+
+void UnloadMesh(Mesh mesh) {
+    if (mesh.vaoId) --live_meshes;
+    else if (mesh.vertices) ++partial_mesh_unloads;
+    if (live_meshes < 0 || drawing) ++ownership_errors;
+    void (*unload)(Mesh) = real_symbol("UnloadMesh");
+    unload(mesh);
 }
 
 bool IsKeyPressed(int key) {
@@ -130,6 +195,8 @@ void DrawTextEx(Font font, const char *text, Vector2 position, float size, float
 }
 
 void EndDrawing(void) {
+    if (!drawing || scene_3d || scissor) ++ownership_errors;
+    drawing = 0;
     void (*end)(void) = real_symbol("EndDrawing");
     end();
     if (mode("orientation")) {
@@ -150,6 +217,7 @@ void EndDrawing(void) {
 }
 
 void CloseWindow(void) {
+    if (drawing || scene_3d || scissor || live_meshes) ++ownership_errors;
     void (*close)(void) = real_symbol("CloseWindow");
     close();
     printf("SCENE_INPUT_TEST frames=%d scenes=%d\n", frames, scenes);
@@ -157,4 +225,6 @@ void CloseWindow(void) {
            completed_samples, total_samples, completed_batches, sample_resets, batch_control_frame >= 0, batch_setting_four);
     printf("FILE_INPUT_TEST browser=%d custom=%d error=%d drop_unloaded=%d trace=%d\n",
            browser_frames, custom_scene, load_error, dropped_unloaded, custom_trace);
+    printf("OWNERSHIP_TEST meshes=%d drawing=%d scene=%d scissor=%d errors=%d partial_unloads=%d\n",
+           live_meshes, drawing, scene_3d, scissor, ownership_errors, partial_mesh_unloads);
 }

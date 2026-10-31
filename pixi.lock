@@ -91,7 +91,7 @@ environments:
       - conda: https://conda.modular.com/max-nightly/linux-64/mojo-compiler-1.3.0.dev2026103105-release.conda
       - conda: https://conda.modular.com/max-nightly/noarch/mblack-26.8.0.dev2026103105-release.conda
       - conda: https://conda.modular.com/max-nightly/noarch/mojo-python-1.3.0.dev2026103105-release.conda
-      - conda_source: raylib[7f5fd775] @ git+https://github.com/jgsimard/raylib?branch=main#b724748032285b8e99a961b65d2860937bb810da
+      - conda_source: raylib[2f5abe54] @ git+https://github.com/jgsimard/raylib?branch=main#5e7c505bdc52e79ace88bfdff3d7c8f84705579b
   graphics:
     channels:
     - url: https://conda.modular.com/max-nightly/
@@ -186,7 +186,7 @@ environments:
       - conda: https://conda.modular.com/max-nightly/linux-64/mojo-compiler-1.3.0.dev2026103105-release.conda
       - conda: https://conda.modular.com/max-nightly/noarch/mblack-26.8.0.dev2026103105-release.conda
       - conda: https://conda.modular.com/max-nightly/noarch/mojo-python-1.3.0.dev2026103105-release.conda
-      - conda_source: raylib[7f5fd775] @ git+https://github.com/jgsimard/raylib?branch=main#b724748032285b8e99a961b65d2860937bb810da
+      - conda_source: raylib[2f5abe54] @ git+https://github.com/jgsimard/raylib?branch=main#5e7c505bdc52e79ace88bfdff3d7c8f84705579b
   plotting:
     channels:
     - url: https://conda.modular.com/max-nightly/
@@ -2903,7 +2903,7 @@ packages:
   run_exports: {}
   size: 26425
   timestamp: 1793423770091
-- conda_source: raylib[7f5fd775] @ git+https://github.com/jgsimard/raylib?branch=main#b724748032285b8e99a961b65d2860937bb810da
+- conda_source: raylib[2f5abe54] @ git+https://github.com/jgsimard/raylib?branch=main#5e7c505bdc52e79ace88bfdff3d7c8f84705579b
   version: 0.1.0
   build: hcf1e741_0
   subdir: linux-64

@@ -20,6 +20,7 @@ from raylib import (
     Camera3D,
     Color,
     Frame,
+    Scene3D,
     Material,
     Matrix,
     Mesh,
@@ -189,6 +190,23 @@ def _upload_triangles[
     return window.create_mesh(positions, packed_normals, colors)
 
 
+def _unload_meshes(var meshes: List[Mesh], library: Library):
+    """Consume every mesh, including empty placeholders, before its context closes.
+    """
+
+    def unload(var mesh: Mesh) {imm library}:
+        library.unload_mesh(mesh^)
+
+    meshes^.deinit_with(unload)
+
+
+def _unload_material(material: Material, library: Library):
+    try:
+        library.unload_material(material)
+    except error:
+        abort(String(t"raylib raster cleanup failed: {error}"))
+
+
 struct RasterScene:
     """Own uploaded meshes once; draw shared meshes with per-instance matrices.
 
@@ -288,9 +306,7 @@ struct RasterScene:
                         )
                     )
         except error:
-            for mesh in meshes:
-                if mesh.vao_id:
-                    library.unload_mesh(mesh)
+            _unload_meshes(meshes^, library)
             library.unload_material(material)
             raise error
         self.library = library^
@@ -298,7 +314,7 @@ struct RasterScene:
         self.meshes = meshes^
         self.draws = draws^
 
-    def draw(self, frame: Frame) raises:
+    def draw(self, frame: Scene3D[Frame]):
         for draw in self.draws:
             if self.meshes[draw.mesh].vao_id:
                 self.library.set_material_color(self.material, 0, draw.color)
@@ -307,10 +323,5 @@ struct RasterScene:
                 )
 
     def __deinit__(deinit self):
-        try:
-            for mesh in self.meshes:
-                if mesh.vao_id:
-                    self.library.unload_mesh(mesh)
-            self.library.unload_material(self.material)
-        except error:
-            abort(String(t"raylib raster cleanup failed: {error}"))
+        _unload_meshes(self.meshes^, self.library)
+        _unload_material(self.material, self.library)

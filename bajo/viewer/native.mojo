@@ -15,7 +15,16 @@ from .scenes import (
     viewer_scene_index,
     viewer_scene_name,
 )
-from raylib import Window, Color, BoundingBox, Vector3, Frame, TextFont
+from raylib import (
+    Window,
+    Color,
+    BoundingBox,
+    Vector3,
+    Frame,
+    Scene3D,
+    TextFont,
+    Matrix,
+)
 from .raster import (
     RasterScene,
     DisplayTexture,
@@ -237,8 +246,11 @@ def rotate_camera(mut camera: Camera, yaw: Float32, pitch: Float32):
 
 
 def _draw_boxes(
-    frame: Frame, boxes: List[DebugBox], color: Color, depth: Int = 100000
-) raises:
+    frame: Scene3D[Frame],
+    boxes: List[DebugBox],
+    color: Color,
+    depth: Int = 100000,
+):
     for box in boxes:
         if box.depth <= depth:
             frame.draw_box(
@@ -559,154 +571,149 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
             box_request_in_flight = needs_boxes
         var message = load_error if load_error != "" else error_text
         var toolbar_height = 138 if width < 840 else 110
+        # Validate the camera before starting any linear drawing session.
+        var raster_view = Optional[Matrix]()
+        if not traced or not texture:
+            raster_view = raster_view_matrix(camera)
         var frame = window^.begin_drawing()
-        try:
-            frame.clear_background(Color(24, 27, 33, 255))
-            if traced and texture:
-                frame.draw_texture(texture.value().texture, width, height)
-            # Keep a useful view during backend preparation and the first batch.
-            if not traced or not texture:
-                frame.begin_3d(raster_camera(camera))
-                # Preserve PBRT's authored camera axes and show both faces.
-                frame.set_modelview(raster_view_matrix(camera))
-                frame.disable_backface_culling()
-                view.raster.draw(frame)
-                if bounds == 1 or bounds == 3:
-                    _draw_boxes(frame, view.objects, Color(255, 196, 60, 255))
-                if bounds >= 2 and have_boxes:
-                    _draw_boxes(frame, boxes, Color(40, 210, 255, 255), depth)
-                frame.enable_backface_culling()
-                frame.end_3d()
-            frame.draw_rectangle(
-                0,
-                0,
-                width,
-                toolbar_height + (26 if message != "" else 0),
-                Color(10, 13, 18, 225),
+        frame.clear_background(Color(24, 27, 33, 255))
+        if traced and texture:
+            frame.draw_texture(texture.value().texture, width, height)
+        # Keep a useful view during backend preparation and the first batch.
+        if raster_view:
+            var scene = frame^.begin_3d(raster_camera(camera))
+            # Preserve PBRT's authored camera axes and show both faces.
+            scene.set_modelview(raster_view.value())
+            scene.disable_backface_culling()
+            view.raster.draw(scene)
+            if bounds == 1 or bounds == 3:
+                _draw_boxes(scene, view.objects, Color(255, 196, 60, 255))
+            if bounds >= 2 and have_boxes:
+                _draw_boxes(scene, boxes, Color(40, 210, 255, 255), depth)
+            scene.enable_backface_culling()
+            frame = scene^.end()
+        frame.draw_rectangle(
+            0,
+            0,
+            width,
+            toolbar_height + (26 if message != "" else 0),
+            Color(10, 13, 18, 225),
+        )
+        var mode = String("TRACE") if traced else String("RASTER")
+        if traced and not texture:
+            mode = (
+                "TRACE (loading; raster preview)" if error_text
+                == "" else "TRACE ERROR (raster preview)"
             )
-            var mode = String("TRACE") if traced else String("RASTER")
-            if traced and not texture:
-                mode = (
-                    "TRACE (loading; raster preview)" if error_text
-                    == "" else "TRACE ERROR (raster preview)"
-                )
-            var backend_name = String("CPU") if backend == 0 else String("GPU")
-            var batch_count = String(
-                "1 batch"
-            ) if accumulation.batches == 1 else String(
-                t"{accumulation.batches} batches"
-            )
-            var trace_stats = String(
-                t"{accumulation.samples}/{max_samples} spp | {batch_count} |"
-                t" {render_ms} ms"
-            )
+        var backend_name = String("CPU") if backend == 0 else String("GPU")
+        var batch_count = String(
+            "1 batch"
+        ) if accumulation.batches == 1 else String(
+            t"{accumulation.batches} batches"
+        )
+        var trace_stats = String(
+            t"{accumulation.samples}/{max_samples} spp | {batch_count} |"
+            t" {render_ms} ms"
+        )
+        frame.draw_text_ex(
+            font.font,
+            String(
+                t"{scene_name} | {mode} | Bajo {backend_name} | {trace_stats}"
+            ),
+            10,
+            8,
+            20,
+            Color(235, 240, 250, 255),
+        )
+        frame.draw_text_ex(
+            font.font,
+            String(
+                t"Algorithm: {algorithm_names[integrator]} (1-5) | Sampler:"
+                t" {sampler_names[Int(settings.sampler)]} (P)"
+            ),
+            10,
+            35,
+            18,
+            Color(235, 240, 250, 255),
+        )
+        frame.draw_text_ex(
+            font.font,
+            String(
+                "WASD/QE move | drag look | Tab raster/trace | G CPU/GPU |"
+                " C scene"
+            ),
+            10,
+            62,
+            16,
+            Color(180, 195, 210, 255),
+        )
+        frame.draw_text_ex(
+            font.font,
+            String(
+                t"B bounds {bounds} | [/] CPU BVH depth {depth} | capped:"
+                t" {len(view.objects)} objects, {len(boxes)} BVH | R reset"
+                t" | F fullscreen"
+            ),
+            10,
+            86,
+            16,
+            Color(180, 195, 210, 255),
+        )
+        var batch_label = String(
+            "all"
+        ) if options.samples_per_batch == -1 else String(
+            t"{options.samples_per_batch} spp"
+        )
+        frame.draw_rectangle(batch_x, batch_y, 28, 28, Color(45, 75, 108, 255))
+        frame.draw_text_ex(
+            font.font,
+            String("-"),
+            batch_x + 9,
+            batch_y + 3,
+            20,
+            Color(235, 240, 250, 255),
+        )
+        var clipped = frame^.begin_scissor(batch_x + 32, batch_y, 186, 28)
+        clipped.draw_text_ex(
+            font.font,
+            String(t"Batch: {batch_label} (J/K)"),
+            batch_x + 36,
+            batch_y + 5,
+            16,
+            Color(235, 240, 250, 255),
+        )
+        frame = clipped^.end()
+        frame.draw_rectangle(
+            batch_x + 222, batch_y, 28, 28, Color(45, 75, 108, 255)
+        )
+        frame.draw_text_ex(
+            font.font,
+            String("+"),
+            batch_x + 229,
+            batch_y + 3,
+            20,
+            Color(235, 240, 250, 255),
+        )
+        frame.draw_rectangle(width - 148, 58, 138, 28, Color(45, 75, 108, 255))
+        frame.draw_text_ex(
+            font.font,
+            String("Open scene (O)"),
+            width - 138,
+            62,
+            16,
+            Color(235, 240, 250, 255),
+        )
+        if message != "":
             frame.draw_text_ex(
                 font.font,
-                String(
-                    t"{scene_name} | {mode} | Bajo {backend_name} |"
-                    t" {trace_stats}"
-                ),
+                message,
                 10,
-                8,
-                20,
-                Color(235, 240, 250, 255),
-            )
-            frame.draw_text_ex(
-                font.font,
-                String(
-                    t"Algorithm: {algorithm_names[integrator]} (1-5) | Sampler:"
-                    t" {sampler_names[Int(settings.sampler)]} (P)"
-                ),
-                10,
-                35,
-                18,
-                Color(235, 240, 250, 255),
-            )
-            frame.draw_text_ex(
-                font.font,
-                String(
-                    "WASD/QE move | drag look | Tab raster/trace | G CPU/GPU |"
-                    " C scene"
-                ),
-                10,
-                62,
+                toolbar_height + 2,
                 16,
-                Color(180, 195, 210, 255),
+                Color(255, 100, 100, 255),
             )
-            frame.draw_text_ex(
-                font.font,
-                String(
-                    t"B bounds {bounds} | [/] CPU BVH depth {depth} | capped:"
-                    t" {len(view.objects)} objects, {len(boxes)} BVH | R reset"
-                    t" | F fullscreen"
-                ),
-                10,
-                86,
-                16,
-                Color(180, 195, 210, 255),
-            )
-            var batch_label = String(
-                "all"
-            ) if options.samples_per_batch == -1 else String(
-                t"{options.samples_per_batch} spp"
-            )
-            frame.draw_rectangle(
-                batch_x, batch_y, 28, 28, Color(45, 75, 108, 255)
-            )
-            frame.draw_text_ex(
-                font.font,
-                String("-"),
-                batch_x + 9,
-                batch_y + 3,
-                20,
-                Color(235, 240, 250, 255),
-            )
-            frame.begin_scissor(batch_x + 32, batch_y, 186, 28)
-            frame.draw_text_ex(
-                font.font,
-                String(t"Batch: {batch_label} (J/K)"),
-                batch_x + 36,
-                batch_y + 5,
-                16,
-                Color(235, 240, 250, 255),
-            )
-            frame.end_scissor()
-            frame.draw_rectangle(
-                batch_x + 222, batch_y, 28, 28, Color(45, 75, 108, 255)
-            )
-            frame.draw_text_ex(
-                font.font,
-                String("+"),
-                batch_x + 229,
-                batch_y + 3,
-                20,
-                Color(235, 240, 250, 255),
-            )
-            frame.draw_rectangle(
-                width - 148, 58, 138, 28, Color(45, 75, 108, 255)
-            )
-            frame.draw_text_ex(
-                font.font,
-                String("Open scene (O)"),
-                width - 138,
-                62,
-                16,
-                Color(235, 240, 250, 255),
-            )
-            if message != "":
-                frame.draw_text_ex(
-                    font.font,
-                    message,
-                    10,
-                    toolbar_height + 2,
-                    16,
-                    Color(255, 100, 100, 255),
-                )
-            if picker.active:
-                picker.draw(frame, font.font, width, height)
-        except error:
-            window = frame^.end()
-            raise error
+        if picker.active:
+            picker.draw(frame, font.font, width, height)
         window = frame^.end()
         # EndDrawing polls input. Without it the C press remains latched and
         # every new session immediately switches again without rendering.

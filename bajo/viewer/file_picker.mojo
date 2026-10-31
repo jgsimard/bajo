@@ -33,7 +33,7 @@ def contains(point: Vector2, x: Int, y: Int, width: Int, height: Int) -> Bool:
     )
 
 
-def is_scene_file(window: Window, path: String) raises -> Bool:
+def is_scene_file(window: Window, path: String) -> Bool:
     var extension = window.file_extension(path)
     return extension == ".pbrt" or extension == ".pbrt-v4"
 
@@ -168,7 +168,7 @@ struct FilePicker:
             return self.open_path(window, path)
         return Optional[String]()
 
-    def draw(self, frame: Frame, font: Font, width: Int, height: Int) raises:
+    def draw(self, mut frame: Frame, font: Font, width: Int, height: Int):
         frame.draw_rectangle(0, 0, width, height, Color(0, 0, 0, 180))
         frame.draw_rectangle(
             16, 16, width - 32, height - 32, Color(28, 33, 42, 255)
@@ -181,11 +181,11 @@ struct FilePicker:
             24,
             Color(240, 245, 255, 255),
         )
-        frame.begin_scissor(32, 64, width - 64, 24)
-        frame.draw_text_ex(
+        var directory_clip = frame^.begin_scissor(32, 64, width - 64, 24)
+        directory_clip.draw_text_ex(
             font, self.directory, 32, 64, 16, Color(190, 205, 220, 255)
         )
-        frame.end_scissor()
+        frame = directory_clip^.end()
         frame.draw_rectangle(32, 96, 80, 28, Color(55, 67, 85, 255))
         frame.draw_text_ex(
             font, String("Up"), 48, 100, 18, Color(240, 245, 255, 255)
@@ -199,24 +199,26 @@ struct FilePicker:
             Color(190, 205, 220, 255),
         )
         var visible = max(1, (height - 264) // 28)
-        frame.begin_scissor(32, 136, width - 64, visible * 28)
+        var entries_clip = frame^.begin_scissor(
+            32, 136, width - 64, visible * 28
+        )
         for row in range(visible):
             var index = self.offset + row
             if index >= len(self.entries):
                 break
             var y = 136 + row * 28
             if index == self.selected:
-                frame.draw_rectangle(
+                entries_clip.draw_rectangle(
                     32, y, width - 64, 28, Color(48, 78, 112, 255)
                 )
             var label = self.entries[index].name
             if self.entries[index].directory:
                 label += "/"
-            frame.draw_text_ex(
+            entries_clip.draw_text_ex(
                 font, label, 40, y + 4, 18, Color(230, 235, 245, 255)
             )
         if not len(self.entries):
-            frame.draw_text_ex(
+            entries_clip.draw_text_ex(
                 font,
                 String("No PBRT files or subfolders here."),
                 40,
@@ -224,7 +226,7 @@ struct FilePicker:
                 18,
                 Color(180, 195, 210, 255),
             )
-        frame.end_scissor()
+        frame = entries_clip^.end()
         frame.draw_text_ex(
             font,
             String(
@@ -236,11 +238,11 @@ struct FilePicker:
             14,
             Color(180, 195, 210, 255),
         )
-        frame.begin_scissor(32, height - 92, width - 64, 24)
-        frame.draw_text_ex(
+        var error_clip = frame^.begin_scissor(32, height - 92, width - 64, 24)
+        error_clip.draw_text_ex(
             font, self.error, 32, height - 92, 16, Color(255, 130, 110, 255)
         )
-        frame.end_scissor()
+        frame = error_clip^.end()
         frame.draw_rectangle(
             width - 252, height - 60, 100, 32, Color(55, 67, 85, 255)
         )

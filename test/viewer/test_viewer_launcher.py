@@ -21,6 +21,8 @@ class ViewerLauncherTests(unittest.TestCase):
         script = Path(__file__).resolve().parents[2] / "scripts/run_viewer.sh"
         shutil.copy(script, self.root / "scripts/run_viewer.sh")
         (self.root / "examples/viewer_raylib.mojo").write_text("# viewer\n")
+        (self.root / "pixi.toml").write_text("# manifest\n")
+        (self.root / "pixi.lock").write_text("# locked dependencies\n")
         self.log = self.root / "compiler.jsonl"
         compiler = self.root / "bin/mojo"
         executable = (
@@ -84,6 +86,15 @@ class ViewerLauncherTests(unittest.TestCase):
         script.write_text(script.read_text() + "\n# changed build configuration\n")
         self.launch("--help")
         self.assertEqual(len(self.builds()), 2)
+
+    def test_dependency_changes_invalidate_cached_build(self):
+        self.launch("--help")
+        (self.root / "pixi.lock").write_text("# updated raylib revision\n")
+        self.launch("--help")
+        self.assertEqual(len(self.builds()), 2)
+        (self.root / "pixi.toml").write_text("# changed dependency declaration\n")
+        self.launch("--help")
+        self.assertEqual(len(self.builds()), 3)
 
     def test_gpu_build_uses_requested_architecture(self):
         self.launch("--help")

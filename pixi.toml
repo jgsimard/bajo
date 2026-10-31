@@ -2,12 +2,12 @@
 authors = ["jgsimard <jeangab23@gmail.com>"]
 channels = ["https://conda.modular.com/max-nightly", "conda-forge"]
 name = "bajo"
-platforms = ["linux-64"]
+platforms = [{ platform = "linux-64", glibc = "2.38" }]
 version = "0.1.0"
+preview = ["pixi-build"]
 
 [tasks]
 download_assets = "bash scripts/download_assets.sh"
-install_raylib = "bash scripts/install_raylib.sh"
 install_prek = "prek install"
 fmt = "mojo format ."
 clean = "bash scripts/clean.sh"
@@ -18,8 +18,8 @@ example_rtiaw = "mojo -I . examples/rtiaw.mojo"
 example_cornell = "mojo -I . examples/cornell_box.mojo"
 example_mis_showcase = "mojo -I . examples/mis_showcase.mojo"
 example_pbrt = "mojo -I . examples/pbrt_scene.mojo"
-viewer = { cmd = "bash scripts/run_viewer.sh", depends-on = ["install_raylib"] }
-viewer_gpu = { cmd = "bash scripts/run_viewer.sh --gpu", depends-on = ["install_raylib"] }
+viewer = "bash scripts/run_viewer.sh"
+viewer_gpu = "bash scripts/run_viewer.sh --gpu"
 viewer_scene = "mojo run -I . examples/viewer_scene.mojo"
 
 # tests
@@ -93,9 +93,10 @@ bench_smoke = { depends-on = ["bench_bvh_cpu_grid", "bench_rt_cpu"] }
 bench_bvh_smoke = { depends-on = ["bench_bvh_cpu_grid"] }
 
 [dependencies]
+raylib = { git = "https://github.com/jgsimard/raylib.git", branch = "main" }
 libpng = ">=1.6.59,<2"
-mojo = ">=1.3.0.dev2026102914,<2"
-max = ">=26.8.0.dev2026102914,<27"
+mojo = ">=1.3.0.dev2026103105,<2"
+max = ">=26.8.0.dev2026103105,<27"
 python = ">=3.13.18,<3.14"
 
 [feature.plotting.dependencies]
@@ -110,7 +111,7 @@ plot_sort = { cmd = "python plot_gpu_sort.py gpu_sort_benchmark_results.csv", cw
 pillow = ">=13.0.0,<14"
 
 [feature.graphics.tasks]
-test_viewer_graphics = { cmd = "python test/viewer/test_viewer_graphics.py", env = { BAJO_TEST_VIEWER_GRAPHICS = "1" }, depends-on = ["install_raylib"] }
+test_viewer_graphics = { cmd = "python test/viewer/test_viewer_graphics.py", env = { BAJO_TEST_VIEWER_GRAPHICS = "1" } }
 
 [environments]
 default = { features = [], solve-group = "bajo" }

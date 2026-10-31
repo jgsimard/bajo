@@ -1,8 +1,6 @@
 """Cached raylib geometry and native presentation of Bajo scenes."""
 
-from std.ffi import OwnedDLHandle, c_int
 from std.math import atan, pi
-from std.memory import Pointer
 from std.os import abort
 from bajo.core.camera import Camera
 from bajo.core import (
@@ -16,16 +14,15 @@ from bajo.core import (
 from bajo.rt.image_output import color_to_byte
 from bajo.rt.material_types import SurfaceId, SurfaceStore
 from bajo.rt.scene_data import SceneData
-from .raylib import (
+from raylib import (
+    Library,
+    Texture2D as DisplayTexture,
     Camera3D,
     Color,
     Frame,
     Material,
-    MaterialMap,
     Matrix,
     Mesh,
-    Shader,
-    Texture,
     Vector3,
     Window,
 )
@@ -199,7 +196,7 @@ struct RasterScene:
     before the OpenGL context. Its library handle retains all cleanup symbols.
     """
 
-    var library: OwnedDLHandle
+    var library: Library
     var meshes: List[Mesh]
     var draws: List[RasterDraw]
     var material: Material
@@ -207,27 +204,18 @@ struct RasterScene:
     def __init__(
         out self, path: String, window: Window, data: SceneData
     ) raises:
-        var library = OwnedDLHandle(path)
-        var material = library.get_function[Material]("LoadMaterialDefault")()
+        var library = Library(path)
+        var material = library.default_material()
         var meshes = List[Mesh]()
         var draws = List[RasterDraw]()
         try:
             var vertex_source = String(VERTEX_SHADER)
             var fragment_source = String(FRAGMENT_SHADER)
-            var shader = library.get_function[Shader]("LoadShaderFromMemory")(
-                vertex_source.as_c_string_span(),
-                fragment_source.as_c_string_span(),
-            )
-            if not library.get_function[Bool]("IsShaderValid")(shader):
-                raise Error("raster lighting shader failed to compile")
+            var shader = library.load_shader(vertex_source, fragment_source)
             material.shader = shader
-            var locations = Pointer[c_int, MutUntrackedOrigin](
-                unsafe_from_address=Int(shader.locs)
+            library.set_shader_location(
+                shader, 10, library.shader_location(shader, String("matNormal"))
             )
-            var normal_name = String("matNormal")
-            locations[unsafe_offset=10] = library.get_function[c_int](
-                "GetShaderLocation"
-            )(shader, normal_name.as_c_string_span())
             if len(data.triangle_vertices()):
                 meshes.append(
                     _upload_triangles(
@@ -269,7 +257,7 @@ struct RasterScene:
                 )
             if len(data.spheres()):
                 var sphere_mesh = len(meshes)
-                meshes.append(window.sphere_mesh())
+                meshes.append(window.sphere_mesh(1, 20, 24))
                 for index in range(len(data.spheres())):
                     ref sphere = data.spheres()[index]
                     var r = sphere.radius
@@ -302,8 +290,8 @@ struct RasterScene:
         except error:
             for mesh in meshes:
                 if mesh.vao_id:
-                    library.get_function[NoneType]("UnloadMesh")(mesh)
-            library.get_function[NoneType]("UnloadMaterial")(material)
+                    library.unload_mesh(mesh)
+            library.unload_material(material)
             raise error
         self.library = library^
         self.material = material
@@ -311,12 +299,9 @@ struct RasterScene:
         self.draws = draws^
 
     def draw(self, frame: Frame) raises:
-        var maps = Pointer[MaterialMap, MutUntrackedOrigin](
-            unsafe_from_address=Int(self.material.maps)
-        )
         for draw in self.draws:
             if self.meshes[draw.mesh].vao_id:
-                maps[unsafe_offset=0].color = draw.color
+                self.library.set_material_color(self.material, 0, draw.color)
                 frame.draw_mesh(
                     self.meshes[draw.mesh], self.material, draw.transform
                 )
@@ -325,30 +310,7 @@ struct RasterScene:
         try:
             for mesh in self.meshes:
                 if mesh.vao_id:
-                    self.library.get_function[NoneType]("UnloadMesh")(mesh)
-            self.library.get_function[NoneType]("UnloadMaterial")(self.material)
+                    self.library.unload_mesh(mesh)
+            self.library.unload_material(self.material)
         except error:
             abort(String(t"raylib raster cleanup failed: {error}"))
-
-
-struct DisplayTexture:
-    var library: OwnedDLHandle
-    var texture: Texture
-
-    def __init__(
-        out self,
-        path: String,
-        window: Window,
-        width: Int,
-        height: Int,
-        pixels: ImmSpan[UInt8, _],
-    ) raises:
-        var library = OwnedDLHandle(path)
-        self.texture = window.create_texture(width, height, pixels)
-        self.library = library^
-
-    def __deinit__(deinit self):
-        try:
-            self.library.get_function[NoneType]("UnloadTexture")(self.texture)
-        except error:
-            abort(String(t"raylib texture cleanup failed: {error}"))

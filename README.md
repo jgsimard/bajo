@@ -8,26 +8,23 @@ The current implementation is focused on the foundations needed for that goal: m
 
 ## Requirements
 
-- Linux x86-64
+- Linux x86-64 with glibc 2.38 or later (required by the native raylib binary)
 - [Pixi](https://pixi.sh/)
 - A supported accelerator for GPU tests, GPU examples, and GPU benchmarks
 
-Pixi provides the pinned nightly Mojo, MAX, and Python dependencies declared in
+Pixi provides the Mojo, MAX, Python, and raylib binding dependencies declared in
 [`pixi.toml`](pixi.toml):
 
 ```bash
 pixi install
 ```
 
-For the native raylib window bindings, install the pinned [raylib 6.2 release](https://github.com/raysan5/raylib/releases/tag/6.2):
-
-```bash
-pixi run install_raylib
-```
-
-This verifies the release archive's SHA-256 checksum and installs it in
-`.pixi/raylib/`, upgrading older installations. Pass
-`.pixi/raylib/lib/libraylib.so` to `bajo.viewer.raylib.Window`.
+The [Mojo raylib bindings](https://github.com/jgsimard/raylib) are installed by
+Pixi from its `main` branch, with the resolved commit recorded in `pixi.lock`.
+The library package also installs the native raylib 6.2 shared library and headers.
+Viewer code imports `raylib` directly and loads `$CONDA_PREFIX/lib/libraylib.so`;
+`--raylib-library PATH` selects a custom native library. See the library repository
+for its standalone example and ABI tests.
 
 Examples and asset-dependent benchmarks download their meshes on first use:
 
@@ -39,7 +36,7 @@ pixi run download_assets
 ## Interactive renderer
 
 The viewer runs in Mojo with raylib 6.2 for the window, input, and raster rendering.
-`pixi run viewer` installs raylib locally when needed and opens the RTIAW scene:
+`pixi run viewer` opens the RTIAW scene:
 
 ```bash
 pixi run viewer
@@ -107,7 +104,7 @@ BAJO_GPU_ARCH=sm_89 pixi run viewer_gpu --mode trace --backend gpu
 ```
 
 The launcher builds and caches a standalone executable before opening the window.
-Source, compiler, or launcher changes rebuild it; `pixi run clean` removes the cache. This
+Source, compiler, dependency, or launcher changes rebuild it; `pixi run clean` removes the cache. This
 avoids a render-worker stall under `mojo run`. A raster preview stays visible
 until the first traced frame is ready. Use `pixi run viewer --help` for
 scene names, render options, CPU builder/traversal selection, and library path.

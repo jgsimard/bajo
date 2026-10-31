@@ -16,7 +16,9 @@ class ViewerGraphicsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = Path(__file__).resolve().parents[2]
-        cls.raylib = cls.root / ".pixi/raylib"
+        cls.raylib = Path(os.environ.get(
+            "CONDA_PREFIX", cls.root / ".pixi/envs/default"
+        ))
         cls.temp = tempfile.TemporaryDirectory(prefix="bajo scene tests ")
         cls.addClassCleanup(cls.temp.cleanup)
         directory = Path(cls.temp.name)

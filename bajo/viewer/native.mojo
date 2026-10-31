@@ -1,8 +1,8 @@
 """The native Mojo/raylib viewer: raster presentation and Bajo tracing."""
 
 from std.math import sin, cos, min, max
+from std.os import getenv
 from std.sys.arg import argv
-from std.ffi import c_int
 from bajo.core.camera import Camera
 from bajo.core import Vec3W, cross, dot, length, normalize
 from bajo.core.random import Sampler
@@ -15,7 +15,7 @@ from .scenes import (
     viewer_scene_index,
     viewer_scene_name,
 )
-from .raylib import Window, Color, BoundingBox, Vector3, Frame, TextFont
+from raylib import Window, Color, BoundingBox, Vector3, Frame, TextFont
 from .raster import (
     RasterScene,
     DisplayTexture,
@@ -55,7 +55,10 @@ struct ViewerOptions(Copyable):
     def __init__(out self):
         self.scene = 0
         self.path = ""
-        self.library = ".pixi/raylib/lib/libraylib.so"
+        var prefix = getenv("CONDA_PREFIX")
+        self.library = (
+            prefix + "/lib/libraylib.so" if prefix else "libraylib.so"
+        )
         self.width = 0
         self.height = 0
         self.max_samples = 0
@@ -304,11 +307,9 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
     var window_height = max(
         240, window_width * settings.image_height // settings.image_width
     )
-    window.library.get_function[NoneType]("SetWindowSize")(
-        c_int(window_width), c_int(window_height)
-    )
+    window.resize(window_width, window_height)
     var font = TextFont(
-        options.library, String("resources/fonts/DejaVuSans.ttf")
+        options.library, String("resources/fonts/DejaVuSans.ttf"), 32, 1
     )
     var traced = options.traced
     var backend = options.backend
@@ -565,14 +566,16 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
                 frame.draw_texture(texture.value().texture, width, height)
             # Keep a useful view during backend preparation and the first batch.
             if not traced or not texture:
-                frame.begin_3d(
-                    raster_camera(camera), raster_view_matrix(camera)
-                )
+                frame.begin_3d(raster_camera(camera))
+                # Preserve PBRT's authored camera axes and show both faces.
+                frame.set_modelview(raster_view_matrix(camera))
+                frame.disable_backface_culling()
                 view.raster.draw(frame)
                 if bounds == 1 or bounds == 3:
                     _draw_boxes(frame, view.objects, Color(255, 196, 60, 255))
                 if bounds >= 2 and have_boxes:
                     _draw_boxes(frame, boxes, Color(40, 210, 255, 255), depth)
+                frame.enable_backface_culling()
                 frame.end_3d()
             frame.draw_rectangle(
                 0,

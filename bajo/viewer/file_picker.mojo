@@ -1,7 +1,27 @@
 """A raylib file browser for PBRT scenes, with no external GUI dependency."""
 
 from std.math import min, max, clamp
-from .raylib import Window, Frame, Font, Color, Vector2
+from std.ffi import external_call
+from std.memory import Pointer
+from raylib import Window, Frame, Font, Color, Vector2
+
+
+def canonical_path(var path: String) raises -> String:
+    """Resolve relative paths and symlinks for the supported Linux viewer."""
+    var address = external_call["realpath", UInt](
+        path.as_c_string_span(), UInt(0)
+    )
+    if not address:
+        raise Error("could not resolve path: " + path)
+    var pointer = Pointer[UInt8, MutUntrackedOrigin](
+        unsafe_from_address=Int(address)
+    )
+    var length = Int(external_call["strlen", UInt](pointer))
+    var result = String(
+        StringSpan(unsafe_from_utf8=ImmSpan(unsafe_ptr=pointer, length=length))
+    )
+    external_call["free", NoneType](address)
+    return result^
 
 
 def contains(point: Vector2, x: Int, y: Int, width: Int, height: Int) -> Bool:
@@ -44,7 +64,7 @@ struct FilePicker:
         self.error = ""
 
     def navigate(mut self, window: Window, path: String) raises:
-        var canonical = window.canonical_path(path)
+        var canonical = canonical_path(path)
         if not window.directory_exists(canonical):
             raise Error("directory does not exist: " + path)
         var folders = List[String]()

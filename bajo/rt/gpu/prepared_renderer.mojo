@@ -12,7 +12,7 @@ from bajo.rt.gpu.config import (
     GpuRtBvhFormat,
     GpuRtSceneKind,
     GPU_RT_BVH_CWBVH8,
-    GPU_RT_BVH_TLAS2,
+    GPU_RT_BVH_TLAS4,
     GPU_RT_BVH_WIDE4,
 )
 from bajo.rt.gpu.render import enqueue_render_gpu
@@ -108,7 +108,7 @@ struct GpuRtPreparedRenderer[
     kind: GpuRtSceneKind,
     sphere_format: GpuRtBvhFormat = GPU_RT_BVH_WIDE4,
     triangle_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
-    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS2,
+    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS4,
     blas_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
 ](Movable):
     """Own a device context, prepared scene, and reusable render target."""

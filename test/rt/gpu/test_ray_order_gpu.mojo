@@ -33,7 +33,7 @@ from bajo.rt.gpu import (
     download_gpu_pixels,
     GPU_RT_BVH_WIDE4,
     GPU_RT_BVH_CWBVH8,
-    GPU_RT_BVH_TLAS2,
+    GPU_RT_BVH_TLAS4,
 )
 from test.rt.gpu.test_gpu import _camera, _textured_instance_world
 
@@ -55,13 +55,14 @@ def _assert_queue_order[
         var scene_view = scene.view()
         # A synthetic TLAS root spans [0,4]^3. Positions at bin centers avoid
         # rounding ambiguity; negative/beyond-root positions exercise clamping.
-        var nodes = ctx.enqueue_create_buffer[.float32](14)
+        comptime tlas_width = GPU_RT_BVH_TLAS4.node_width
+        var nodes = ctx.enqueue_create_buffer[.float32](7 * tlas_width)
         with nodes.map_to_host() as data:
-            for i in range(6):
-                data[i] = 0.0
-                data[i + 6] = 4.0
-            data[12] = bitcast[.float32](UInt32(0))
-            data[13] = bitcast[.float32](UInt32(0))
+            for field in range(6):
+                for lane in range(tlas_width):
+                    data[field * tlas_width + lane] = 0.0 if field < 3 else 4.0
+            for lane in range(tlas_width):
+                data[6 * tlas_width + lane] = bitcast[.float32](UInt32(0))
         scene_view.instances.value().tlas_nodes = (
             nodes.unsafe_ptr()
             .unsafe_mut_cast[False]()
@@ -159,7 +160,7 @@ def _assert_queue_order[
                             .INSTANCES,
                             GPU_RT_BVH_WIDE4,
                             GPU_RT_BVH_CWBVH8,
-                            GPU_RT_BVH_TLAS2,
+                            GPU_RT_BVH_TLAS4,
                             scatter,
                         ]
                     ](queues, scene_view, grid_dim=1, block_dim=256)
@@ -240,7 +241,7 @@ def _assert_queue_order[
         # the final queue use, including the first run's kernel compilation.
         with nodes.map_to_host() as data:
             assert_equal(data[0], Float32(0.0))
-            assert_equal(data[6], Float32(4.0))
+            assert_equal(data[3 * tlas_width], Float32(4.0))
 
 
 def test_gpu_spatial_order_preserves_partial_warps_and_queue_reuse() raises:

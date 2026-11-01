@@ -23,7 +23,7 @@ from bajo.rt.gpu.config import (
     GpuRtBvhFormat,
     GpuRtSceneKind,
     GPU_RT_BVH_CWBVH8,
-    GPU_RT_BVH_TLAS2,
+    GPU_RT_BVH_TLAS4,
     GPU_RT_BVH_WIDE4,
 )
 from bajo.rt.gpu.resources import GpuRtRenderTarget, upload_surface_ids
@@ -44,7 +44,7 @@ struct GpuRtScene[
     kind: GpuRtSceneKind,
     sphere_format: GpuRtBvhFormat = GPU_RT_BVH_WIDE4,
     triangle_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
-    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS2,
+    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS4,
     blas_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
 ]:
     """Own exactly the device resources selected by `kind`."""
@@ -239,7 +239,7 @@ def prepare_gpu_scene[
     kind: GpuRtSceneKind,
     sphere_format: GpuRtBvhFormat = GPU_RT_BVH_WIDE4,
     triangle_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
-    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS2,
+    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS4,
     blas_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
     triangle_build_method: GpuBvhBuildMethod = .HPLOC,
     tlas_build_method: GpuBvhBuildMethod = .HPLOC,

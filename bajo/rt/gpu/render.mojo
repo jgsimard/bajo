@@ -18,7 +18,7 @@ from bajo.rt.gpu.config import (
     GpuRtBvhFormat,
     GpuRtSceneKind,
     GPU_RT_BVH_CWBVH8,
-    GPU_RT_BVH_TLAS2,
+    GPU_RT_BVH_TLAS4,
     GPU_RT_BVH_WIDE4,
 )
 from bajo.rt.gpu.resources import (
@@ -144,7 +144,7 @@ def enqueue_render_gpu[
     kind: GpuRtSceneKind = .ALL,
     sphere_format: GpuRtBvhFormat = GPU_RT_BVH_WIDE4,
     triangle_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
-    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS2,
+    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS4,
     blas_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
@@ -196,7 +196,7 @@ def render_gpu_configured[
     integrator: Integrator = .PATH,
     sphere_format: GpuRtBvhFormat = GPU_RT_BVH_WIDE4,
     triangle_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
-    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS2,
+    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS4,
     blas_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
     triangle_build_method: GpuBvhBuildMethod = .HPLOC,
     tlas_build_method: GpuBvhBuildMethod = .HPLOC,
@@ -254,7 +254,7 @@ def render_gpu[
     camera: Camera,
     world: SceneData,
 ) raises -> RenderResult:
-    """Select geometry with WIDE4 spheres, CWBVH8 triangles/BLASes and TLAS2."""
+    """Select geometry with WIDE4 spheres, CWBVH8 triangles/BLASes and TLAS4."""
     if len(world.triangle_instances()) > 0:
         if len(world.spheres()) > 0:
             if len(world.triangle_vertices()) > 0:

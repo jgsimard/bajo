@@ -20,6 +20,7 @@ import test.bvh.gpu.test_build_finalize as gpu_test_build_finalize
 import test.bvh.gpu.test_bvh2_closest_tasks as gpu_test_bvh2_closest_tasks
 import test.bvh.gpu.test_cwbvh8_node_tasks as gpu_test_cwbvh8_node_tasks
 import test.bvh.gpu.test_hit_store as gpu_test_hit_store
+import test.bvh.gpu.test_instance_bounds as gpu_test_instance_bounds
 import test.bvh.gpu.test_launch_contracts as gpu_test_launch_contracts
 import test.bvh.gpu.test_ray_ordering as gpu_test_ray_ordering
 import test.bvh.gpu.test_segmented_empty as gpu_test_segmented_empty
@@ -46,6 +47,11 @@ import test.bvh.gpu.test_triangle_shadow as gpu_test_triangle_shadow
 
 def main() raises:
     var tests = TestRunner()
+    comptime if module_selected["gpu_test_instance_bounds"]():
+        tests.run(
+            "test/bvh/gpu/test_instance_bounds.mojo",
+            gpu_test_instance_bounds.run_tests[True],
+        )
     comptime if module_selected["cpu_test_blas_assembly"]():
         tests.run(
             "test/bvh/cpu/test_blas_assembly.mojo",

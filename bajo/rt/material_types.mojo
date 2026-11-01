@@ -1,14 +1,14 @@
 """Material, texture, environment, and surface storage types."""
+from bajo.core.image import ImageTexture
+from bajo.core.geometry import normal_from_slopes as bump_normal
 
 from std.sys.info import size_of
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from bajo.rt.texture_math import (
-    sample_image_texture,
     sample_environment_texture,
     albedo_from_texture,
     roughness_from_texture,
     bump_slope,
-    bump_normal,
 )
 from bajo.core.color import luminance, Color
 from std.utils.numerics import isfinite
@@ -19,60 +19,6 @@ from bajo.bvh.constants import PrimitiveKind
 
 
 comptime NO_TEXTURE = UInt32.MAX
-
-
-struct ImageTexture:
-    """Linear RGB image used by host-side material sampling."""
-
-    var width: Int
-    var height: Int
-    var pixels: List[Float32]
-
-    def __init__(out self, width: Int, height: Int, var pixels: List[Float32]):
-        self.width = width
-        self.height = height
-        self.pixels = pixels^
-
-    @always_inline
-    def sample[
-        length: SIMDLength = 1
-    ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> Vec3[
-        .float32, .WORLD, length
-    ]:
-        return sample_image_texture(
-            record_tile[.float32, 3](
-                self.pixels.unsafe_ptr(), self.width * self.height
-            ),
-            self.width,
-            self.height,
-            u,
-            v,
-        )
-
-    @always_inline
-    def sample_luminance[
-        length: SIMDLength = 1
-    ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> SIMD[
-        .float32, length
-    ]:
-        return luminance(self.sample(u, v))
-
-    @always_inline
-    def sample_environment[
-        length: SIMDLength = 1
-    ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> Vec3[
-        .float32, .WORLD, length
-    ]:
-        """Nearest lookup in PBRT's top-to-bottom equal-area image domain."""
-        return sample_environment_texture(
-            record_tile[.float32, 3](
-                self.pixels.unsafe_ptr(), self.width * self.height
-            ),
-            self.width,
-            self.height,
-            u,
-            v,
-        )
 
 
 struct EnvironmentKind(

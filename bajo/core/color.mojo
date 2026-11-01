@@ -1,7 +1,8 @@
 """Linear RGB luminance, XYZ conversion and blackbody spectrum integration."""
 
 from std.builtin.globals import global_constant
-from std.math import exp
+from std.math import exp, pow, sqrt
+from std.utils.numerics import isfinite
 from .vec import Vec3
 
 comptime Color = Vec3[.float32, .WORLD]
@@ -98,3 +99,57 @@ def blackbody_xyz(temperature: Float32, peak_normalization: Float32) -> Color:
         intensity /= exp(min(exponent, Float32(80.0))) - 1.0
         xyz += matching[i] * intensity * Float32(10.0 / 106.856895)
     return xyz
+
+
+@always_inline
+def srgb_to_linear(value: Float32) -> Float32:
+    if value <= 0.04045:
+        return value / 12.92
+    return pow((value + 0.055) / 1.055, Float32(2.4))
+
+
+def srgb_u8_table() -> List[Float32]:
+    """Evaluate the existing scalar transfer function for every u8 value."""
+    return List[Float32](
+        length=256,
+        fill_with=lambda (value: Int) -> Float32: srgb_to_linear(
+            Float32(value) / 255.0
+        ),
+    )
+
+
+def blackbody_rgb(temperature: Float32) raises -> Color:
+    """Peak-normalized Planck spectrum integrated to linear sRGB.
+
+    CIE 1931 matching functions sampled at 10 nm from PBRT's tables.
+    This preserves PBRT's blackbody intensity normalization in an RGB model.
+    """
+    if not isfinite(temperature) or temperature <= 0.0:
+        raise Error("blackbody temperature must be finite and positive")
+    var rgb = xyz_to_linear_srgb(
+        blackbody_xyz(temperature, Float32(142.324921))
+    )
+    return Color(
+        max(Float32(0.0), rgb.x),
+        max(Float32(0.0), rgb.y),
+        max(Float32(0.0), rgb.z),
+    )
+
+
+@always_inline
+def linear_to_gamma[
+    length: SIMDLength = 1
+](x: SIMD[.float32, length]) -> SIMD[.float32, length]:
+    return sqrt(x.le(0.0).select(Float32(0.0), x))
+
+
+@always_inline
+def color_to_byte[
+    length: SIMDLength = 1,
+    *,
+    gamma_correct: Bool = True,
+](x: SIMD[.float32, length]) -> SIMD[.uint8, length]:
+    comptime if gamma_correct:
+        return (256.0 * linear_to_gamma(x).clamp(0.0, 0.999)).cast[.uint8]()
+    else:
+        return (255.0 * x.clamp(0.0, 1.0)).cast[.uint8]()

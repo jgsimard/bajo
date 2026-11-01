@@ -15,9 +15,9 @@ from bajo.parser.ply.pack import _pack_ply_mesh, _remove_degenerate_triangles
 
 from bajo.core.color import Color
 from bajo.rt.render_types import RenderSettings
+from bajo.core.image import ImageTexture
 from bajo.rt.material_types import (
     Environment,
-    ImageTexture,
     Integrator,
     NO_TEXTURE,
     SurfaceId,
@@ -376,27 +376,22 @@ struct _CameraOptions(Copyable):
             raise Error("camera lens radius and focal distance are invalid")
 
     def to_camera(self) raises -> Camera:
-        var camera = Camera.from_vfov(
-            self.origin, self.target, self.up, self.fov, self.focal_distance
-        )
+        var camera: Camera
         if self.has_look_at:
-            var inverse = self.camera_transform.inverse()
-            if not inverse.mask[0] or not inverse.inv.is_finite()[0]:
-                raise Error("camera transform must be invertible and finite")
-            var origin = inverse.inv.point(_PointW(0.0))
-            var right = inverse.inv.vector(_VecW(1.0, 0.0, 0.0))
-            var up = inverse.inv.vector(_VecW(0.0, 1.0, 0.0))
-            var forward = inverse.inv.vector(_VecW(0.0, 0.0, 1.0))
-            camera.origin = _PointW(origin.x, origin.y, origin.z)
-            camera.right = _VecW(right.x, right.y, right.z)
-            camera.up = _VecW(up.x, up.y, up.z)
-            camera.forward = _VecW(forward.x, forward.y, forward.z)
-        if self.image_width < self.image_height:
-            camera.fov_scale *= Float32(self.image_height) / Float32(
-                self.image_width
+            # The parser's current-transform storage is relabeled at the
+            # format boundary: a declared camera transform maps world to view.
+            camera = Camera.from_world_to_camera(
+                self.camera_transform.unsafe_convert_frames[.WORLD, .CAMERA](),
+                self.fov,
+                self.focal_distance,
+                positive_z_forward=True,
             )
-        camera.defocus_disk_u = camera.right * self.lens_radius
-        camera.defocus_disk_v = camera.up * self.lens_radius
+        else:
+            camera = Camera.from_vfov(
+                self.origin, self.target, self.up, self.fov, self.focal_distance
+            )
+        camera.fit_fov_to_film(self.image_width, self.image_height)
+        camera.set_lens_radius(self.lens_radius)
         return camera
 
 

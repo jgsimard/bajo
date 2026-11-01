@@ -1,6 +1,6 @@
 """The native Mojo/raylib viewer: raster presentation and Bajo tracing."""
 
-from std.math import sin, cos, min, max
+from std.math import min, max
 from std.os import getenv
 from std.sys.arg import argv
 from bajo.core.camera import Camera
@@ -215,34 +215,8 @@ def print_help():
 
 
 def rotate_camera(mut camera: Camera, yaw: Float32, pitch: Float32):
-    """Rotate the shared basis; preserve camera roll, lens size and FOV."""
-    var handedness: Float32 = (
-        -1 if dot(cross(camera.right, camera.forward), camera.up) < 0 else 1
-    )
-    var angle = yaw * 0.006
-    var c = cos(angle)
-    var s = sin(angle)
-    var forward = Vec3W(
-        c * camera.forward.x + s * camera.forward.z,
-        camera.forward.y,
-        -s * camera.forward.x + c * camera.forward.z,
-    )
-    var right = Vec3W(
-        c * camera.right.x + s * camera.right.z,
-        camera.right.y,
-        -s * camera.right.x + c * camera.right.z,
-    )
-    angle = pitch * 0.006 * handedness
-    var candidate = forward * cos(angle) + cross(right, forward) * sin(angle)
-    if abs(candidate.y) < 0.9998:
-        forward = candidate
-    var lens_u = length(camera.defocus_disk_u)
-    var lens_v = length(camera.defocus_disk_v)
-    camera.forward = normalize(forward)
-    camera.right = normalize(right)
-    camera.up = normalize(cross(camera.right, camera.forward)) * handedness
-    camera.defocus_disk_u = camera.right * lens_u
-    camera.defocus_disk_v = camera.up * lens_v
+    """Apply the viewer's mouse sensitivity to angular camera motion."""
+    camera.rotate(yaw * 0.006, pitch * 0.006)
 
 
 def _draw_boxes(

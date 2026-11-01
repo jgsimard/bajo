@@ -261,5 +261,21 @@ def test_ray_transform() raises:
     assert_almost_equal(transformed.t_max, 7)
 
 
+def test_axis_aligned_transform_skip_includes_reflections_and_permutations() raises:
+    var transform = Affine3f32[.LOCAL, .WORLD].identity()
+    assert_true(not transform.mixes_axes())
+    transform.m00 = -2.0
+    transform.m11 = 0.5
+    transform.tx = 1e12
+    assert_true(not transform.mixes_axes())
+    transform.m00 = 0.0
+    transform.m01 = -2.0
+    transform.m10 = 0.5
+    transform.m11 = 0.0
+    assert_true(not transform.mixes_axes())
+    transform.m02 = 0.25
+    assert_true(transform.mixes_axes())
+
+
 def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

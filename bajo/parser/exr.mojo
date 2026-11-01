@@ -9,7 +9,7 @@ from std.utils.numerics import isfinite
 
 from bajo.parser.mmap import MMap
 from bajo.parser.deflate import inflate_zlib
-from bajo.rt.material_types import ImageTexture
+from bajo.core.image import ImageTexture
 
 
 comptime _EXR_MAGIC = UInt32(20000630)

@@ -1,85 +1,17 @@
-"""Texture addressing and bump-normal math shared by host and device accessors."""
+"""Material interpretation of sampled colors and displacement textures."""
 
 from bajo.core.color import luminance
 
-from std.math import floor, sqrt
-from bajo.core import Vec3, normalize, orthonormal_basis
+from std.math import sqrt
+from bajo.core import Vec3
+from bajo.core.image import (
+    image_pixel_index,
+    sample_image_texture,
+    load_environment_texel,
+    sample_environment_texture,
+)
+from bajo.core.geometry import normal_from_slopes as bump_normal
 from bajo.core.tensor_layout import RecordTile, gather_record_vec3
-
-
-@always_inline
-def image_pixel_index[
-    length: SIMDLength = 1
-](
-    width: Int,
-    height: Int,
-    u: SIMD[.float32, length],
-    v: SIMD[.float32, length],
-) -> SIMD[.int64, length]:
-    """Repeat UVs and map their lower-left origin to top-to-bottom RGB rows."""
-    var wrapped_u = u - floor(u)
-    var wrapped_v = v - floor(v)
-    var x = min(
-        (wrapped_u * Float32(width)).cast[.int64](),
-        SIMD[.int64, length](width - 1),
-    )
-    var y = min(
-        ((Float32(1.0) - wrapped_v) * Float32(height)).cast[.int64](),
-        SIMD[.int64, length](height - 1),
-    )
-    return y * SIMD[.int64, length](width) + x
-
-
-@always_inline
-def sample_image_texture[
-    length: SIMDLength,
-](
-    pixels: RecordTile[.float32, 3, _],
-    width: Int,
-    height: Int,
-    u: SIMD[.float32, length],
-    v: SIMD[.float32, length],
-) -> Vec3[.float32, .WORLD, length]:
-    return gather_record_vec3(pixels, image_pixel_index(width, height, u, v))
-
-
-@always_inline
-def load_environment_texel[
-    length: SIMDLength,
-](
-    pixels: RecordTile[.float32, 3, _],
-    index: SIMD[.int64, length],
-) -> Vec3[
-    .float32, .WORLD, length
-]:
-    var value = gather_record_vec3(pixels, index)
-    return Vec3[.float32, .WORLD, length](
-        max(value.x, 0.0), max(value.y, 0.0), max(value.z, 0.0)
-    )
-
-
-@always_inline
-def sample_environment_texture[
-    length: SIMDLength,
-](
-    pixels: RecordTile[.float32, 3, _],
-    width: Int,
-    height: Int,
-    u: SIMD[.float32, length],
-    v: SIMD[.float32, length],
-) -> Vec3[.float32, .WORLD, length]:
-    """Clamp equal-area UVs to the environment's top-to-bottom RGB rows."""
-    var x = (
-        (u * Float32(width))
-        .cast[.int64]()
-        .clamp(0, SIMD[.int64, length](width - 1))
-    )
-    var y = (
-        (v * Float32(height))
-        .cast[.int64]()
-        .clamp(0, SIMD[.int64, length](height - 1))
-    )
-    return load_environment_texel(pixels, y * SIMD[.int64, length](width) + x)
 
 
 @always_inline
@@ -119,15 +51,3 @@ def bump_slope[
     scale: SIMD[.float32, length],
 ) -> SIMD[.float32, length]:
     return (luminance(after) - luminance(before)) * texels * uv_scale * scale
-
-
-@always_inline
-def bump_normal[
-    length: SIMDLength = 1
-](
-    normal: Vec3[.float32, .WORLD, length],
-    slope_u: SIMD[.float32, length],
-    slope_v: SIMD[.float32, length],
-) -> Vec3[.float32, .WORLD, length]:
-    var tangent, bitangent = orthonormal_basis(normal)
-    return normalize(normal - tangent * slope_u - bitangent * slope_v)

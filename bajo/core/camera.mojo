@@ -1,10 +1,11 @@
 """Pinhole and thin-lens camera geometry and ray generation."""
 
-from std.math import tan
+from std.math import atan, cos, sin, tan
 from std.utils.numerics import max_finite
-from .vec import Vec3, Point3, normalize, cross
+from .vec import Vec3, Point3, normalize, cross, dot, length
 from .ray import Ray
-from .utils import degrees_to_radians
+from .transform import Affine3
+from .utils import degrees_to_radians, radians_to_degrees
 
 
 @fieldwise_init
@@ -91,6 +92,134 @@ struct Camera(TrivialRegisterPassable, Writable):
             focus_dist,
             defocus_angle,
         )
+
+    @staticmethod
+    def from_yaw_pitch(
+        origin: Point3[.float32, .WORLD],
+        yaw_degrees: Float32,
+        pitch_degrees: Float32,
+        vfov: Float32,
+        focus_dist: Float32 = 1.0,
+    ) -> Self:
+        """Construct a Y-up camera; zero yaw/pitch faces world -Z."""
+        var yaw = degrees_to_radians(yaw_degrees)
+        var pitch = degrees_to_radians(pitch_degrees)
+        var cos_pitch = cos(pitch)
+        var forward = Vec3[.float32, .WORLD](
+            sin(yaw) * cos_pitch, sin(pitch), -cos(yaw) * cos_pitch
+        )
+        return Self.from_vfov(
+            origin,
+            origin + forward,
+            Vec3[.float32, .WORLD](0, 1, 0),
+            vfov,
+            focus_dist,
+        )
+
+    def vertical_fov_degrees(self) -> Float32:
+        return radians_to_degrees[.float32, 1](2 * atan(self.fov_scale))
+
+    def fit_fov_to_film(mut self, width: Int, height: Int):
+        """Interpret the current FOV as the narrower film dimension's FOV."""
+        if width < height:
+            self.fov_scale *= Float32(height) / Float32(width)
+
+    def set_lens_radius(mut self, radius: Float32):
+        self.defocus_disk_u = self.right * radius
+        self.defocus_disk_v = self.up * radius
+
+    def camera_to_world(self) -> Affine3[.float32, .CAMERA, .WORLD]:
+        """Return the authored basis with camera -Z facing forward."""
+        return Affine3[.float32, .CAMERA, .WORLD](
+            self.right.x,
+            self.up.x,
+            -self.forward.x,
+            self.origin.x,
+            self.right.y,
+            self.up.y,
+            -self.forward.y,
+            self.origin.y,
+            self.right.z,
+            self.up.z,
+            -self.forward.z,
+            self.origin.z,
+        )
+
+    def world_to_camera(self) raises -> Affine3[.float32, .WORLD, .CAMERA]:
+        var inverse = self.camera_to_world().inverse()
+        if not inverse.mask[0] or not inverse.inv.is_finite()[0]:
+            raise Error("camera basis must be finite and invertible")
+        return inverse.inv.copy()
+
+    @staticmethod
+    def from_world_to_camera(
+        view: Affine3[.float32, .WORLD, .CAMERA],
+        vfov: Float32,
+        focus_dist: Float32 = 1.0,
+        *,
+        positive_z_forward: Bool = False,
+    ) raises -> Self:
+        """Construct a camera from a finite, invertible authored view matrix.
+
+        Set positive_z_forward for conventions whose camera forward axis is +Z.
+        Basis scale, shear and handedness are preserved.
+        """
+        var inverse = view.inverse()
+        if not inverse.mask[0] or not inverse.inv.is_finite()[0]:
+            raise Error("camera transform must be invertible and finite")
+        var origin = inverse.inv.point(Point3[.float32, .CAMERA](0))
+        var right = inverse.inv.vector(Vec3[.float32, .CAMERA](1, 0, 0))
+        var up = inverse.inv.vector(Vec3[.float32, .CAMERA](0, 1, 0))
+        var forward = inverse.inv.vector(
+            Vec3[.float32, .CAMERA](
+                0, 0, Float32(1 if positive_z_forward else -1)
+            )
+        )
+        return Self(
+            origin,
+            forward,
+            right,
+            up,
+            tan(degrees_to_radians(vfov) / 2),
+            focus_dist,
+            Vec3[.float32, .WORLD](0),
+            Vec3[.float32, .WORLD](0),
+        )
+
+    def rotate(
+        mut self, yaw: Float32, pitch: Float32, vertical_limit: Float32 = 0.9998
+    ):
+        """Rotate in radians while preserving handedness, roll, lens size and FOV.
+        """
+        var handedness: Float32 = (
+            -1 if dot(cross(self.right, self.forward), self.up) < 0 else 1
+        )
+        var angle = yaw
+        var c = cos(angle)
+        var s = sin(angle)
+        var forward = Vec3[.float32, .WORLD](
+            c * self.forward.x + s * self.forward.z,
+            self.forward.y,
+            -s * self.forward.x + c * self.forward.z,
+        )
+        var right = Vec3[.float32, .WORLD](
+            c * self.right.x + s * self.right.z,
+            self.right.y,
+            -s * self.right.x + c * self.right.z,
+        )
+        angle = pitch * handedness
+        var candidate = forward * cos(angle) + cross(right, forward) * sin(
+            angle
+        )
+        if abs(candidate.y) < vertical_limit:
+            forward = candidate
+        var lens_u = length(self.defocus_disk_u)
+        var lens_v = length(self.defocus_disk_v)
+        self.forward = normalize(forward)
+        self.right = normalize(right)
+        self.up = normalize(cross(self.right, self.forward)) * handedness
+        self.defocus_disk_u = self.right * lens_u
+        self.defocus_disk_v = self.up * lens_v
 
     def make_ray(
         self,

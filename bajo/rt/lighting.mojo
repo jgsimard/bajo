@@ -3,6 +3,11 @@
 from bajo.core.sampling import power_heuristic
 
 from std.math import sqrt
+from bajo.core.geometry import (
+    SurfaceSample,
+    sample_triangle_surface as _sample_triangle_light_surface,
+    sample_sphere_surface as _sample_sphere_light_surface,
+)
 
 from bajo.core import Point3, Vec3, cross, dot, length2, normalize
 from bajo.rt.rays import RT_RAY_T_MIN, RT_SHADOW_END_OFFSET
@@ -10,53 +15,7 @@ from bajo.rt.material_types import Integrator
 from bajo.rt.lighting_types import _light_importance
 
 
-@fieldwise_init
-struct _LightSurfaceSample[length: SIMDLength = 1](TrivialRegisterPassable):
-    var valid: SIMD[.bool, Self.length]
-    var point: Point3[.float32, .WORLD, Self.length]
-    var normal: Vec3[.float32, .WORLD, Self.length]
-
-
-@always_inline
-def _sample_triangle_light_surface[
-    length: SIMDLength = 1
-](
-    p0: Point3[.float32, .WORLD, length],
-    p1: Point3[.float32, .WORLD, length],
-    p2: Point3[.float32, .WORLD, length],
-    random_u: SIMD[.float32, length],
-    random_v: SIMD[.float32, length],
-) -> _LightSurfaceSample[length]:
-    var edge1 = p1 - p0
-    var edge2 = p2 - p0
-    var area_vector = cross(edge1, edge2)
-    var twice_area_squared = length2(area_vector)
-    var valid = twice_area_squared.gt(0.0)
-    var root_u = sqrt(random_u)
-    var barycentric1 = root_u * (1.0 - random_v)
-    var barycentric2 = root_u - barycentric1
-    return _LightSurfaceSample[length](
-        valid,
-        p0 + barycentric1 * edge1 + barycentric2 * edge2,
-        Vec3.select(
-            valid,
-            area_vector / sqrt(valid.select(twice_area_squared, 1.0)),
-            Vec3[.float32, .WORLD, length](0.0, 1.0, 0.0),
-        ),
-    )
-
-
-@always_inline
-def _sample_sphere_light_surface[
-    length: SIMDLength = 1
-](
-    center: Point3[.float32, .WORLD, length],
-    radius: SIMD[.float32, length],
-    normal: Vec3[.float32, .WORLD, length],
-) -> _LightSurfaceSample[length]:
-    return _LightSurfaceSample[length](
-        SIMD[.bool, length](fill=True), center + radius * normal, normal
-    )
+comptime _LightSurfaceSample = SurfaceSample[.WORLD, _]
 
 
 @fieldwise_init

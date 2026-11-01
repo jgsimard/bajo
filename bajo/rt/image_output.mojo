@@ -1,10 +1,9 @@
 """Image output shared by renderer backends and examples."""
 
 from std.algorithm import vectorize
-from std.math import sqrt
 from std.memory import bitcast
 from std.sys import simd_width_of
-from bajo.core.color import Color
+from bajo.core.color import Color, color_to_byte, linear_to_gamma
 
 
 def write_linear_rgb(path: String, pixels: ImmSpan[Color, _]) raises:
@@ -20,25 +19,6 @@ def write_linear_rgb(path: String, pixels: ImmSpan[Color, _]) raises:
             index += 4
     with open(path, "w") as f:
         f.write_bytes(bytes)
-
-
-@always_inline
-def linear_to_gamma[
-    length: SIMDLength = 1
-](x: SIMD[.float32, length]) -> SIMD[.float32, length]:
-    return sqrt(x.le(0.0).select(Float32(0.0), x))
-
-
-@always_inline
-def color_to_byte[
-    length: SIMDLength = 1,
-    *,
-    gamma_correct: Bool = True,
-](x: SIMD[.float32, length]) -> SIMD[.uint8, length]:
-    comptime if gamma_correct:
-        return (256.0 * linear_to_gamma(x).clamp(0.0, 0.999)).cast[.uint8]()
-    else:
-        return (255.0 * x.clamp(0.0, 1.0)).cast[.uint8]()
 
 
 def _encode_ppm[

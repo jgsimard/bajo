@@ -1,6 +1,5 @@
 """Cached raylib geometry and native presentation of Bajo scenes."""
 
-from std.math import atan, pi
 from std.os import abort
 from bajo.core.camera import Camera
 from bajo.core import (
@@ -11,7 +10,7 @@ from bajo.core import (
     cross,
     normalize,
 )
-from bajo.rt.image_output import color_to_byte
+from bajo.core.color import color_to_byte
 from bajo.rt.material_types import SurfaceId, SurfaceStore
 from bajo.rt.scene_data import SceneData
 from raylib import (
@@ -65,7 +64,7 @@ def raster_camera(camera: Camera) -> Camera3D:
             camera.origin.z + camera.forward.z,
         ),
         Vector3(camera.up.x, camera.up.y, camera.up.z),
-        2 * atan(camera.fov_scale) * (180 / pi),
+        camera.vertical_fov_degrees(),
         0,
     )
 
@@ -99,24 +98,7 @@ def instance_matrix[
 
 def raster_view_matrix(camera: Camera) raises -> Matrix:
     """Keep the authored camera axes, including PBRT's opposite handedness."""
-    var camera_to_world = Affine3f32[.LOCAL, .WORLD](
-        camera.right.x,
-        camera.up.x,
-        -camera.forward.x,
-        camera.origin.x,
-        camera.right.y,
-        camera.up.y,
-        -camera.forward.y,
-        camera.origin.y,
-        camera.right.z,
-        camera.up.z,
-        -camera.forward.z,
-        camera.origin.z,
-    )
-    var inverse = camera_to_world.inverse()
-    if not inverse.mask[0] or not inverse.inv.is_finite()[0]:
-        raise Error("viewer camera basis must be finite and invertible")
-    return instance_matrix(inverse.inv)
+    return instance_matrix(camera.world_to_camera())
 
 
 def surface_color(surfaces: SurfaceStore, surface: SurfaceId[1]) -> Color:

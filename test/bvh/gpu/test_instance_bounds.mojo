@@ -12,9 +12,6 @@ from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_blas_set
 from bajo.gpu.buffers import upload_list
 from bajo.bvh.gpu.instance_bounds import (
     refine_gpu_instance_bounds,
-    _transform_instance_child_bounds,
-    _instance_transform_mixes_axes,
-    _outward_float32,
 )
 
 
@@ -159,61 +156,6 @@ def test_axis_aligned_instances_and_empty_input_retain_caller_bounds() raises:
             )
         var empty = List[Instance]()
         assert_equal(len(refine_gpu_instance_bounds(ctx, blases, empty)), 0)
-
-
-def test_axis_aligned_transform_skip_includes_reflections_and_permutations() raises:
-    var transform = Affine3f32[.LOCAL, .WORLD].identity()
-    assert_true(not _instance_transform_mixes_axes(transform))
-    transform.m00 = -2.0
-    transform.m11 = 0.5
-    transform.tx = 1e12
-    assert_true(not _instance_transform_mixes_axes(transform))
-    transform.m00 = 0.0
-    transform.m01 = -2.0
-    transform.m10 = 0.5
-    transform.m11 = 0.0
-    assert_true(not _instance_transform_mixes_axes(transform))
-    transform.m02 = 0.25
-    assert_true(_instance_transform_mixes_axes(transform))
-
-
-def test_outward_float32_conversion_encloses_signed_endpoints() raises:
-    for value in [
-        Float64(0),
-        Float64(1e-50),
-        Float64(-1e-50),
-        Float64(1.00000001),
-        Float64(-1.00000001),
-        Float64(1e30),
-        Float64(-1e30),
-    ]:
-        assert_true(Float64(_outward_float32(value, False)) <= value)
-        assert_true(Float64(_outward_float32(value, True)) >= value)
-
-
-def test_conservative_child_transform_covers_cancellation_and_extreme_scales() raises:
-    var bounds = AABB[.LOCAL](
-        Point3f32[.LOCAL](-2.0, -3.0, -0.25), Point3f32[.LOCAL](1.0, 4.0, 0.75)
-    )
-    for scale in [Float32(1e-20), Float32(1), Float32(1e20)]:
-        var transform = Affine3f32[.LOCAL, .WORLD].identity()
-        transform.m00 = scale
-        transform.m01 = -scale
-        transform.m02 = scale * 0.3
-        transform.tx = scale * 0.2
-        transform.m11 = -scale * 0.7
-        transform.m22 = scale * 1.3
-        var result = _transform_instance_child_bounds(bounds, transform)
-        assert_true(result.is_valid()[0])
-        for z in range(5):
-            for y in range(5):
-                for x in range(5):
-                    var p = Point3f32[.LOCAL](
-                        -2.0 + Float32(x) * 0.75,
-                        -3.0 + Float32(y) * 1.75,
-                        -0.25 + Float32(z) * 0.25,
-                    )
-                    assert_true(result.contains_point(transform.point(p))[0])
 
 
 def run_tests[unused: Bool = True]() raises:

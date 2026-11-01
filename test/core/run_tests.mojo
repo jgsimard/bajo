@@ -14,6 +14,10 @@ import test.core.test_segments as test_segments
 import test.core.test_transform as test_transform
 import test.core.test_vec as test_vec
 
+import test.core.test_camera as test_camera
+import test.core.test_geometry as test_geometry
+import test.core.test_numerics as test_numerics
+
 
 def main() raises:
     var tests = TestRunner()
@@ -43,4 +47,10 @@ def main() raises:
         )
     comptime if module_selected["test_vec"]():
         tests.run("test/core/test_vec.mojo", test_vec.run_tests[True])
+    comptime if module_selected["test_camera"]():
+        tests.run("test/core/test_camera.mojo", test_camera.run_tests[True])
+    comptime if module_selected["test_geometry"]():
+        tests.run("test/core/test_geometry.mojo", test_geometry.run_tests[True])
+    comptime if module_selected["test_numerics"]():
+        tests.run("test/core/test_numerics.mojo", test_numerics.run_tests[True])
     tests^.finish()

@@ -5,7 +5,7 @@ from std.pathlib import Path
 from bajo.parser.exr import parse_exr, read_exr
 from bajo.parser.ply import PlyMesh, parse_ply, read_ply
 from bajo.parser.png import parse_png, read_png
-from bajo.rt.material_types import ImageTexture
+from bajo.core.image import ImageTexture
 
 
 def _is_exr_path(path: String) -> Bool:

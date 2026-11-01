@@ -2,75 +2,25 @@
 
 from max.algorithm import parallelize
 from std.ffi import OwnedDLHandle
-from std.math import ceildiv, pow
-from std.sys import num_logical_cores, simd_width_of
+from std.math import ceildiv
+from std.sys import num_logical_cores
 
 from bajo.parser.mmap import MMap
 from bajo.parser.checksum import crc32
 from bajo.parser.deflate import inflate_zlib
 from bajo.parser.png.filters import _unfilter_rgb
-from bajo.rt.material_types import ImageTexture
+from bajo.core.image import ImageTexture
 
 
-comptime _SRGB_SIMD_WIDTH = simd_width_of[Float32]()
-comptime _SRGB_CHANNELS_PER_TASK = 4 * 1024 * 1024
-
-
-@always_inline
-def _srgb_to_linear(value: Float32) -> Float32:
-    if value <= 0.04045:
-        return value / 12.92
-    return pow((value + 0.055) / 1.055, Float32(2.4))
-
-
-def _srgb_u8_table() -> List[Float32]:
-    """Evaluate the existing scalar transfer function for every u8 value."""
-    return List[Float32](
-        length=256,
-        fill_with=lambda (value: Int) -> Float32: _srgb_to_linear(
-            Float32(value) / 255.0
-        ),
-    )
-
-
-def _linearize_srgb_u8[
-    channels_per_task: Int = _SRGB_CHANNELS_PER_TASK
-](encoded: List[UInt8]) -> List[Float32]:
-    """Convert exact u8 sRGB values with threaded native-width SIMD gathers."""
-    var table = _srgb_u8_table()
-    var pixels = List[Float32](unsafe_uninit_length=len(encoded))
-    var vector_end = len(encoded) - len(encoded) % _SRGB_SIMD_WIDTH
-    var vector_count = vector_end // _SRGB_SIMD_WIDTH
-    comptime assert channels_per_task >= _SRGB_SIMD_WIDTH
-    var vectors_per_task = channels_per_task // _SRGB_SIMD_WIDTH
-    var task_count = ceildiv(vector_count, vectors_per_task)
-
-    def worker(task_idx: Int) {imm, mut pixels}:
-        var vector_begin = task_idx * vectors_per_task
-        var vector_stop = min(vector_begin + vectors_per_task, vector_count)
-        var encoded_ptr = encoded.unsafe_ptr()
-        var table_ptr = table.unsafe_ptr()
-        var pixels_ptr = pixels.unsafe_ptr()
-        for vector_idx in range(vector_begin, vector_stop):
-            var base = vector_idx * _SRGB_SIMD_WIDTH
-            var indices = (
-                encoded_ptr.unsafe_offset(base)
-                .unsafe_load[width=_SRGB_SIMD_WIDTH]()
-                .cast[.int32]()
-            )
-            var linear = table_ptr.unsafe_gather(indices)
-            pixels_ptr.unsafe_offset(base).unsafe_store[width=_SRGB_SIMD_WIDTH](
-                linear
-            )
-
-    if task_count > 1:
-        parallelize(worker, task_count, min(num_logical_cores(), task_count))
-    elif task_count == 1:
-        worker(0)
-
-    for index in range(vector_end, len(encoded)):
-        pixels[index] = table[Int(encoded[index])]
-    return pixels^
+from bajo.core.color import (
+    srgb_to_linear as _srgb_to_linear,
+    srgb_u8_table as _srgb_u8_table,
+)
+from bajo.core.image import (
+    SRGB_SIMD_WIDTH as _SRGB_SIMD_WIDTH,
+    SRGB_CHANNELS_PER_TASK as _SRGB_CHANNELS_PER_TASK,
+    linearize_srgb_u8 as _linearize_srgb_u8,
+)
 
 
 @always_inline

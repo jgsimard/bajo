@@ -1,10 +1,8 @@
 """Camera, render settings, and scene ownership for native viewers."""
 
-from std.math import cos, sin
 from bajo.core.camera import Camera
 from bajo.bvh.cpu import CpuBvhBuildMethod
 from bajo.core import Point3W, Vec3W
-from bajo.core.utils import degrees_to_radians
 from bajo.rt.cpu.scene import CpuScene
 from bajo.rt.material_types import Integrator
 from bajo.rt.render_types import RenderSettings
@@ -18,22 +16,7 @@ def viewer_camera(
     pitch_degrees: Float32,
     vfov: Float32,
 ) -> Camera:
-    var yaw = degrees_to_radians(yaw_degrees)
-    var pitch = degrees_to_radians(pitch_degrees)
-    var cos_pitch = cos(pitch)
-    var forward = Vec3W(
-        sin(yaw) * cos_pitch,
-        sin(pitch),
-        -cos(yaw) * cos_pitch,
-    )
-    return Camera.from_vfov(
-        origin,
-        origin + forward,
-        Vec3W(0.0, 1.0, 0.0),
-        vfov,
-        10.0,
-        0.0,
-    )
+    return Camera.from_yaw_pitch(origin, yaw_degrees, pitch_degrees, vfov, 10.0)
 
 
 struct ViewerState(Copyable, Writable):

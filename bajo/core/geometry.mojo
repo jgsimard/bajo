@@ -4,7 +4,7 @@ from std.math import abs, sqrt
 from std.utils.numerics import isfinite
 from .aabb import AxisAlignedBoundingBox
 from .frame import Frame
-from .vec import Point3, Vec3, cross, dot, length2
+from .vec import Point3, Vec3, cross, dot, length2, normalize, orthonormal_basis
 from .tensor_layout import RecordTile, gather_record_field
 
 
@@ -108,3 +108,71 @@ def triangle_area[
     v2: Point3[.float32, frame],
 ) -> Float32:
     return 0.5 * sqrt(length2(cross(v1 - v0, v2 - v0)))
+
+
+@always_inline
+def normal_from_slopes[
+    dtype: DType, frame: Frame, length: SIMDLength = 1
+](
+    normal: Vec3[dtype, frame, length],
+    slope_u: SIMD[dtype, length],
+    slope_v: SIMD[dtype, length],
+) -> Vec3[dtype, frame, length]:
+    """Perturb a unit normal using slopes in its orthonormal tangent frame."""
+    var tangent, bitangent = orthonormal_basis(normal)
+    return normalize(normal - tangent * slope_u - bitangent * slope_v)
+
+
+@fieldwise_init
+struct SurfaceSample[frame: Frame, length: SIMDLength = 1](
+    TrivialRegisterPassable
+):
+    """Surface position and unit normal with per-lane geometric validity."""
+
+    var valid: SIMD[.bool, Self.length]
+    var point: Point3[.float32, Self.frame, Self.length]
+    var normal: Vec3[.float32, Self.frame, Self.length]
+
+
+@always_inline
+def sample_triangle_surface[
+    frame: Frame, length: SIMDLength = 1
+](
+    p0: Point3[.float32, frame, length],
+    p1: Point3[.float32, frame, length],
+    p2: Point3[.float32, frame, length],
+    random_u: SIMD[.float32, length],
+    random_v: SIMD[.float32, length],
+) -> SurfaceSample[frame, length]:
+    """Uniformly sample a triangle using two variates in [0, 1]."""
+    var edge1 = p1 - p0
+    var edge2 = p2 - p0
+    var area_vector = cross(edge1, edge2)
+    var twice_area_squared = length2(area_vector)
+    var valid = twice_area_squared.gt(0.0)
+    var root_u = sqrt(random_u)
+    var barycentric1 = root_u * (1.0 - random_v)
+    var barycentric2 = root_u - barycentric1
+    return SurfaceSample[frame, length](
+        valid,
+        p0 + barycentric1 * edge1 + barycentric2 * edge2,
+        Vec3.select(
+            valid,
+            area_vector / sqrt(valid.select(twice_area_squared, 1.0)),
+            Vec3[.float32, frame, length](0.0, 1.0, 0.0),
+        ),
+    )
+
+
+@always_inline
+def sample_sphere_surface[
+    frame: Frame, length: SIMDLength = 1
+](
+    center: Point3[.float32, frame, length],
+    radius: SIMD[.float32, length],
+    normal: Vec3[.float32, frame, length],
+) -> SurfaceSample[frame, length]:
+    """Map a supplied unit sphere normal to the corresponding surface point."""
+    return SurfaceSample[frame, length](
+        SIMD[.bool, length](fill=True), center + radius * normal, normal
+    )

@@ -13,12 +13,14 @@ from bajo.core import (
     Quat,
     Vec3W,
     Affine3,
+    Affine3f32,
     Point3W,
     Point3f32,
     Point3,
     AxisAlignedBoundingBox,
 )
 from bajo.core.utils import degrees_to_radians
+from bajo.core.aabb import transform_bounds_conservative
 
 
 def test_logic() raises:
@@ -104,6 +106,31 @@ def test_distance2_scalar_and_packets_at_extreme_scales() raises:
         comptime for lane in range(2):
             assert_almost_equal(nearest[lane], Float64(2.0), atol=1e-12)
             assert_almost_equal(furthest[lane], Float64(8.25), atol=1e-12)
+
+
+def test_conservative_child_transform_covers_cancellation_and_extreme_scales() raises:
+    var bounds = AABB[.LOCAL](
+        Point3f32[.LOCAL](-2.0, -3.0, -0.25), Point3f32[.LOCAL](1.0, 4.0, 0.75)
+    )
+    for scale in [Float32(1e-20), Float32(1), Float32(1e20)]:
+        var transform = Affine3f32[.LOCAL, .WORLD].identity()
+        transform.m00 = scale
+        transform.m01 = -scale
+        transform.m02 = scale * 0.3
+        transform.tx = scale * 0.2
+        transform.m11 = -scale * 0.7
+        transform.m22 = scale * 1.3
+        var result = transform_bounds_conservative(bounds, transform)
+        assert_true(result.is_valid()[0])
+        for z in range(5):
+            for y in range(5):
+                for x in range(5):
+                    var p = Point3f32[.LOCAL](
+                        -2.0 + Float32(x) * 0.75,
+                        -3.0 + Float32(y) * 1.75,
+                        -0.25 + Float32(z) * 0.25,
+                    )
+                    assert_true(result.contains_point(transform.point(p))[0])
 
 
 def run_tests[_discovery: Bool = True]() raises:

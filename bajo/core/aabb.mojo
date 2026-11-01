@@ -1,5 +1,8 @@
 from std.utils.numerics import max_finite, min_finite
-from std.math import abs, max
+from std.math import abs, max, min
+from std.memory import bitcast
+from std.sys.info import size_of
+from bajo.core.numerics import finite_f32_key, round_float32_outward
 from std.memory import AddressSpace
 
 from bajo.core.transform import Affine3
@@ -225,3 +228,112 @@ def compute_bounds[
     for vert in verts:
         bounds.grow(vert)
     return bounds
+
+
+def transform_bounds_conservative[
+    From: Frame, To: Frame
+](
+    bounds: AxisAlignedBoundingBox[.float32, From],
+    transform: Affine3[.float32, From, To],
+) -> AxisAlignedBoundingBox[.float32, To]:
+    """Accumulate intervals in Float64 and cover Float32 transform rounding.
+
+    gamma(8) bounds the small affine evaluation's Float32 rounding, including
+    cancellation through a sum-of-magnitudes bound. Subnormal absolute slack
+    and outward conversion cover endpoint conversion/underflow as well.
+    """
+    var matrix = transform.flatten()
+    var result = AxisAlignedBoundingBox[.float32, To].invalid()
+    comptime u = Float64(5.9604644775390625e-8)
+    comptime gamma = (8 * u) / (1 - 8 * u)
+    for row in range(3):
+        var lo = Float64(matrix[row * 4 + 3])
+        var hi = lo
+        var magnitude = abs(lo)
+        for axis in range(3):
+            var coefficient = Float64(matrix[row * 4 + axis])
+            var a = coefficient * Float64(bounds._min[axis])
+            var b = coefficient * Float64(bounds._max[axis])
+            lo += min(a, b)
+            hi += max(a, b)
+            magnitude += max(abs(a), abs(b))
+        var error = gamma * magnitude + Float64(8) * Float64(
+            1.401298464324817e-45
+        )
+        result._min[row] = round_float32_outward(lo - error, False)
+        result._max[row] = round_float32_outward(hi + error, True)
+    return result
+
+
+@always_inline
+def finite_box_properties[
+    frame: Frame
+](box: AxisAlignedBoundingBox[.float32, frame]) -> Tuple[Bool, Bool]:
+    """Return validity and subnormal presence without flushing tiny endpoints.
+    """
+    var values = SIMD[.float32, 8](
+        box._min.x,
+        box._min.y,
+        box._min.z,
+        box._max.x,
+        box._max.y,
+        box._max.z,
+        0.0,
+        0.0,
+    )
+    var bits = bitcast[.uint32](values)
+    var tiny = (
+        (bits & UInt32(0x7F800000)).eq(0) & (bits & UInt32(0x007FFFFF)).ne(0)
+    ).reduce_or()
+    if not tiny:
+        return (box.is_valid()[0], False)
+    var valid = True
+    var subnormal = False
+    comptime for axis in range(3):
+        var a = bitcast[.uint32](box._min[axis])
+        var b = bitcast[.uint32](box._max[axis])
+        valid &= (a & UInt32(0x7F800000)) != UInt32(0x7F800000)
+        valid &= (b & UInt32(0x7F800000)) != UInt32(0x7F800000)
+        subnormal |= (a & UInt32(0x7F800000)) == 0 and (
+            a & UInt32(0x007FFFFF)
+        ) != 0
+        subnormal |= (b & UInt32(0x7F800000)) == 0 and (
+            b & UInt32(0x007FFFFF)
+        ) != 0
+        # Both representations of zero compare equal for validation.
+        var ka = finite_f32_key(a)
+        var kb = finite_f32_key(b)
+        if (a & UInt32(0x7FFFFFFF)) == 0:
+            ka = UInt32(0x80000000)
+        if (b & UInt32(0x7FFFFFFF)) == 0:
+            kb = UInt32(0x80000000)
+        valid &= ka <= kb
+    return (valid, subnormal)
+
+
+@always_inline
+def bounds_have_subnormal[
+    frame: Frame
+](boxes: ImmSpan[AxisAlignedBoundingBox[.float32, frame], _]) -> Bool:
+    """Test endpoint bit patterns for subnormals in contiguous scalar boxes."""
+    comptime assert (
+        size_of[AxisAlignedBoundingBox[.float32, frame]]()
+        == 6 * size_of[Float32]()
+    )
+    var bits = boxes.unsafe_ptr().unsafe_bitcast[UInt32]()
+    var count = len(boxes) * 6
+    var end = count // 8 * 8
+    for first in range(0, end, 8):
+        var packet = bits.unsafe_load[width=8](first)
+        if (
+            (packet & UInt32(0x7F800000)).eq(0)
+            & (packet & UInt32(0x007FFFFF)).ne(0)
+        ).reduce_or():
+            return True
+    for first in range(end, count):
+        var word = bits.unsafe_load(first)
+        if (word & UInt32(0x7F800000)) == 0 and (
+            word & UInt32(0x007FFFFF)
+        ) != 0:
+            return True
+    return False

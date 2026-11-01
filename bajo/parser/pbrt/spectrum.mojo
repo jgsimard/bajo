@@ -1,8 +1,6 @@
 """Optical constants for the RGB conductor model used by PBRT ingestion."""
 
-from bajo.core.color import blackbody_xyz, xyz_to_linear_srgb, Color
-
-from std.utils.numerics import isfinite
+from bajo.core.color import Color, blackbody_rgb as _blackbody_rgb
 
 
 def _named_optical_constant(name: ImmStringSpan) raises -> Color:
@@ -21,21 +19,3 @@ def _named_optical_constant(name: ImmStringSpan) raises -> Color:
             return Color(3.03047363, 2.71406311, 1.84310538)
         case _:
             raise Error("unsupported PBRT optical spectrum: " + String(name))
-
-
-def _blackbody_rgb(temperature: Float32) raises -> Color:
-    """Peak-normalized Planck spectrum integrated to linear sRGB.
-
-    CIE 1931 matching functions sampled at 10 nm from PBRT's tables.
-    This preserves PBRT's blackbody intensity normalization in an RGB model.
-    """
-    if not isfinite(temperature) or temperature <= 0.0:
-        raise Error("blackbody temperature must be finite and positive")
-    var rgb = xyz_to_linear_srgb(
-        blackbody_xyz(temperature, Float32(142.324921))
-    )
-    return Color(
-        max(Float32(0.0), rgb.x),
-        max(Float32(0.0), rgb.y),
-        max(Float32(0.0), rgb.z),
-    )

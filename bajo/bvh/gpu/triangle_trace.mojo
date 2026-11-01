@@ -25,6 +25,7 @@ from bajo.bvh.gpu.trace import (
 )
 from bajo.bvh.types import Hit
 from bajo.core.intersect import (
+    intersect_ray_tri_edges_any,
     intersect_ray_tri_edges,
     intersect_ray_tri_edges_scaled,
 )
@@ -168,41 +169,6 @@ def trace_triangle_bvh_camera_instrumented_kernel[
     result.stats.store(stats, ray_idx)
 
 
-@always_inline
-def _intersect_triangle_shadow[
-    frame: Frame,
-](
-    ray: Rayf32[frame],
-    v0: Point3f32[frame],
-    e1: Vec3f32[frame],
-    e2: Vec3f32[frame],
-    t_max: Float32,
-) -> Bool:
-    """Return a determinant-scaled occlusion mask without hit attributes."""
-    var p = cross(ray.d, e2)
-    var det = dot(e1, p)
-    var tv = ray.o - v0
-    var u_num = dot(tv, p)
-    var q = cross(tv, e1)
-    var v_num = dot(ray.d, q)
-    var t_num = dot(e2, q)
-    # Flipping the numerator sign bits avoids floating-point selects.
-    var sign_bit = bitcast[.uint32](det) & UInt32(0x80000000)
-    var abs_det = bitcast[.float32](bitcast[.uint32](det) & UInt32(0x7FFFFFFF))
-    var u = bitcast[.float32](bitcast[.uint32](u_num) ^ sign_bit)
-    var v = bitcast[.float32](bitcast[.uint32](v_num) ^ sign_bit)
-    var t = bitcast[.float32](bitcast[.uint32](t_num) ^ sign_bit)
-    # u <= abs_det follows from v >= 0 and u + v <= abs_det.
-    return (
-        abs_det.gt(1.0e-8)
-        & u.ge(0.0)
-        & v.ge(0.0)
-        & (u + v).le(abs_det)
-        & t.gt(ray.t_min * abs_det)
-        & t.lt(t_max * abs_det)
-    )
-
-
 # AoSoA :[block][field][lane]
 def _intersect_triangle_leaf[
     frame: Frame,
@@ -337,7 +303,7 @@ def _intersect_cwbvh_triangle[
         v0_record[2],
     )
     comptime if mode == .ANY_HIT:
-        return _intersect_triangle_shadow[frame](ray, v0, e1, e2, hit.t)
+        return intersect_ray_tri_edges_any[frame](ray, v0, e1, e2, hit.t)
     var scaled_hit = intersect_ray_tri_edges_scaled(
         ray.o, ray.d, v0, e1, e2, hit.t, ray.t_min
     )
@@ -371,7 +337,7 @@ def _intersect_cwbvh_indexed_triangle[
     var e1 = Point3f32[frame](vertices.unsafe_offset(base + 3)) - v0
     var e2 = Point3f32[frame](vertices.unsafe_offset(base + 6)) - v0
     comptime if mode == .ANY_HIT:
-        return _intersect_triangle_shadow[frame](ray, v0, e1, e2, hit.t)
+        return intersect_ray_tri_edges_any[frame](ray, v0, e1, e2, hit.t)
     var scaled_hit = intersect_ray_tri_edges_scaled(
         ray.o, ray.d, v0, e1, e2, hit.t, ray.t_min
     )

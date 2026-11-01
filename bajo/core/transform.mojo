@@ -127,6 +127,21 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
         )
         return determinant.lt(0.0)
 
+    @always_inline
+    def mixes_axes(self) -> SIMD[.bool, Self.width]:
+        """Whether any output coordinate depends on more than one input axis."""
+        return (
+            (self.m00.ne(0) & self.m01.ne(0))
+            | (self.m00.ne(0) & self.m02.ne(0))
+            | (self.m01.ne(0) & self.m02.ne(0))
+            | (self.m10.ne(0) & self.m11.ne(0))
+            | (self.m10.ne(0) & self.m12.ne(0))
+            | (self.m11.ne(0) & self.m12.ne(0))
+            | (self.m20.ne(0) & self.m21.ne(0))
+            | (self.m20.ne(0) & self.m22.ne(0))
+            | (self.m21.ne(0) & self.m22.ne(0))
+        )
+
     @staticmethod
     def from_translation(
         t: Geo3[Self.dtype, _, _, Self.width]
@@ -490,3 +505,22 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
             self.m22,
             self.tz,
         ]
+
+    def unsafe_convert_frames[
+        new_from: Frame, new_to: Frame
+    ](self) -> Affine3[Self.dtype, new_from, new_to, Self.width]:
+        """Relabel source/destination frames without changing matrix values."""
+        return Affine3[Self.dtype, new_from, new_to, Self.width](
+            self.m00,
+            self.m01,
+            self.m02,
+            self.tx,
+            self.m10,
+            self.m11,
+            self.m12,
+            self.ty,
+            self.m20,
+            self.m21,
+            self.m22,
+            self.tz,
+        )

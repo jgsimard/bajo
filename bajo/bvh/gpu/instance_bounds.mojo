@@ -1,11 +1,11 @@
 """Refine world instance bounds from the built BLAS root frontier."""
 
-from std.math import abs, ceildiv, fma, min, max
-from std.memory import bitcast
+from std.math import ceildiv, fma
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext
 
-from bajo.core import AABB, Affine3f32, Point3f32
+from bajo.core import AABB, Point3f32
+from bajo.core.aabb import transform_bounds_conservative
 from bajo.bvh.constants import EMPTY_LANE, WideNode, PrimitiveKind
 from bajo.bvh.types import BlasDesc, Instance
 from bajo.bvh.gpu.blas_storage import GpuBlasSet, GpuBvhLayout
@@ -16,23 +16,6 @@ from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_QUANTIZED_BASE,
     _scale_from_exponent,
 )
-
-
-def _instance_transform_mixes_axes(
-    transform: Affine3f32[.LOCAL, .WORLD],
-) -> Bool:
-    """Only rows mixing local axes can tighten a transformed root union."""
-    return (
-        (transform.m00 != 0.0 and transform.m01 != 0.0)
-        or (transform.m00 != 0.0 and transform.m02 != 0.0)
-        or (transform.m01 != 0.0 and transform.m02 != 0.0)
-        or (transform.m10 != 0.0 and transform.m11 != 0.0)
-        or (transform.m10 != 0.0 and transform.m12 != 0.0)
-        or (transform.m11 != 0.0 and transform.m12 != 0.0)
-        or (transform.m20 != 0.0 and transform.m21 != 0.0)
-        or (transform.m20 != 0.0 and transform.m22 != 0.0)
-        or (transform.m21 != 0.0 and transform.m22 != 0.0)
-    )
 
 
 def _extract_blas_root_children[
@@ -112,54 +95,6 @@ def _extract_blas_root_children[
     output[unsafe_offset=index * 7 + 6] = Float32(1 if active else 0)
 
 
-def _outward_float32(value: Float64, upper: Bool) -> Float32:
-    var rounded = Float32(value)
-    if (upper and Float64(rounded) < value) or (
-        not upper and Float64(rounded) > value
-    ):
-        if rounded == 0.0:
-            return bitcast[.float32](UInt32(1) if upper else UInt32(0x80000001))
-        var bits = bitcast[.uint32](rounded)
-        if (rounded > 0.0) == upper:
-            bits += 1
-        else:
-            bits -= 1
-        rounded = bitcast[.float32](bits)
-    return rounded
-
-
-def _transform_instance_child_bounds(
-    bounds: AABB[.LOCAL], transform: Affine3f32[.LOCAL, .WORLD]
-) -> AABB[.WORLD]:
-    """Accumulate intervals in Float64 and cover Float32 transform rounding.
-
-    gamma(8) bounds the small affine evaluation's Float32 rounding, including
-    cancellation through a sum-of-magnitudes bound. Subnormal absolute slack
-    and outward conversion cover endpoint conversion/underflow as well.
-    """
-    var matrix = transform.flatten()
-    var result = AABB[.WORLD].invalid()
-    comptime u = Float64(5.9604644775390625e-8)
-    comptime gamma = (8 * u) / (1 - 8 * u)
-    for row in range(3):
-        var lo = Float64(matrix[row * 4 + 3])
-        var hi = lo
-        var magnitude = abs(lo)
-        for axis in range(3):
-            var coefficient = Float64(matrix[row * 4 + axis])
-            var a = coefficient * Float64(bounds._min[axis])
-            var b = coefficient * Float64(bounds._max[axis])
-            lo += min(a, b)
-            hi += max(a, b)
-            magnitude += max(abs(a), abs(b))
-        var error = gamma * magnitude + Float64(8) * Float64(
-            1.401298464324817e-45
-        )
-        result._min[row] = _outward_float32(lo - error, False)
-        result._max[row] = _outward_float32(hi + error, True)
-    return result
-
-
 def refine_gpu_instance_bounds[
     kind: PrimitiveKind,
     layout: GpuBvhLayout,
@@ -186,7 +121,7 @@ def refine_gpu_instance_bounds[
             raise Error(
                 "instance BLAS index out of range during bounds refinement"
             )
-        needs_refinement |= _instance_transform_mixes_axes(instance.transform)
+        needs_refinement |= instance.transform.mixes_axes()
     if not needs_refinement:
         result.extend(instances)
         return result^
@@ -203,7 +138,7 @@ def refine_gpu_instance_bounds[
     )
     with children.map_to_host() as mapped:
         for instance in instances:
-            if not _instance_transform_mixes_axes(instance.transform):
+            if not instance.transform.mixes_axes():
                 result.append(instance.copy())
                 continue
             var candidate = AABB[.WORLD].invalid()
@@ -216,7 +151,7 @@ def refine_gpu_instance_bounds[
                 if not bounds.is_valid()[0]:
                     complete = False
                     break
-                var transformed = _transform_instance_child_bounds(
+                var transformed = transform_bounds_conservative(
                     bounds, instance.transform
                 )
                 if not transformed.is_valid()[0]:

@@ -1,6 +1,7 @@
 """Owning spatial BVH with original item IDs and independent group roots."""
 
-from bajo.core.numerics import finite_f32_key, finite_f32_min, finite_f32_max
+from bajo.core.numerics import finite_f32_min, finite_f32_max
+from bajo.core.aabb import finite_box_properties, bounds_have_subnormal
 
 from max.algorithm import parallelize
 from bajo.bvh.cpu.parallel import _worker_count
@@ -22,70 +23,6 @@ from bajo.bvh.cpu.builder.lbvh import MortonItem, LbvhFrontierTask
 # A bounded label scan avoids hashing for the common few-group case. Larger
 # forests discover labels with a directory and partition all groups together.
 comptime _SMALL_GROUP_COUNT = 8
-
-
-@always_inline
-def _finite_box_properties[frame: Frame](box: AABB[frame]) -> Tuple[Bool, Bool]:
-    var values = SIMD[.float32, 8](
-        box._min.x,
-        box._min.y,
-        box._min.z,
-        box._max.x,
-        box._max.y,
-        box._max.z,
-        0.0,
-        0.0,
-    )
-    var bits = bitcast[.uint32](values)
-    var tiny = (
-        (bits & UInt32(0x7F800000)).eq(0) & (bits & UInt32(0x007FFFFF)).ne(0)
-    ).reduce_or()
-    if not tiny:
-        return (box.is_valid()[0], False)
-    var valid = True
-    var subnormal = False
-    comptime for axis in range(3):
-        var a = bitcast[.uint32](box._min[axis])
-        var b = bitcast[.uint32](box._max[axis])
-        valid &= (a & UInt32(0x7F800000)) != UInt32(0x7F800000)
-        valid &= (b & UInt32(0x7F800000)) != UInt32(0x7F800000)
-        subnormal |= (a & UInt32(0x7F800000)) == 0 and (
-            a & UInt32(0x007FFFFF)
-        ) != 0
-        subnormal |= (b & UInt32(0x7F800000)) == 0 and (
-            b & UInt32(0x007FFFFF)
-        ) != 0
-        # Both representations of zero compare equal for validation.
-        var ka = finite_f32_key(a)
-        var kb = finite_f32_key(b)
-        if (a & UInt32(0x7FFFFFFF)) == 0:
-            ka = UInt32(0x80000000)
-        if (b & UInt32(0x7FFFFFFF)) == 0:
-            kb = UInt32(0x80000000)
-        valid &= ka <= kb
-    return (valid, subnormal)
-
-
-@always_inline
-def _has_subnormal[frame: Frame](boxes: ImmSpan[AABB[frame], _]) -> Bool:
-    comptime assert size_of[AABB[frame]]() == 6 * size_of[Float32]()
-    var bits = boxes.unsafe_ptr().unsafe_bitcast[UInt32]()
-    var count = len(boxes) * 6
-    var end = count // 8 * 8
-    for first in range(0, end, 8):
-        var packet = bits.unsafe_load[width=8](first)
-        if (
-            (packet & UInt32(0x7F800000)).eq(0)
-            & (packet & UInt32(0x007FFFFF)).ne(0)
-        ).reduce_or():
-            return True
-    for first in range(end, count):
-        var word = bits.unsafe_load(first)
-        if (word & UInt32(0x7F800000)) == 0 and (
-            word & UInt32(0x007FFFFF)
-        ) != 0:
-            return True
-    return False
 
 
 struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
@@ -117,7 +54,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
         self.group_roots = List[UInt32]()
         self.bounds = List[Float32]()
         self.nodes = List[UInt32]()
-        var precise = _has_subnormal(boxes)
+        var precise = bounds_have_subnormal(boxes)
         if precise:
             self._append_validated_boxes[True](boxes)
         else:
@@ -166,7 +103,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
     ](mut self, boxes: ImmSpan[AABB[Self.frame], _]) raises:
         for box in boxes:
             comptime if precise:
-                if not _finite_box_properties(box)[0]:
+                if not finite_box_properties(box)[0]:
                     raise Error("BVH item bounds must be finite and ordered")
             else:
                 if not box.is_valid()[0]:
@@ -178,7 +115,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
     ](self, boxes: ImmSpan[AABB[Self.frame], _]) raises:
         for box in boxes:
             comptime if precise:
-                if not _finite_box_properties(box)[0]:
+                if not finite_box_properties(box)[0]:
                     raise Error("BVH item bounds must be finite and ordered")
             else:
                 if not box.is_valid()[0]:
@@ -664,7 +601,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
     ) raises -> Bool:
         if len(boxes) != len(self.item_bounds):
             raise Error("BVH update requires unchanged item count")
-        var precise = _has_subnormal(boxes)
+        var precise = bounds_have_subnormal(boxes)
         if precise:
             self._check_boxes[True](boxes)
         else:

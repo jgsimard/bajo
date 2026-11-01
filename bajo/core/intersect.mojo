@@ -1684,3 +1684,60 @@ def sphere_overlaps_bounds[
                 return SIMD[.bool, width](fill=distance2 < radius2)
         return _sphere_overlaps_exact(center, radius, bounds)
     return bounds.distance2(center).le(Float64(radius) * Float64(radius))
+
+
+@no_inline
+def furthest_triangle_vertex_distance2[
+    frame: Frame
+](
+    point: Point3[.float32, frame],
+    a: Point3[.float32, frame],
+    b: Point3[.float32, frame],
+    c: Point3[.float32, frame],
+) -> Tuple[Float64, Int]:
+    var d0 = vector64(a) - vector64(point)
+    var d1 = vector64(b) - vector64(point)
+    var d2 = vector64(c) - vector64(point)
+    var distance0 = dot(d0, d0)
+    var distance1 = dot(d1, d1)
+    var distance2 = dot(d2, d2)
+    var first = distance1 > distance0
+    var selected_distance = distance1 if first else distance0
+    var second = distance2 > selected_distance
+    selected_distance = distance2 if second else selected_distance
+    return selected_distance, (2 if second else (1 if first else 0))
+
+
+@always_inline
+def intersect_ray_tri_edges_any[
+    frame: Frame,
+](
+    ray: Ray[.float32, frame],
+    v0: Point3[.float32, frame],
+    e1: Vec3[.float32, frame],
+    e2: Vec3[.float32, frame],
+    t_max: Float32,
+) -> Bool:
+    """Return a determinant-scaled occlusion mask without hit attributes."""
+    var p = cross(ray.d, e2)
+    var det = dot(e1, p)
+    var tv = ray.o - v0
+    var u_num = dot(tv, p)
+    var q = cross(tv, e1)
+    var v_num = dot(ray.d, q)
+    var t_num = dot(e2, q)
+    # Flipping the numerator sign bits avoids floating-point selects.
+    var sign_bit = bitcast[.uint32](det) & UInt32(0x80000000)
+    var abs_det = bitcast[.float32](bitcast[.uint32](det) & UInt32(0x7FFFFFFF))
+    var u = bitcast[.float32](bitcast[.uint32](u_num) ^ sign_bit)
+    var v = bitcast[.float32](bitcast[.uint32](v_num) ^ sign_bit)
+    var t = bitcast[.float32](bitcast[.uint32](t_num) ^ sign_bit)
+    # u <= abs_det follows from v >= 0 and u + v <= abs_det.
+    return (
+        abs_det.gt(1.0e-8)
+        & u.ge(0.0)
+        & v.ge(0.0)
+        & (u + v).le(abs_det)
+        & t.gt(ray.t_min * abs_det)
+        & t.lt(t_max * abs_det)
+    )

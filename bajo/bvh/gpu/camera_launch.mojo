@@ -4,9 +4,8 @@ from std.math import ceildiv
 from max.gpu.host import DeviceBuffer
 
 from bajo.core.camera import Camera
-from bajo.bvh.constants import f32_max
 from bajo.bvh.types import Hit
-from bajo.core import Point3f32, Rayf32, Vec3f32, normalize
+from bajo.core import Rayf32
 
 
 def validate_camera_launch(
@@ -67,16 +66,7 @@ def _camera_ray_single_view(
     inv_height: Float32,
 ) -> Rayf32[.WORLD]:
     """Generate one raster ray without the generic multi-view index math."""
-    var px = ray_idx % width
-    var py = ray_idx // width
-    var screen_x = (2.0 * (Float32(px) + 0.5) - Float32(width)) * inv_height
-    var screen_y = 1.0 - 2.0 * (Float32(py) + 0.5) * inv_height
-    var fov = camera_params[unsafe_offset=Camera.FOV]
-    var sx = screen_x * fov
-    var sy = screen_y * fov
-    var forward = Vec3f32[.WORLD](camera_params.unsafe_offset(Camera.FORWARD))
-    var right = Vec3f32[.WORLD](camera_params.unsafe_offset(Camera.RIGHT))
-    var up = Vec3f32[.WORLD](camera_params.unsafe_offset(Camera.UP))
-    var direction = normalize(forward + right * sx + up * sy)
-    var origin = Point3f32[.WORLD](camera_params.unsafe_offset(Camera.ORIGIN))
-    return Rayf32[.WORLD](origin, direction, 0.0, f32_max)
+    var camera = Camera(ImmSpan(unsafe_ptr=camera_params, length=Camera.STRIDE))
+    return camera.make_ray_raster(
+        Int(ray_idx % width), Int(ray_idx // width), Int(width), inv_height
+    )

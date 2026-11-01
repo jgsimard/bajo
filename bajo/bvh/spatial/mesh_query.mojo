@@ -33,6 +33,7 @@ from bajo.bvh.constants import EMPTY_LANE, f32_max
 from bajo.bvh.spatial.query import BoundsQueryView, BoundsQuery
 from bajo.core.intersect import (
     _gpu_ray_bounds_interval,
+    furthest_triangle_vertex_distance2,
     ray_triangle_filter,
     ray_triangle_interval,
     project_triangle_filtered,
@@ -54,28 +55,6 @@ from .adjacency import NormalSignFaces
 
 
 comptime INV_4_PI = 1.0 / (4.0 * pi)
-
-
-@no_inline
-def _furthest_corner_exact[
-    frame: Frame
-](
-    point: Point3f32[frame],
-    a: Point3f32[frame],
-    b: Point3f32[frame],
-    c: Point3f32[frame],
-) -> Tuple[Float64, Int]:
-    var d0 = vector64(a) - vector64(point)
-    var d1 = vector64(b) - vector64(point)
-    var d2 = vector64(c) - vector64(point)
-    var distance0 = dot(d0, d0)
-    var distance1 = dot(d1, d1)
-    var distance2 = dot(d2, d2)
-    var first = distance1 > distance0
-    var selected_distance = distance1 if first else distance0
-    var second = distance2 > selected_distance
-    selected_distance = distance2 if second else selected_distance
-    return selected_distance, (2 if second else (1 if first else 0))
 
 
 @fieldwise_init
@@ -1150,9 +1129,11 @@ struct MeshQueryView[
                     var delta = vector64(vertex) - vector64(point)
                     selected_distance = dot(delta, delta)
                 else:
-                    selected_distance, selected_corner = _furthest_corner_exact[
-                        Self.frame
-                    ](point, triangle[0], triangle[1], triangle[2])
+                    selected_distance, selected_corner = (
+                        furthest_triangle_vertex_distance2[Self.frame](
+                            point, triangle[0], triangle[1], triangle[2]
+                        )
+                    )
                 if selected_distance >= best2 and (
                     best_face == EMPTY_LANE
                     or selected_distance > best2

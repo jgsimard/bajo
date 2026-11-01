@@ -7,7 +7,7 @@ from bajo.bvh.constants import EMPTY_LANE, TRI_LEAF_PACKED_STRIDE
 from bajo.bvh.wide_meta import _pack_wide_meta
 from bajo.bvh.gpu.trace import (
     trace_bounds_bvh,
-    trace_bounds_bvh_state,
+    trace_ordered_bounds_bvh_state,
     GpuPrimitiveLeafState,
     _dispatch_primitive_leaf,
 )
@@ -16,10 +16,77 @@ from bajo.bvh.gpu.ray_launch import _load_packed_ray
 from bajo.bvh.gpu.utils import upload_list, upload_rays
 from bajo.core import Point3f32, Vec3f32, Rayf32
 from bajo.core.intersect import intersect_ray_tri
+from bajo.bvh.types import Hit
+
+
+def _record_leaf_order(
+    visits: Pointer[UInt32, MutUntrackedOrigin],
+    data: UInt32,
+    count: UInt32,
+    ray: Rayf32[.WORLD],
+    mut hit: Hit[.WORLD],
+) -> Bool:
+    var next = Int(visits[unsafe_offset=0])
+    visits[unsafe_offset=next + 1] = data
+    visits[unsafe_offset=0] += 1
+    return False
+
+
+def _record_order_kernel[
+    width: SIMDLength
+](
+    nodes: Pointer[Float32, ImmutAnyOrigin],
+    visits: Pointer[UInt32, MutAnyOrigin],
+):
+    if global_idx.x != 0:
+        return
+    visits[unsafe_offset=0] = 0
+    _ = trace_ordered_bounds_bvh_state[
+        .WORLD, width, Pointer[UInt32, MutUntrackedOrigin], _record_leaf_order
+    ](
+        nodes,
+        visits.unsafe_origin_cast[MutUntrackedOrigin](),
+        UInt32(0),
+        Rayf32[.WORLD](Point3f32[.WORLD](0), Vec3f32[.WORLD](0, 0, 1)),
+    )
+
+
+def _assert_leaf_order[width: SIMDLength](expected: List[UInt32]) raises:
+    var nodes = List[Float32](length=7 * width, fill=0.0)
+    for lane in range(width):
+        var distance = Float32((width - lane) // 2 + 1)
+        nodes[lane] = -1.0
+        nodes[width + lane] = -1.0
+        nodes[2 * width + lane] = distance
+        nodes[3 * width + lane] = 1.0
+        nodes[4 * width + lane] = 1.0
+        nodes[5 * width + lane] = distance + 0.25
+        nodes[6 * width + lane] = bitcast[.float32](
+            _pack_wide_meta(UInt32(lane), 1)
+        )
+    with DeviceContext() as ctx:
+        var device_nodes = upload_list(ctx, nodes)
+        var visits = ctx.enqueue_create_buffer[.uint32](width + 1)
+        ctx.enqueue_function[_record_order_kernel[width]](
+            device_nodes,
+            visits,
+            grid_dim=1,
+            block_dim=32,
+        )
+        with visits.map_to_host() as output:
+            assert_equal(output[0], UInt32(width))
+            for i, value in enumerate(expected):
+                assert_equal(output[i + 1], value)
+
+
+def test_ordered_binary_and_wide_leaf_visits_preserve_equal_distance_order() raises:
+    _assert_leaf_order[2]([1, 0])
+    _assert_leaf_order[4]([3, 1, 2, 0])
+    _assert_leaf_order[8]([7, 5, 6, 3, 4, 1, 2, 0])
 
 
 def _trace_kernel[
-    policy: Int, any_hit: Bool
+    any_hit: Bool
 ](
     nodes: Pointer[Float32, ImmutAnyOrigin],
     leaves: Pointer[Float32, ImmutAnyOrigin],
@@ -47,19 +114,15 @@ def _trace_kernel[
             UInt32(hit.is_occluded())
         )
     else:
-        var hit = trace_bounds_bvh_state[
+        var hit = trace_ordered_bounds_bvh_state[
             .WORLD,
             2,
-            .CLOSEST_HIT,
             GpuPrimitiveLeafState,
             _dispatch_primitive_leaf[
                 .WORLD,
                 .CLOSEST_HIT,
                 _intersect_triangle_leaf[.WORLD, 1, .CLOSEST_HIT],
             ],
-            True,
-            True,
-            policy,
         ](
             nodes,
             GpuPrimitiveLeafState(
@@ -155,11 +218,10 @@ def _assert_deep_tree[near_hit: Bool, far_hit: Bool = False]() raises:
         var d_leaves = upload_list(ctx, leaves)
         var d_rays = upload_rays(ctx, rays)
         var output = ctx.enqueue_create_buffer[.float32](len(rays) * 4)
-        # The shared upload covers both closest-hit stack policies and any-hit.
-        comptime for variant in range(3):
-            comptime policy = 2 if variant == 1 else 1
-            comptime any_hit = variant == 2
-            ctx.enqueue_function[_trace_kernel[policy, any_hit]](
+        # Ordered closest-hit and the unchanged shadow traversal share input.
+        comptime for variant in range(2):
+            comptime any_hit = variant == 1
+            ctx.enqueue_function[_trace_kernel[any_hit]](
                 d_nodes,
                 d_leaves,
                 d_rays,

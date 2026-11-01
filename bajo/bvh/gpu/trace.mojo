@@ -320,7 +320,6 @@ def _trace_bounds_bvh_state_bvh2_closest[
     frame: Frame,
     LeafState: AnyType,
     leaf_fn: GpuLeafStateFn[frame, LeafState],
-    distance_pruned: Bool = False,
 ](
     wide_nodes: ImmPointer[Float32, _],
     leaf_state: LeafState,
@@ -330,8 +329,7 @@ def _trace_bounds_bvh_state_bvh2_closest[
     """Order closest-hit leaf and internal children together."""
     comptime stack_size = 64
     var hit = Hit[frame].miss(ray.t_max)
-    comptime task_dtype: DType = .uint64 if distance_pruned else .uint32
-    var stack = Array[Scalar[task_dtype], stack_size](uninitialized=True)
+    var stack = Array[UInt32, stack_size](uninitialized=True)
     var stack_ptr = 0
     var current = root_idx
     var bounds_origin = ray.origin[2]()
@@ -360,16 +358,7 @@ def _trace_bounds_bvh_state_bvh2_closest[
                     stack_ptr < stack_size,
                     "GPU BVH traversal stack overflow",
                 )
-                comptime if distance_pruned:
-                    var far_near = node_hit.bounds_hit.t[
-                        0
-                    ] if second_is_nearer else node_hit.bounds_hit.t[1]
-                    stack[stack_ptr] = (
-                        UInt64(far_meta)
-                        | (UInt64(bitcast[.uint32](far_near)) << UInt64(32))
-                    ).cast[task_dtype]()
-                else:
-                    stack[stack_ptr] = far_meta.cast[task_dtype]()
+                stack[stack_ptr] = far_meta
                 stack_ptr += 1
                 current = near_meta
                 continue
@@ -380,44 +369,12 @@ def _trace_bounds_bvh_state_bvh2_closest[
                 current = meta1
                 continue
 
-        comptime if distance_pruned:
-            # A closer BLAS hit may invalidate queued nodes and instance
-            # leaves. Check them on pop, keeping distance out of the live
-            # direct-continuation state across the BLAS callback.
-            while True:
-                if stack_ptr == 0:
-                    return hit
-                stack_ptr -= 1
-                var task = stack[stack_ptr].cast[.uint64]()
-                var t_near = bitcast[.float32](UInt32(task >> UInt64(32)))
-                if t_near > hit.t:
-                    continue
-                current = UInt32(task)
-                break
-        else:
-            if stack_ptr == 0:
-                break
-            stack_ptr -= 1
-            current = stack[stack_ptr].cast[.uint32]()
+        if stack_ptr == 0:
+            break
+        stack_ptr -= 1
+        current = stack[stack_ptr]
 
     return hit
-
-
-@no_inline
-def _trace_bounds_bvh_state_bvh2_closest_separate[
-    frame: Frame,
-    LeafState: AnyType,
-    leaf_fn: GpuLeafStateFn[frame, LeafState],
-](
-    wide_nodes: ImmPointer[Float32, _],
-    leaf_state: LeafState,
-    root_idx: UInt32,
-    ray: Rayf32[frame],
-) -> Hit[frame]:
-    """Keep ordered traversal outside the calling GPU shading function."""
-    return _trace_bounds_bvh_state_bvh2_closest[frame, LeafState, leaf_fn](
-        wide_nodes, leaf_state, root_idx, ray
-    )
 
 
 @always_inline
@@ -427,8 +384,6 @@ def _trace_bounds_bvh_state_bvh2[
     leaf_fn: GpuLeafStateFn[frame, LeafState],
     mode: TraceMode = .CLOSEST_HIT,
     near_first_leaves: Bool = True,
-    # 0: eager; 1: ordered; 2: separate ordered; 3: distance-pruned ordered.
-    closest_leaf_tasks: Int = 0,
 ](
     wide_nodes: ImmPointer[Float32, _],
     leaf_state: LeafState,
@@ -444,19 +399,6 @@ def _trace_bounds_bvh_state_bvh2[
         return _trace_bounds_bvh_state_bvh2_any[frame, LeafState, leaf_fn](
             wide_nodes, leaf_state, root_idx, ray
         )
-    comptime assert 0 <= closest_leaf_tasks <= 3
-    comptime if mode == .CLOSEST_HIT and closest_leaf_tasks == 1:
-        return _trace_bounds_bvh_state_bvh2_closest[frame, LeafState, leaf_fn](
-            wide_nodes, leaf_state, root_idx, ray
-        )
-    comptime if mode == .CLOSEST_HIT and closest_leaf_tasks == 2:
-        return _trace_bounds_bvh_state_bvh2_closest_separate[
-            frame, LeafState, leaf_fn
-        ](wide_nodes, leaf_state, root_idx, ray)
-    comptime if mode == .CLOSEST_HIT and closest_leaf_tasks == 3:
-        return _trace_bounds_bvh_state_bvh2_closest[
-            frame, LeafState, leaf_fn, True
-        ](wide_nodes, leaf_state, root_idx, ray)
     var hit = Hit[frame].miss(ray.t_max)
     var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
     var stack_ptr = 0
@@ -539,6 +481,75 @@ def _trace_bounds_bvh_state_bvh2[
     return hit
 
 
+@always_inline
+def trace_ordered_bounds_bvh_state[
+    frame: Frame,
+    width: SIMDLength,
+    LeafState: AnyType,
+    leaf_fn: GpuLeafStateFn[frame, LeafState],
+](
+    wide_nodes: ImmPointer[Float32, _],
+    leaf_state: LeafState,
+    root_idx: UInt32,
+    ray: Rayf32[frame],
+) -> Hit[frame]:
+    """Closest-hit traversal ordering leaves and internal children together."""
+    comptime assert width >= 2
+    comptime if width == 2:
+        return _trace_bounds_bvh_state_bvh2_closest[frame, LeafState, leaf_fn](
+            wide_nodes, leaf_state, root_idx, ray
+        )
+
+    # Allow siblings along the same 64-level depth as the binary traversal.
+    comptime stack_size = 64 * (Int(width) - 1)
+    var stack = Array[UInt32, stack_size](uninitialized=True)
+    var stack_ptr = 0
+    var current = root_idx
+    var hit = Hit[frame].miss(ray.t_max)
+    var bounds_origin = ray.origin[width]()
+    var reciprocal_direction = ray.reciprocal_direction[width]()
+    while True:
+        var count = _wide_meta_count(current)
+        var data = _wide_meta_data(current)
+        if count != 0:
+            _ = leaf_fn(leaf_state, data, count, ray, hit)
+        else:
+            var node = _intersect_wide_node_precomputed[frame, width](
+                wide_nodes, data, bounds_origin, reciprocal_direction, hit.t
+            )
+            var tasks = Array[UInt32, width](uninitialized=True)
+            var distances = Array[Float32, width](uninitialized=True)
+            var accepted = 0
+            comptime for lane in range(width):
+                if node.meta[lane] != EMPTY_LANE and node.bounds_hit.mask[lane]:
+                    var position = accepted
+                    var distance = node.bounds_hit.t[lane]
+                    # Stable insertion preserves lane order for equal entries.
+                    while position > 0:
+                        if distance >= distances[position - 1]:
+                            break
+                        tasks[position] = tasks[position - 1]
+                        distances[position] = distances[position - 1]
+                        position -= 1
+                    tasks[position] = node.meta[lane]
+                    distances[position] = distance
+                    accepted += 1
+            if accepted > 0:
+                for index in range(accepted - 1, 0, -1):
+                    debug_assert["safe", _use_compiler_assume=True](
+                        stack_ptr < stack_size, "GPU ordered BVH stack overflow"
+                    )
+                    stack[stack_ptr] = tasks[index]
+                    stack_ptr += 1
+                current = tasks[0]
+                continue
+        if stack_ptr == 0:
+            break
+        stack_ptr -= 1
+        current = stack[stack_ptr]
+    return hit
+
+
 def trace_bounds_bvh_state[
     frame: Frame,
     width: SIMDLength,
@@ -547,8 +558,6 @@ def trace_bounds_bvh_state[
     leaf_fn: GpuLeafStateFn[frame, LeafState],
     compact_bvh2: Bool = False,
     near_first_leaves: Bool = True,
-    # 0: eager; 1: ordered; 2: separate ordered; 3: distance-pruned ordered.
-    closest_leaf_tasks: Int = 0,
 ](
     wide_nodes: ImmPointer[Float32, _],
     leaf_state: LeafState,
@@ -564,7 +573,6 @@ def trace_bounds_bvh_state[
             leaf_fn,
             mode,
             near_first_leaves,
-            closest_leaf_tasks,
         ](wide_nodes, leaf_state, root_idx, ray)
 
     var hit = Hit[frame].miss(ray.t_max)

@@ -33,14 +33,16 @@ from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_blas_set
 from bajo.bvh.gpu.triangle_trace import _intersect_triangle_leaf
 from bajo.bvh.gpu.tlas import _trace_tlas_ray, build_gpu_tlas
 from bajo.bvh.gpu.utils import upload_rays
-from bajo.bvh.gpu import GpuBlasSet
+from bajo.bvh.gpu import GpuBlasSet, GpuBvhLayout
 from bajo.bvh.gpu.trace import GpuLeafFn
 
 
 def _visibility_kernel[
     leaf_fn: GpuLeafFn[.LOCAL],
     mode: TraceMode = .ANY_HIT,
-    closest_leaf_tasks: Int = 0,
+    blas_node_width: SIMDLength = 4,
+    blas_layout: GpuBvhLayout = .WIDE,
+    tlas_node_width: SIMDLength = 2,
 ](
     nodes: Pointer[Float32, ImmutAnyOrigin],
     leaf_instances: Pointer[UInt32, ImmutAnyOrigin],
@@ -59,7 +61,13 @@ def _visibility_kernel[
     if idx >= Int(ray_count):
         return
     var hit = _trace_tlas_ray[
-        2, 1, 4, 4, mode, leaf_fn, closest_leaf_tasks=closest_leaf_tasks
+        tlas_node_width,
+        1,
+        blas_node_width,
+        4,
+        mode,
+        leaf_fn,
+        blas_layout,
     ](
         nodes,
         leaf_instances,
@@ -84,7 +92,8 @@ def _visibility_kernel[
 def _assert_visibility[
     kind: PrimitiveKind,
     mode: TraceMode = .ANY_HIT,
-    closest_leaf_tasks: Int = 0,
+    blas_layout: GpuBvhLayout = .WIDE,
+    tlas_node_width: SIMDLength = 2,
 ]() raises:
     var vertices: List[Point3f32[.LOCAL]] = [
         Point3f32[.LOCAL](-0.45, -0.45, 0.0),
@@ -228,20 +237,28 @@ def _assert_visibility[
     assert_true(blocked_count > 0 and blocked_count < len(rays))
     with DeviceContext() as ctx:
         comptime if kind == .SPHERE:
+            comptime assert blas_layout == .WIDE
             var blases = build_gpu_sphere_blas_set[4, 4](ctx, [spheres^])
             _assert_gpu_results[
                 .SPHERE,
                 _intersect_sphere_leaf[.LOCAL, 4, mode],
                 mode,
-                closest_leaf_tasks,
+                4,
+                .WIDE,
+                tlas_node_width,
             ](ctx, blases, instances, rays, expected, expected_hits)
         else:
-            var blases = build_gpu_triangle_blas_set[4, 4](ctx, [vertices^])
+            comptime blas_node_width = 8 if blas_layout.compressed else 4
+            var blases = build_gpu_triangle_blas_set[
+                blas_node_width, 4, .HPLOC, blas_layout
+            ](ctx, [vertices^])
             _assert_gpu_results[
                 .TRIANGLE,
                 _intersect_triangle_leaf[.LOCAL, 4, mode],
                 mode,
-                closest_leaf_tasks,
+                blas_node_width,
+                blas_layout,
+                tlas_node_width,
             ](ctx, blases, instances, rays, expected, expected_hits)
 
 
@@ -249,20 +266,28 @@ def _assert_gpu_results[
     kind: PrimitiveKind,
     leaf_fn: GpuLeafFn[.LOCAL],
     mode: TraceMode,
-    closest_leaf_tasks: Int = 0,
+    blas_node_width: SIMDLength = 4,
+    blas_layout: GpuBvhLayout = .WIDE,
+    tlas_node_width: SIMDLength = 2,
 ](
     mut ctx: DeviceContext,
-    blases: GpuBlasSet[kind, .WIDE, 4, 4],
+    blases: GpuBlasSet[kind, blas_layout, blas_node_width, 4],
     instances: List[Instance],
     rays: List[Rayf32[.WORLD]],
     expected: List[UInt32],
     expected_hits: List[Hit[.WORLD]],
 ) raises:
-    var tlas = build_gpu_tlas[kind, 2, 4, 1, 4](ctx, instances)
+    var tlas = build_gpu_tlas[
+        kind, tlas_node_width, blas_node_width, 1, 4, .LBVH, blas_layout
+    ](ctx, instances)
     var input = upload_rays(ctx, rays)
     comptime output_stride = Hit.STRIDE if mode == .CLOSEST_HIT else 1
     var output = ctx.enqueue_create_buffer[.uint32](len(rays) * output_stride)
-    ctx.enqueue_function[_visibility_kernel[leaf_fn, mode, closest_leaf_tasks]](
+    ctx.enqueue_function[
+        _visibility_kernel[
+            leaf_fn, mode, blas_node_width, blas_layout, tlas_node_width
+        ]
+    ](
         tlas._tree.wide_nodes,
         tlas._tree.leaf_block_indices,
         tlas._inst_inv_transform,
@@ -322,28 +347,14 @@ def test_gpu_tlas2_sphere_closest_matches_primitive_reference() raises:
     _assert_visibility[.SPHERE, .CLOSEST_HIT]()
 
 
-def test_gpu_tlas2_ordered_triangle_closest_matches_reference() raises:
-    _assert_visibility[.TRIANGLE, .CLOSEST_HIT, 1]()
+def test_gpu_tlas2_compressed_closest_matches_primitive_reference() raises:
+    _assert_visibility[.TRIANGLE, .CLOSEST_HIT, .CWBVH8]()
 
 
-def test_gpu_tlas2_ordered_sphere_closest_matches_reference() raises:
-    _assert_visibility[.SPHERE, .CLOSEST_HIT, 1]()
-
-
-def test_gpu_tlas2_separate_triangle_closest_matches_reference() raises:
-    _assert_visibility[.TRIANGLE, .CLOSEST_HIT, 2]()
-
-
-def test_gpu_tlas2_separate_sphere_closest_matches_reference() raises:
-    _assert_visibility[.SPHERE, .CLOSEST_HIT, 2]()
-
-
-def test_gpu_tlas2_distance_pruned_triangle_matches_reference() raises:
-    _assert_visibility[.TRIANGLE, .CLOSEST_HIT, 3]()
-
-
-def test_gpu_tlas2_distance_pruned_sphere_matches_reference() raises:
-    _assert_visibility[.SPHERE, .CLOSEST_HIT, 3]()
+def test_gpu_wide_tlas_ordered_closest_matches_primitive_reference() raises:
+    _assert_visibility[.TRIANGLE, .CLOSEST_HIT, .WIDE, 4]()
+    _assert_visibility[.TRIANGLE, .CLOSEST_HIT, .CWBVH8, 8]()
+    _assert_visibility[.SPHERE, .CLOSEST_HIT, .WIDE, 8]()
 
 
 def run_tests[_discovery: Bool = True]() raises:

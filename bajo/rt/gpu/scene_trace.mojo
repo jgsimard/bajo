@@ -347,14 +347,6 @@ def _gpu_rt_scene_trace_path[
                 or blas_format.leaf_width == 8,
             ],
             blas_format.layout,
-            # Measured TLAS2/leaf1 + BLAS4/leaf4 policies share one callback.
-            # Pure-instance shading benefits from a separate GPU function.
-            (2 if scene_kind == .INSTANCES else 1) if tlas_format.node_width
-            == 2
-            and tlas_format.leaf_width == 1
-            and not blas_format.layout.compressed
-            and blas_format.node_width == 4
-            and blas_format.leaf_width == 4 else 0,
         ](
             tlas_nodes,
             tlas_leaf_instances,

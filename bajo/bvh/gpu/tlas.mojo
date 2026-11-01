@@ -36,6 +36,7 @@ from bajo.bvh.gpu.triangle_trace import (
 from bajo.bvh.gpu.trace import (
     GpuLeafFn,
     trace_bounds_bvh_state,
+    trace_ordered_bounds_bvh_state,
 )
 from bajo.bvh.gpu.utils import GpuBuildTimings
 from bajo.bvh.gpu.ray_launch import (
@@ -194,8 +195,6 @@ def _trace_tlas_ray[
     mode: TraceMode,
     blas_leaf_fn: GpuLeafFn[.LOCAL],
     blas_layout: GpuBvhLayout = .WIDE,
-    # Chosen by the caller from its existing geometry/kernel specialization.
-    closest_leaf_tasks: Int = 0,
 ](
     tlas_wide_nodes: ImmPointer[Float32, _],
     tlas_leaf_instances: ImmPointer[UInt32, _],
@@ -219,26 +218,33 @@ def _trace_tlas_ray[
         instance_count,
         blas_count,
     )
-    var hit = trace_bounds_bvh_state[
-        .WORLD,
-        tlas_node_width,
+    comptime leaf_fn = _intersect_tlas_leaf_state[
+        tlas_leaf_width,
+        blas_node_width,
+        blas_leaf_width,
         mode,
-        GpuTlasLeafState,
-        _intersect_tlas_leaf_state[
-            tlas_leaf_width,
-            blas_node_width,
-            blas_leaf_width,
+        blas_leaf_fn,
+        blas_layout,
+    ]
+    var hit: Hit[.WORLD]
+    comptime if mode == .CLOSEST_HIT:
+        hit = trace_ordered_bounds_bvh_state[
+            .WORLD,
+            tlas_node_width,
+            GpuTlasLeafState,
+            leaf_fn,
+        ](tlas_wide_nodes, leaf_state, tlas_root_idx, ray)
+    else:
+        hit = trace_bounds_bvh_state[
+            .WORLD,
+            tlas_node_width,
             mode,
-            blas_leaf_fn,
-            blas_layout,
-        ],
-        # Scalar near-first BVH2 also avoids push/pop round trips for shadows.
-        tlas_node_width == 2,
-        # Wide-BLAS shadows benefit from ordering leaves with internal tasks.
-        # Compressed BLASes retain eager leaves after a measured regression.
-        not blas_layout.compressed,
-        closest_leaf_tasks,
-    ](tlas_wide_nodes, leaf_state, tlas_root_idx, ray)
+            GpuTlasLeafState,
+            leaf_fn,
+            tlas_node_width == 2,
+            # Preserve the existing any-hit ordering for each BLAS layout.
+            not blas_layout.compressed,
+        ](tlas_wide_nodes, leaf_state, tlas_root_idx, ray)
     comptime if mode == .CLOSEST_HIT:
         if hit.is_hit():
             var inverse_span = Span(
@@ -330,9 +336,6 @@ def _trace_tlas_camera_kernel[
                 blas_leaf_width > blas_node_width or blas_leaf_width == 8,
             ],
             blas_layout,
-            (1) if blas_layout.compressed
-            and tlas_node_width == 2
-            and tlas_leaf_width == 1 else 0,
         ]
     )
     var hit = trace_ray(
@@ -408,9 +411,6 @@ def _trace_tlas_rays_kernel[
                 blas_leaf_width > blas_node_width or blas_leaf_width == 8,
             ],
             blas_layout,
-            (3 if ordered_output else 1) if blas_layout.compressed
-            and tlas_node_width == 2
-            and tlas_leaf_width == 1 else 0,
         ]
     )
     var hit = trace_ray(

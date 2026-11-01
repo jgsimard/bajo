@@ -7,9 +7,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.bvh.constants import (
     EMPTY_LANE,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
-    GPU_STACK_SIZE,
     TraceMode,
-    f32_max,
 )
 from bajo.bvh.gpu.camera_launch import _camera_ray
 from bajo.bvh.gpu.ray_launch import _store_packed_hit
@@ -140,7 +138,7 @@ def _trace_tlas2_leaf1_cwbvh8_with_stats(
 ) -> Tuple[Hit[.WORLD], GpuTlasTraversalStats]:
     var hit = Hit[.WORLD].miss(ray.t_max)
     var stats = GpuTlasTraversalStats.zero()
-    var stack = Array[UInt32, GPU_STACK_SIZE](uninitialized=True)
+    var stack = Array[UInt32, 64](uninitialized=True)
     var stack_ptr = 0
     var current = tlas_root
     var bounds_origin = ray.origin[2]()
@@ -151,89 +149,67 @@ def _trace_tlas2_leaf1_cwbvh8_with_stats(
     )
 
     while True:
-        stats.tlas_node_visits += 1
-        var node_hit = _intersect_wide_node_precomputed[.WORLD, 2](
-            tlas_nodes,
-            current,
-            bounds_origin,
-            reciprocal_direction,
-            hit.t,
-        )
-        var child_valid = Array[Bool, 2](fill=False)
-        var child_data = Array[UInt32, 2](fill=0)
-        var child_t = Array[Float32, 2](fill=f32_max)
-
-        comptime for lane in range(2):
-            var meta = node_hit.meta[lane]
-            var count = _wide_meta_count(meta)
-            if count != EMPTY_LANE and node_hit.bounds_hit.mask[lane]:
-                var data = _wide_meta_data(meta)
-                if count == 0:
-                    child_valid[lane] = True
-                    child_data[lane] = data
-                    child_t[lane] = node_hit.bounds_hit.t[lane]
+        var count = _wide_meta_count(current)
+        var data = _wide_meta_data(current)
+        if count != 0:
+            stats.tlas_leaves += 1
+            var inst_idx = data
+            var blas_idx = inst_blas_indices[unsafe_offset=Int(inst_idx)]
+            var blas_desc = BlasDesc.load(blas_descs, blas_idx)
+            if blas_desc.prim_count != 0:
+                stats.blas_dispatches += 1
+                var inverse = Affine3f32[.WORLD, .LOCAL].load(
+                    inverse_span,
+                    Int(inst_idx) * Affine3f32.STRIDE,
+                )
+                var local = _trace_cwbvh8_with_stats_in_frame[.LOCAL](
+                    blas_nodes.unsafe_offset(Int(blas_desc.node_f32_base)),
+                    blas_leaves.unsafe_offset(Int(blas_desc.leaf_f32_base)),
+                    blas_desc.root_idx,
+                    inverse.ray(ray, hit.t),
+                )
+                stats.blas_node_visits += local.stats.node_visits
+                stats.blas_leaves += local.stats.leaf_blocks
+                stats.blas_primitives += local.stats.primitive_tests
+                if local.stats.max_stack_depth > stats.blas_max_stack:
+                    stats.blas_max_stack = local.stats.max_stack_depth
+                if local.hit.is_hit():
+                    stats.blas_hits += 1
                 else:
-                    stats.tlas_leaves += 1
-                    # Leaf1 embeds its instance id directly in node metadata.
-                    var inst_idx = data
-                    if inst_idx != EMPTY_LANE:
-                        stats.blas_dispatches += 1
-                        var blas_idx = UInt32(
-                            inst_blas_indices[unsafe_offset=Int(inst_idx)]
-                        )
-                        var blas_desc = BlasDesc.load(blas_descs, blas_idx)
-                        var inverse = Affine3f32[.WORLD, .LOCAL].load(
-                            inverse_span,
-                            Int(inst_idx) * Affine3f32.STRIDE,
-                        )
-                        var local_ray = inverse.ray(ray, hit.t)
-                        var local_nodes = blas_nodes.unsafe_offset(
-                            Int(blas_desc.node_f32_base)
-                        )
-                        var local_leaves = blas_leaves.unsafe_offset(
-                            Int(blas_desc.leaf_f32_base)
-                        )
-                        var local_root = blas_desc.root_idx
-                        var local = _trace_cwbvh8_with_stats_in_frame[.LOCAL](
-                            local_nodes,
-                            local_leaves,
-                            local_root,
-                            local_ray,
-                        )
-                        stats.blas_node_visits += local.stats.node_visits
-                        stats.blas_leaves += local.stats.leaf_blocks
-                        stats.blas_primitives += local.stats.primitive_tests
-                        if local.stats.max_stack_depth > stats.blas_max_stack:
-                            stats.blas_max_stack = local.stats.max_stack_depth
-                        if local.hit.is_hit():
-                            stats.blas_hits += 1
-                        else:
-                            stats.blas_misses += 1
-                        if promote_tlas_local_hit(local.hit, inst_idx, hit):
-                            stats.hit_replacements += 1
-                            stats.winning_blas = blas_idx
-
-        var nearest_lane = -1
-        var nearest_t = f32_max
-        comptime for lane in range(2):
-            if child_valid[lane] and child_t[lane] < nearest_t:
-                nearest_lane = lane
-                nearest_t = child_t[lane]
-
-        comptime for lane in range(2):
-            if (
-                child_valid[lane]
-                and lane != nearest_lane
-                and child_t[lane] <= hit.t
-            ):
-                stack[stack_ptr] = child_data[lane]
+                    stats.blas_misses += 1
+                if promote_tlas_local_hit(local.hit, inst_idx, hit):
+                    stats.hit_replacements += 1
+                    stats.winning_blas = blas_idx
+        else:
+            stats.tlas_node_visits += 1
+            var node = _intersect_wide_node_precomputed[.WORLD, 2](
+                tlas_nodes,
+                data,
+                bounds_origin,
+                reciprocal_direction,
+                hit.t,
+            )
+            var m0 = node.meta[0]
+            var m1 = node.meta[1]
+            var valid0 = m0 != EMPTY_LANE and node.bounds_hit.mask[0]
+            var valid1 = m1 != EMPTY_LANE and node.bounds_hit.mask[1]
+            if valid0 and valid1:
+                var swap = node.bounds_hit.t[1] < node.bounds_hit.t[0]
+                debug_assert["safe", _use_compiler_assume=True](
+                    stack_ptr < 64, "GPU ordered TLAS diagnostic stack overflow"
+                )
+                stack[stack_ptr] = m0 if swap else m1
                 stack_ptr += 1
                 if UInt32(stack_ptr) > stats.tlas_max_stack:
                     stats.tlas_max_stack = UInt32(stack_ptr)
-
-        if nearest_lane != -1 and nearest_t <= hit.t:
-            current = child_data[nearest_lane]
-            continue
+                current = m1 if swap else m0
+                continue
+            elif valid0:
+                current = m0
+                continue
+            elif valid1:
+                current = m1
+                continue
         if stack_ptr == 0:
             break
         stack_ptr -= 1

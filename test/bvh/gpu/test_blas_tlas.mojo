@@ -21,6 +21,11 @@ from bajo.bvh.gpu.compressed_bounds_bvh import CWBVH_META_BASE, CWBVH_NODE_WORDS
 from bajo.bvh.gpu.triangle_bvh import build_gpu_triangle_blas_set
 from bajo.bvh.gpu.sphere_bvh import build_gpu_sphere_blas_set
 from bajo.bvh.gpu.tlas import build_gpu_tlas
+from bajo.bvh.gpu.tlas_diagnostics import (
+    launch_triangle_tlas_camera_diagnostics,
+    summarize_tlas_diagnostics,
+    GpuTlasTraversalStats,
+)
 
 from bajo.bvh.cpu.tlas import CpuTlas
 from test.bvh.fixtures import (
@@ -177,6 +182,48 @@ def _assert_cwbvh_max_leaf_size[max_leaf_size: Int]() raises:
             )
             ctx.synchronize()
             _assert_hit(_download_single_hit(hits), 2.0, 0, 0)
+
+
+def test_ordered_tlas_diagnostics_match_production_hits() raises:
+    var near = _make_triangle_at_z(2.0)
+    var far = _make_triangle_at_z(6.0)
+    var instances: List = [
+        _triangle_instance(0, Point3f32[.WORLD](0), compute_bounds(far)),
+        _triangle_instance(1, Point3f32[.WORLD](0), compute_bounds(near)),
+    ]
+    with DeviceContext() as ctx:
+        var blases = build_gpu_triangle_blas_set[8, 4, .HPLOC, .CWBVH8](
+            ctx, [far^, near^]
+        )
+        var tlas = build_gpu_tlas[.TRIANGLE, 2, 8, 1, 4, .LBVH, .CWBVH8](
+            ctx, instances
+        )
+        var camera = _make_camera_ray(
+            Point3f32[.WORLD](0), Vec3f32[.WORLD](0, 0, 1)
+        )
+        var params = upload_camera(ctx, camera)
+        var expected = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
+        var actual = ctx.enqueue_create_buffer[.float32](Hit.STRIDE)
+        var counters = ctx.enqueue_create_buffer[.uint32](
+            GpuTlasTraversalStats.STRIDE
+        )
+        tlas.launch_camera(ctx, blases, params, expected, 1, 1, 1)
+        launch_triangle_tlas_camera_diagnostics(
+            ctx, tlas, blases, params, actual, counters, 1, 1, 1
+        )
+        with expected.map_to_host() as reference:
+            with actual.map_to_host() as diagnostic:
+                for field in range(Hit.STRIDE):
+                    assert_true(
+                        bitcast[.uint32](reference[field])
+                        == bitcast[.uint32](diagnostic[field])
+                    )
+        _assert_hit(_download_single_hit(actual), 2.0, 0, 1)
+        var summary = summarize_tlas_diagnostics(counters, 1)
+        assert_true(summary.blas_dispatches == 2)
+        assert_true(summary.blas_hits == 1)
+        assert_true(summary.blas_misses == 1)
+        assert_true(summary.hit_replacements == 1)
 
 
 def test_gpu_cwbvh_max_leaf_size_single_and_segmented_builds() raises:

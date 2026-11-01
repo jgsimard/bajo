@@ -246,11 +246,11 @@ def transform_bounds_conservative[
     var result = AxisAlignedBoundingBox[.float32, To].invalid()
     comptime u = Float64(5.9604644775390625e-8)
     comptime gamma = (8 * u) / (1 - 8 * u)
-    for row in range(3):
+    comptime for row in range(3):
         var lo = Float64(matrix[row * 4 + 3])
         var hi = lo
         var magnitude = abs(lo)
-        for axis in range(3):
+        comptime for axis in range(3):
             var coefficient = Float64(matrix[row * 4 + axis])
             var a = coefficient * Float64(bounds._min[axis])
             var b = coefficient * Float64(bounds._max[axis])

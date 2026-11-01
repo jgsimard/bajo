@@ -69,8 +69,6 @@ def record_tile[
 
 @always_inline
 def gather_record_field[
-    mut: Bool,
-    origin: Origin[mut=mut],
     Layout: TensorLayout,
     //,
     field: Int,
@@ -78,7 +76,7 @@ def gather_record_field[
     index_dtype: DType,
     length: SIMDLength,
 ](
-    records: TileTensor[dtype, Layout, origin],
+    records: TileTensor[dtype, Layout, _],
     ids: SIMD[index_dtype, length],
     uniform: Bool = False,
 ) -> SIMD[dtype, length]:
@@ -100,8 +98,6 @@ def gather_record_field[
 
 @always_inline
 def gather_record_vec3[
-    mut: Bool,
-    origin: Origin[mut=mut],
     Layout: TensorLayout,
     dtype: DType,
     index_dtype: DType,
@@ -110,7 +106,7 @@ def gather_record_vec3[
     frame: Frame = .WORLD,
     field: Int = 0,
 ](
-    records: TileTensor[dtype, Layout, origin],
+    records: TileTensor[dtype, Layout, _],
     ids: SIMD[index_dtype, length],
     uniform: Bool = False,
 ) -> Vec3[dtype, frame, length]:

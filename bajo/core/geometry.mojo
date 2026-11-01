@@ -41,15 +41,12 @@ def sphere_bounds[
 
 @always_inline
 def interpolate_triangle_attribute[
-    mut: Bool,
-    origin: Origin[mut=mut],
-    //,
     components: Int,
     component: Int,
     index_dtype: DType,
     length: SIMDLength,
 ](
-    attributes: RecordTile[.float32, 3 * components, origin],
+    attributes: RecordTile[.float32, 3 * components, _],
     triangles: SIMD[index_dtype, length],
     u: SIMD[.float32, length],
     v: SIMD[.float32, length],

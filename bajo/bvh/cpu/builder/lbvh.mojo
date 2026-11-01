@@ -600,7 +600,6 @@ def _build_lbvh_recursive_parallel[
     leaf_size: Int,
     method: CpuBvhBuildMethod,
     hploc_microleaf_size: Int,
-    next_node_origin: MutOrigin,
 ](
     mut builder: BinaryBoundsBvh[
         frame, leaf_size, method, hploc_microleaf_size
@@ -609,7 +608,7 @@ def _build_lbvh_recursive_parallel[
     node_idx: UInt32,
     first: Int,
     count: Int,
-    next_node: Pointer[UInt32, next_node_origin],
+    next_node: MutPointer[UInt32, _],
 ) -> AABB[frame]:
     if count <= leaf_size:
         return _build_lbvh_leaf(builder, node_idx, first, count)

@@ -32,12 +32,9 @@ def image_pixel_index[
 
 @always_inline
 def sample_image_texture[
-    mut: Bool,
-    origin: Origin[mut=mut],
-    //,
     length: SIMDLength,
 ](
-    pixels: RecordTile[.float32, 3, origin],
+    pixels: RecordTile[.float32, 3, _],
     width: Int,
     height: Int,
     u: SIMD[.float32, length],
@@ -48,14 +45,13 @@ def sample_image_texture[
 
 @always_inline
 def load_environment_texel[
-    mut: Bool,
-    origin: Origin[mut=mut],
-    //,
     length: SIMDLength,
 ](
-    pixels: RecordTile[.float32, 3, origin],
+    pixels: RecordTile[.float32, 3, _],
     index: SIMD[.int64, length],
-) -> Vec3[.float32, .WORLD, length]:
+) -> Vec3[
+    .float32, .WORLD, length
+]:
     var value = gather_record_vec3(pixels, index)
     return Vec3[.float32, .WORLD, length](
         max(value.x, 0.0), max(value.y, 0.0), max(value.z, 0.0)
@@ -64,12 +60,9 @@ def load_environment_texel[
 
 @always_inline
 def sample_environment_texture[
-    mut: Bool,
-    origin: Origin[mut=mut],
-    //,
     length: SIMDLength,
 ](
-    pixels: RecordTile[.float32, 3, origin],
+    pixels: RecordTile[.float32, 3, _],
     width: Int,
     height: Int,
     u: SIMD[.float32, length],

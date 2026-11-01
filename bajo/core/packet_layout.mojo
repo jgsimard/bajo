@@ -45,14 +45,12 @@ def packet_float_field[
 
 @always_inline
 def copy_packet_float_lane[
-    source_mut: Bool,
-    source_origin: Origin[mut=source_mut],
     destination_origin: Origin[mut=True],
     //,
     fields: Int,
     length: SIMDLength,
 ](
-    source: PacketFloatTile[fields, length, source_origin],
+    source: PacketFloatTile[fields, length, _],
     destination: PacketFloatTile[fields, length, destination_origin],
     source_lane: Int,
     destination_lane: Int,
@@ -63,14 +61,12 @@ def copy_packet_float_lane[
 
 @always_inline
 def compact_packet_floats[
-    source_mut: Bool,
-    source_origin: Origin[mut=source_mut],
     destination_origin: Origin[mut=True],
     //,
     fields: Int,
     length: SIMDLength,
 ](
-    source: PacketFloatTile[fields, length, source_origin],
+    source: PacketFloatTile[fields, length, _],
     destination: PacketFloatTile[fields, length, destination_origin],
     selected: SIMD[.bool, length],
     destination_lane: Int,

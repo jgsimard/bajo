@@ -105,12 +105,8 @@ def global_histogram[
 
 @always_inline
 def scan_local_histogram[
-    histogram_origin: MutOrigin, //, BITS_PER_PASS: Int
-](
-    s_local_histogram: Pointer[
-        UInt32, histogram_origin, address_space=AddressSpace.SHARED
-    ],
-):
+    BITS_PER_PASS: Int
+](s_local_histogram: MutPointer[UInt32, _, address_space=AddressSpace.SHARED],):
     comptime RADIX = 2**BITS_PER_PASS
     comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)
     var tid = thread_idx.x
@@ -133,8 +129,6 @@ def scan_local_histogram[
 
 @always_inline
 def scatter_radix_tile[
-    values_origin: MutOrigin,
-    //,
     keys_dtype: DType,
     vals_dtype: DType,
     *,
@@ -147,8 +141,8 @@ def scatter_radix_tile[
     vals_current_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
     vals_alternate_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
     s_keys: Pointer[Scalar[keys_dtype], _, address_space=AddressSpace.SHARED],
-    s_values: Pointer[
-        Scalar[vals_dtype], values_origin, address_space=AddressSpace.SHARED
+    s_values: MutPointer[
+        Scalar[vals_dtype], _, address_space=AddressSpace.SHARED
     ],
     s_local_histogram: Pointer[UInt32, _, address_space=AddressSpace.SHARED],
     offsets: Array[UInt32, KEYS_PER_THREAD],
@@ -243,21 +237,13 @@ comptime RadixBinningArgs[keys_dtype: DType, vals_dtype: DType] = TypeList.of[
     UInt32,
 ]()
 
-comptime RadixScanFn = def(* args: * RadixScanArgs) thin
+comptime RadixScanFn = def(*args: *RadixScanArgs) thin
 comptime RadixBinningFn[keys_dtype: DType, vals_dtype: DType] = def(
-    * args: * RadixBinningArgs[keys_dtype, vals_dtype]
+    *args: *RadixBinningArgs[keys_dtype, vals_dtype]
 ) thin
 
 
 def enqueue_radix_passes[
-    keys_origin: MutOrigin,
-    keys_alternate_origin: MutOrigin,
-    values_origin: MutOrigin,
-    values_alternate_origin: MutOrigin,
-    global_hist_origin: MutOrigin,
-    pass_hist_origin: MutOrigin,
-    index_origin: MutOrigin,
-    //,
     keys_dtype: DType,
     vals_dtype: DType,
     *,
@@ -272,15 +258,13 @@ def enqueue_radix_passes[
     binning_fn: RadixBinningFn[keys_dtype, vals_dtype],
 ](
     ctx: DeviceContext,
-    keys: Pointer[Scalar[keys_dtype], keys_origin],
-    keys_alternate: Pointer[Scalar[keys_dtype], keys_alternate_origin],
-    vals_current: Optional[Pointer[Scalar[vals_dtype], values_origin]],
-    vals_alternate: Optional[
-        Pointer[Scalar[vals_dtype], values_alternate_origin]
-    ],
-    global_hist: Pointer[UInt32, global_hist_origin],
-    pass_hist: Pointer[UInt32, pass_hist_origin],
-    index: Pointer[UInt32, index_origin],
+    keys: MutPointer[Scalar[keys_dtype], _],
+    keys_alternate: MutPointer[Scalar[keys_dtype], _],
+    vals_current: Optional[MutPointer[Scalar[vals_dtype], _]],
+    vals_alternate: Optional[MutPointer[Scalar[vals_dtype], _]],
+    global_hist: MutPointer[UInt32, _],
+    pass_hist: MutPointer[UInt32, _],
+    index: MutPointer[UInt32, _],
     size: Int,
 ) raises:
     """Enqueue validated inputs without changing the selected look-back protocol.

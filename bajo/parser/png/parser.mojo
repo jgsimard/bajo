@@ -212,9 +212,7 @@ def _try_parse_png_simd(
     return ImageTexture(width, height, _linearize_png_rows(raw, width, height))
 
 
-def _parse_png_libpng[
-    origin: ImmOrigin
-](bytes: Span[UInt8, origin]) raises -> ImageTexture:
+def _parse_png_libpng(bytes: ImmSpan[UInt8, _]) raises -> ImageTexture:
     if len(bytes) == 0:
         raise Error("PNG image is empty")
 
@@ -260,9 +258,7 @@ def _parse_png_libpng[
     return ImageTexture(width, height, pixels^)
 
 
-def parse_png[
-    origin: ImmOrigin
-](bytes: Span[UInt8, origin]) raises -> ImageTexture:
+def parse_png(bytes: ImmSpan[UInt8, _]) raises -> ImageTexture:
     var image = _try_parse_png_simd(bytes)
     if image:
         return image.take()

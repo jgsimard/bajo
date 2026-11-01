@@ -29,9 +29,9 @@ comptime PARALLEL_TOP_DOWN_DONATE_MIN_ITEMS = UInt32(4096)
 
 
 @always_inline
-def _acquire_top_down_queue_lock[
-    origin: MutOrigin
-](lock: Pointer[UInt32, origin],):
+def _acquire_top_down_queue_lock(
+    lock: MutPointer[UInt32, _],
+):
     var expected = UInt32(0)
     while not Atomic.compare_exchange[
         success_ordering=Ordering.ACQUIRE,
@@ -41,9 +41,9 @@ def _acquire_top_down_queue_lock[
 
 
 @always_inline
-def _release_top_down_queue_lock[
-    origin: MutOrigin
-](lock: Pointer[UInt32, origin],):
+def _release_top_down_queue_lock(
+    lock: MutPointer[UInt32, _],
+):
     Atomic.store[ordering=Ordering.RELEASE](lock, UInt32(0))
 
 
@@ -295,22 +295,17 @@ struct BinaryBoundsBvh[
         self.nodes_used = next_node[0]
         self.nodes.shrink(Int(self.nodes_used))
 
-    def _subdivide_queued_top_down[
-        next_node_origin: MutOrigin,
-        queue_size_origin: MutOrigin,
-        outstanding_origin: MutOrigin,
-        queue_lock_origin: MutOrigin,
-    ](
+    def _subdivide_queued_top_down(
         mut self,
         node_idx: UInt32,
         centroid_bounds: AABB[Self.frame],
-        next_node: Pointer[UInt32, next_node_origin],
+        next_node: MutPointer[UInt32, _],
         work_nodes: MutSpan[UInt32, _],
         work_centroid_bounds: MutSpan[AABB[Self.frame], _],
-        queue_size: Pointer[UInt32, queue_size_origin],
-        outstanding: Pointer[UInt32, outstanding_origin],
-        queue_lock: Pointer[UInt32, queue_lock_origin],
-    ) where (Self.method == .SAH or Self.method == .MEDIAN):
+        queue_size: MutPointer[UInt32, _],
+        outstanding: MutPointer[UInt32, _],
+        queue_lock: MutPointer[UInt32, _],
+    ) where Self.method == .SAH or Self.method == .MEDIAN:
         var source_node = self.nodes[Int(node_idx)]
         if source_node.item_count <= UInt32(Self.leaf_size):
             return

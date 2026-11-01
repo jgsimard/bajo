@@ -374,9 +374,7 @@ def _decode_chunk(
                     ] = value
 
 
-def _parse_exr_serial[
-    origin: ImmOrigin
-](bytes: ImmSpan[UInt8, origin]) raises -> ImageTexture:
+def _parse_exr_serial(bytes: ImmSpan[UInt8, _]) raises -> ImageTexture:
     var header = _parse_header(bytes)
     var red = False
     var green = False
@@ -679,9 +677,7 @@ def _parse_exr_bulk(
     return ImageTexture(header.width(), header.height(), pixels^)
 
 
-def parse_exr[
-    origin: ImmOrigin
-](bytes: ImmSpan[UInt8, origin]) raises -> ImageTexture:
+def parse_exr(bytes: ImmSpan[UInt8, _]) raises -> ImageTexture:
     if len(bytes) < 256 * 1024:
         return _parse_exr_serial(bytes)
     try:

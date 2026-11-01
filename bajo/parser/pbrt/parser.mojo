@@ -1,14 +1,15 @@
 import std.os.path
 from max.algorithm import parallelize
 from std.bit import count_trailing_zeros, pop_count
-from std.math import abs, cos, pi, sin, sqrt
+from std.math import abs, sqrt
 from std.utils.numerics import isfinite
 from std.memory import pack_bits
 from std.sys import num_logical_cores, simd_width_of
 from bajo.core.random import Sampler
 
 from bajo.core.camera import Camera
-from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32, dot, length
+from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32, Mat, Frame, length
+from bajo.core.utils import degrees_to_radians
 from bajo.parser.number import parse_f32_fast_at, parse_int_f32
 from bajo.parser.ply.pack import _pack_ply_mesh, _remove_degenerate_triangles
 
@@ -31,6 +32,7 @@ from bajo.parser.pbrt.spectrum import _named_optical_constant, _blackbody_rgb
 
 
 comptime _Transform = Affine3f32[.LOCAL, .WORLD]
+comptime _LocalTransform = Affine3f32[.LOCAL, .LOCAL]
 comptime _PointL = Point3f32[.LOCAL]
 comptime _PointW = Point3f32[.WORLD]
 comptime _VecL = Vec3f32[.LOCAL]
@@ -345,27 +347,13 @@ struct _CameraOptions(Copyable):
         self.origin = _PointW(values[0], values[1], values[2])
         self.target = _PointW(values[3], values[4], values[5])
         self.up = _VecW(values[6], values[7], values[8])
-        # PBRT uses camera +Z forward and Cross(up, forward) for camera +X.
-        var basis = Camera.from_vfov(self.origin, self.target, self.up, 45.0)
-        var right = -basis.right
-        var up = basis.up
-        var forward = basis.forward
-        var position = _VecW(self.origin.x, self.origin.y, self.origin.z)
-        var view = _Transform(
-            right.x,
-            right.y,
-            right.z,
-            -dot(right, position),
-            up.x,
-            up.y,
-            up.z,
-            -dot(up, position),
-            forward.x,
-            forward.y,
-            forward.z,
-            -dot(forward, position),
+        self.transform = self.transform.compose(
+            _LocalTransform.from_look_at(
+                _PointL(values[0], values[1], values[2]),
+                _PointL(values[3], values[4], values[5]),
+                _VecL(values[6], values[7], values[8]),
+            )
         )
-        self.transform = _compose(self.transform, view)
         self.has_look_at = True
 
     def parse_camera(mut self, mut lexer: _Lexer) raises:
@@ -695,81 +683,16 @@ def _parse_params(mut lexer: _Lexer) raises -> _Parameters[lexer.origin]:
     return params^
 
 
-def _compose(a: _Transform, b: _Transform) -> _Transform:
-    """Return a transform that applies b, then a."""
-    return _Transform(
-        a.m00 * b.m00 + a.m01 * b.m10 + a.m02 * b.m20,
-        a.m00 * b.m01 + a.m01 * b.m11 + a.m02 * b.m21,
-        a.m00 * b.m02 + a.m01 * b.m12 + a.m02 * b.m22,
-        a.m00 * b.tx + a.m01 * b.ty + a.m02 * b.tz + a.tx,
-        a.m10 * b.m00 + a.m11 * b.m10 + a.m12 * b.m20,
-        a.m10 * b.m01 + a.m11 * b.m11 + a.m12 * b.m21,
-        a.m10 * b.m02 + a.m11 * b.m12 + a.m12 * b.m22,
-        a.m10 * b.tx + a.m11 * b.ty + a.m12 * b.tz + a.ty,
-        a.m20 * b.m00 + a.m21 * b.m10 + a.m22 * b.m20,
-        a.m20 * b.m01 + a.m21 * b.m11 + a.m22 * b.m21,
-        a.m20 * b.m02 + a.m21 * b.m12 + a.m22 * b.m22,
-        a.m20 * b.tx + a.m21 * b.ty + a.m22 * b.tz + a.tz,
-    )
-
-
-def _translation(x: Float32, y: Float32, z: Float32) -> _Transform:
-    return _Transform.from_translation(_VecW(x, y, z))
-
-
-def _scale(x: Float32, y: Float32, z: Float32) -> _Transform:
-    return _Transform.from_scale(_VecL(x, y, z))
-
-
-def _rotation(
-    angle: Float32, x: Float32, y: Float32, z: Float32
-) raises -> _Transform:
-    var axis_length = sqrt(x * x + y * y + z * z)
-    if axis_length == 0.0:
-        raise Error("PBRT Rotate axis must be non-zero")
-    var nx = x / axis_length
-    var ny = y / axis_length
-    var nz = z / axis_length
-    var radians = angle * Float32(pi / 180.0)
-    var c = cos(radians)
-    var s = sin(radians)
-    var t = 1.0 - c
-    return _Transform(
-        t * nx * nx + c,
-        t * nx * ny - s * nz,
-        t * nx * nz + s * ny,
-        0.0,
-        t * nx * ny + s * nz,
-        t * ny * ny + c,
-        t * ny * nz - s * nx,
-        0.0,
-        t * nx * nz - s * ny,
-        t * ny * nz + s * nx,
-        t * nz * nz + c,
-        0.0,
-    )
-
-
-def _matrix(values: ImmSpan[StringSpan[_], _]) raises -> _Transform:
+def _parse_transform_matrix[
+    To: Frame
+](values: ImmSpan[StringSpan[_], _]) raises -> Affine3f32[.LOCAL, To]:
     if len(values) != 16:
         raise Error("PBRT transform matrix requires 16 values")
-    var m = [_parse_f32(value) for value in values]
-    if m[12] != 0.0 or m[13] != 0.0 or m[14] != 0.0 or m[15] != 1.0:
-        raise Error("projective PBRT transforms are not supported")
-    return _Transform(
-        m[0],
-        m[1],
-        m[2],
-        m[3],
-        m[4],
-        m[5],
-        m[6],
-        m[7],
-        m[8],
-        m[9],
-        m[10],
-        m[11],
-    )
+    var matrix = Mat[.float32, 4, 4, .LOCAL](uninitialized=True)
+    for row in range(4):
+        for column in range(4):
+            matrix[row][column] = _parse_f32(values[4 * row + column])
+    return Affine3f32[.LOCAL, To].from_matrix(matrix)
 
 
 def _color_texture_parameter(
@@ -1390,28 +1313,32 @@ def _parse_text[
 
             case "Translate":
                 var v = _fixed_f32(lexer, 3)
-                builder.state.transform = _compose(
-                    builder.state.transform, _translation(v[0], v[1], v[2])
+                builder.state.transform = builder.state.transform.compose(
+                    _LocalTransform.from_translation(_VecL(v[0], v[1], v[2]))
                 )
 
             case "Scale":
                 var v = _fixed_f32(lexer, 3)
-                builder.state.transform = _compose(
-                    builder.state.transform, _scale(v[0], v[1], v[2])
+                builder.state.transform = builder.state.transform.compose(
+                    _LocalTransform.from_scale(_VecL(v[0], v[1], v[2]))
                 )
 
             case "Rotate":
                 var v = _fixed_f32(lexer, 4)
-                builder.state.transform = _compose(
-                    builder.state.transform, _rotation(v[0], v[1], v[2], v[3])
+                builder.state.transform = builder.state.transform.compose(
+                    _LocalTransform.from_axis_angle(
+                        _VecL(v[1], v[2], v[3]), degrees_to_radians(v[0])
+                    )
                 )
 
             case "Transform":
-                builder.state.transform = _matrix(_bracket_values(lexer))
+                builder.state.transform = _parse_transform_matrix[.WORLD](
+                    _bracket_values(lexer)
+                )
 
             case "ConcatTransform":
-                builder.state.transform = _compose(
-                    builder.state.transform, _matrix(_bracket_values(lexer))
+                builder.state.transform = builder.state.transform.compose(
+                    _parse_transform_matrix[.LOCAL](_bracket_values(lexer))
                 )
 
             case "ReverseOrientation":
@@ -1651,28 +1578,32 @@ def _parse_camera_text[
 
             case "Translate":
                 var v = _fixed_f32(lexer, 3)
-                options.transform = _compose(
-                    options.transform, _translation(v[0], v[1], v[2])
+                options.transform = options.transform.compose(
+                    _LocalTransform.from_translation(_VecL(v[0], v[1], v[2]))
                 )
 
             case "Scale":
                 var v = _fixed_f32(lexer, 3)
-                options.transform = _compose(
-                    options.transform, _scale(v[0], v[1], v[2])
+                options.transform = options.transform.compose(
+                    _LocalTransform.from_scale(_VecL(v[0], v[1], v[2]))
                 )
 
             case "Rotate":
                 var v = _fixed_f32(lexer, 4)
-                options.transform = _compose(
-                    options.transform, _rotation(v[0], v[1], v[2], v[3])
+                options.transform = options.transform.compose(
+                    _LocalTransform.from_axis_angle(
+                        _VecL(v[1], v[2], v[3]), degrees_to_radians(v[0])
+                    )
                 )
 
             case "Transform":
-                options.transform = _matrix(_bracket_values(lexer))
+                options.transform = _parse_transform_matrix[.WORLD](
+                    _bracket_values(lexer)
+                )
 
             case "ConcatTransform":
-                options.transform = _compose(
-                    options.transform, _matrix(_bracket_values(lexer))
+                options.transform = options.transform.compose(
+                    _parse_transform_matrix[.LOCAL](_bracket_values(lexer))
                 )
 
             case "Include":

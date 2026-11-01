@@ -1,9 +1,19 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
-from std.math import abs, fma
+from std.math import abs, fma, sqrt
 from std.utils.numerics import max_finite
 
-from bajo.core.vec import Vec3, Normal3, Point3, Geo3, GeoKind, normalize
+from bajo.core.vec import (
+    Vec3,
+    Normal3,
+    Point3,
+    Geo3,
+    GeoKind,
+    normalize,
+    cross,
+    dot,
+)
 from bajo.core.quat import Quaternion
+from bajo.core.mat import Mat
 from bajo.core.frame import Frame
 from bajo.core.ray import Ray
 
@@ -138,6 +148,111 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
         m.m22 = s.z
 
         return m^
+
+    @staticmethod
+    def from_rotation(
+        rotation: Quaternion[Self.dtype, _, Self.width],
+    ) -> Self where Self.dtype.is_floating_point():
+        return Self.from_rotation_scale(
+            rotation, Vec3[Self.dtype, Self.From, Self.width](1)
+        )
+
+    @staticmethod
+    def from_axis_angle(
+        axis: Vec3[Self.dtype, Self.From, Self.width],
+        angle: SIMD[Self.dtype, Self.width],
+    ) raises -> Self where Self.dtype.is_floating_point():
+        """Construct a rotation in radians, normalizing a finite non-zero axis.
+        """
+        var axis_length = sqrt(dot(axis, axis))
+        comptime limit = max_finite[Self.dtype]()
+        if not (axis_length.gt(0) & axis_length.le(limit)).reduce_and():
+            raise Error("rotation axis must be finite and non-zero")
+        if not abs(angle).le(limit).reduce_and():
+            raise Error("rotation angle must be finite")
+        return Self.from_rotation(
+            Quaternion[Self.dtype, Self.From, Self.width].from_axis_angle(
+                axis / axis_length, angle
+            )
+        )
+
+    @staticmethod
+    def from_matrix(
+        matrix: Mat[Self.dtype, 4, 4, Self.From, Self.width],
+    ) raises -> Self:
+        """Convert a homogeneous matrix, rejecting a projective bottom row."""
+        if not (
+            matrix[3][0].eq(0)
+            & matrix[3][1].eq(0)
+            & matrix[3][2].eq(0)
+            & matrix[3][3].eq(1)
+        ).reduce_and():
+            raise Error("projective matrices cannot be represented by Affine3")
+        return Self(
+            matrix[0][0],
+            matrix[0][1],
+            matrix[0][2],
+            matrix[0][3],
+            matrix[1][0],
+            matrix[1][1],
+            matrix[1][2],
+            matrix[1][3],
+            matrix[2][0],
+            matrix[2][1],
+            matrix[2][2],
+            matrix[2][3],
+        )
+
+    @staticmethod
+    def from_look_at(
+        origin: Point3[Self.dtype, Self.From, Self.width],
+        target: Point3[Self.dtype, Self.From, Self.width],
+        up: Vec3[Self.dtype, Self.From, Self.width],
+    ) -> Self where Self.dtype.is_floating_point():
+        """Construct a view matrix with +Z forward and Cross(up, forward) right.
+        """
+        var forward = normalize(target - origin)
+        var right = -normalize(cross(forward, up))
+        var camera_up = normalize(cross(-right, forward))
+        var position = Vec3[Self.dtype, Self.From, Self.width](
+            origin.x, origin.y, origin.z
+        )
+        return Self(
+            right.x,
+            right.y,
+            right.z,
+            -dot(right, position),
+            camera_up.x,
+            camera_up.y,
+            camera_up.z,
+            -dot(camera_up, position),
+            forward.x,
+            forward.y,
+            forward.z,
+            -dot(forward, position),
+        )
+
+    def compose[
+        Before: Frame
+    ](
+        self, before: Affine3[Self.dtype, Before, Self.From, Self.width]
+    ) -> Affine3[Self.dtype, Before, Self.To, Self.width]:
+        # fmt: off
+        return Affine3[Self.dtype, Before, Self.To, Self.width](
+            self.m00 * before.m00 + self.m01 * before.m10 + self.m02 * before.m20,
+            self.m00 * before.m01 + self.m01 * before.m11 + self.m02 * before.m21,
+            self.m00 * before.m02 + self.m01 * before.m12 + self.m02 * before.m22,
+            self.m00 * before.tx + self.m01 * before.ty + self.m02 * before.tz + self.tx,
+            self.m10 * before.m00 + self.m11 * before.m10 + self.m12 * before.m20,
+            self.m10 * before.m01 + self.m11 * before.m11 + self.m12 * before.m21,
+            self.m10 * before.m02 + self.m11 * before.m12 + self.m12 * before.m22,
+            self.m10 * before.tx + self.m11 * before.ty + self.m12 * before.tz + self.ty,
+            self.m20 * before.m00 + self.m21 * before.m10 + self.m22 * before.m20,
+            self.m20 * before.m01 + self.m21 * before.m11 + self.m22 * before.m21,
+            self.m20 * before.m02 + self.m21 * before.m12 + self.m22 * before.m22,
+            self.m20 * before.tx + self.m21 * before.ty + self.m22 * before.tz + self.tz,
+        )
+        # fmt: on
 
     @staticmethod
     def from_rotation_scale(

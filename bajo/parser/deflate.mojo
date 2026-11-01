@@ -413,9 +413,7 @@ struct _Huffman:
                     )
 
     @always_inline
-    def decode[
-        origin: ImmOrigin
-    ](self, mut bits: _Bits[origin]) raises -> UInt32:
+    def decode(self, mut bits: _Bits[_]) raises -> UInt32:
         bits.refill()
         var entry = self.entries[
             Int(bits.buffer & UInt64((1 << self.root) - 1))
@@ -478,10 +476,8 @@ def _fixed(mut literals: _Huffman, mut distances: _Huffman) raises:
     distances.build(offsets, 1)
 
 
-def _dynamic[
-    origin: ImmOrigin
-](
-    mut bits: _Bits[origin], mut literals: _Huffman, mut distances: _Huffman
+def _dynamic(
+    mut bits: _Bits[_], mut literals: _Huffman, mut distances: _Huffman
 ) raises:
     var literal_count = 257 + Int(bits.read(5))
     var distance_count = 1 + Int(bits.read(5))
@@ -630,9 +626,11 @@ def _store_literals[
 
 @no_inline
 def _inflate_bulk[
-    literal_bits: Int, distance_bits: Int, paired: Bool, origin: ImmOrigin
+    literal_bits: Int,
+    distance_bits: Int,
+    paired: Bool,
 ](
-    mut bits: _Bits[origin],
+    mut bits: _Bits[_],
     output: MutSpan[UInt8, _],
     mut written: Int,
     literals: _Huffman,

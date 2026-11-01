@@ -480,7 +480,6 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         self.nodes.shrink(Int(next_node[0]))
 
     def _collapse_parallel_subtree[
-        next_node_origin: MutOrigin,
         FrontierFn: def(UInt32) -> Tuple[Array[UInt32, Self.width], Int],
         PackLeafFn: def(UInt32, UInt32) -> UInt32,
     ](
@@ -489,7 +488,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         bin_idx: UInt32,
         wide_idx: UInt32,
         ref frontier_fn: FrontierFn,
-        next_node: Pointer[UInt32, next_node_origin],
+        next_node: MutPointer[UInt32, _],
         ref pack_leaf_fn: PackLeafFn,
     ):
         var frontier = frontier_fn(bin_idx)

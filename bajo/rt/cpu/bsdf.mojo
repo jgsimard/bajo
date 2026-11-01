@@ -82,11 +82,9 @@ struct _MaterialParameters[length: SIMDLength]:
                 )
 
     @always_inline
-    def _gather_parameter[
-        origin: ImmOrigin
-    ](
+    def _gather_parameter(
         mut self,
-        fields: Pointer[Float32, origin],
+        fields: ImmPointer[Float32, _],
         stride: Int,
         indices: SIMD[.uint32, Self.length],
         active: SIMD[.bool, Self.length],

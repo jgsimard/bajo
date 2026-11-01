@@ -16,10 +16,9 @@ def _estimate_max_iters(size: Int) -> Int:
 
 def nth_element[
     T: Copyable,
-    origin: MutOrigin,
     //,
     small_threshold: Int = insertion_sort_threshold,
-](mut span: Span[T, origin], n: Int, cmp_fn: Some[def(T, T) -> Bool]):
+](mut span: MutSpan[T, _], n: Int, cmp_fn: Some[def(T, T) -> Bool]):
     """
     Rearranges elements in the span such that the element at index n
     is in the position it would be in a sorted sequence. All elements

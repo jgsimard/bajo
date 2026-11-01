@@ -76,9 +76,6 @@ def publish_split_histogram[
 
 @always_inline
 def fallback_lookback[
-    local_origin: MutOrigin,
-    scratch_origin: MutOrigin,
-    //,
     keys_dtype: DType,
     BLOCK_SIZE: Int,
     KEYS_PER_THREAD: Int,
@@ -86,10 +83,8 @@ def fallback_lookback[
 ](
     keys: Pointer[Scalar[keys_dtype], MutAnyOrigin],
     pass_hist: Pointer[UInt32, MutAnyOrigin],
-    local_offsets: Pointer[
-        UInt32, local_origin, address_space=AddressSpace.SHARED
-    ],
-    scratch: Pointer[UInt32, scratch_origin, address_space=AddressSpace.SHARED],
+    local_offsets: MutPointer[UInt32, _, address_space=AddressSpace.SHARED],
+    scratch: MutPointer[UInt32, _, address_space=AddressSpace.SHARED],
     local_reduction: UInt32,
     partition_index: Int,
     radix_shift: UInt32,

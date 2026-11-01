@@ -77,13 +77,11 @@ struct TextureDescLayout:
 
 @always_inline
 def load_coated_parameters[
-    mut: Bool,
-    origin: Origin[mut=mut],
     Layout: TensorLayout,
     //,
     length: SIMDLength,
 ](
-    records: TileTensor[.float32, Layout, origin],
+    records: TileTensor[.float32, Layout, _],
     ids: SIMD[.uint32, length],
     uniform: Bool = False,
 ) -> CoatedParameters[length]:

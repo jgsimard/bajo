@@ -780,9 +780,7 @@ def _rotation(
     )
 
 
-def _matrix[
-    origin: ImmOrigin
-](values: ImmSpan[StringSpan[origin], _]) raises -> _Transform:
+def _matrix(values: ImmSpan[StringSpan[_], _]) raises -> _Transform:
     if len(values) != 16:
         raise Error("PBRT transform matrix requires 16 values")
     var m = [_parse_f32(value) for value in values]

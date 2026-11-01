@@ -111,12 +111,6 @@ scene names, render options, CPU builder/traversal selection, and library path.
 For graphical smoke checks, `--hidden --frames 4 --screenshot /tmp/viewer.png`
 renders a few frames and exits; a working display/OpenGL context is still needed.
 
-Run the scene-switch and file-loading regressions with a working display/OpenGL context:
-
-```bash
-BAJO_TEST_VIEWER_GRAPHICS=1 pixi run test viewer/test_viewer_graphics.py
-```
-
 The native core can also be exercised without a window:
 
 ```bash

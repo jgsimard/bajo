@@ -169,49 +169,8 @@ def trace_cwbvh8_camera_kernel[
             inv_height,
         )
     var hit = trace_cwbvh8_triangles[
-        .WORLD, .CLOSEST_HIT, True, max_leaf_size, stack_capacity
+        .WORLD, .CLOSEST_HIT, max_leaf_size, stack_capacity
     ](nodes, triangles, root_idx, ray)
-    _store_packed_hit[.WORLD](hit, hits, ray_count_int, ray_idx)
-
-
-def trace_cwbvh8_camera_legacy_decode_kernel[
-    single_view: Bool = True,
-](
-    nodes: Pointer[Float32, ImmutAnyOrigin],
-    triangles: Pointer[Float32, ImmutAnyOrigin],
-    root_idx: UInt32,
-    camera_params: Pointer[Float32, ImmutAnyOrigin],
-    hits: Pointer[Float32, MutAnyOrigin],
-    ray_count: Int32,
-    width_px: Int32,
-    height_px: Int32,
-    inv_height: Float32,
-):
-    """Trace through the retained pre-packed decoder for A/B tests."""
-    var ray_count_int = Int(ray_count)
-    var ray_idx = global_idx.x
-    if ray_idx >= ray_count_int:
-        return
-    var ray: Rayf32[.WORLD]
-    comptime if single_view:
-        ray = _camera_ray_single_view(
-            camera_params,
-            Int32(ray_idx),
-            width_px,
-            inv_height,
-        )
-    else:
-        ray = _camera_ray(
-            camera_params,
-            ray_count_int,
-            ray_idx,
-            Int(width_px),
-            Int(height_px),
-            inv_height,
-        )
-    var hit = trace_cwbvh8_triangles[.WORLD, .CLOSEST_HIT, False](
-        nodes, triangles, root_idx, ray
-    )
     _store_packed_hit[.WORLD](hit, hits, ray_count_int, ray_idx)
 
 

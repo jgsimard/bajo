@@ -244,7 +244,6 @@ def prepare_gpu_scene[
     triangle_build_method: GpuBvhBuildMethod = .HPLOC,
     tlas_build_method: GpuBvhBuildMethod = .HPLOC,
     blas_build_method: GpuBvhBuildMethod = .HPLOC,
-    refine_instance_bounds: Bool = True,
 ](
     mut ctx: DeviceContext,
     data: SceneData,
@@ -253,9 +252,8 @@ def prepare_gpu_scene[
 ]:
     """Build the typed owner selected by scene shape and ready BVH formats.
 
-    By default, tighten mixed-axis transformed instance bounds using built
-    BLAS root children. ``refine_instance_bounds=False`` retains caller bounds
-    and avoids the optional preparation readback.
+    Tighten mixed-axis transformed instance bounds using built BLAS root
+    children before building the TLAS.
     """
     comptime assert sphere_format.layout == .WIDE
     comptime assert tlas_format.layout == .WIDE
@@ -351,13 +349,10 @@ def prepare_gpu_scene[
             tlas_build_method,
             blas_format.layout,
         ]
-        comptime if refine_instance_bounds:
-            var build_instances = refine_gpu_instance_bounds(
-                ctx, instance_blases.value(), data.triangle_instances()
-            )
-            tlas = Optional(build_tlas(ctx, build_instances))
-        else:
-            tlas = Optional(build_tlas(ctx, data.triangle_instances()))
+        var build_instances = refine_gpu_instance_bounds(
+            ctx, instance_blases.value(), data.triangle_instances()
+        )
+        tlas = Optional(build_tlas(ctx, build_instances))
         instance_surfaces = Optional(
             upload_surface_ids(ctx, data.triangle_instance_surfaces())
         )

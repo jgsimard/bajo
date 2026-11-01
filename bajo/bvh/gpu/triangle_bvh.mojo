@@ -480,7 +480,6 @@ def _build_segmented_compressed_triangle_blas_set[
             HPLOC_MERGING_THRESHOLD,
             True,
             True,
-            True,
         ].from_binary(ctx, binary, workspace)
 
         var node_segments = SegmentOffsets.single(max(triangle_count - 1, 1))

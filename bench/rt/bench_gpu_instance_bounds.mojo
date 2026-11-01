@@ -1,8 +1,8 @@
-"""Benchmark retained instance bounds against the original root-box bounds.
+"""Benchmark rendering with tightened instance bounds.
 
 Usage: scene (lbvh or PBRT path), spp, width, height, repeats, output.f32.
-Define BAJO_BENCH_ORIGINAL_BOUNDS to disable refinement; BAJO_BENCH_PBRT for
-instance-only PBRT, BAJO_BENCH_PBRT_ALL for mixed PBRT, BAJO_BENCH_MIS for MIS.
+Define BAJO_BENCH_PBRT for instance-only PBRT, BAJO_BENCH_PBRT_ALL for mixed
+PBRT, BAJO_BENCH_MIS for MIS.
 Hot timings exclude preparation and pixel download. Save linear pixels for
 correctness comparisons and run candidates serially with baseline brackets.
 """
@@ -80,16 +80,11 @@ def main() raises:
         "depth",
         settings.max_depth,
         "refine_bounds",
-        not is_defined["BAJO_BENCH_ORIGINAL_BOUNDS"](),
+        True,
     )
     with DeviceContext() as ctx:
         var start = perf_counter_ns()
-        var scene = prepare_gpu_scene[
-            kind=kind,
-            refine_instance_bounds=not is_defined[
-                "BAJO_BENCH_ORIGINAL_BOUNDS"
-            ](),
-        ](ctx, data)
+        var scene = prepare_gpu_scene[kind](ctx, data)
         var target = scene.make_render_target(ctx, settings, camera)
         ctx.synchronize()
         print("SETUP_MS", Float64(perf_counter_ns() - start) / 1e6)

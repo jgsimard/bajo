@@ -70,7 +70,6 @@ struct GpuCwbvh8BuildArena[
         Self.merging_threshold,
         Self.direct_conversion,
         True,
-        True,
         not Self.direct_conversion or Self.max_leaf_size > 1,
     ]
     var wide: GpuWideBuildLayout[8, CWBVH_LEAF_STORAGE_WIDTH]
@@ -109,7 +108,6 @@ struct GpuCwbvh8BuildArena[
             Self.search_radius,
             Self.merging_threshold,
             Self.direct_conversion,
-            True,
             True,
             not Self.direct_conversion or Self.max_leaf_size > 1,
         ].from_binary(ctx, binary, workspace)

@@ -20,7 +20,6 @@ from bajo.bvh.wide_meta import (
     _wide_node_index,
 )
 from bajo.core import Frame, Rayf32
-from bajo.core.utils import fmax, fmin
 
 
 # Ylitie, Karras, Laine, HPG 2017, Figure 4.
@@ -529,120 +528,6 @@ struct Cwbvh8NodeTasks(TrivialRegisterPassable):
     var triangle_base: UInt32
     var node_group_mask: UInt32
     var triangle_group_mask: UInt32
-
-
-@always_inline
-def _intersect_cwbvh8_node_tasks_legacy[
-    frame: Frame,
-](
-    cwbvh_nodes: ImmPointer[Float32, _],
-    node_idx: UInt32,
-    ray: Rayf32[frame],
-    rcp_x: Float32,
-    rcp_y: Float32,
-    rcp_z: Float32,
-    t_max: Float32,
-    octant_inverse: UInt32,
-) -> Cwbvh8NodeTasks:
-    """Decode one 80-byte node directly into the paper's task masks."""
-    var base = Int(node_idx) * CWBVH_NODE_WORDS
-    var px = cwbvh_nodes[unsafe_offset=base + CWBVH_PX]
-    var py = cwbvh_nodes[unsafe_offset=base + CWBVH_PY]
-    var pz = cwbvh_nodes[unsafe_offset=base + CWBVH_PZ]
-    var cwbvh_u32 = cwbvh_nodes.unsafe_bitcast[UInt32]()
-    var exp_imask = cwbvh_u32[unsafe_offset=base + CWBVH_EXP_IMASK]
-    var scale_x = _scale_from_exponent(exp_imask & UInt32(0xFF))
-    var scale_y = _scale_from_exponent((exp_imask >> UInt32(8)) & UInt32(0xFF))
-    var scale_z = _scale_from_exponent((exp_imask >> UInt32(16)) & UInt32(0xFF))
-    var imask = exp_imask >> UInt32(24)
-    var child_base = cwbvh_u32[unsafe_offset=base + CWBVH_CHILD_BASE]
-    var triangle_base = cwbvh_u32[unsafe_offset=base + CWBVH_TRIANGLE_BASE]
-    var meta_words = SIMD[.uint32, 2](
-        cwbvh_u32[unsafe_offset=base + CWBVH_META_BASE + 0],
-        cwbvh_u32[unsafe_offset=base + CWBVH_META_BASE + 1],
-    )
-
-    var qlo_x = SIMD[.float32, CWBVH_WIDTH](0.0)
-    var qlo_y = SIMD[.float32, CWBVH_WIDTH](0.0)
-    var qlo_z = SIMD[.float32, CWBVH_WIDTH](0.0)
-    var qhi_x = SIMD[.float32, CWBVH_WIDTH](0.0)
-    var qhi_y = SIMD[.float32, CWBVH_WIDTH](0.0)
-    var qhi_z = SIMD[.float32, CWBVH_WIDTH](0.0)
-    comptime for lane in range(CWBVH_WIDTH):
-        comptime qgroup = lane / 4
-        comptime qshift = UInt32((lane % 4) * 8)
-        comptime for plane in range(6):
-            var packed = cwbvh_u32[
-                unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2 + qgroup
-            ]
-            var q = Float32((packed >> qshift) & UInt32(0xFF))
-            comptime match plane:
-                case 0:
-                    qlo_x[lane] = q
-                case 1:
-                    qlo_y[lane] = q
-                case 2:
-                    qlo_z[lane] = q
-                case 3:
-                    qhi_x[lane] = q
-                case 4:
-                    qhi_y[lane] = q
-                case 5:
-                    qhi_z[lane] = q
-                case _:
-                    comptime assert False
-
-    var near_x = qlo_x
-    var near_y = qlo_y
-    var near_z = qlo_z
-    var far_x = qhi_x
-    var far_y = qhi_y
-    var far_z = qhi_z
-    if ray.d.x < 0.0:
-        near_x = qhi_x
-        far_x = qlo_x
-    if ray.d.y < 0.0:
-        near_y = qhi_y
-        far_y = qlo_y
-    if ray.d.z < 0.0:
-        near_z = qhi_z
-        far_z = qlo_z
-
-    var idir_x = scale_x * rcp_x
-    var idir_y = scale_y * rcp_y
-    var idir_z = scale_z * rcp_z
-    var origin_x = (px - ray.o.x) * rcp_x
-    var origin_y = (py - ray.o.y) * rcp_y
-    var origin_z = (pz - ray.o.z) * rcp_z
-    var tnear_x = fma(near_x, idir_x, origin_x)
-    var tnear_y = fma(near_y, idir_y, origin_y)
-    var tnear_z = fma(near_z, idir_z, origin_z)
-    var tfar_x = fma(far_x, idir_x, origin_x)
-    var tfar_y = fma(far_y, idir_y, origin_y)
-    var tfar_z = fma(far_z, idir_z, origin_z)
-    var tnear = fmax(fmax(tnear_x, tnear_y), fmax(tnear_z, 0.0))
-    var tfar = fmin(
-        fmin(tfar_x, tfar_y),
-        fmin(tfar_z, SIMD[.float32, CWBVH_WIDTH](t_max)),
-    )
-    var bounds_mask = tnear.le(tfar)
-    var hitmask = UInt32(0)
-    comptime for lane in range(CWBVH_WIDTH):
-        comptime group = lane / 4
-        comptime shift = UInt32((lane % 4) * 8)
-        var byte = (meta_words[group] >> shift) & UInt32(0xFF)
-        if byte != 0 and bounds_mask[lane]:
-            var bit_index = byte & UInt32(0x1F)
-            if (imask & (UInt32(1) << UInt32(lane))) != 0:
-                bit_index ^= octant_inverse
-            hitmask |= (byte >> UInt32(5)) << bit_index
-
-    return Cwbvh8NodeTasks(
-        child_base,
-        triangle_base,
-        (hitmask & UInt32(0xFF000000)) | imask,
-        hitmask & UInt32(0x00FFFFFF),
-    )
 
 
 @always_inline

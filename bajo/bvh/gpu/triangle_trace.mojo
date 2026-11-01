@@ -15,9 +15,7 @@ from bajo.bvh.constants import (
 from bajo.bvh.gpu.camera_launch import _camera_ray
 from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_TRIANGLE_WORDS,
-    Cwbvh8NodeTasks,
     _intersect_cwbvh8_node_tasks,
-    _intersect_cwbvh8_node_tasks_legacy,
 )
 from bajo.bvh.gpu.ray_launch import _load_packed_ray, _store_packed_hit
 from bajo.bvh.gpu.trace import (
@@ -393,7 +391,6 @@ def _intersect_cwbvh_indexed_triangle[
 def _trace_cwbvh8_triangles_impl[
     frame: Frame,
     mode: TraceMode,
-    packed_decode: Bool = True,
     max_leaf_size: Int = 3,
     stack_capacity: Int = GPU_STACK_SIZE,
     indexed_triangles: Bool = False,
@@ -463,30 +460,17 @@ def _trace_cwbvh8_triangles_impl[
             var node_t_max = hit.t
             comptime if mode == .ANY_HIT:
                 node_t_max = ray.t_max
-            var tasks: Cwbvh8NodeTasks
-            comptime if packed_decode:
-                tasks = _intersect_cwbvh8_node_tasks[frame, max_leaf_size](
-                    nodes,
-                    node_idx,
-                    ray,
-                    ray_rcp.x,
-                    ray_rcp.y,
-                    ray_rcp.z,
-                    node_t_max,
-                    octant_inverse,
-                    node_t_min,
-                )
-            else:
-                tasks = _intersect_cwbvh8_node_tasks_legacy[frame](
-                    nodes,
-                    node_idx,
-                    ray,
-                    ray_rcp.x,
-                    ray_rcp.y,
-                    ray_rcp.z,
-                    node_t_max,
-                    octant_inverse,
-                )
+            var tasks = _intersect_cwbvh8_node_tasks[frame, max_leaf_size](
+                nodes,
+                node_idx,
+                ray,
+                ray_rcp.x,
+                ray_rcp.y,
+                ray_rcp.z,
+                node_t_max,
+                octant_inverse,
+                node_t_min,
+            )
             node_group_base = tasks.child_base
             node_group_mask = tasks.node_group_mask
             triangle_group_base = tasks.triangle_base
@@ -544,7 +528,6 @@ def _trace_cwbvh8_triangles_impl[
 def trace_cwbvh8_triangles[
     frame: Frame,
     mode: TraceMode,
-    packed_decode: Bool = True,
     max_leaf_size: Int = 3,
     stack_capacity: Int = GPU_STACK_SIZE,
 ](
@@ -555,7 +538,7 @@ def trace_cwbvh8_triangles[
 ) -> Hit[frame]:
     var stats = GpuTraversalStats.zero()
     return _trace_cwbvh8_triangles_impl[
-        frame, mode, packed_decode, max_leaf_size, stack_capacity, False
+        frame, mode, max_leaf_size, stack_capacity, False
     ](
         nodes,
         triangles,
@@ -582,7 +565,7 @@ def trace_cwbvh8_indexed_triangles[
 ) -> Hit[frame]:
     var stats = GpuTraversalStats.zero()
     return _trace_cwbvh8_triangles_impl[
-        frame, mode, True, max_leaf_size, stack_capacity, True
+        frame, mode, max_leaf_size, stack_capacity, True
     ](
         nodes,
         vertices,

@@ -25,7 +25,7 @@ from bajo.rt.gpu.config import (
     GpuRtBvhFormat,
     GPU_RT_BVH_CWBVH8,
     GPU_RT_BVH_WIDE4,
-    GPU_RT_BVH_TLAS2,
+    GPU_RT_BVH_TLAS4,
 )
 from bajo.rt.gpu.views import GpuRtSceneView
 from bajo.rt.gpu.opacity import (
@@ -79,7 +79,7 @@ def _opacity_trace_kernel[
 def _check_device[
     kind: GpuRtSceneKind,
     format: GpuRtBvhFormat,
-    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS2,
+    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS4,
 ](world: CpuScene[4, 4], count: Int = 3,) raises:
     with DeviceContext() as ctx:
         var scene = prepare_gpu_scene[
@@ -167,7 +167,7 @@ Shape "sphere" "float radius" .5
     )
     var world = CpuScene[4, 4](parsed^.take_data())
     _check_device[.SPHERES, GPU_RT_BVH_WIDE4](world)
-    _check_device[.SPHERES, GPU_RT_BVH_TLAS2](world)
+    _check_device[.SPHERES, GpuRtBvhFormat(2, 1, .WIDE)](world)
 
 
 def test_png_masked_emitters_match_cpu_and_do_not_emit_through_holes() raises:

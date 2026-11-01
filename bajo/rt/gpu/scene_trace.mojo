@@ -363,33 +363,39 @@ def _gpu_rt_scene_trace_path[
             ImmutAnyOrigin
         ]()
         var instance_ray = Rayf32[.WORLD](ray.o, ray.d, ray.t_min, closest_t)
-        var instance_hit = _trace_tlas_ray[
-            tlas_format.node_width,
-            tlas_format.leaf_width,
-            blas_format.node_width,
-            blas_format.leaf_width,
-            .CLOSEST_HIT,
-            _intersect_triangle_leaf[
-                .LOCAL,
+        var instance_hit: Hit[.WORLD]
+        if scene.opacity.count > 0:
+            instance_hit = trace_gpu_opacity_instances[
+                tlas_format, blas_format, .CLOSEST_HIT
+            ](scene, instance_ray)
+        else:
+            instance_hit = _trace_tlas_ray[
+                tlas_format.node_width,
+                tlas_format.leaf_width,
+                blas_format.node_width,
                 blas_format.leaf_width,
                 .CLOSEST_HIT,
-                blas_format.leaf_width > blas_format.node_width
-                or blas_format.leaf_width == 8,
-            ],
-            blas_format.layout,
-        ](
-            tlas_nodes,
-            tlas_leaf_instances,
-            inst_inv_transform,
-            inst_blas_indices,
-            blas_descs,
-            blas_nodes,
-            blas_leaves,
-            Int(instance_count_i32),
-            Int(instances.blas_count),
-            tlas_root,
-            instance_ray,
-        )
+                _intersect_triangle_leaf[
+                    .LOCAL,
+                    blas_format.leaf_width,
+                    .CLOSEST_HIT,
+                    blas_format.leaf_width > blas_format.node_width
+                    or blas_format.leaf_width == 8,
+                ],
+                blas_format.layout,
+            ](
+                tlas_nodes,
+                tlas_leaf_instances,
+                inst_inv_transform,
+                inst_blas_indices,
+                blas_descs,
+                blas_nodes,
+                blas_leaves,
+                Int(instance_count_i32),
+                Int(instances.blas_count),
+                tlas_root,
+                instance_ray,
+            )
         if instance_hit.is_hit() and instance_hit.t < closest_t:
             found = True
             closest_t = instance_hit.t

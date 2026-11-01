@@ -579,7 +579,6 @@ def _intersect_cwbvh_triangle_filtered[
 def _trace_cwbvh8_triangles_impl[
     frame: Frame,
     mode: TraceMode,
-    packed_decode: Bool = True,
     max_leaf_size: Int = 3,
     stack_capacity: Int = GPU_STACK_SIZE,
     indexed_triangles: Bool = False,
@@ -597,7 +596,6 @@ def _trace_cwbvh8_triangles_impl[
     return _trace_cwbvh8_filtered_impl[
         frame,
         mode,
-        packed_decode,
         max_leaf_size,
         stack_capacity,
         indexed_triangles,
@@ -617,7 +615,7 @@ def trace_cwbvh8_triangles_filtered[
 ) -> Hit[frame]:
     var stats = GpuTraversalStats.zero()
     return _trace_cwbvh8_filtered_impl[
-        frame, mode, True, 3, GPU_STACK_SIZE, False, False, Filter, True
+        frame, mode, 3, GPU_STACK_SIZE, False, False, Filter, True
     ](
         nodes,
         triangles,

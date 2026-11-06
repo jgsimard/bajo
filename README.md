@@ -20,7 +20,7 @@ pixi install
 ```
 
 The [Mojo raylib bindings](https://github.com/jgsimard/raylib) are installed by
-Pixi from its `main` branch, with the resolved commit recorded in `pixi.lock`.
+Pixi from its `dev` branch, with the resolved commit recorded in `pixi.lock`.
 The library package also installs the native raylib 6.2 shared library and headers.
 Viewer code imports `raylib` directly and loads `$CONDA_PREFIX/lib/libraylib.so`;
 `--raylib-library PATH` selects a custom native library. See the library repository

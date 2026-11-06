@@ -110,10 +110,10 @@ struct GpuRtPreparedRenderer[
     triangle_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
     tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS4,
     blas_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
-](Movable):
+]:
     """Own a device context, prepared scene, and reusable render target."""
 
-    var ctx: DeviceContext
+    var ctx: DeviceContext[]
     var scene: GpuRtScene[
         Self.kind,
         Self.sphere_format,

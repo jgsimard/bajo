@@ -252,14 +252,14 @@ struct _Parameters[origin: ImmOrigin]:
     def __init__(out self):
         self.entries = List[_Parameter[Self.origin]]()
 
-    def has(self, declaration: ImmStringSpan) -> Bool:
+    def has(self, declaration: StringSpan) -> Bool:
         for entry in self.entries:
             if entry.declaration == declaration:
                 return True
         return False
 
     def string(
-        self, declaration: ImmStringSpan
+        self, declaration: StringSpan
     ) -> Optional[StringSpan[Self.origin]]:
         for entry in self.entries:
             if entry.declaration == declaration and len(entry.values) > 0:
@@ -267,25 +267,23 @@ struct _Parameters[origin: ImmOrigin]:
         return Optional[StringSpan[Self.origin]]()
 
     def string_or_empty(
-        self, declaration: ImmStringSpan
+        self, declaration: StringSpan
     ) -> StringSpan[Self.origin]:
         return self.string(declaration).or_else(StringSpan[Self.origin]())
 
-    def f32(
-        self, declaration: ImmStringSpan, default: Float32
-    ) raises -> Float32:
+    def f32(self, declaration: StringSpan, default: Float32) raises -> Float32:
         for entry in self.entries:
             if entry.declaration == declaration and len(entry.values) > 0:
                 return _parse_f32(entry.values[0])
         return default
 
-    def integer(self, declaration: ImmStringSpan, default: Int) raises -> Int:
+    def integer(self, declaration: StringSpan, default: Int) raises -> Int:
         for entry in self.entries:
             if entry.declaration == declaration and len(entry.values) > 0:
                 return parse_int_f32(entry.values[0], "PBRT")
         return default
 
-    def color(self, name: ImmStringSpan, default: Color) raises -> Color:
+    def color(self, name: StringSpan, default: Color) raises -> Color:
         var rgb_name = "rgb " + name
         var color_name = "color " + name
         for entry in self.entries:
@@ -300,7 +298,7 @@ struct _Parameters[origin: ImmOrigin]:
         return default
 
     def values(
-        self, declaration: ImmStringSpan
+        self, declaration: StringSpan
     ) -> ImmSpan[StringSpan[Self.origin], origin_of(self)]:
         for entry in self.entries:
             if entry.declaration == declaration:
@@ -693,7 +691,7 @@ def _parse_transform_matrix[
 def _color_texture_parameter(
     builder: _Builder,
     params: _Parameters,
-    name: ImmStringSpan,
+    name: StringSpan,
     default: Color,
 ) raises -> _ColorTexture:
     var token = params.string_or_empty("texture " + name)
@@ -712,7 +710,7 @@ def _color_texture_parameter(
 def _scalar_parameter(
     builder: _Builder,
     params: _Parameters,
-    name: ImmStringSpan,
+    name: StringSpan,
     default: Float32,
 ) raises -> _FloatTexture:
     var token = params.string_or_empty("texture " + name)
@@ -734,8 +732,8 @@ def _roughness_to_alpha(roughness: Float32) -> Float32:
 def _texture(
     mut builder: _Builder,
     name: String,
-    value_type: ImmStringSpan,
-    implementation: ImmStringSpan,
+    value_type: StringSpan,
+    implementation: StringSpan,
     params: _Parameters,
     source_path: String,
 ) raises:
@@ -888,13 +886,13 @@ def _material_roughness(
     var v = params.f32("float " + prefix + "vroughness", roughness)
     var alpha = sqrt(max(u, 0.0) * max(v, 0.0)).clamp(0.0, 1.0)
     var remap = params.string("bool remaproughness")
-    if not remap or remap.value() != ImmStringSpan("false"):
+    if not remap or remap.value() != StringSpan("false"):
         alpha = _roughness_to_alpha(alpha)
     return alpha
 
 
 def _surface(
-    mut builder: _Builder, model: ImmStringSpan, params: _Parameters
+    mut builder: _Builder, model: StringSpan, params: _Parameters
 ) raises -> SurfaceId[1]:
     match model:
         case "mix":
@@ -945,7 +943,7 @@ def _surface(
                 max(u_roughness, 0.0) * max(v_roughness, 0.0)
             ).clamp(0.0, 1.0)
             var remap = params.string("bool remaproughness")
-            if not remap or remap.value() != ImmStringSpan("false"):
+            if not remap or remap.value() != StringSpan("false"):
                 roughness = _roughness_to_alpha(roughness)
             return builder.scene.surfaces.add_coated_diffuse(
                 reflectance.scale,
@@ -996,7 +994,7 @@ def _surface(
                 material.roughness_v_scale = roughness.v_scale
                 material.remap_roughness = params.string_or_empty(
                     "bool remaproughness"
-                ) != ImmStringSpan("false")
+                ) != StringSpan("false")
                 material.displacement_texture_index = bump.image_index
                 material.displacement_scale = bump.scale
                 material.displacement_u_scale = bump.u_scale
@@ -1032,7 +1030,7 @@ def _shape[
     Loader: AssetLoader
 ](
     mut builder: _Builder,
-    kind: ImmStringSpan,
+    kind: StringSpan,
     params: _Parameters,
     source_path: String,
     loader: Loader,
@@ -1222,7 +1220,7 @@ def _parse_text[
                     raise Error("film ISO must be finite and positive")
                 var sensor = params.string_or_empty("string sensor")
                 builder.film = FilmResponse(iso / 100.0)
-                if sensor == ImmStringSpan("canon_eos_5d_mkiv"):
+                if sensor == StringSpan("canon_eos_5d_mkiv"):
                     # RGB least-squares approximation of PBRT's Canon response,
                     # calibrated with its 24 color swatches under 6500 K daylight.
                     # Exact spectral sensor rendering is outside the RGB model.
@@ -1235,7 +1233,7 @@ def _parse_text[
                     builder.film.blue = Color(
                         0.000892690, -0.001314436, 0.999711980
                     )
-                elif sensor.byte_length() != 0 and sensor != ImmStringSpan(
+                elif sensor.byte_length() != 0 and sensor != StringSpan(
                     "cie1931"
                 ):
                     raise Error("unsupported PBRT sensor: " + String(sensor))
@@ -1367,7 +1365,7 @@ def _parse_text[
                     )
                 else:
                     builder.named_materials[name] = _surface(
-                        builder, ImmStringSpan("diffuse"), params
+                        builder, StringSpan("diffuse"), params
                     )
 
             case "NamedMaterial":
@@ -1425,7 +1423,7 @@ def _parse_text[
             case "MakeNamedMedium":
                 var name = String(lexer.next().value)
                 var params = _parse_params(lexer)
-                if params.string_or_empty("string type") != ImmStringSpan(
+                if params.string_or_empty("string type") != StringSpan(
                     "homogeneous"
                 ):
                     raise Error(

@@ -138,7 +138,7 @@ struct _HeaderCursor[origin: ImmOrigin]:
                 self.line += 1
             self.pos += 1
 
-    def next(mut self) raises -> ImmStringSpan[Self.origin]:
+    def next(mut self) raises -> StringSpan[Self.origin]:
         self._skip_space()
         if self.pos >= len(self.bytes):
             raise Error("unexpected end of PLY header")
@@ -246,7 +246,7 @@ struct _BinaryCursor[origin: ImmOrigin]:
                 return Float32(self.read_integer(kind))
 
 
-def _parse_nonnegative_int(text: ImmStringSpan) raises -> Int:
+def _parse_nonnegative_int(text: StringSpan) raises -> Int:
     var bytes = text.as_bytes()
     if len(bytes) == 0 or len(bytes) > 18:
         raise Error("invalid PLY element count: " + String(text))
@@ -258,7 +258,7 @@ def _parse_nonnegative_int(text: ImmStringSpan) raises -> Int:
     return value
 
 
-def _parse_scalar_type(name: ImmStringSpan) raises -> _ScalarType:
+def _parse_scalar_type(name: StringSpan) raises -> _ScalarType:
     match name:
         case "char" | "int8":
             return .I8
@@ -287,7 +287,7 @@ def _parse_scalar_type(name: ImmStringSpan) raises -> _ScalarType:
     raise Error("unsupported PLY scalar type: " + String(name))
 
 
-def _vertex_semantic(name: ImmStringSpan) -> UInt8:
+def _vertex_semantic(name: StringSpan) -> UInt8:
     match name:
         case "x":
             return _X

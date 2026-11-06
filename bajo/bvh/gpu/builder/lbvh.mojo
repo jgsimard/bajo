@@ -347,7 +347,6 @@ def build_binary_bvh_with_lbvh(
         raise "LBVH requires a full binary output workspace"
     var timings = GpuBuildTimings(0, 0, 0, 0, 0, 0, 0)
     var stage_start = Int(0)
-    ref topology = workspace.topology.value()
 
     if measure_stages:
         ctx.synchronize()
@@ -368,6 +367,7 @@ def build_binary_bvh_with_lbvh(
         timings.sort_ns = Int(stage_end - stage_start)
         stage_start = stage_end
 
+    ref topology = workspace.topology.value()
     var init_count = max(
         max(binary.internal_count, 1), binary.segments.segment_count()
     )

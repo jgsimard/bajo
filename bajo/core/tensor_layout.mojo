@@ -4,8 +4,15 @@ Field count is static. The item extent can be static for CPU SIMD packets or
 dynamic for GPU queues; both expose the same logical [field, item] coordinates.
 """
 
-from layout import TileTensor, TensorLayout, Coord, Idx, CoordLike
-from layout.tile_layout import row_major, col_major
+from layout import (
+    TileTensor,
+    TensorLayout,
+    Coord,
+    Idx,
+    CoordLike,
+    row_major,
+    col_major,
+)
 from .vec import Vec3
 from .frame import Frame
 

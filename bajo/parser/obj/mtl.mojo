@@ -33,7 +33,7 @@ def _upsert_material(
 
 
 def _add_texture(
-    mut mesh: ObjMesh, name: ImmStringSpan, base: String
+    mut mesh: ObjMesh, name: StringSpan, base: String
 ) raises -> Int:
     var filename = String(name)
     var path = std.os.path.join(base, filename)

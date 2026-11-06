@@ -139,7 +139,7 @@ def _word_count(bytes: ImmSpan[UInt8, _], begin: Int, end: Int) -> Int:
     return count
 
 
-def _count_chunk(text: ImmStringSpan, begin: Int, end: Int) -> _ObjChunk:
+def _count_chunk(text: StringSpan, begin: Int, end: Int) -> _ObjChunk:
     var chunk = _ObjChunk()
     chunk.begin = begin
     chunk.end = end
@@ -339,7 +339,7 @@ def _decode_numeric(
 
 
 def _decode_chunk(
-    text: ImmStringSpan,
+    text: StringSpan,
     chunk: _ObjChunk,
     mut mesh: ObjMesh,
 ) raises:
@@ -505,7 +505,7 @@ def _parse_obj_bulk[
     Loader: AssetLoader
 ](
     path: String,
-    text: ImmStringSpan,
+    text: StringSpan,
     loader: Loader,
     workers: Int,
     chunk_bytes: Int = 256 * 1024,

@@ -243,9 +243,7 @@ def parse_f32_fast_at(
     return F32ParseResult(Float32(sign * number), p)
 
 
-def parse_int_f32(
-    text: ImmStringSpan, context: ImmStringSpan = ""
-) raises -> Int:
+def parse_int_f32(text: StringSpan, context: StringSpan = "") raises -> Int:
     """Parse integer tokens with float32-compatible rounding and alternate syntax.
 
     Plain decimals within +/- 2**24 use exact integer arithmetic. Other

@@ -3,7 +3,7 @@
 from bajo.core.color import Color, blackbody_rgb as _blackbody_rgb
 
 
-def _named_optical_constant(name: ImmStringSpan) raises -> Color:
+def _named_optical_constant(name: StringSpan) raises -> Color:
     # RGB approximation at 610, 550, and 460 nm, linearly interpolated from
     # PBRT v4's Al/Au eta/k wavelength tables (Apache-2.0):
     # https://github.com/mmp/pbrt-v4/blob/master/src/pbrt/util/spectrum.cpp

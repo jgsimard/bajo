@@ -1,7 +1,6 @@
 """CPU/GPU material layouts retain field offsets and decoder semantics."""
 
-from layout import TileTensor, Coord, Idx
-from layout.tile_layout import row_major
+from layout import TileTensor, Coord, Idx, row_major
 from bajo.rt.material_types import SurfaceStore
 from bajo.rt.material_storage import (
     CoatedDiffuseLayout,

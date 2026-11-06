@@ -206,15 +206,15 @@ def _parse_header(bytes: ImmSpan[UInt8, _]) raises -> _Header:
         var payload = bytes[cursor.pos : cursor.pos + size]
         match name:
             case "channels":
-                if attribute_type != ImmStringSpan("chlist"):
+                if attribute_type != StringSpan("chlist"):
                     raise Error("invalid OpenEXR channels attribute")
                 _parse_channels(header, payload)
             case "compression":
-                if attribute_type != ImmStringSpan("compression") or size != 1:
+                if attribute_type != StringSpan("compression") or size != 1:
                     raise Error("invalid OpenEXR compression attribute")
                 header.compression = payload[0]
             case "dataWindow":
-                if attribute_type != ImmStringSpan("box2i") or size != 16:
+                if attribute_type != StringSpan("box2i") or size != 16:
                     raise Error("invalid OpenEXR dataWindow attribute")
                 var window = _Cursor(payload)
                 header.min_x = Int(window.read_i32())

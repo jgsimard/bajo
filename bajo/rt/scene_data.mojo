@@ -2,6 +2,7 @@
 
 from max.algorithm import parallelize
 
+from std.algorithm import vectorize
 from std.math import pi
 from std.sys import simd_width_of
 from std.utils.numerics import isfinite
@@ -22,6 +23,11 @@ from bajo.rt.material_types import (
 )
 from bajo.core.color import Color
 from bajo.rt.media import SceneMedia
+from bajo.rt.scene_preparation import (
+    _validate_mesh_bounds,
+    _transformed_triangles,
+    _append_instance_lights,
+)
 
 
 struct SceneBuilder(
@@ -521,19 +527,7 @@ struct SceneData:
                 raise Error(
                     "triangle mesh texcoords must contain uv per vertex"
                 )
-            var local_bounds = AABB[.LOCAL].invalid()
-            for triangle_idx in range(len(vertices) / 3):
-                var base = 3 * triangle_idx
-                if not triangle_is_valid(
-                    vertices[base], vertices[base + 1], vertices[base + 2]
-                ):
-                    raise Error(
-                        "triangle mesh vertices must be finite and"
-                        " non-degenerate"
-                    )
-                local_bounds.grow(vertices[base])
-                local_bounds.grow(vertices[base + 1])
-                local_bounds.grow(vertices[base + 2])
+            var local_bounds = _validate_mesh_bounds(vertices)
             triangle_mesh_bounds.append(local_bounds)
 
         for i, inst in enumerate(self._triangle_instances):
@@ -761,23 +755,38 @@ struct SceneData:
             ref instance = self.triangle_instances()[i]
             ref vertices = self.triangle_meshes()[Int(instance.blas_idx)]
             var reverse = instance.transform.reverses_orientation()[0]
-            for triangle in range(offsets[task + 1] - offsets[task]):
-                var p0 = instance.transform.point(vertices[3 * triangle])
-                var p1 = instance.transform.point(vertices[3 * triangle + 1])
-                var p2 = instance.transform.point(vertices[3 * triangle + 2])
-                if reverse:
-                    swap(p1, p2)
-                var weight = triangle_area(p0, p1, p2) * _light_importance(
-                    radiance
+
+            def block[lanes: Int](first: Int) {imm, mut records}:
+                var values = _transformed_triangles[lanes](
+                    vertices, first, instance.transform, reverse, radiance
                 )
-                records[offsets[task] + triangle] = LightRecord.triangle(
-                    PrimitiveId(PrimitiveKind.TRIANGLE_INSTANCE, UInt32(i)),
-                    surface,
-                    weight,
-                    p0,
-                    p1,
-                    p2,
-                )
+                comptime for lane in range(lanes):
+                    records[
+                        offsets[task] + first + lane
+                    ] = LightRecord.triangle(
+                        PrimitiveId(PrimitiveKind.TRIANGLE_INSTANCE, UInt32(i)),
+                        surface,
+                        values[3][lane],
+                        Point3f32[.WORLD](
+                            values[0].x[lane],
+                            values[0].y[lane],
+                            values[0].z[lane],
+                        ),
+                        Point3f32[.WORLD](
+                            values[1].x[lane],
+                            values[1].y[lane],
+                            values[1].z[lane],
+                        ),
+                        Point3f32[.WORLD](
+                            values[2].x[lane],
+                            values[2].y[lane],
+                            values[2].z[lane],
+                        ),
+                    )
+
+            vectorize[simd_width_of[Float32]()](
+                offsets[task + 1] - offsets[task], block
+            )
 
         if count > 1:
             parallelize(prepare, count, min(8, count))
@@ -876,40 +885,14 @@ struct SceneData:
                 instance_idx
             ].transform.copy()
             var mesh_idx = Int(self._triangle_instances[instance_idx].blas_idx)
-            var reverses_orientation = transform.reverses_orientation()[0]
-            var triangle_count = len(self._triangle_meshes[mesh_idx]) / 3
-            for triangle_idx in range(triangle_count):
-                var base = 3 * triangle_idx
-                var p0 = transform.point(
-                    self._triangle_meshes[mesh_idx][base + 0]
-                )
-                var p1 = transform.point(
-                    self._triangle_meshes[mesh_idx][base + 1]
-                )
-                var p2 = transform.point(
-                    self._triangle_meshes[mesh_idx][base + 2]
-                )
-                if reverses_orientation:
-                    swap(p1, p2)
-                var weight = triangle_area(p0, p1, p2) * (
-                    _light_importance(radiance)
-                )
-                if not isfinite(weight):
-                    raise Error("triangle instance light weight must be finite")
-                if weight > 0.0:
-                    self._append_light(
-                        LightRecord.triangle(
-                            PrimitiveId(
-                                PrimitiveKind.TRIANGLE_INSTANCE,
-                                UInt32(instance_idx),
-                            ),
-                            surface,
-                            weight,
-                            p0,
-                            p1,
-                            p2,
-                        )
-                    )
+            _append_instance_lights(
+                self._triangle_meshes[mesh_idx],
+                transform,
+                surface,
+                instance_idx,
+                radiance,
+                self._lights,
+            )
 
     def _append_light(mut self, var light: LightRecord) raises:
         self._lights.append(light^)

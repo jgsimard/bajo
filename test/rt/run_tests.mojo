@@ -13,6 +13,7 @@ import test.rt.cpu.test_instance_shading_simd as cpu_test_instance_shading_simd
 import test.rt.cpu.test_packet_inputs as cpu_test_packet_inputs
 import test.rt.cpu.test_packet_tiles as cpu_test_packet_tiles
 import test.rt.cpu.test_sampling_simd as cpu_test_sampling_simd
+import test.rt.cpu.test_scene_preparation as cpu_test_scene_preparation
 import test.rt.cpu.test_scene_shapes as cpu_test_scene_shapes
 import test.rt.cpu.test_wavefront_contract as cpu_test_wavefront_contract
 import test.rt.gpu.test_bmw_materials_gpu as gpu_test_bmw_materials_gpu
@@ -77,6 +78,11 @@ def main() raises:
         tests.run(
             "test/rt/cpu/test_sampling_simd.mojo",
             cpu_test_sampling_simd.run_tests[True],
+        )
+    comptime if module_selected["cpu_test_scene_preparation"]():
+        tests.run(
+            "test/rt/cpu/test_scene_preparation.mojo",
+            cpu_test_scene_preparation.run_tests[True],
         )
     comptime if module_selected["cpu_test_scene_shapes"]():
         tests.run(

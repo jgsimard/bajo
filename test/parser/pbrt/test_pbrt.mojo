@@ -555,8 +555,13 @@ Shape "loopsubdiv" "integer levels" [1]
     "integer indices" [0 1 2]
 """
     var scene = parse_pbrt(source)
-    assert_true(len(scene.data.triangle_vertices()) == 3)
-    assert_true(len(scene.data.triangle_surfaces()) == 1)
+    ref vertices = scene.data.triangle_vertices()
+    assert_equal(len(vertices), 3)
+    assert_equal(len(scene.data.triangle_surfaces()), 1)
+    for i in range(3):
+        assert_equal(vertices[i].x, Float32(1 if i == 1 else 0))
+        assert_equal(vertices[i].y, Float32(1 if i == 2 else 0))
+        assert_equal(vertices[i].z, Float32(0))
 
 
 def test_plymesh_resource_transform_orientation_and_area_light() raises:

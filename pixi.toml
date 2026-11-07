@@ -33,11 +33,7 @@ test_host = { depends-on = [
   { task = "test", args = ["rt/cpu"] },
   { task = "test", args = ["bvh/cpu"] },
   { task = "test", args = ["sort/cpu"] },
-  { task = "test", args = ["viewer/test_core.mojo"] },
-  { task = "test", args = ["viewer/test_native.mojo"] },
-  { task = "test", args = ["viewer/test_accumulation.mojo"] },
-  { task = "test", args = ["viewer/test_batching.mojo"] },
-  "test_python_host",
+  { task = "test", args = ["viewer"] },
 ] }
 test_gpu = { depends-on = [
   { task = "test", args = ["sort/gpu"] },

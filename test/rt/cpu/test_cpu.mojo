@@ -1478,54 +1478,38 @@ def test_render_settings_validation() raises:
         invalid_settings.validate()
 
 
-def test_render_can_select_normal_integrator_at_compile_time() raises:
-    var settings = RenderSettings(1, 1, 1, UInt64(11))
+def test_normal_and_ao_integrators_match_unoccluded_plane() raises:
+    var settings = RenderSettings(5, 3, 3, UInt64(11), 2)
     var builder = SceneBuilder()
     var matte = builder.add_lambertian(Color(0.5))
-    builder.add_sphere(
-        Point3f32[.WORLD](0.0, 0.0, -1.0),
-        0.5,
+    # Every primary ray hits the same front-facing plane. Its normal color and
+    # unoccluded AO are known independently of either rendering implementation.
+    builder.add_triangle(
+        Point3f32[.WORLD](-100, -100, -1),
+        Point3f32[.WORLD](100, -100, -1),
+        Point3f32[.WORLD](0, 100, -1),
         matte,
     )
-    var scene = builder^.finish()
-    var world = CpuScene[16, 16](scene^)
+    var world = CpuScene[16, 16](builder^.finish())
     var camera = Camera.from_vfov(
-        Point3f32[.WORLD](0.0, 0.0, 0.0),
-        Point3f32[.WORLD](0.0, 0.0, -1.0),
-        Vec3f32[.WORLD](0.0, 1.0, 0.0),
-        90.0,
+        Point3f32[.WORLD](0, 0, 0),
+        Point3f32[.WORLD](0, 0, -1),
+        Vec3f32[.WORLD](0, 1, 0),
+        90,
     )
-
-    var result = render_wavefront[.NORMALS](settings, camera, world)
-    assert_equal(len(result.pixels), 1)
-    assert_true(result.pixels[0].z >= result.pixels[0].x)
-
-
-def test_render_can_select_ao_integrator_at_compile_time() raises:
-    var settings = RenderSettings(1, 1, 2, UInt64(12))
-    var builder = SceneBuilder()
-    var matte = builder.add_lambertian(Color(0.5))
-    builder.add_sphere(
-        Point3f32[.WORLD](0.0, 0.0, -1.0),
-        0.5,
-        matte,
-    )
-    var scene = builder^.finish()
-    var world = CpuScene[16, 16](scene^)
-    var camera = Camera.from_vfov(
-        Point3f32[.WORLD](0.0, 0.0, 0.0),
-        Point3f32[.WORLD](0.0, 0.0, -1.0),
-        Vec3f32[.WORLD](0.0, 1.0, 0.0),
-        90.0,
-    )
-
-    var result = render_wavefront[.AO](settings, camera, world)
-    assert_equal(len(result.pixels), 1)
-    assert_true(
-        result.pixels[0].x >= 0.0
-        and result.pixels[0].y >= 0.0
-        and result.pixels[0].z >= 0.0
-    )
+    comptime for integrator in [Integrator.NORMALS, Integrator.AO]:
+        var expected = Color(0.5, 0.5, 1) if integrator == .NORMALS else Color(
+            1
+        )
+        var parallel = render_wavefront[integrator](settings, camera, world)
+        var scalar = render_wavefront[integrator, 1, 16, False](
+            settings, camera, world
+        )
+        assert_equal(len(parallel.pixels), 15)
+        assert_equal(len(scalar.pixels), 15)
+        for i in range(15):
+            assert_vec_equal(parallel.pixels[i], expected)
+            assert_vec_equal(scalar.pixels[i], expected)
 
 
 def test_wavefront_tiny_render() raises:

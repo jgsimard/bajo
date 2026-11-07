@@ -680,35 +680,32 @@ def test_gpu_combined_instances_match_cpu_wavefront() raises:
     var settings = RenderSettings(7, 4, 2, UInt64(457))
     var world = _combined_instance_world()
     var camera = _camera()
-    var cpu = render_wavefront[.PATH, 1, 64, False](settings, camera, world)
-    var gpu = render_gpu[.PATH](settings, camera, world.scene_data())
-    var gpu_hploc_tlas = render_gpu_configured[
-        kind=.ALL,
-        integrator=.PATH,
-        tlas_format=GpuRtBvhFormat(2, 2, .WIDE),
-        tlas_build_method=.HPLOC,
-    ](settings, camera, world.scene_data())
-    assert_pixels_close(gpu.pixels, cpu.pixels)
-    assert_pixels_close(gpu_hploc_tlas.pixels, cpu.pixels)
-
-
-def test_gpu_combined_scene_instantiates_every_integrator() raises:
-    var settings = RenderSettings(1, 1, 1, UInt64(463))
-    var world = _combined_instance_world()
-    var camera = _camera()
     comptime for integrator in [
+        Integrator.PATH,
         Integrator.NORMALS,
         Integrator.AO,
         Integrator.NEE,
         Integrator.MIS,
     ]:
-        var result = render_gpu[integrator](
-            settings, camera, world.scene_data()
+        var cpu = render_wavefront[integrator, 1, 64, False](
+            settings, camera, world
         )
-        assert_equal(len(result.pixels), 1)
+        var gpu = render_gpu[integrator](settings, camera, world.scene_data())
+        try:
+            assert_pixels_close(gpu.pixels, cpu.pixels)
+        except error:
+            raise Error(t"integrator {integrator}: {error}")
+        comptime if integrator == .PATH:
+            var gpu_hploc_tlas = render_gpu_configured[
+                kind=.ALL,
+                integrator=.PATH,
+                tlas_format=GpuRtBvhFormat(2, 2, .WIDE),
+                tlas_build_method=.HPLOC,
+            ](settings, camera, world.scene_data())
+            assert_pixels_close(gpu_hploc_tlas.pixels, cpu.pixels)
 
 
-def test_gpu_ao_matches_unoccluded_cpu_reference() raises:
+def test_gpu_ao_matches_cpu_for_unoccluded_hits_and_environment_misses() raises:
     var settings = RenderSettings(1, 1, 1, UInt64(509))
     var world = _triangle_world()
     var camera = _camera()
@@ -717,6 +714,26 @@ def test_gpu_ao_matches_unoccluded_cpu_reference() raises:
     ](settings, camera, world)
     var gpu = render_gpu[.AO](settings, camera, world.scene_data())
     assert_vec_equal(gpu.pixels[0], cpu.pixels[0], atol=1.0e-5)
+
+    # Point away from both scenes so every ray misses. AO preserves the
+    # environment on misses, including image lookup and its color scale.
+    settings = RenderSettings(3, 2, 3, UInt64(509))
+    camera = Camera.from_vfov(
+        Point3W(0, 2, 0), Point3W(0, 3, 0), Vec3W(0, 0, 1), 30
+    )
+    for image in [False, True]:
+        var missed_world = (
+            _image_environment_world() if image else _sphere_world()
+        )
+        var expected = render_wavefront[.AO, 1, 1, False](
+            settings, camera, missed_world
+        )
+        var actual = render_gpu[.AO](
+            settings, camera, missed_world.scene_data()
+        )
+        assert_pixels_close(actual.pixels, expected.pixels)
+        for pixel in expected.pixels:
+            assert_true(pixel.x > 0 and pixel.y > 0 and pixel.z > 0)
 
 
 def _test_gpu_direct_light_matches_cpu[integrator: Integrator]() raises:

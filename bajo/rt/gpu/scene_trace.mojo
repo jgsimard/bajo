@@ -483,6 +483,16 @@ def _gpu_rt_scene_trace_path[
                 * environment_emission
                 * environment_mis_weight,
             )
+        elif integrator == .AO:
+            _accumulate_sample(
+                sample_radiance,
+                capacity,
+                sample_base,
+                path.path_id,
+                _gpu_environment_radiance(
+                    scene, texture_descs, texture_pixels, ray.d
+                ),
+            )
         return
 
     if SurfaceId.kind_from_raw(surface_value) == .MIX:

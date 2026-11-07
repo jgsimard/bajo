@@ -8,7 +8,7 @@ from bajo.rt.scene_data import SceneData
 from bajo.rt.gpu.opacity_tables import GpuOpacityTables
 from bajo.rt.gpu.emission import GpuEmissionTables
 from bajo.rt.gpu.spectra import GpuMaterialSpectra
-from bajo.rt.gpu.texture_storage import pack_texture_tables
+from bajo.rt.gpu.texture_storage import TextureUploadPlan, plan_texture_upload
 from bajo.rt.gpu.upload import _upload_nonempty
 from bajo.rt.gpu.material_layout import (
     GpuRgbMaterialLayout,
@@ -61,22 +61,26 @@ def _flatten_texture_pixels(world: SceneData) -> List[Float32]:
 
 
 def _upload_texture_pixels(
-    mut ctx: DeviceContext, world: SceneData
+    mut ctx: DeviceContext, world: SceneData, plan: TextureUploadPlan
 ) raises -> DeviceBuffer[.float32]:
-    var count = 0
-    for index in range(len(world.surfaces().image_textures)):
-        count += len(world.surfaces().image_textures[index].pixels)
-    if count == 0:
+    if plan.word_count == 0:
         return _upload_nonempty(ctx, List[Float32]())
-    var staging = ctx.enqueue_create_host_buffer[.float32](count)
-    var target = ctx.enqueue_create_buffer[.float32](count)
-    var first = 0
+    var staging = ctx.enqueue_create_host_buffer[.float32](plan.word_count)
+    var target = ctx.enqueue_create_buffer[.float32](plan.word_count)
     for index in range(len(world.surfaces().image_textures)):
-        ref image = world.surfaces().image_textures[index]
-        staging.as_span()[first : first + len(image.pixels)].copy_from(
-            image.pixels
+        var base = index * GpuTextureDescLayout.STRIDE
+        var first = Int(
+            plan.descriptors[base + GpuTextureDescLayout.PIXEL_OFFSET]
         )
-        first += len(image.pixels)
+        if (
+            plan.descriptors[base + GpuTextureDescLayout.FORMAT]
+            == GpuTextureDescLayout.RGB_F32
+        ):
+            ref pixels = world.surfaces().image_textures[index].pixels
+            staging.as_span()[first : first + len(pixels)].copy_from(pixels)
+        else:
+            ref words = plan.packed_images[index]
+            staging.as_span()[first : first + len(words)].copy_from(words)
     staging.enqueue_copy_to(target)
     return target^
 
@@ -213,9 +217,9 @@ struct GpuRtMaterials:
         self.coated_diffuse_texture_indices = _upload_nonempty(
             ctx, _flatten_coated_diffuse_texture_indices(world)
         )
-        var textures = pack_texture_tables(world.surfaces())
+        var textures = plan_texture_upload(world.surfaces())
         self.texture_descs = _upload_nonempty(ctx, textures.descriptors)
-        self.texture_pixels = _upload_nonempty(ctx, textures.words)
+        self.texture_pixels = _upload_texture_pixels(ctx, world, textures)
         var normal_keys = List[UInt32]()
         for entry in world.surfaces().normal_maps.items():
             normal_keys.append(entry.key)

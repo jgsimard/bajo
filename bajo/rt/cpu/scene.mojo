@@ -287,6 +287,7 @@ struct CpuScene[
     var _coated_materials: List[Float32]
     var _has_instance_attributes: Bool
     var _has_displacement: Bool
+    var _has_shading_normals: Bool
 
     def __init__[
         build_method: CpuBvhBuildMethod = .SAH
@@ -304,6 +305,10 @@ struct CpuScene[
                 material.displacement_texture_index != NO_TEXTURE
                 and material.displacement_scale != 0.0
             )
+        self._has_shading_normals = (
+            self._has_displacement
+            or len(self._scene.surfaces().normal_maps) > 0
+        )
         for mesh in range(len(self._scene.triangle_meshes())):
             if (
                 len(self._scene.triangle_mesh_normals()[mesh]) != 0
@@ -331,6 +336,10 @@ struct CpuScene[
     @always_inline
     def has_displacement(self) -> Bool:
         return self._has_displacement
+
+    @always_inline
+    def has_shading_normals(self) -> Bool:
+        return self._has_shading_normals
 
     def coated_materials(self) -> ref[self._coated_materials] List[Float32]:
         """Immutable column-major constants prepared once for SIMD shading."""

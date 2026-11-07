@@ -1,6 +1,7 @@
 """Packet primary-path generation."""
 
 from std.math import iota
+from std.memory import bitcast
 from bajo.core.camera import Camera
 from bajo.rt.render_types import RenderSettings, SamplingConfig
 from bajo.rt.rays import make_camera_ray_from_samples
@@ -23,6 +24,23 @@ def _initialize_path_packets_range[
     paths.clear()
     var width = Float32(settings.image_width)
     var height = Float32(settings.image_height)
+    var pinhole = (
+        camera.defocus_disk_u.x == 0
+        and camera.defocus_disk_u.y == 0
+        and camera.defocus_disk_u.z == 0
+        and camera.defocus_disk_v.x == 0
+        and camera.defocus_disk_v.y == 0
+        and camera.defocus_disk_v.z == 0
+    )
+    # Zero lens offsets can change a negative-zero camera origin. Keep the
+    # original sampling math for those origins and for non-finite inputs.
+    pinhole = (
+        pinhole
+        and camera.origin.is_finite()[0]
+        and bitcast[.uint32](camera.origin.x) != 0x80000000
+        and bitcast[.uint32](camera.origin.y) != 0x80000000
+        and bitcast[.uint32](camera.origin.z) != 0x80000000
+    )
     for packet_begin in range(path_begin, path_end, length):
         var lane_count = min(length, path_end - packet_begin)
         var packet = PathPacket[length]()
@@ -30,7 +48,7 @@ def _initialize_path_packets_range[
         var pixel_ids = ids / UInt32(settings.samples_per_pixel)
         var px = (pixel_ids % UInt32(settings.image_width)).cast[.float32]()
         var py = (pixel_ids / UInt32(settings.image_width)).cast[.float32]()
-        var samples = sample_camera(sampling, ids)
+        var samples = sample_camera(sampling, ids, pinhole)
         for lane in range(lane_count):
             weights[packet_begin - path_begin + lane] = samples.filter_weight[
                 lane

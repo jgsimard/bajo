@@ -180,9 +180,10 @@ def _gpu_rt_resolve_pixel[
             var weights = radiance.load[width=4, alignment=16](
                 (WaveSampleFloatAbi.FILTER_WEIGHT, sample_idx)
             )
-            var samples = (
-                film.apply_sample(Vec3[.float32, .WORLD, 4](r, g, b)) * weights
-            )
+            var samples = Vec3[.float32, .WORLD, 4](r, g, b)
+            comptime if apply_film:
+                samples = film.apply_sample(samples)
+            samples = samples * weights
             # Retain the original summation order while grouping memory reads.
             comptime for lane in range(4):
                 red += samples.x[lane]
@@ -192,13 +193,13 @@ def _gpu_rt_resolve_pixel[
             sample_idx += 4
     else:
         for sample_idx in range(sample_begin, sample_begin + samples_per_pixel):
-            var sample = film.apply_sample(
-                Color(
-                    radiance[(WaveSampleFloatAbi.R, sample_idx)],
-                    radiance[(WaveSampleFloatAbi.G, sample_idx)],
-                    radiance[(WaveSampleFloatAbi.B, sample_idx)],
-                )
+            var sample = Color(
+                radiance[(WaveSampleFloatAbi.R, sample_idx)],
+                radiance[(WaveSampleFloatAbi.G, sample_idx)],
+                radiance[(WaveSampleFloatAbi.B, sample_idx)],
             )
+            comptime if apply_film:
+                sample = film.apply_sample(sample)
             var weight = radiance[
                 (WaveSampleFloatAbi.FILTER_WEIGHT, sample_idx)
             ]

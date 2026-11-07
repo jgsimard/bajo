@@ -3,6 +3,7 @@
 from bajo.core.sampling import power_heuristic
 
 from std.math import abs, sqrt
+from bajo.core.geometry import sample_triangle_surface, sample_sphere_surface
 
 from bajo.core import Point3, Vec3, cross, dot, length2, normalize
 from bajo.rt.rays import RT_RAY_T_MIN, RT_SHADOW_END_OFFSET
@@ -30,24 +31,12 @@ def _sample_triangle_light_surface[
     random_u: SIMD[.float32, length],
     random_v: SIMD[.float32, length],
 ) -> _LightSurfaceSample[length]:
-    var edge1 = p1 - p0
-    var edge2 = p2 - p0
-    var area_vector = cross(edge1, edge2)
-    var twice_area_squared = length2(area_vector)
-    var valid = twice_area_squared.gt(0.0)
+    var sample = sample_triangle_surface(p0, p1, p2, random_u, random_v)
     var root_u = sqrt(random_u)
     var barycentric1 = root_u * (1.0 - random_v)
     var barycentric2 = root_u - barycentric1
     return _LightSurfaceSample[length](
-        valid,
-        p0 + barycentric1 * edge1 + barycentric2 * edge2,
-        Vec3.select(
-            valid,
-            area_vector / sqrt(valid.select(twice_area_squared, 1.0)),
-            Vec3[.float32, .WORLD, length](0.0, 1.0, 0.0),
-        ),
-        barycentric1,
-        barycentric2,
+        sample.valid, sample.point, sample.normal, barycentric1, barycentric2
     )
 
 
@@ -59,11 +48,12 @@ def _sample_sphere_light_surface[
     radius: SIMD[.float32, length],
     normal: Vec3[.float32, .WORLD, length],
 ) -> _LightSurfaceSample[length]:
-    var uv = opacity_sphere_uv(normal)
+    var sample = sample_sphere_surface(center, radius, normal)
+    var uv = opacity_sphere_uv(sample.normal)
     return _LightSurfaceSample[length](
-        SIMD[.bool, length](fill=True),
-        center + radius * normal,
-        normal,
+        sample.valid,
+        sample.point,
+        sample.normal,
         uv[0],
         uv[1],
     )

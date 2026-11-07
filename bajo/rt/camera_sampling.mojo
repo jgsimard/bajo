@@ -17,10 +17,21 @@ struct CameraSamples[width: SIMDLength](TrivialRegisterPassable):
 @always_inline
 def sample_camera[
     width: SIMDLength
-](sampling: SamplingConfig, ids: SIMD[.uint32, width]) -> CameraSamples[width]:
+](
+    sampling: SamplingConfig, ids: SIMD[.uint32, width], pinhole: Bool = False
+) -> CameraSamples[width]:
     var rng = path_stage_rng(sampling, ids, UInt32(0))
-    var lens = random_in_unit_disk[.WORLD, width](rng)
+    var lens_u = SIMD[.float32, width](0)
+    var lens_v = SIMD[.float32, width](0)
+    if pinhole:
+        # Consume the lens dimensions without computing discarded disk samples.
+        _ = rng.f32()
+        _ = rng.f32()
+    else:
+        var lens = random_in_unit_disk[.WORLD, width](rng)
+        lens_u = lens.x
+        lens_v = lens.y
     var filter = sampling.filter.sample(rng.f32(), rng.f32())
     return CameraSamples[width](
-        filter.pixel_u, filter.pixel_v, lens.x, lens.y, filter.weight
+        filter.pixel_u, filter.pixel_v, lens_u, lens_v, filter.weight
     )

@@ -145,6 +145,66 @@ def _transformed_triangles[
 
 
 @always_inline
+def _instance_light_record[
+    lanes: Int
+](
+    values: Tuple[
+        Point3[.float32, .WORLD, lanes],
+        Point3[.float32, .WORLD, lanes],
+        Point3[.float32, .WORLD, lanes],
+        SIMD[.float32, lanes],
+    ],
+    lane: Int,
+    surface: SurfaceId[1],
+    instance_idx: Int,
+    radiance: Color,
+    two_sided: Bool,
+    texcoords: ImmSpan[Float32, _],
+    triangle: Int,
+    reverse: Bool,
+) -> LightRecord:
+    var u0 = Float32(0)
+    var v0 = Float32(0)
+    var u1 = Float32(1)
+    var v1 = Float32(0)
+    var u2 = Float32(1)
+    var v2 = Float32(1)
+    if len(texcoords):
+        var base = 6 * triangle
+        u0 = texcoords[base]
+        v0 = texcoords[base + 1]
+        u1 = texcoords[base + 2]
+        v1 = texcoords[base + 3]
+        u2 = texcoords[base + 4]
+        v2 = texcoords[base + 5]
+    if reverse:
+        swap(u1, u2)
+        swap(v1, v2)
+    return LightRecord.triangle(
+        PrimitiveId(PrimitiveKind.TRIANGLE_INSTANCE, UInt32(instance_idx)),
+        surface,
+        values[3][lane] * Float32(2 if two_sided else 1),
+        Point3f32[.WORLD](
+            values[0].x[lane], values[0].y[lane], values[0].z[lane]
+        ),
+        Point3f32[.WORLD](
+            values[1].x[lane], values[1].y[lane], values[1].z[lane]
+        ),
+        Point3f32[.WORLD](
+            values[2].x[lane], values[2].y[lane], values[2].z[lane]
+        ),
+        u0,
+        v0,
+        u1,
+        v1,
+        u2,
+        v2,
+        radiance,
+        two_sided,
+    )
+
+
+@always_inline
 def _append_instance_lights(
     vertices: ImmSpan[Point3f32[.LOCAL], _],
     transform: Affine3f32[.LOCAL, .WORLD],
@@ -152,6 +212,8 @@ def _append_instance_lights(
     instance_idx: Int,
     radiance: Color,
     mut output: LightStore,
+    texcoords: ImmSpan[Float32, _] = ImmSpan[Float32, ImmutAnyOrigin](),
+    two_sided: Bool = False,
 ) raises:
     var status = 0
     var reverse = transform.reverses_orientation()[0]
@@ -164,35 +226,21 @@ def _append_instance_lights(
         )
         comptime for lane in range(lanes):
             if status == 0:
-                var weight = values[3][lane]
-                if not isfinite(weight):
+                var record = _instance_light_record(
+                    values,
+                    lane,
+                    surface,
+                    instance_idx,
+                    radiance,
+                    two_sided,
+                    texcoords,
+                    first + lane,
+                    reverse,
+                )
+                if not isfinite(record.weight):
                     status = 1
-                elif weight > 0:
-                    output.append(
-                        LightRecord.triangle(
-                            PrimitiveId(
-                                PrimitiveKind.TRIANGLE_INSTANCE,
-                                UInt32(instance_idx),
-                            ),
-                            surface,
-                            weight,
-                            Point3f32[.WORLD](
-                                values[0].x[lane],
-                                values[0].y[lane],
-                                values[0].z[lane],
-                            ),
-                            Point3f32[.WORLD](
-                                values[1].x[lane],
-                                values[1].y[lane],
-                                values[1].z[lane],
-                            ),
-                            Point3f32[.WORLD](
-                                values[2].x[lane],
-                                values[2].y[lane],
-                                values[2].z[lane],
-                            ),
-                        )
-                    )
+                elif record.weight > 0:
+                    output.append(record^)
                     if not isfinite(output.total_weight):
                         status = 2
 

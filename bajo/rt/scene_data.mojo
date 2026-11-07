@@ -29,6 +29,7 @@ from bajo.rt.scene_preparation import (
     _validate_mesh_bounds,
     _transformed_triangles,
     _append_instance_lights,
+    _instance_light_record,
 )
 from bajo.rt.opacity import SceneOpacity
 from bajo.rt.emission import AreaEmitter, SceneEmission
@@ -818,7 +819,13 @@ struct SceneData:
         var offsets = List[Int]()
         offsets.append(0)
         for i in range(count):
-            if self.triangle_instance_surfaces()[i].kind() == .EMISSIVE:
+            if (
+                self.emitter(
+                    PrimitiveId(.TRIANGLE_INSTANCE, UInt32(i)).value,
+                    self.triangle_instance_surfaces()[i],
+                ).radiance.max_component()
+                > 0
+            ):
                 work.append(i)
                 offsets.append(
                     offsets[len(offsets) - 1]
@@ -837,11 +844,15 @@ struct SceneData:
             if offsets[task] == offsets[task + 1]:
                 return
             ref surface = self.triangle_instance_surfaces()[i]
-            var radiance = (
-                self.surfaces().emissives[Int(surface.index())].radiance
+            var emitter = self.emitter(
+                PrimitiveId(.TRIANGLE_INSTANCE, UInt32(i)).value, surface
             )
+            var radiance = emitter.radiance
             ref instance = self.triangle_instances()[i]
             ref vertices = self.triangle_meshes()[Int(instance.blas_idx)]
+            ref texcoords = self.triangle_mesh_texcoords()[
+                Int(instance.blas_idx)
+            ]
             var reverse = instance.transform.reverses_orientation()[0]
 
             def block[lanes: Int](first: Int) {imm, mut records}:
@@ -851,26 +862,16 @@ struct SceneData:
                 comptime for lane in range(lanes):
                     records[
                         offsets[task] + first + lane
-                    ] = LightRecord.triangle(
-                        PrimitiveId(PrimitiveKind.TRIANGLE_INSTANCE, UInt32(i)),
+                    ] = _instance_light_record(
+                        values,
+                        lane,
                         surface,
-                        values[3][lane],
-                        Point3f32[.WORLD](
-                            values[0].x[lane],
-                            values[0].y[lane],
-                            values[0].z[lane],
-                        ),
-                        Point3f32[.WORLD](
-                            values[1].x[lane],
-                            values[1].y[lane],
-                            values[1].z[lane],
-                        ),
-                        Point3f32[.WORLD](
-                            values[2].x[lane],
-                            values[2].y[lane],
-                            values[2].z[lane],
-                        ),
-                        radiance=radiance,
+                        i,
+                        radiance,
+                        emitter.two_sided,
+                        texcoords,
+                        first + lane,
+                        reverse,
                     )
 
             vectorize[simd_width_of[Float32]()](
@@ -939,16 +940,19 @@ struct SceneData:
                         )
                     )
 
-        if (
-            len(self._triangle_instances) > 1
-            and len(self._emission.records) == 0
-            and len(self._opacity.records) == 0
-            and len(self._surfaces.emissives) > 0
+        if len(self._triangle_instances) > 1 and (
+            len(self._surfaces.emissives) > 0 or len(self._emission.records) > 0
         ):
             var instances = 0
             var triangles = 0
             for i in range(len(self._triangle_instances)):
-                if self._triangle_instance_surfaces[i].kind() == .EMISSIVE:
+                if (
+                    self.emitter(
+                        PrimitiveId(.TRIANGLE_INSTANCE, UInt32(i)).value,
+                        self._triangle_instance_surfaces[i],
+                    ).radiance.max_component()
+                    > 0
+                ):
                     instances += 1
                     triangles += (
                         len(
@@ -986,67 +990,16 @@ struct SceneData:
                 instance_idx
             ].transform.copy()
             var mesh_idx = Int(self._triangle_instances[instance_idx].blas_idx)
-            var reverses_orientation = transform.reverses_orientation()[0]
-            var triangle_count = len(self._triangle_meshes[mesh_idx]) / 3
-            for triangle_idx in range(triangle_count):
-                var base = 3 * triangle_idx
-                var p0 = transform.point(
-                    self._triangle_meshes[mesh_idx][base + 0]
-                )
-                var p1 = transform.point(
-                    self._triangle_meshes[mesh_idx][base + 1]
-                )
-                var p2 = transform.point(
-                    self._triangle_meshes[mesh_idx][base + 2]
-                )
-                var u0 = Float32(0.0)
-                var v0 = Float32(0.0)
-                var u1 = Float32(1.0)
-                var v1 = Float32(0.0)
-                var u2 = Float32(1.0)
-                var v2 = Float32(1.0)
-                ref uvs = self._triangle_mesh_texcoords[mesh_idx]
-                if len(uvs):
-                    var uv = 6 * triangle_idx
-                    u0 = uvs[uv]
-                    v0 = uvs[uv + 1]
-                    u1 = uvs[uv + 2]
-                    v1 = uvs[uv + 3]
-                    u2 = uvs[uv + 4]
-                    v2 = uvs[uv + 5]
-                if reverses_orientation:
-                    swap(p1, p2)
-                    swap(u1, u2)
-                    swap(v1, v2)
-                var weight = (
-                    triangle_area(p0, p1, p2)
-                    * (_light_importance(radiance))
-                    * Float32(2.0 if emitter.two_sided else 1.0)
-                )
-                if not isfinite(weight):
-                    raise Error("triangle instance light weight must be finite")
-                if weight > 0.0:
-                    self._append_light(
-                        LightRecord.triangle(
-                            PrimitiveId(
-                                PrimitiveKind.TRIANGLE_INSTANCE,
-                                UInt32(instance_idx),
-                            ),
-                            surface,
-                            weight,
-                            p0,
-                            p1,
-                            p2,
-                            u0,
-                            v0,
-                            u1,
-                            v1,
-                            u2,
-                            v2,
-                            radiance,
-                            emitter.two_sided,
-                        )
-                    )
+            _append_instance_lights(
+                self._triangle_meshes[mesh_idx],
+                transform,
+                surface,
+                instance_idx,
+                radiance,
+                self._lights,
+                self._triangle_mesh_texcoords[mesh_idx],
+                emitter.two_sided,
+            )
 
     def _append_light(mut self, var light: LightRecord) raises:
         self._lights.append(light^)

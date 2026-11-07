@@ -147,6 +147,38 @@ def test_parallel_triangulation_preserves_all_corner_indices_and_order() raises:
     assert_true(len(_triangulated_indices_parallel(no_faces, 8, 1)) == 0)
 
 
+def test_triangle_copy_preserves_corner_attributes_and_owns_output() raises:
+    for count in [0, 1, 7, 8, 9, 31, 32, 33, 65537]:
+        var mesh = ObjMesh()
+        for face in range(count):
+            mesh.face_vertices.append(3)
+            for corner in range(3):
+                mesh.indices.append(
+                    ObjIndex(face + 1, corner + 1, face % 7 + 1)
+                )
+        for explicit_lines in [False, True]:
+            if explicit_lines:
+                mesh.face_lines.resize(count, fill=UInt8(0))
+            var output = triangulated_indices(mesh)
+            assert_true(len(output) == len(mesh.indices))
+            for corner in range(len(output)):
+                assert_true(output[corner].p == mesh.indices[corner].p)
+                assert_true(output[corner].t == mesh.indices[corner].t)
+                assert_true(output[corner].n == mesh.indices[corner].n)
+            if len(output):
+                output[0] = ObjIndex(9, 9, 9)
+                assert_true(mesh.indices[0].p == 1)
+        if count:
+            mesh.face_lines[count // 2] = UInt8(1)
+            var output = triangulated_indices(mesh)
+            var expected = _triangulated_indices_parallel(mesh, 8, 1)
+            assert_true(len(output) == len(expected))
+            for corner in range(len(output)):
+                assert_true(output[corner].p == expected[corner].p)
+                assert_true(output[corner].t == expected[corner].t)
+                assert_true(output[corner].n == expected[corner].n)
+
+
 def test_face_indices_are_range_validated() raises:
     _assert_obj_parse_error("v 0 0 0\nf 2 1 1")
     _assert_obj_parse_error("v 0 0 0\nf -2 -1 -1")
@@ -671,6 +703,20 @@ def test_bulk_decoder_preserves_order_and_state_across_chunks() raises:
         text += "vt 0 0\nvt 1 0\nvt 0 1\nvn 0 0 1\n"
         text += "f -3/-3/-1 -2/-2/-1 -1/-1/-1\n"
         text += "f 1//1 2//1 3//1\nl 1/1 2/2\nf 1 2\nl 1\n"
+    # Long UTF-8 names, empty names and repeated selections cross chunk boundaries.
+    var long_name = (
+        "matériau partagé avec un nom assez long pour dépasser le stockage"
+        " court"
+    )
+    loader.add_file(
+        "bulk/third.mtl", "newmtl " + long_name + "\nKd 0.6 0.7 0.8"
+    )
+    text += "usemtl " + long_name + " # fallback before library\r\n"
+    for _ in range(17):
+        text += "usemtl " + long_name + "\t # repeated\r\n"
+        text += "o objet étendu\ng groupe étendu\nf 1 2 3\n"
+    text += "mtllib third.mtl\nusemtl " + long_name + "\nf 1 2 3\n"
+    text += "o # empty\ng # empty\nusemtl # ignored\n"
     text += "mtllib second.mtl\ng\nf 1 2 3"
     var reference = _parse_obj_serial("bulk/mesh.obj", StringSpan(text), loader)
     var sequential = _parse_obj_bulk(

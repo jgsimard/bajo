@@ -17,4 +17,9 @@ def _parse_obj[
     var workers = min(
         16 if text.byte_length() >= 8 * 1024 * 1024 else 8, num_logical_cores()
     )
-    return _parse_obj_bulk(path, text, loader, workers)
+    # Larger tasks reduce scheduling overhead; the workers * 4 cap still
+    # provides the same partitioning for very large inputs.
+    var chunk_bytes = (
+        1024 * 1024 if text.byte_length() >= 16 * 1024 * 1024 else 256 * 1024
+    )
+    return _parse_obj_bulk(path, text, loader, workers, chunk_bytes)

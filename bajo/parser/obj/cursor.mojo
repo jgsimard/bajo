@@ -270,9 +270,12 @@ struct ObjLineCursor[origin: ImmOrigin]:
         return FirstFaceIndex(ObjIndex._from_validated(p, t, n), shape)
 
     def joined_rest_of_line(mut self) -> String:
+        return String(self._metadata_name_span())
+
+    def _metadata_name_span(mut self) -> StringSpan[Self.origin]:
         self.skip_ws()
         if self.pos >= len(self.bytes):
-            return ""
+            return StringSpan[Self.origin]()
         var start = self.pos
         var logical_end = len(self.bytes)
         var p = start
@@ -284,11 +287,9 @@ struct ObjLineCursor[origin: ImmOrigin]:
                 break
             p += 1
         self.pos = len(self.bytes)
-        return String(
-            StringSpan[Self.origin](
-                unsafe_from_utf8=self.bytes[start:logical_end]
-            ).rstrip(" \t\r")
-        )
+        return StringSpan[Self.origin](
+            unsafe_from_utf8=self.bytes[start:logical_end]
+        ).rstrip(" \t\r")
 
     def next_word(mut self) -> StringSpan[Self.origin]:
         self.skip_ws()

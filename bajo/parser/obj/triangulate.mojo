@@ -2,6 +2,8 @@
 
 from max.algorithm import parallelize
 from std.math import ceildiv
+from std.algorithm import vectorize
+from std.sys import simd_width_of
 from std.sys import num_logical_cores
 from .types import ObjMesh, ObjIndex
 
@@ -69,9 +71,51 @@ def _triangle_chunks(
     return chunks^
 
 
+def _all_triangles(mesh: ObjMesh) -> Bool:
+    if len(mesh.indices) != 3 * len(mesh.face_vertices):
+        return False
+    var valid = True
+    var counts = mesh.face_vertices.unsafe_ptr()
+
+    def check[lanes: Int](first: Int) {imm, mut valid}:
+        valid = (
+            valid and counts.unsafe_load[width=lanes](first).eq(3).reduce_and()
+        )
+
+    vectorize[simd_width_of[Int]()](len(mesh.face_vertices), check)
+    if valid and len(mesh.face_lines):
+        var lines = mesh.face_lines.unsafe_ptr()
+
+        def check_lines[lanes: Int](first: Int) {imm, mut valid}:
+            valid = (
+                valid
+                and lines.unsafe_load[width=lanes](first).eq(0).reduce_and()
+            )
+
+        vectorize[simd_width_of[UInt8]()](len(mesh.face_lines), check_lines)
+    return valid
+
+
 def triangulated_indices(mesh: ObjMesh) -> List[ObjIndex]:
     """Expand triangle fans in face order, retaining position/UV/normal indices.
     """
+    if _all_triangles(mesh):
+        var workers = min(8, num_logical_cores())
+        if (
+            len(mesh.face_vertices) < _PARALLEL_TRIANGLE_MIN_FACES
+            or workers <= 1
+        ):
+            return mesh.indices.copy()
+        var count = len(mesh.indices)
+        var output = List[ObjIndex](unsafe_uninit_length=count)
+
+        def copy_worker(task: Int) {mesh, count, workers, mut output}:
+            var begin = count * task // workers
+            var end = count * (task + 1) // workers
+            Span(output)[begin:end].copy_from(Span(mesh.indices)[begin:end])
+
+        parallelize(copy_worker, workers, workers)
+        return output^
     if len(mesh.face_vertices) < _PARALLEL_TRIANGLE_MIN_FACES:
         return _triangulated_indices_serial(mesh)
     var workers = min(8, num_logical_cores())

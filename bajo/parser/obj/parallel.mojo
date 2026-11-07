@@ -17,7 +17,9 @@ from bajo.parser.asset_loader import AssetLoader
 @fieldwise_init
 struct _MetadataEvent(Copyable):
     var kind: Int
-    var name: String
+    # Offsets borrow the input only until _finish_metadata; returned names own strings.
+    var name_begin: Int
+    var name_end: Int
     var face: Int
     var index: Int
 
@@ -169,10 +171,20 @@ def _count_chunk(text: StringSpan, begin: Int, end: Int) -> _ObjChunk:
                         chunk.indices += count
                         chunk.has_lines = chunk.has_lines or kind == 5
         elif kind >= 6:
-            var name = cur.joined_rest_of_line()
+            var name = cur._metadata_name_span()
             if kind <= 7 or name.byte_length() > 0:
+                var begin = (
+                    Int(name.as_bytes().unsafe_ptr())
+                    - Int(bytes.unsafe_ptr()) if name.byte_length() else 0
+                )
                 chunk.events.append(
-                    _MetadataEvent(kind, name^, chunk.faces, chunk.indices)
+                    _MetadataEvent(
+                        kind,
+                        begin,
+                        begin + name.byte_length(),
+                        chunk.faces,
+                        chunk.indices,
+                    )
                 )
         start = stop + 1
     return chunk^
@@ -444,6 +456,7 @@ def _finish_metadata[
     Loader: AssetLoader
 ](
     path: String,
+    text: StringSpan,
     chunks: List[_ObjChunk],
     loader: Loader,
     mut mesh: ObjMesh,
@@ -453,6 +466,11 @@ def _finish_metadata[
         var previous_face = 0
         for chunk in chunks:
             for event in chunk.events:
+                var name = StringSpan(
+                    unsafe_from_utf8=text.as_bytes()[
+                        event.name_begin : event.name_end
+                    ]
+                )
                 var face = chunk.face_offset + event.face
                 var index = chunk.index_offset + event.index
                 if state.current_material != 0:
@@ -468,7 +486,7 @@ def _finish_metadata[
                         if state.current_object.face_count > 0:
                             mesh.objects.append(state.current_object^)
                         state.current_object = ObjGroup(
-                            event.name, 0, face, index
+                            String(name), 0, face, index
                         )
                     case 7:
                         state.current_group.face_count = (
@@ -477,12 +495,20 @@ def _finish_metadata[
                         if state.current_group.face_count > 0:
                             mesh.groups.append(state.current_group^)
                         state.current_group = ObjGroup(
-                            event.name, 0, face, index
+                            String(name), 0, face, index
                         )
                     case 8:
-                        state.ensure_material(mesh, event.name, fallback=True)
+                        # Repeated usemtl records need no allocation or dictionary lookup.
+                        if state.current_material >= len(
+                            mesh.materials
+                        ) or name != StringSpan(
+                            mesh.materials[state.current_material].name
+                        ):
+                            state.ensure_material(
+                                mesh, String(name), fallback=True
+                            )
                     case 9:
-                        _read_mtl_file(mesh, path, event.name, loader)
+                        _read_mtl_file(mesh, path, String(name), loader)
                     case _:
                         pass
         if state.current_material != 0:
@@ -586,5 +612,5 @@ def _parse_obj_bulk[
             # Invalid or structurally unusual input uses the scalar path to
             # retain its validation behavior and ordering of loader errors.
             return _parse_obj_serial(path, text, loader)
-    _finish_metadata(path, chunks, loader, mesh)
+    _finish_metadata(path, text, chunks, loader, mesh)
     return mesh^

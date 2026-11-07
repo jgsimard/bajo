@@ -5,8 +5,11 @@ from max.gpu import global_idx
 from bajo.core.camera import Camera
 from bajo.core.random import random_in_unit_disk
 from bajo.rt.common import path_stage_rng
+from bajo.rt.film import FilmResponse
+from bajo.core.color import Color
 from bajo.rt.rays import make_camera_ray_from_samples
 from bajo.rt.render_types import SamplingConfig
+from bajo.rt.gpu.sampling import GpuRtSamplingConfig
 from bajo.rt.material_types import Integrator
 from bajo.rt.wavefront_contract import DeviceWavePath, WaveSampleFloatAbi
 from bajo.rt.gpu.queue_layout import gpu_rt_radiance_tile
@@ -105,8 +108,9 @@ def gpu_rt_primary_kernel[
     width_i32: Int32,
     height_i32: Int32,
     samples_per_pixel_i32: Int32,
-    sampling: SamplingConfig,
+    sampling_arg: GpuRtSamplingConfig,
 ):
+    var sampling = sampling_arg.load()
     var idx = global_idx.x
     var capacity = Int(capacity_i32)
     var active_count = Int(active_count_i32)
@@ -131,13 +135,17 @@ def gpu_rt_primary_kernel[
     clear_gpu_rt_sample(sample_radiance, capacity, idx)
 
 
-def gpu_rt_resolve_kernel(
+@always_inline
+def _gpu_rt_resolve_pixel[
+    apply_film: Bool
+](
     sample_radiance: Pointer[Float32, ImmutAnyOrigin],
     pixels: Pointer[Float32, MutAnyOrigin],
     sample_capacity_i32: Int32,
     pixel_base_i32: Int32,
     pixel_count_i32: Int32,
     samples_per_pixel_i32: Int32,
+    film: FilmResponse,
 ):
     var pixel_idx = global_idx.x
     var sample_capacity = Int(sample_capacity_i32)
@@ -176,6 +184,48 @@ def gpu_rt_resolve_kernel(
             blue += radiance[(WaveSampleFloatAbi.B, sample_idx)]
     var scale = Float32(1.0) / Float32(samples_per_pixel)
     var output_idx = pixel_base + pixel_idx
-    pixels[unsafe_offset=3 * output_idx + 0] = red * scale
-    pixels[unsafe_offset=3 * output_idx + 1] = green * scale
-    pixels[unsafe_offset=3 * output_idx + 2] = blue * scale
+    var color = Color(red * scale, green * scale, blue * scale)
+    comptime if apply_film:
+        color = film.apply(color)
+    pixels[unsafe_offset=3 * output_idx + 0] = color.x
+    pixels[unsafe_offset=3 * output_idx + 1] = color.y
+    pixels[unsafe_offset=3 * output_idx + 2] = color.z
+
+
+def gpu_rt_resolve_kernel(
+    sample_radiance: Pointer[Float32, ImmutAnyOrigin],
+    pixels: Pointer[Float32, MutAnyOrigin],
+    sample_capacity_i32: Int32,
+    pixel_base_i32: Int32,
+    pixel_count_i32: Int32,
+    samples_per_pixel_i32: Int32,
+):
+    _gpu_rt_resolve_pixel[False](
+        sample_radiance,
+        pixels,
+        sample_capacity_i32,
+        pixel_base_i32,
+        pixel_count_i32,
+        samples_per_pixel_i32,
+        FilmResponse(),
+    )
+
+
+def gpu_rt_resolve_film_kernel(
+    sample_radiance: Pointer[Float32, ImmutAnyOrigin],
+    pixels: Pointer[Float32, MutAnyOrigin],
+    sample_capacity_i32: Int32,
+    pixel_base_i32: Int32,
+    pixel_count_i32: Int32,
+    samples_per_pixel_i32: Int32,
+    film: FilmResponse,
+):
+    _gpu_rt_resolve_pixel[True](
+        sample_radiance,
+        pixels,
+        sample_capacity_i32,
+        pixel_base_i32,
+        pixel_count_i32,
+        samples_per_pixel_i32,
+        film,
+    )

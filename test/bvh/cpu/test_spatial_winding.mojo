@@ -361,5 +361,69 @@ def test_winding_connected_chain_missing_face_and_orientation_certificates() rai
     check_connected_periodic_chain[16]()
 
 
+def test_high_edge_incidence_does_not_wrap_into_a_closed_certificate() raises:
+    # 258 oppositely oriented duplicates would wrap an unsaturated byte count
+    # back to two with zero balance, incorrectly certifying the component.
+    var indices = List[UInt32]()
+    for face in range(258):
+        indices.extend(
+            [
+                UInt32(0),
+                UInt32(2 if face % 2 else 1),
+                UInt32(1 if face % 2 else 2),
+            ]
+        )
+    var boxes = List[AABB[.WORLD]](
+        length=258, fill=AABB[.WORLD].point(Point3f32[.WORLD](0))
+    )
+    var layout = WindingLayout[.WORLD, 16](indices, boxes)
+    assert_equal(len(layout.bvh.item_bounds), 0)
+    for component in layout.face_components:
+        assert_equal(component, EMPTY_LANE)
+
+
+def test_large_closed_refit_matches_serial_bounds_and_packing_bits() raises:
+    comptime side = 384
+    var points = List[Point3f32[.WORLD]]()
+    var indices = List[UInt32]()
+    for y in range(side):
+        for x in range(side):
+            points.append(
+                Point3f32[.WORLD](Float32(x), Float32(y), Float32((x * y) % 17))
+            )
+            var a = UInt32(y * side + x)
+            var b = UInt32(y * side + (x + 1) % side)
+            var c = UInt32(((y + 1) % side) * side + x)
+            var d = UInt32(((y + 1) % side) * side + (x + 1) % side)
+            indices.extend([a, b, c, b, d, c])
+    append_tetra(points, indices, Point3f32[.WORLD](500, 0, 0), 1)
+    var mesh = SpatialMesh(points, indices)
+    assert_equal(len(mesh.winding.bvh.item_bounds), 2)
+    for pattern in range(3):
+        if pattern:
+            for index in range(len(points)):
+                comptime for axis in range(3):
+                    points[index][axis] = bitcast[.float32](
+                        UInt32(0x80000000 if (index + axis) % 2 else 0)
+                        | UInt32((index + axis) % 13 if pattern == 2 else 0)
+                    )
+        mesh.refit(points)
+        var serial = mesh.copy()
+        serial._pack_triangle_range[True](0, len(indices) // 3)
+        serial.bvh._refit_nodes()
+        serial.winding.bvh._refit_nodes()
+        for actual, expected in [
+            (mesh.packed_triangles.copy(), serial.packed_triangles.copy()),
+            (mesh.bvh.bounds.copy(), serial.bvh.bounds.copy()),
+            (mesh.winding.bvh.bounds.copy(), serial.winding.bvh.bounds.copy()),
+        ]:
+            assert_equal(len(actual), len(expected))
+            for index in range(len(actual)):
+                assert_equal(
+                    bitcast[.uint32](actual[index]),
+                    bitcast[.uint32](expected[index]),
+                )
+
+
 def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

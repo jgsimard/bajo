@@ -5,10 +5,16 @@ from test.runner import TestRunner, module_selected
 import test.viewer.test_core as test_core
 import test.viewer.test_batching as test_batching
 import test.viewer.test_native as test_native
+import test.viewer.test_accumulation as test_accumulation
 
 
 def main() raises:
     var tests = TestRunner()
+    comptime if module_selected["test_accumulation"]():
+        tests.run(
+            "test/viewer/test_accumulation.mojo",
+            test_accumulation.run_tests[True],
+        )
     comptime if module_selected["test_core"]():
         tests.run("test/viewer/test_core.mojo", test_core.run_tests[True])
     comptime if module_selected["test_native"]():

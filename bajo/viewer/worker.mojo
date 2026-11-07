@@ -13,14 +13,38 @@ from bajo.core.camera import Camera
 from bajo.rt.material_types import Integrator
 from bajo.core.color import Color
 from bajo.rt.render_types import RenderSettings, RenderResult
-from bajo.rt.cpu.wavefront import render_wavefront_configured
+from bajo.rt.cpu.wavefront import (
+    render_wavefront_configured,
+    CpuWavefrontWorkspace,
+)
 from bajo.bvh.cpu import CpuTraversalMode
+from bajo.rt.cpu.scene import CpuScene
 from bajo.rt.gpu.prepared_renderer import GpuRtPreparedRenderer
+from bajo.rt.gpu.preview import GpuRtPreviewResult
+from bajo.rt.gpu.config import GpuRtSceneKind
 from bajo.viewer.core import ViewerScene
 from .debug import DebugBox, cpu_bvh_boxes
+from .notification import create_notification, notify, wait_notification
+
+
+def _render_backend[
+    integrator: Integrator, kind: GpuRtSceneKind
+](
+    mut renderer: GpuRtPreparedRenderer[kind],
+    settings: RenderSettings,
+    camera: Camera,
+    preview: Bool,
+    generation: UInt64,
+    mut output: Optional[GpuRtPreviewResult],
+) raises -> RenderResult:
+    if preview:
+        output = renderer.preview[integrator](settings, camera, generation)
+        return RenderResult(List[Color](), output.value().timings)
+    return renderer.render[integrator](settings, camera)
 
 
 struct GpuBackend:
+    var preview_result: Optional[GpuRtPreviewResult]
     var spheres: Optional[GpuRtPreparedRenderer[.SPHERES]]
     var triangles: Optional[GpuRtPreparedRenderer[.TRIANGLES]]
     var spheres_triangles: Optional[GpuRtPreparedRenderer[.SPHERES_TRIANGLES]]
@@ -32,6 +56,7 @@ struct GpuBackend:
     var all: Optional[GpuRtPreparedRenderer[.ALL]]
 
     def __init__(out self):
+        self.preview_result = Optional[GpuRtPreviewResult]()
         self.spheres = Optional[GpuRtPreparedRenderer[.SPHERES]]()
         self.triangles = Optional[GpuRtPreparedRenderer[.TRIANGLES]]()
         self.spheres_triangles = Optional[
@@ -49,8 +74,14 @@ struct GpuBackend:
     def render[
         integrator: Integrator
     ](
-        mut self, scene: ViewerScene[], settings: RenderSettings, camera: Camera
+        mut self,
+        scene: ViewerScene[],
+        settings: RenderSettings,
+        camera: Camera,
+        preview: Bool = False,
+        generation: UInt64 = 0,
     ) raises -> RenderResult:
+        self.preview_result = Optional[GpuRtPreviewResult]()
         ref data = scene.scene_data()
         var mask = (
             Int(len(data.spheres()) > 0)
@@ -62,51 +93,97 @@ struct GpuBackend:
                 self.spheres = GpuRtPreparedRenderer[.SPHERES](
                     settings, camera, data
                 )
-            return self.spheres.value().render[integrator](settings, camera)
+            return _render_backend[integrator](
+                self.spheres.value(),
+                settings,
+                camera,
+                preview,
+                generation,
+                self.preview_result,
+            )
         if mask == 2:
             if not self.triangles:
                 self.triangles = GpuRtPreparedRenderer[.TRIANGLES](
                     settings, camera, data
                 )
-            return self.triangles.value().render[integrator](settings, camera)
+            return _render_backend[integrator](
+                self.triangles.value(),
+                settings,
+                camera,
+                preview,
+                generation,
+                self.preview_result,
+            )
         if mask == 3:
             if not self.spheres_triangles:
                 self.spheres_triangles = GpuRtPreparedRenderer[
                     .SPHERES_TRIANGLES
                 ](settings, camera, data)
-            return self.spheres_triangles.value().render[integrator](
-                settings, camera
+            return _render_backend[integrator](
+                self.spheres_triangles.value(),
+                settings,
+                camera,
+                preview,
+                generation,
+                self.preview_result,
             )
         if mask == 4:
             if not self.instances:
                 self.instances = GpuRtPreparedRenderer[.INSTANCES](
                     settings, camera, data
                 )
-            return self.instances.value().render[integrator](settings, camera)
+            return _render_backend[integrator](
+                self.instances.value(),
+                settings,
+                camera,
+                preview,
+                generation,
+                self.preview_result,
+            )
         if mask == 5:
             if not self.spheres_instances:
                 self.spheres_instances = GpuRtPreparedRenderer[
                     .SPHERES_INSTANCES
                 ](settings, camera, data)
-            return self.spheres_instances.value().render[integrator](
-                settings, camera
+            return _render_backend[integrator](
+                self.spheres_instances.value(),
+                settings,
+                camera,
+                preview,
+                generation,
+                self.preview_result,
             )
         if mask == 6:
             if not self.triangles_instances:
                 self.triangles_instances = GpuRtPreparedRenderer[
                     .TRIANGLES_INSTANCES
                 ](settings, camera, data)
-            return self.triangles_instances.value().render[integrator](
-                settings, camera
+            return _render_backend[integrator](
+                self.triangles_instances.value(),
+                settings,
+                camera,
+                preview,
+                generation,
+                self.preview_result,
             )
         if mask == 7:
             if not self.all:
                 self.all = GpuRtPreparedRenderer[.ALL](settings, camera, data)
-            return self.all.value().render[integrator](settings, camera)
+            return _render_backend[integrator](
+                self.all.value(),
+                settings,
+                camera,
+                preview,
+                generation,
+                self.preview_result,
+            )
         raise Error("scene has no supported geometry")
 
 
 struct CompletedFrame:
+    var rgba: List[UInt8]
+    var preview_samples: Int
+    var preview_batches: Int
     var pixels: List[Color]
     var generation: UInt64
     var samples: Int
@@ -120,6 +197,9 @@ struct CompletedFrame:
         generation: UInt64,
         settings: RenderSettings,
     ):
+        self.rgba = List[UInt8]()
+        self.preview_samples = 0
+        self.preview_batches = 0
         self.render_ms = Float64(result.timings.render_ns) / 1_000_000
         self.pixels = result.pixels^
         result.pixels = List[Color]()
@@ -128,8 +208,51 @@ struct CompletedFrame:
         self.width = settings.image_width
         self.height = settings.image_height
 
+    @staticmethod
+    def from_preview(
+        var result: GpuRtPreviewResult,
+        generation: UInt64,
+        settings: RenderSettings,
+    ) -> Self:
+        var frame = Self(
+            RenderResult(List[Color](), result.timings), generation, settings
+        )
+        frame.rgba = result.rgba^
+        result.rgba = List[UInt8]()
+        frame.preview_samples = result.samples
+        frame.preview_batches = result.batches
+        return frame^
+
+
+def _render_cpu[
+    traversal: CpuTraversalMode, integrator: Integrator
+](
+    settings: RenderSettings,
+    camera: Camera,
+    world: CpuScene[16, 16],
+    mut workspace: CpuWavefrontWorkspace[16, integrator],
+) raises -> RenderResult:
+    return render_wavefront_configured[
+        traversal,
+        integrator,
+        16,
+        1024,
+        True,
+        .TASK_PARTITIONS,
+        16,
+        16,
+        16,
+        8,
+        4,
+    ](settings, camera, world, workspace)
+
 
 struct WorkerState:
+    var cpu_path: CpuWavefrontWorkspace[16, .PATH]
+    var cpu_nee: CpuWavefrontWorkspace[16, .NEE]
+    var cpu_mis: CpuWavefrontWorkspace[16, .MIS]
+    var cpu_normals: CpuWavefrontWorkspace[16, .NORMALS]
+    var cpu_ao: CpuWavefrontWorkspace[16, .AO]
     var scene: ViewerScene[]
     var gpu: GpuBackend
     var camera: Camera
@@ -139,6 +262,7 @@ struct WorkerState:
     var generation: UInt64
     var status: UInt32
     var stop: UInt32
+    var notification: c_int
     var result: Optional[CompletedFrame]
     var error: String
     var build_method: Int
@@ -150,6 +274,11 @@ struct WorkerState:
     def __init__(
         out self, var scene: ViewerScene[], build_method: Int, traversal: Int
     ):
+        self.cpu_path = CpuWavefrontWorkspace[16, .PATH]()
+        self.cpu_nee = CpuWavefrontWorkspace[16, .NEE]()
+        self.cpu_mis = CpuWavefrontWorkspace[16, .MIS]()
+        self.cpu_normals = CpuWavefrontWorkspace[16, .NORMALS]()
+        self.cpu_ao = CpuWavefrontWorkspace[16, .AO]()
         self.build_method = build_method
         self.traversal = traversal
         self.camera = scene.state.camera
@@ -161,6 +290,7 @@ struct WorkerState:
         self.generation = 0
         self.status = 0
         self.stop = 0
+        self.notification = -1
         self.result = Optional[CompletedFrame]()
         self.error = ""
         self.debug_requested = False
@@ -178,7 +308,11 @@ struct WorkerState:
         if self.backend == 1:
             comptime if has_accelerator():
                 return self.gpu.render[integrator](
-                    self.scene, self.settings, self.camera
+                    self.scene,
+                    self.settings,
+                    self.camera,
+                    True,
+                    self.generation,
                 )
             else:
                 raise Error(
@@ -194,20 +328,33 @@ struct WorkerState:
 
     def render_cpu[
         traversal: CpuTraversalMode, integrator: Integrator
-    ](self) raises -> RenderResult:
-        return render_wavefront_configured[
-            traversal,
-            integrator,
-            16,
-            1024,
-            True,
-            .TASK_PARTITIONS,
-            16,
-            16,
-            16,
-            8,
-            4,
-        ](self.settings, self.camera, self.scene.cpu_scene())
+    ](mut self) raises -> RenderResult:
+        comptime if integrator == .PATH:
+            return _render_cpu[traversal, .PATH](
+                self.settings,
+                self.camera,
+                self.scene.cpu_scene(),
+                self.cpu_path,
+            )
+        elif integrator == .NEE:
+            return _render_cpu[traversal, .NEE](
+                self.settings, self.camera, self.scene.cpu_scene(), self.cpu_nee
+            )
+        elif integrator == .MIS:
+            return _render_cpu[traversal, .MIS](
+                self.settings, self.camera, self.scene.cpu_scene(), self.cpu_mis
+            )
+        elif integrator == .NORMALS:
+            return _render_cpu[traversal, .NORMALS](
+                self.settings,
+                self.camera,
+                self.scene.cpu_scene(),
+                self.cpu_normals,
+            )
+        else:
+            return _render_cpu[traversal, .AO](
+                self.settings, self.camera, self.scene.cpu_scene(), self.cpu_ao
+            )
 
     def prepare_cpu(mut self) raises:
         match self.build_method:
@@ -240,7 +387,14 @@ struct WorkerState:
                 result = self.render_integrator[.AO]()
             case _:
                 raise Error("unknown integrator")
-        self.result = CompletedFrame(result^, self.generation, self.settings)
+        if self.backend == 1 and self.gpu.preview_result:
+            self.result = CompletedFrame.from_preview(
+                self.gpu.preview_result.take(), self.generation, self.settings
+            )
+        else:
+            self.result = CompletedFrame(
+                result^, self.generation, self.settings
+            )
 
 
 @export
@@ -261,7 +415,7 @@ def _bajo_viewer_render_thread(address: UInt) abi("C") -> UInt:
                 Pointer(to=state[].status), UInt32(2)
             )
         else:
-            _ = external_call["usleep", c_int](UInt32(1000))
+            wait_notification(state[].notification)
     return 0
 
 
@@ -277,6 +431,7 @@ struct RenderWorker:
     ) raises:
         var state = unsafe_alloc[WorkerState](1)
         state.unsafe_write(WorkerState(scene^, build_method, traversal))
+        state[].notification = create_notification()
         var thread = UInt(0)
         var code = external_call["pthread_create", c_int](
             Pointer(to=thread),
@@ -285,6 +440,8 @@ struct RenderWorker:
             UInt(Int(state)),
         )
         if code:
+            if state[].notification >= 0:
+                _ = external_call["close", c_int](state[].notification)
             state.unsafe_deinit_pointee()
             state.unsafe_free()
             raise Error("could not start native rendering thread")
@@ -330,6 +487,7 @@ struct RenderWorker:
         Atomic.store[ordering=Ordering.RELEASE](
             Pointer(to=self.state[].status), UInt32(1)
         )
+        notify(self.state[].notification)
 
     def acknowledge(self):
         # Call only after consuming the published result/error/debug snapshot.
@@ -341,6 +499,9 @@ struct RenderWorker:
         Atomic.store[ordering=Ordering.RELEASE](
             Pointer(to=self.state[].stop), UInt32(1)
         )
+        notify(self.state[].notification)
         _ = external_call["pthread_join", c_int](self.thread, UInt(0))
+        if self.state[].notification >= 0:
+            _ = external_call["close", c_int](self.state[].notification)
         self.state.unsafe_deinit_pointee()
         self.state.unsafe_free()

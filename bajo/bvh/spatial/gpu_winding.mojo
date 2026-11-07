@@ -1,6 +1,7 @@
 """Optional exact winding acceleration for topology-certified components."""
 
-from max.gpu import global_idx
+from max.gpu import global_idx, block_idx, thread_idx
+from max.gpu.primitives import block
 from max.gpu.host import DeviceContext, DeviceBuffer
 from std.math import min, max, align_up
 from bajo.gpu.buffers import _copy_staging_slice, upload_list, _device_span
@@ -17,8 +18,13 @@ from .parallel_refit import (
 )
 
 
+comptime WINDING_COMPONENT_PARALLEL_MIN_FACES = 256
+comptime WINDING_COMPONENT_TILED_MIN_FACES = 65536
+comptime WINDING_COMPONENT_TILE_FACES = 2048
+
+
 def component_bounds_kernel[
-    block_size: Int
+    block_size: Int, skip_large: Bool = False
 ](
     points: ImmSpan[Float32, ImmutAnyOrigin],
     indices: ImmSpan[UInt32, ImmutAnyOrigin],
@@ -30,6 +36,12 @@ def component_bounds_kernel[
     var component = Int(global_idx.x)
     if status[0] != 0 or component >= len(offsets) - 2:
         return
+    comptime if skip_large:
+        if (
+            offsets[component + 1] - offsets[component]
+            >= WINDING_COMPONENT_PARALLEL_MIN_FACES
+        ):
+            return
     comptime for axis in range(3):
         var lo = Float32(f32_max)
         var hi = -lo
@@ -43,11 +55,116 @@ def component_bounds_kernel[
         items[component * 6 + axis + 3] = hi
 
 
+def component_bounds_parallel_kernel[
+    block_size: Int
+](
+    points: ImmSpan[Float32, ImmutAnyOrigin],
+    indices: ImmSpan[UInt32, ImmutAnyOrigin],
+    offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    faces: ImmSpan[UInt32, ImmutAnyOrigin],
+    output: MutSpan[Float32, MutAnyOrigin],
+    status: ImmSpan[UInt32, ImmutAnyOrigin],
+    large_components: ImmSpan[UInt32, ImmutAnyOrigin],
+):
+    var component = Int(large_components[Int(block_idx.x)])
+    var lane = Int(thread_idx.x)
+    if component >= len(offsets) - 2 or status[0] != 0:
+        return
+    comptime for axis in range(3):
+        var lo = Float32(f32_max)
+        var hi = -lo
+        for slot in range(
+            Int(offsets[component]) + lane,
+            Int(offsets[component + 1]),
+            block_size,
+        ):
+            var face = Int(faces[slot])
+            comptime for corner in range(3):
+                var value = points[3 * Int(indices[3 * face + corner]) + axis]
+                lo = min(lo, value)
+                hi = max(hi, value)
+        lo = block.min[block_size=block_size, broadcast=True](lo)
+        hi = block.max[block_size=block_size, broadcast=True](hi)
+        if lane == 0:
+            output[6 * component + axis] = lo
+            output[6 * component + axis + 3] = hi
+
+
+def component_bounds_tiles_kernel[
+    block_size: Int
+](
+    points: ImmSpan[Float32, ImmutAnyOrigin],
+    indices: ImmSpan[UInt32, ImmutAnyOrigin],
+    offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    faces: ImmSpan[UInt32, ImmutAnyOrigin],
+    output: MutSpan[Float32, MutAnyOrigin],
+    status: ImmSpan[UInt32, ImmutAnyOrigin],
+    tiles: ImmSpan[UInt32, ImmutAnyOrigin],
+):
+    var tile = Int(block_idx.x)
+    var component = Int(tiles[3 * tile])
+    var lane = Int(thread_idx.x)
+    if component >= len(offsets) - 2 or status[0] != 0:
+        return
+    comptime for axis in range(3):
+        var lo = Float32(f32_max)
+        var hi = -lo
+        for slot in range(
+            Int(tiles[3 * tile + 1]) + lane,
+            Int(tiles[3 * tile + 2]),
+            block_size,
+        ):
+            var face = Int(faces[slot])
+            comptime for corner in range(3):
+                var value = points[3 * Int(indices[3 * face + corner]) + axis]
+                lo = min(lo, value)
+                hi = max(hi, value)
+        lo = block.min[block_size=block_size, broadcast=True](lo)
+        hi = block.max[block_size=block_size, broadcast=True](hi)
+        if lane == 0:
+            output[6 * tile + axis] = lo
+            output[6 * tile + axis + 3] = hi
+
+
+def component_bounds_finish_tiles_kernel[
+    block_size: Int
+](
+    partials: ImmSpan[Float32, ImmutAnyOrigin],
+    components: ImmSpan[UInt32, ImmutAnyOrigin],
+    offsets: ImmSpan[UInt32, ImmutAnyOrigin],
+    output: MutSpan[Float32, MutAnyOrigin],
+    status: ImmSpan[UInt32, ImmutAnyOrigin],
+):
+    if status[0] != 0:
+        return
+    var group = Int(block_idx.x)
+    var component = Int(components[group])
+    var lane = Int(thread_idx.x)
+    comptime for axis in range(3):
+        var lo = Float32(f32_max)
+        var hi = -lo
+        for tile in range(
+            Int(offsets[group]) + lane, Int(offsets[group + 1]), block_size
+        ):
+            lo = min(lo, partials[6 * tile + axis])
+            hi = max(hi, partials[6 * tile + axis + 3])
+        lo = block.min[block_size=block_size, broadcast=True](lo)
+        hi = block.max[block_size=block_size, broadcast=True](hi)
+        if lane == 0:
+            output[6 * component + axis] = lo
+            output[6 * component + axis + 3] = hi
+
+
 struct GpuWindingCache[frame: Frame = .WORLD]:
     var tree: GpuSpatialBoundsBvh[Self.frame]
     var parents: DeviceBuffer[.uint32]
     var offsets: DeviceBuffer[.uint32]
     var faces: DeviceBuffer[.uint32]
+    var large_components: DeviceBuffer[.uint32]
+    var tiled_components: DeviceBuffer[.uint32]
+    var tile_offsets: DeviceBuffer[.uint32]
+    var tiles: DeviceBuffer[.uint32]
+    var partial_bounds: DeviceBuffer[.float32]
 
     def __init__[
         width: SIMDLength
@@ -61,6 +178,39 @@ struct GpuWindingCache[frame: Frame = .WORLD]:
             offsets[bucket + 1] += 1
         for i in range(1, len(offsets)):
             offsets[i] += offsets[i - 1]
+        var large = [
+            UInt32(i)
+            for i in range(count)
+            if offsets[i + 1] - offsets[i]
+            >= WINDING_COMPONENT_PARALLEL_MIN_FACES
+            and offsets[i + 1] - offsets[i] < WINDING_COMPONENT_TILED_MIN_FACES
+        ]
+        self.large_components = upload_list(ctx, large)
+        var tiled_components = List[UInt32]()
+        var tiles = List[UInt32]()
+        var tile_offsets = List[UInt32](length=1, fill=0)
+        for component in range(count):
+            var begin = Int(offsets[component])
+            var end = Int(offsets[component + 1])
+            if end - begin >= WINDING_COMPONENT_TILED_MIN_FACES:
+                tiled_components.append(UInt32(component))
+                for first in range(begin, end, WINDING_COMPONENT_TILE_FACES):
+                    tiles.extend(
+                        [
+                            UInt32(component),
+                            UInt32(first),
+                            UInt32(
+                                min(first + WINDING_COMPONENT_TILE_FACES, end)
+                            ),
+                        ]
+                    )
+                tile_offsets.append(UInt32(len(tiles) // 3))
+        self.tiled_components = upload_list(ctx, tiled_components)
+        self.tile_offsets = upload_list(ctx, tile_offsets)
+        self.tiles = upload_list(ctx, tiles)
+        self.partial_bounds = ctx.enqueue_create_buffer[.float32](
+            len(tiles) * 2
+        )
         var cursors = offsets.copy()
         var faces = List[UInt32](length=len(host.indices) // 3, fill=0)
         for face in range(len(faces)):
@@ -100,11 +250,11 @@ struct GpuWindingCache[frame: Frame = .WORLD]:
         self.offsets = storage.create_sub_buffer[.uint32](starts[0], lengths[0])
         self.faces = storage.create_sub_buffer[.uint32](starts[1], lengths[1])
         self.parents = storage.create_sub_buffer[.uint32](starts[4], lengths[4])
-        var tiles = (
+        var rebuild_tiles_host = (
             forest_rebuild_tiles(tree.nodes) if count
             >= 1024 else List[UInt32]()
         )
-        var rebuild_tiles = upload_list(ctx, tiles)
+        var rebuild_tiles = upload_list(ctx, rebuild_tiles_host)
         var rebuild_scratch = ctx.enqueue_create_buffer[.uint32](
             len(tree.nodes) // 2 if count >= 1024 else 0
         )
@@ -146,16 +296,63 @@ struct GpuWindingCache[frame: Frame = .WORLD]:
                 grid_dim=(len(self.tree.update_order) + 127) // 128,
                 block_dim=128,
             )
-        ctx.enqueue_function[component_bounds_kernel[128]](
-            _device_span[mut=False](points),
-            _device_span[mut=False](indices),
-            _device_span[mut=False](self.offsets),
-            _device_span[mut=False](self.faces),
-            _device_span[mut=True](self.tree.update_items),
-            _device_span[mut=False](status),
-            grid_dim=(count + 127) // 128,
-            block_dim=128,
-        )
+        if len(self.large_components) == 0 and len(self.tiled_components) == 0:
+            ctx.enqueue_function[component_bounds_kernel[128]](
+                _device_span[mut=False](points),
+                _device_span[mut=False](indices),
+                _device_span[mut=False](self.offsets),
+                _device_span[mut=False](self.faces),
+                _device_span[mut=True](self.tree.update_items),
+                _device_span[mut=False](status),
+                grid_dim=(count + 127) // 128,
+                block_dim=128,
+            )
+        else:
+            if len(self.large_components) + len(self.tiled_components) < count:
+                ctx.enqueue_function[component_bounds_kernel[128, True]](
+                    _device_span[mut=False](points),
+                    _device_span[mut=False](indices),
+                    _device_span[mut=False](self.offsets),
+                    _device_span[mut=False](self.faces),
+                    _device_span[mut=True](self.tree.update_items),
+                    _device_span[mut=False](status),
+                    grid_dim=(count + 127) // 128,
+                    block_dim=128,
+                )
+            if len(self.large_components) != 0:
+                ctx.enqueue_function[component_bounds_parallel_kernel[128]](
+                    _device_span[mut=False](points),
+                    _device_span[mut=False](indices),
+                    _device_span[mut=False](self.offsets),
+                    _device_span[mut=False](self.faces),
+                    _device_span[mut=True](self.tree.update_items),
+                    _device_span[mut=False](status),
+                    _device_span[mut=False](self.large_components),
+                    grid_dim=len(self.large_components),
+                    block_dim=128,
+                )
+            if len(self.tiled_components) != 0:
+                ctx.enqueue_function[component_bounds_tiles_kernel[128]](
+                    _device_span[mut=False](points),
+                    _device_span[mut=False](indices),
+                    _device_span[mut=False](self.offsets),
+                    _device_span[mut=False](self.faces),
+                    _device_span[mut=True](self.partial_bounds),
+                    _device_span[mut=False](status),
+                    _device_span[mut=False](self.tiles),
+                    grid_dim=len(self.tiles) // 3,
+                    block_dim=128,
+                )
+                ctx.enqueue_function[component_bounds_finish_tiles_kernel[128]](
+                    _device_span[mut=False](self.partial_bounds),
+                    _device_span[mut=False](self.tiled_components),
+                    _device_span[mut=False](self.tile_offsets),
+                    _device_span[mut=True](self.tree.update_items),
+                    _device_span[mut=False](status),
+                    grid_dim=len(self.tiled_components),
+                    block_dim=128,
+                )
+
         # Refit is allocation-free; geometry validation is already completed by
         # the mesh update. Failed mesh inputs leave these component boxes intact.
         if count >= 1024:

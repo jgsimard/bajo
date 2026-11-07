@@ -5,6 +5,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.render_types import SamplingConfig
+from bajo.rt.gpu.sampling import GpuRtSamplingConfig
 from bajo.rt.material_types import Integrator
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
 from bajo.rt.gpu.common_kernels import (
@@ -55,7 +56,7 @@ def _enqueue_primary_trace[
     image_width: Int,
     image_height: Int,
     samples_per_pixel: Int,
-    sampling: SamplingConfig,
+    sampling: GpuRtSamplingConfig,
     blocks: Int,
 ) raises:
     ctx.enqueue_function[
@@ -104,7 +105,7 @@ def _enqueue_primary_trace_by_light_kind[
     image_width: Int,
     image_height: Int,
     samples_per_pixel: Int,
-    sampling: SamplingConfig,
+    sampling: GpuRtSamplingConfig,
     blocks: Int,
 ) raises:
     comptime if Integrator.uses_direct_lighting[integrator]:
@@ -185,7 +186,7 @@ def enqueue_gpu_rt_primary_bounce[
     image_width: Int,
     image_height: Int,
     samples_per_pixel: Int,
-    sampling: SamplingConfig,
+    sampling: GpuRtSamplingConfig,
 ) raises:
     """Generate and trace primary paths without a queue round trip."""
     var queues = gpu_rt_trace_queue_view(
@@ -282,7 +283,7 @@ def enqueue_gpu_rt_bounce[
     src_path_fields: DeviceBuffer[.float32],
     dst_path_ids: DeviceBuffer[.uint32],
     dst_path_fields: DeviceBuffer[.float32],
-    sampling: SamplingConfig,
+    sampling: GpuRtSamplingConfig,
     bounce: UInt32,
 ) raises:
     """Enqueue trace, material, and shadow stages with one launch contract."""

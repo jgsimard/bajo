@@ -39,6 +39,7 @@ rtiaw
 /bench/sort/gpu_sort_benchmark_results.csv
 /gpu_sort_benchmark_results.csv
 /bench/sort/gpu_sort_benchmark_plot.png
+bench/prototypes/*
 
 # Local scratch files
 /scrap.mojo

@@ -1,6 +1,7 @@
 """SIMD RGB PNG loading, with libpng for other formats and color transforms."""
 
 from max.algorithm import parallelize
+from std.builtin.globals import global_constant
 from std.ffi import OwnedDLHandle
 from std.math import ceildiv
 from std.sys import num_logical_cores
@@ -14,7 +15,7 @@ from bajo.core.image import ImageTexture
 
 from bajo.core.color import (
     srgb_to_linear as _srgb_to_linear,
-    srgb_u8_table as _srgb_u8_table,
+    _SRGB_U8_VALUES,
 )
 from bajo.core.image import (
     SRGB_SIMD_WIDTH as _SRGB_SIMD_WIDTH,
@@ -36,7 +37,7 @@ def _png_u32(bytes: ImmSpan[UInt8, _], offset: Int) -> UInt32:
 def _linearize_png_rows(
     raw: List[UInt8], width: Int, height: Int
 ) -> List[Float32]:
-    var table = _srgb_u8_table()
+    ref table = global_constant[_SRGB_U8_VALUES]()
     var row_bytes = width * 3
     var pixels = List[Float32](unsafe_uninit_length=row_bytes * height)
     var tasks = max(1, ceildiv(row_bytes * height, _SRGB_CHANNELS_PER_TASK))

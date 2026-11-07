@@ -11,7 +11,11 @@ from bajo.core.camera import Camera
 from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32, Mat, Frame, length
 from bajo.core.utils import degrees_to_radians
 from bajo.parser.number import parse_f32_fast_at, parse_int_f32
-from bajo.parser.ply.pack import _pack_ply_mesh, _remove_degenerate_triangles
+from bajo.parser.ply.pack import (
+    _pack_ply_mesh,
+    _remove_degenerate_triangles,
+    _PackedPlyMesh,
+)
 
 from bajo.core.color import Color
 from bajo.rt.render_types import RenderSettings
@@ -27,7 +31,7 @@ from bajo.rt.media import SceneMedia
 from bajo.rt.film import FilmResponse
 from bajo.rt.scene_description import SceneDescription
 
-from bajo.parser.asset_loader import AssetLoader
+from bajo.parser.asset_loader import AssetLoader, PathAssetLoader
 from bajo.parser.pbrt.spectrum import _named_optical_constant, _blackbody_rgb
 
 
@@ -232,25 +236,21 @@ struct _Lexer[origin: ImmOrigin]:
         )
 
 
+@fieldwise_init
 struct _Parameter[origin: ImmOrigin](Copyable):
     var declaration: StringSpan[Self.origin]
-    var values: List[StringSpan[Self.origin]]
-
-    def __init__(
-        out self,
-        declaration: StringSpan[Self.origin],
-        var values: List[StringSpan[Self.origin]],
-    ):
-        self.declaration = declaration
-        self.values = values^
+    var begin: Int
+    var count: Int
 
 
 struct _Parameters[origin: ImmOrigin]:
-    # Entries own the token lists; token contents borrow the current source text.
+    # One pool owns all value spans; token contents borrow the source text.
     var entries: List[_Parameter[Self.origin]]
+    var tokens: List[StringSpan[Self.origin]]
 
     def __init__(out self):
         self.entries = List[_Parameter[Self.origin]]()
+        self.tokens = List[StringSpan[Self.origin]]()
 
     def has(self, declaration: StringSpan) -> Bool:
         for entry in self.entries:
@@ -262,8 +262,8 @@ struct _Parameters[origin: ImmOrigin]:
         self, declaration: StringSpan
     ) -> Optional[StringSpan[Self.origin]]:
         for entry in self.entries:
-            if entry.declaration == declaration and len(entry.values) > 0:
-                return entry.values[0]
+            if entry.declaration == declaration and entry.count > 0:
+                return self.tokens[entry.begin]
         return Optional[StringSpan[Self.origin]]()
 
     def string_or_empty(
@@ -273,27 +273,31 @@ struct _Parameters[origin: ImmOrigin]:
 
     def f32(self, declaration: StringSpan, default: Float32) raises -> Float32:
         for entry in self.entries:
-            if entry.declaration == declaration and len(entry.values) > 0:
-                return _parse_f32(entry.values[0])
+            if entry.declaration == declaration and entry.count > 0:
+                return _parse_f32(self.tokens[entry.begin])
         return default
 
     def integer(self, declaration: StringSpan, default: Int) raises -> Int:
         for entry in self.entries:
-            if entry.declaration == declaration and len(entry.values) > 0:
-                return parse_int_f32(entry.values[0], "PBRT")
+            if entry.declaration == declaration and entry.count > 0:
+                return parse_int_f32(self.tokens[entry.begin], "PBRT")
         return default
 
     def color(self, name: StringSpan, default: Color) raises -> Color:
-        var rgb_name = "rgb " + name
-        var color_name = "color " + name
         for entry in self.entries:
-            if entry.declaration == rgb_name or entry.declaration == color_name:
-                if len(entry.values) != 3:
+            var declaration = entry.declaration
+            if (
+                declaration.startswith("rgb ") and declaration[byte=4:] == name
+            ) or (
+                declaration.startswith("color ")
+                and declaration[byte=6:] == name
+            ):
+                if entry.count != 3:
                     raise Error("PBRT color parameter requires three values")
                 return Color(
-                    _parse_f32(entry.values[0]),
-                    _parse_f32(entry.values[1]),
-                    _parse_f32(entry.values[2]),
+                    _parse_f32(self.tokens[entry.begin]),
+                    _parse_f32(self.tokens[entry.begin + 1]),
+                    _parse_f32(self.tokens[entry.begin + 2]),
                 )
         return default
 
@@ -304,10 +308,10 @@ struct _Parameters[origin: ImmOrigin]:
             if entry.declaration == declaration:
                 # The enclosing parameter set owns each entry's storage.
                 return Span(
-                    unsafe_ptr=entry.values.unsafe_ptr().unsafe_origin_cast[
-                        origin_of(self)
-                    ](),
-                    length=len(entry.values),
+                    unsafe_ptr=self.tokens.unsafe_ptr()
+                    .unsafe_offset(entry.begin)
+                    .unsafe_origin_cast[origin_of(self)](),
+                    length=entry.count,
                 )
         return ImmSpan[StringSpan[Self.origin], origin_of(self)]()
 
@@ -436,6 +440,7 @@ struct _Builder(
     var image_paths: List[String]
     var image_indices: Dict[String, UInt32]
     var ply_assets: Dict[String, _PlyAsset]
+    var ply_paths: List[String]
     var state: _GraphicsState
     var attribute_stack: List[_GraphicsState]
     var transform_stack: List[_Transform]
@@ -459,6 +464,7 @@ struct _Builder(
         self.image_paths = List[String]()
         self.image_indices = Dict[String, UInt32]()
         self.ply_assets = Dict[String, _PlyAsset]()
+        self.ply_paths = List[String]()
         var default_surface = self.scene.surfaces.add_lambertian(Color(0.5))
         self.state = _GraphicsState(
             _Transform.identity(),
@@ -489,7 +495,9 @@ struct _Builder(
         self.image_indices[path] = index
         return index
 
-    def _opposite_ply_mesh(mut self, mesh_index: UInt32) -> UInt32:
+    def _opposite_ply_mesh(
+        mut self, mesh_index: UInt32, target: UInt32 = NO_TEXTURE
+    ) -> UInt32:
         # Reorder the owned geometry rather than retain or decode the source
         # mesh again. Each orientation has one shared copy of its attributes.
         var vertices = self.scene.triangle_meshes[Int(mesh_index)].copy()
@@ -509,6 +517,11 @@ struct _Builder(
                     texcoords.swap_elements(
                         2 * (base + 1) + lane, 2 * (base + 2) + lane
                     )
+        if target != NO_TEXTURE:
+            self.scene.triangle_meshes[Int(target)] = vertices^
+            self.scene.triangle_mesh_normals[Int(target)] = normals^
+            self.scene.triangle_mesh_texcoords[Int(target)] = texcoords^
+            return target
         return self.scene.add_owned_triangle_mesh(
             vertices^, normals^, texcoords^
         )
@@ -516,6 +529,9 @@ struct _Builder(
     def add_ply_mesh[
         Loader: AssetLoader
     ](mut self, path: String, loader: Loader, surface: SurfaceId[1],) raises:
+        comptime if Loader == PathAssetLoader:
+            self._queue_ply_mesh(path, surface)
+            return
         if path in self.ply_assets:
             var asset = self.ply_assets[path].copy()
             var mesh_index = asset.mesh_index
@@ -554,6 +570,87 @@ struct _Builder(
             Optional[UInt32](),
         )
 
+    def _empty_ply_mesh(mut self) -> UInt32:
+        return self.scene.add_owned_triangle_mesh(
+            List[_PointL](), List[Float32](), List[Float32]()
+        )
+
+    def _queue_ply_mesh(mut self, path: String, surface: SurfaceId[1]) raises:
+        var empty_bounds = AABB[.LOCAL].point(_PointL(0.0))
+        if path not in self.ply_assets:
+            var mesh_index = self._empty_ply_mesh()
+            self.ply_assets[path] = _PlyAsset(
+                mesh_index,
+                empty_bounds,
+                self.state.reverse_orientation,
+                Optional[UInt32](),
+            )
+            self.ply_paths.append(path)
+        var asset = self.ply_assets[path].copy()
+        var index = asset.mesh_index
+        if asset.reverse_orientation != self.state.reverse_orientation:
+            if not asset.opposite_index:
+                asset.opposite_index = self._empty_ply_mesh()
+                self.ply_assets[path] = asset.copy()
+            index = asset.opposite_index.value()
+        self.scene.add_triangle_instance(
+            index, self.state.transform, empty_bounds, surface
+        )
+
+    def _finish_ply_assets[
+        Loader: AssetLoader
+    ](mut self, loader: Loader) raises:
+        var count = len(self.ply_paths)
+        var loaded = List[Optional[_PackedPlyMesh]](
+            length=count,
+            fill_with=lambda (i: Int) -> Optional[_PackedPlyMesh]: Optional[
+                _PackedPlyMesh
+            ](),
+        )
+        var errors = List[String](length=count, fill="")
+        var assets = [self.ply_assets[path].copy() for path in self.ply_paths]
+
+        def load(index: Int) {imm, mut loaded, mut errors}:
+            try:
+                var mesh = loader.read_ply_mesh(self.ply_paths[index])
+                _remove_degenerate_triangles(mesh)
+                loaded[index] = _pack_ply_mesh(
+                    mesh,
+                    assets[index].reverse_orientation,
+                    min(8, num_logical_cores()) if count == 1 else 1,
+                )
+            except error:
+                errors[index] = String(error)
+
+        if count > 1:
+            parallelize(load, count, min(8, count))
+        elif count == 1:
+            load(0)
+        for index in range(count):
+            if errors[index].byte_length():
+                raise Error(
+                    "failed to load PBRT PLY '"
+                    + self.ply_paths[index]
+                    + "': "
+                    + errors[index]
+                )
+            var packed = loaded[index].take()
+            var vertices = List[_PointL]()
+            var normals = List[Float32]()
+            var uv = List[Float32]()
+            var bounds = packed^.transfer_to(vertices, normals, uv)
+            var asset = assets[index].copy()
+            var target = Int(asset.mesh_index)
+            self.scene.triangle_meshes[target] = vertices^
+            self.scene.triangle_mesh_normals[target] = normals^
+            self.scene.triangle_mesh_texcoords[target] = uv^
+            asset.bounds = bounds
+            self.ply_assets[self.ply_paths[index]] = asset.copy()
+            if asset.opposite_index:
+                _ = self._opposite_ply_mesh(
+                    asset.mesh_index, asset.opposite_index.value()
+                )
+
     def _prepare_finish[
         Loader: AssetLoader
     ](mut self, loader: Loader) raises -> Tuple[Camera, RenderSettings]:
@@ -565,6 +662,8 @@ struct _Builder(
             and len(self.scene.triangle_instances) == 0
         ):
             raise Error("PBRT scene contains no supported shapes")
+        comptime if Loader == PathAssetLoader:
+            self._finish_ply_assets(loader)
         var loaded_images = List[Optional[ImageTexture]](
             length=len(self.image_paths),
             fill_with=lambda (index: Int) -> Optional[ImageTexture]: Optional[
@@ -660,7 +759,7 @@ def _parse_params(mut lexer: _Lexer) raises -> _Parameters[lexer.origin]:
             raise Error(
                 "missing value for PBRT parameter " + String(declaration)
             )
-        var values = List[StringSpan[lexer.origin]]()
+        var begin = len(params.tokens)
         var first = lexer.next()
         if first.value == "[":
             while True:
@@ -669,10 +768,12 @@ def _parse_params(mut lexer: _Lexer) raises -> _Parameters[lexer.origin]:
                 var item = lexer.next()
                 if item.value == "]":
                     break
-                values.append(item.value)
+                params.tokens.append(item.value)
         else:
-            values.append(first.value)
-        params.entries.append(_Parameter(declaration, values^))
+            params.tokens.append(first.value)
+        params.entries.append(
+            _Parameter(declaration, begin, len(params.tokens) - begin)
+        )
     return params^
 
 

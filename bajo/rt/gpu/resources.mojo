@@ -1,19 +1,23 @@
 """Persistent render resources and asynchronous GPU RT submission helpers."""
 
 from std.math import ceildiv, min
-from max.gpu.host import DeviceBuffer, DeviceContext
+from std.sys import size_of, align_of
+from max.gpu.host import DeviceBuffer, DeviceContext, HostBuffer
 
 from bajo.gpu.buffers import upload_list
 from bajo.core.camera import Camera
 from bajo.bvh.gpu.utils import upload_camera
 from bajo.core.color import Color
 from bajo.rt.render_types import RenderSettings, SamplingConfig
+from bajo.rt.film import FilmResponse
+from bajo.rt.gpu.sampling import GpuRtSamplingConfig
 from bajo.rt.material_types import Integrator, SurfaceId
 from bajo.rt.wavefront_contract import WAVE_PATH_ID_MASK
 from bajo.rt.gpu.common_kernels import (
     GPU_RT_BLOCK_SIZE,
     gpu_rt_primary_kernel,
     gpu_rt_resolve_kernel,
+    gpu_rt_resolve_film_kernel,
 )
 from bajo.rt.gpu.wavefront_contract import (
     GpuWavefrontArena,
@@ -119,7 +123,7 @@ def _enqueue_gpu_primary[
 ](
     ctx: DeviceContext,
     mut target: GpuRtRenderTarget,
-    sampling: SamplingConfig,
+    sampling: GpuRtSamplingConfig,
     sample_begin: Int = 0,
     chunk_sample_count: Int = -1,
 ) raises:
@@ -158,6 +162,7 @@ def _enqueue_gpu_resolve(
     target: GpuRtRenderTarget,
     sample_begin: Int = 0,
     chunk_sample_count: Int = -1,
+    film: FilmResponse = FilmResponse(),
 ) raises:
     """Enqueue sample reduction into `target.pixels` without synchronizing."""
     var active_count = chunk_sample_count
@@ -170,16 +175,29 @@ def _enqueue_gpu_resolve(
     )
     var pixel_begin = sample_begin / target.samples_per_pixel
     var chunk_pixel_count = active_count / target.samples_per_pixel
-    ctx.enqueue_function[gpu_rt_resolve_kernel](
-        target.arena.sample_radiance,
-        target.pixels,
-        Int32(target.arena.capacity),
-        Int32(pixel_begin),
-        Int32(chunk_pixel_count),
-        Int32(target.samples_per_pixel),
-        grid_dim=ceildiv(chunk_pixel_count, GPU_RT_BLOCK_SIZE),
-        block_dim=GPU_RT_BLOCK_SIZE,
-    )
+    if film.is_identity():
+        ctx.enqueue_function[gpu_rt_resolve_kernel](
+            target.arena.sample_radiance,
+            target.pixels,
+            Int32(target.arena.capacity),
+            Int32(pixel_begin),
+            Int32(chunk_pixel_count),
+            Int32(target.samples_per_pixel),
+            grid_dim=ceildiv(chunk_pixel_count, GPU_RT_BLOCK_SIZE),
+            block_dim=GPU_RT_BLOCK_SIZE,
+        )
+    else:
+        ctx.enqueue_function[gpu_rt_resolve_film_kernel](
+            target.arena.sample_radiance,
+            target.pixels,
+            Int32(target.arena.capacity),
+            Int32(pixel_begin),
+            Int32(chunk_pixel_count),
+            Int32(target.samples_per_pixel),
+            film,
+            grid_dim=ceildiv(chunk_pixel_count, GPU_RT_BLOCK_SIZE),
+            block_dim=GPU_RT_BLOCK_SIZE,
+        )
 
 
 def enqueue_gpu_wavefront[
@@ -199,7 +217,7 @@ def enqueue_gpu_wavefront[
         Int,
         Int,
         Int,
-        SamplingConfig,
+        GpuRtSamplingConfig,
     ) raises thin -> None,
     bounce_fn: def(
         DeviceContext,
@@ -209,7 +227,7 @@ def enqueue_gpu_wavefront[
         DeviceBuffer[.float32],
         DeviceBuffer[.uint32],
         DeviceBuffer[.float32],
-        SamplingConfig,
+        GpuRtSamplingConfig,
         UInt32,
     ) raises thin -> None,
 ](
@@ -217,10 +235,15 @@ def enqueue_gpu_wavefront[
     mut target: GpuRtRenderTarget,
     scene: Scene,
     settings: RenderSettings,
+    sample_offset: Optional[Pointer[UInt32, ImmUntrackedOrigin]] = Optional[
+        Pointer[UInt32, ImmUntrackedOrigin]
+    ](),
 ) raises:
     """Compile-time scheduler shared by every geometry specialization."""
     target.validate_compatible(settings)
-    var sampling = SamplingConfig.from_settings(settings)
+    var sampling = GpuRtSamplingConfig(
+        SamplingConfig.from_settings(settings), sample_offset
+    )
     var sample_begin = 0
     while sample_begin < target.sample_count:
         var chunk_sample_count = min(
@@ -287,23 +310,49 @@ def enqueue_gpu_wavefront[
                         UInt32(bounce),
                     )
                 enqueue_wavefront_advance(ctx, target.arena)
-        _enqueue_gpu_resolve(ctx, target, sample_begin, chunk_sample_count)
+        _enqueue_gpu_resolve(
+            ctx, target, sample_begin, chunk_sample_count, settings.film
+        )
         sample_begin += chunk_sample_count
 
 
+struct _GpuRtReadback:
+    var pixels: HostBuffer[.float32]
+    var counters: HostBuffer[.uint32]
+    var pixel_count: Int
+
+    def __init__(out self, ctx: DeviceContext, pixel_count: Int) raises:
+        self.pixel_count = pixel_count
+        self.pixels = ctx.enqueue_create_host_buffer[.float32](pixel_count * 3)
+        self.counters = ctx.enqueue_create_host_buffer[.uint32](
+            WAVE_COUNTER.COUNT
+        )
+
+    def download(
+        self, ctx: DeviceContext, target: GpuRtRenderTarget
+    ) raises -> List[Color]:
+        if target.pixel_count != self.pixel_count:
+            raise Error("GPU readback requires matching dimensions")
+        self.pixels.enqueue_copy_from(target.pixels)
+        self.counters.enqueue_copy_from(target.arena.counters)
+        ctx.synchronize()
+        if self.counters.as_span()[WAVE_COUNTER.STATUS] != WAVE_STATUS.OK:
+            raise Error("GPU RT wavefront queue overflow")
+        comptime assert size_of[Color]() == 3 * size_of[Float32]()
+        comptime assert align_of[Color]() >= align_of[Float32]()
+        var pixels = List[Color](unsafe_uninit_length=self.pixel_count)
+        var destination = MutSpan(
+            unsafe_ptr=pixels.unsafe_ptr().unsafe_bitcast[Float32](),
+            length=self.pixel_count * 3,
+        )
+        destination.copy_from(self.pixels.as_span())
+        return pixels^
+
+
 def download_gpu_pixels(
-    ctx: DeviceContext,
-    target: GpuRtRenderTarget,
+    ctx: DeviceContext, target: GpuRtRenderTarget
 ) raises -> List[Color]:
-    """Synchronize, validate queue status, and copy resolved pixels to host."""
-    ctx.synchronize()
-    with target.arena.counters.map_to_host() as counters:
-        if counters[WAVE_COUNTER.STATUS] != WAVE_STATUS.OK:
-            raise "GPU RT wavefront queue overflow"
-    var pixels = List[Color](unsafe_uninit_length=target.pixel_count)
-    with target.pixels.map_to_host() as mapped:
-        for pixel_idx in range(target.pixel_count):
-            pixels[pixel_idx] = Color(
-                mapped.unsafe_ptr().unsafe_offset(3 * pixel_idx)
-            )
-    return pixels^
+    """Validate queue status and download pixels without uploading them again.
+    """
+    var readback = _GpuRtReadback(ctx, target.pixel_count)
+    return readback.download(ctx, target)

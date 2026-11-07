@@ -495,5 +495,19 @@ def test_triangle_simd_rejects_bad_indices_in_every_vector_and_tail_lane() raise
                 _emit_triangles(bytes, output, 17)
 
 
+def test_dense_triangle_counts_are_checked_across_worker_boundaries() raises:
+    comptime faces = 32771
+    var good = _common_fixture(17, faces, True, 1)
+    _same_mesh(_parse_ply_bulk(good, 8), _parse_ply_serial(good))
+    var begin = len(good) - 13 * faces
+    for face in [0, 4095, 4096, faces - 1]:
+        for count in [UInt8(0), 2, 4, 255]:
+            var bytes = good.copy()
+            bytes[begin + 13 * face] = count
+            with assert_raises():
+                _ = _parse_ply_bulk(bytes, 8)
+            _same_parse_failure(bytes)
+
+
 def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

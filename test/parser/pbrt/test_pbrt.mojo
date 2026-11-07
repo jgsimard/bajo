@@ -1,5 +1,6 @@
 from std.memory import bitcast
 from std.math import sqrt
+from std.tempfile import TemporaryDirectory
 from std.testing import (
     TestSuite,
     assert_almost_equal,
@@ -13,6 +14,7 @@ from bajo.parser import MemoryAssetLoader
 from bajo.parser.pbrt import parse_pbrt, read_pbrt, read_pbrt_camera
 from bajo.parser.number import parse_f32_at, parse_int_f32
 from bajo.parser.pbrt.parser import _Lexer
+from bajo.parser.pbrt.parser import _parse_params
 from std.sys import simd_width_of
 from bajo.parser.asset_loader import AssetLoader
 from bajo.parser.ply import PlyMesh
@@ -887,6 +889,104 @@ def test_simd_lexer_handles_partial_blocks_and_unterminated_multiline_quotes() r
         with assert_raises():
             _ = bad.next()
         assert_equal(bad.line, start_line + body_lines)
+
+
+def test_filesystem_ply_batch_matches_eager_loader_and_reports_failures() raises:
+    with TemporaryDirectory() as directory:
+        var ply = _triangle_ply()
+        for name in ["first.ply", "second.ply"]:
+            with open(directory + "/" + name, "w") as output:
+                output.write_bytes(ply)
+        for first_reversed in [False, True]:
+            var source = String("WorldBegin\n")
+            if first_reversed:
+                source += "ReverseOrientation\n"
+            source += """Shape "plymesh" "string filename" "first.ply"
+Translate 2 0 0
+Shape "plymesh" "string filename" "second.ply"
+ReverseOrientation
+Translate 2 0 0
+AreaLightSource "diffuse" "rgb L" [2 3 4]
+Shape "plymesh" "string filename" "first.ply"
+Shape "plymesh" "string filename" "first.ply"
+"""
+            var path = directory + "/scene.pbrt"
+            with open(path, "w") as output:
+                output.write(source)
+            var memory = MemoryAssetLoader()
+            memory.add_file(path, source)
+            memory.add_ply_file(directory + "/first.ply", ply.copy())
+            memory.add_ply_file(directory + "/second.ply", ply.copy())
+            var expected = read_pbrt(path, memory)
+            var actual = read_pbrt(path)
+            assert_equal(len(actual.data.triangle_meshes()), 3)
+            assert_equal(len(actual.data.lights().records), 2)
+            for i in range(4):
+                ref old = expected.data.triangle_instances()[i]
+                ref new = actual.data.triangle_instances()[i]
+                assert_equal(new.blas_idx, old.blas_idx)
+                comptime for axis in range(3):
+                    assert_equal(new.bounds._min[axis], old.bounds._min[axis])
+                    assert_equal(new.bounds._max[axis], old.bounds._max[axis])
+            for i in range(3):
+                ref old = expected.data.triangle_meshes()[i]
+                ref new = actual.data.triangle_meshes()[i]
+                assert_equal(len(new), len(old))
+                for vertex in range(len(old)):
+                    comptime for axis in range(3):
+                        assert_equal(new[vertex][axis], old[vertex][axis])
+                assert_equal(
+                    actual.data.triangle_mesh_normals()[i],
+                    expected.data.triangle_mesh_normals()[i],
+                )
+                assert_equal(
+                    actual.data.triangle_mesh_texcoords()[i],
+                    expected.data.triangle_mesh_texcoords()[i],
+                )
+        with open(directory + "/scene.pbrt", "w") as output:
+            output.write(
+                'WorldBegin\nShape "plymesh" "string filename" "missing.ply"'
+            )
+        with assert_raises():
+            _ = read_pbrt(directory + "/scene.pbrt")
+        with open(directory + "/first.ply", "w") as output:
+            output.write("malformed mesh")
+        with open(directory + "/scene.pbrt", "w") as output:
+            output.write(
+                'WorldBegin\nShape "plymesh" "string filename"'
+                ' "first.ply"\nShape "plymesh" "string filename" "second.ply"'
+            )
+        with assert_raises():
+            _ = read_pbrt(directory + "/scene.pbrt")
+
+
+def test_parameter_pool_preserves_empty_duplicate_and_borrowed_values() raises:
+    var source = String(
+        '"rgb reflectance" [0.2 0.4 0.6] "string empty" [] "float duplicate"'
+        ' [1] "float duplicate" [2] "integer many" ['
+    )
+    for i in range(1000):
+        source += String(i) + " "
+    source += '] "color alternate" [0.1 0.3 0.5]'
+    source += ' "光色 ignored" [1 2 3] "rgb 光色" [0.2 0.4 0.6]'
+    var lexer = _Lexer(StringSpan(source).as_bytes())
+    var params = _parse_params(lexer)
+    assert_equal(params.f32("float duplicate", 0), Float32(1))
+    assert_equal(len(params.values("string empty")), 0)
+    assert_equal(len(params.values("missing")), 0)
+    var many = params.values("integer many")
+    assert_equal(len(many), 1000)
+    assert_equal(many[0], StringSpan("0"))
+    assert_equal(many[999], StringSpan("999"))
+    var rgb = params.color("reflectance", Vec3f32[.WORLD](0))
+    assert_equal(rgb.x[0], Float32(0.2))
+    assert_equal(rgb.z[0], Float32(0.6))
+    var alternate = params.color("alternate", Vec3f32[.WORLD](0))
+    assert_equal(alternate.y[0], Float32(0.3))
+    assert_equal(params.color("光色", Vec3f32[.WORLD](0)).x[0], Float32(0.2))
+    assert_equal(
+        params.color("ignored", Vec3f32[.WORLD](0.7)).x[0], Float32(0.7)
+    )
 
 
 def run_tests[_discovery: Bool = True]() raises:

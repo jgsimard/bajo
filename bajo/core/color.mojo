@@ -108,14 +108,11 @@ def srgb_to_linear(value: Float32) -> Float32:
     return pow((value + 0.055) / 1.055, Float32(2.4))
 
 
-def srgb_u8_table() -> List[Float32]:
-    """Evaluate the existing scalar transfer function for every u8 value."""
-    return List[Float32](
-        length=256,
-        fill_with=lambda (value: Int) -> Float32: srgb_to_linear(
-            Float32(value) / 255.0
-        ),
+comptime _SRGB_U8_VALUES = Array[Float32, 256](
+    fill_with=lambda (value: Int) -> Float32: srgb_to_linear(
+        Float32(value) / 255.0
     )
+)
 
 
 def blackbody_rgb(temperature: Float32) raises -> Color:

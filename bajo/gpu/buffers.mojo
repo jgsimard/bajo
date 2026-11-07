@@ -1,6 +1,6 @@
 """Device buffer uploads, retained-buffer copies, and device ABI views."""
 
-from max.gpu.host import DeviceBuffer, DeviceContext
+from max.gpu.host import DeviceBuffer, DeviceContext, HostBuffer
 from std.sys import align_of, size_of
 from bajo.core import Frame, Point3f32
 
@@ -75,3 +75,14 @@ def copy_to_device[
         raise Error("Device buffer copy requires matching lengths")
     with buffer.map_to_host() as data:
         data.as_span().copy_from(values)
+
+
+def _download_u32(
+    ctx: DeviceContext, buffer: DeviceBuffer[.uint32]
+) raises -> HostBuffer[.uint32]:
+    """Read a control table once; no reverse upload or host mapping is needed.
+    """
+    var host = ctx.enqueue_create_host_buffer[.uint32](len(buffer))
+    host.enqueue_copy_from(buffer)
+    ctx.synchronize()
+    return host^

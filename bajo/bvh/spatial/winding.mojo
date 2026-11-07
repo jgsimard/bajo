@@ -106,8 +106,8 @@ struct WindingLayout[frame: Frame, width: SIMDLength](Copyable):
         var mask = UInt64(capacity - 1)
         var keys = List[UInt64](unsafe_uninit_length=capacity)
         var edge_faces = List[UInt32](unsafe_uninit_length=capacity)
-        var balances = List[Int](unsafe_uninit_length=capacity)
-        var counts = List[UInt32](length=capacity, fill=0)
+        var balances = List[Int8](unsafe_uninit_length=capacity)
+        var counts = List[UInt8](length=capacity, fill=0)
         var occupied = List[Int](capacity=count * 3 // 2)
         for face in range(count):
             comptime for corner in range(3):
@@ -140,15 +140,22 @@ struct WindingLayout[frame: Frame, width: SIMDLength](Copyable):
                         sizes.unsafe_get(Int(left)) += sizes.unsafe_get(
                             Int(right)
                         )
-                    counts.unsafe_ptr().unsafe_store(slot, incidence + 1)
-                    balances.unsafe_ptr().unsafe_store(
-                        slot, balances.unsafe_ptr().unsafe_load(slot) + balance
-                    )
+                    # Counts above two already invalidate closure. Saturate
+                    # instead of overflowing, but still union every face.
+                    if incidence < 3:
+                        counts.unsafe_ptr().unsafe_store(
+                            slot, incidence + UInt8(1)
+                        )
+                        balances.unsafe_ptr().unsafe_store(
+                            slot,
+                            balances.unsafe_ptr().unsafe_load(slot)
+                            + Int8(balance),
+                        )
                 else:
                     keys.unsafe_ptr().unsafe_store(slot, key)
                     edge_faces.unsafe_ptr().unsafe_store(slot, UInt32(face))
-                    counts.unsafe_ptr().unsafe_store(slot, UInt32(1))
-                    balances.unsafe_ptr().unsafe_store(slot, balance)
+                    counts.unsafe_ptr().unsafe_store(slot, UInt8(1))
+                    balances.unsafe_ptr().unsafe_store(slot, Int8(balance))
                     occupied.append(slot)
         var closed = List[Bool](length=count, fill=True)
         for slot in occupied:

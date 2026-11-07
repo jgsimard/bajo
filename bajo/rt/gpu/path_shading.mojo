@@ -19,6 +19,7 @@ from bajo.rt.shading import (
 )
 from bajo.core.color import Color
 from bajo.rt.render_types import SamplingConfig
+from bajo.rt.gpu.sampling import GpuRtSamplingConfig
 from bajo.rt.rays import spawn_surface_ray
 from bajo.core.optics import medium_transmittance
 from bajo.rt.gpu.lighting import GpuDirectLightSample
@@ -596,9 +597,10 @@ def gpu_rt_shade_dispatch_kernel[
     dst_path_fields: Pointer[Float32, MutAnyOrigin],
     counters: Pointer[UInt32, MutAnyOrigin],
     capacity_i32: Int32,
-    sampling: SamplingConfig,
+    sampling_arg: GpuRtSamplingConfig,
     bounce: UInt32,
 ):
+    var sampling = sampling_arg.load()
     var work_count = Int(counters[unsafe_offset=WAVE_COUNTER.SHADE])
     var idx = global_idx.x
     var stride = Int(grid_dim.x * block_dim.x)
@@ -654,7 +656,7 @@ def _enqueue_material_shading[
     src_path_fields: DeviceBuffer[.float32],
     dst_path_ids: DeviceBuffer[.uint32],
     dst_path_fields: DeviceBuffer[.float32],
-    sampling: SamplingConfig,
+    sampling: GpuRtSamplingConfig,
     bounce: UInt32,
 ) raises:
     if not materials.stages.metal_dielectric:

@@ -55,7 +55,12 @@ from bajo.rt import (
     sample_bsdf,
 )
 from examples.cornell_box import make_cornell_scene
-from bajo.rt.cpu import reflect, fresnel_schlick
+from bajo.rt.cpu import reflect, fresnel_schlick, CpuWavefrontWorkspace
+from bajo.rt.cpu.wavefront import render_wavefront_configured
+from bajo.rt.cpu.wavefront.primary import _initialize_path_packets_range
+from bajo.rt.wavefront_queue import PacketPathQueue
+from bajo.core.random import random_in_unit_disk
+from std.math import iota
 from bajo.rt.common import (
     environment_light_pdf,
     environment_pdf_from_radiance,
@@ -69,6 +74,7 @@ from bajo.core.mappings import (
     equal_area_sphere_to_square,
 )
 from bajo.core.sampling import draw_alias_column, resolve_alias_draw
+from bajo.rt.scene_data import SceneData
 from bajo.rt.lighting import (
     _emissive_hit_light_pdf,
     _emissive_hit_weight_from_pdf,
@@ -92,6 +98,199 @@ from bajo.rt.cpu.wavefront.packet import (
     _accumulate_environment_packet,
     _sample_bsdf_values,
 )
+
+
+def test_retained_wavefront_workspace_matches_fresh_after_capacity_changes() raises:
+    var world = CpuScene[16, 16](make_cornell_scene())
+    var camera = Camera.from_vfov(
+        Point3f32[.WORLD](0, 1, 3.2),
+        Point3f32[.WORLD](0, 1, -1),
+        Vec3f32[.WORLD](0, 1, 0),
+        28,
+        4.2,
+    )
+    var workspace = CpuWavefrontWorkspace[16, .MIS]()
+    for width, samples in [(8, 1), (96, 3), (24, 9), (8, 1)]:
+        var settings = RenderSettings(
+            width, width * 9 // 16, samples, UInt64(2026), 4
+        )
+        var expected = render_wavefront[.MIS](settings, camera, world)
+        var actual = render_wavefront_configured[
+            .AUTO_COHERENT,
+            .MIS,
+            16,
+            1024,
+            True,
+            .TASK_PARTITIONS,
+            16,
+            16,
+            16,
+            8,
+            4,
+        ](settings, camera, world, workspace)
+        for i in range(len(expected.pixels)):
+            comptime for channel in range(3):
+                assert_equal(
+                    bitcast[.uint32](actual.pixels[i][channel]),
+                    bitcast[.uint32](expected.pixels[i][channel]),
+                )
+
+
+def test_pinhole_primary_paths_preserve_sampler_dimensions_and_signed_zero() raises:
+    for aperture in [Float32(0), 0.6]:
+        for bits in [UInt32(0), 0x80000000, 0xBF800000]:
+            var camera = Camera.from_vfov(
+                Point3f32[.WORLD](bitcast[.float32](bits), 1, 3.2),
+                Point3f32[.WORLD](0, 1, -1),
+                Vec3f32[.WORLD](0, 1, 0),
+                28,
+                4.2,
+                aperture,
+            )
+            for sampler in range(6):
+                var settings = RenderSettings(
+                    16, 16, 2, UInt64(2026), 1, Sampler(sampler)
+                )
+                var sampling = SamplingConfig.from_settings(settings)
+                var paths = PacketPathQueue[16](17)
+                _initialize_path_packets_range(
+                    paths, settings, sampling, camera, 0, 17
+                )
+                for index in range(len(paths.packets)):
+                    var ids = iota[.uint32, 16]() + UInt32(index * 16)
+                    var pixels = ids / UInt32(2)
+                    var rng = path_stage_rng(sampling, ids, UInt32(0))
+                    var lens = random_in_unit_disk[.WORLD, 16](rng)
+                    var ray = camera.make_ray_sampled(
+                        (pixels % UInt32(16)).cast[.float32](),
+                        (pixels / UInt32(16)).cast[.float32](),
+                        16,
+                        16,
+                        rng.f32(),
+                        rng.f32(),
+                        lens.x,
+                        lens.y,
+                        0.001,
+                    )
+                    ref actual = paths.packets[index]
+                    for lane in range(min(16, 17 - index * 16)):
+                        assert_equal(
+                            bitcast[.uint32](actual.ox[lane]),
+                            bitcast[.uint32](ray.o.x[lane]),
+                        )
+                        assert_equal(
+                            bitcast[.uint32](actual.oy[lane]),
+                            bitcast[.uint32](ray.o.y[lane]),
+                        )
+                        assert_equal(
+                            bitcast[.uint32](actual.oz[lane]),
+                            bitcast[.uint32](ray.o.z[lane]),
+                        )
+                        assert_equal(
+                            bitcast[.uint32](actual.dx[lane]),
+                            bitcast[.uint32](ray.d.x[lane]),
+                        )
+                        assert_equal(
+                            bitcast[.uint32](actual.dy[lane]),
+                            bitcast[.uint32](ray.d.y[lane]),
+                        )
+                        assert_equal(
+                            bitcast[.uint32](actual.dz[lane]),
+                            bitcast[.uint32](ray.d.z[lane]),
+                        )
+
+
+def test_cpu_scene_displacement_capability_tracks_nonzero_maps() raises:
+    for scale in [Float32(0), 0.1]:
+        var builder = SceneBuilder()
+        var texture = builder.surfaces.add_image_texture(
+            ImageTexture(1, 1, [Float32(0.5), 0.5, 0.5])
+        )
+        var surface = builder.add_coated_diffuse(Color(0.5), 0.2, 1.5)
+        ref material = builder.surfaces.coated_diffuses[Int(surface.index())]
+        material.displacement_texture_index = texture
+        material.displacement_scale = scale
+        builder.add_sphere(Point3f32[.WORLD](0, 0, -2), 1, surface)
+        var world = CpuScene[16, 16](builder^.finish())
+        assert_equal(world.has_displacement(), scale != 0)
+
+
+def test_bounded_geometry_preserves_equal_distance_priority() raises:
+    var builder = SceneBuilder()
+    var first = builder.add_lambertian(Color(1, 0, 0))
+    var second = builder.add_lambertian(Color(0, 1, 0))
+    builder.add_sphere(Point3f32[.WORLD](0, 0, -2), 1, first)
+    builder.add_triangle(
+        Point3f32[.WORLD](-1, -1, -1),
+        Point3f32[.WORLD](1, -1, -1),
+        Point3f32[.WORLD](0, 1, -1),
+        second,
+    )
+    var world = CpuScene[16, 16](builder^.finish())
+    var ray = Rayf32[.WORLD](
+        Point3f32[.WORLD](0), Vec3f32[.WORLD](0, 0, -1), 0.001, 100
+    )
+    var scalar = world.trace_surface(ray)
+    assert_equal(scalar.surface.value[0], first.value[0])
+    var wide = world.trace_surface(
+        Ray[.float32, .WORLD, 16](
+            ray.o.broadcast[16](),
+            ray.d.broadcast[16](),
+            SIMD[.float32, 16](ray.t_min),
+            SIMD[.float32, 16](ray.t_max),
+        )
+    )
+    for lane in range(16):
+        assert_equal(wide.surface.value[lane], first.value[0])
+        assert_equal(wide.t[lane], Float32(1))
+
+
+def test_parallel_light_preparation_preserves_prefix_and_instance_order() raises:
+    var builder = SceneBuilder()
+    var light = builder.add_emissive(Color(0.03, 0.5, 0.2))
+    var matte = builder.add_lambertian(Color(0.5))
+    builder.add_triangle(
+        Point3f32[.WORLD](0, 0, 2),
+        Point3f32[.WORLD](1, 0, 2),
+        Point3f32[.WORLD](0, 1, 2),
+        light,
+    )
+    builder.add_sphere(Point3f32[.WORLD](3, 0, 0), 1, light)
+    var vertices = List[Point3f32[.LOCAL]]()
+    for _ in range(1024):
+        vertices.extend(
+            [
+                Point3f32[.LOCAL](0),
+                Point3f32[.LOCAL](1, 0, 0),
+                Point3f32[.LOCAL](0, 1, 0),
+            ]
+        )
+    var mesh = builder.add_owned_triangle_mesh(
+        vertices^, List[Float32](), List[Float32]()
+    )
+    var bounds = AABB[.LOCAL](Point3f32[.LOCAL](0), Point3f32[.LOCAL](1, 1, 0))
+    for i in range(8):
+        var transform = Affine3f32[.LOCAL, .WORLD].from_scale(
+            Vec3f32[.LOCAL](Float32(-2 if i % 4 == 0 else 2), 3, 1)
+        )
+        transform.tx = Float32(i)
+        var surface = light.copy()
+        if i % 2:
+            surface = matte.copy()
+        builder.add_triangle_instance(mesh, transform, bounds, surface)
+    var data = builder^.finish()
+    ref lights = data.lights()
+    assert_equal(len(lights.records), 4098)
+    assert_true(lights.records[0].primitive.kind() == .TRIANGLE)
+    assert_true(lights.records[1].primitive.kind() == .SPHERE)
+    var total = Float32(0)
+    for i in range(len(lights.records)):
+        total += lights.records[i].weight
+        if i >= 2:
+            assert_equal(
+                lights.records[i].primitive.index(), UInt32((i - 2) // 1024 * 2)
+            )
+    assert_equal(bitcast[.uint32](total), bitcast[.uint32](lights.total_weight))
 
 
 def _front_point() -> ShadingPoint[1]:
@@ -411,6 +610,66 @@ def test_scene_builder_finalizes_emissive_triangle_instance_lights() raises:
     assert_vec_equal(record.p0, Point3f32[.WORLD](1.0, -1.0, 0.0))
     assert_vec_equal(record.p1, Point3f32[.WORLD](0.0, 1.0, 0.0))
     assert_vec_equal(record.p2, Point3f32[.WORLD](-1.0, -1.0, 0.0))
+
+
+def _scene_with_texture(
+    width: Int, height: Int, var pixels: List[Float32]
+) raises -> SceneData:
+    var builder = SceneBuilder()
+    var surface = builder.add_lambertian(Color(0.5))
+    builder.add_sphere(Point3f32[.WORLD](0.0), 1.0, surface)
+    _ = builder.surfaces.add_image_texture(ImageTexture(width, height, pixels^))
+    return builder^.finish()
+
+
+def test_texture_validation_preserves_finite_channel_bits_and_simd_tails() raises:
+    var patterns = [
+        UInt32(0),
+        UInt32(0x80000000),
+        UInt32(1),
+        UInt32(0x007FFFFF),
+        UInt32(0x3F000000),
+        UInt32(0x3F800000),
+        UInt32(0x7F7FFFFF),
+    ]
+    for count in range(1, 2 * simd_width_of[Float32]() + 3):
+        var pixels = List[Float32](capacity=3 * count)
+        for channel in range(3 * count):
+            pixels.append(bitcast[.float32](patterns[channel % len(patterns)]))
+        var scene = _scene_with_texture(count, 1, pixels^)
+        ref texture = scene.surfaces().image_textures[0]
+        for channel in range(3 * count):
+            assert_equal(
+                bitcast[.uint32](texture.pixels[channel]),
+                patterns[channel % len(patterns)],
+            )
+
+
+def test_texture_validation_rejects_bad_channels_in_every_vector_and_tail_lane() raises:
+    var count = ceildiv(2 * simd_width_of[Float32]() + 3, 3)
+    for pattern in [
+        UInt32(0x80000001),
+        UInt32(0xBF800000),
+        UInt32(0x7F800000),
+        UInt32(0xFF800000),
+        UInt32(0x7FC00000),
+        UInt32(0x7F800001),
+    ]:
+        for channel in range(3 * count):
+            var pixels = List[Float32](length=3 * count, fill=0.5)
+            pixels[channel] = bitcast[.float32](pattern)
+            with assert_raises():
+                _ = _scene_with_texture(count, 1, pixels^)
+
+
+def test_texture_validation_retains_dimension_and_storage_checks() raises:
+    with assert_raises():
+        _ = _scene_with_texture(0, 1, List[Float32]())
+    with assert_raises():
+        _ = _scene_with_texture(1, -1, List[Float32]())
+    for count in [0, 2, 4, 32]:
+        with assert_raises():
+            _ = _scene_with_texture(1, 1, List[Float32](length=count, fill=0.5))
 
 
 def test_scene_builder_rejects_invalid_material_domains() raises:

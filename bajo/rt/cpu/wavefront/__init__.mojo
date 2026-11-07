@@ -66,6 +66,38 @@ struct _PacketQueueArena[length: SIMDLength, integrator: Integrator]:
         )
 
 
+struct CpuWavefrontWorkspace[length: SIMDLength, integrator: Integrator]:
+    """Private worker queues retained between render calls; one owner per caller.
+    """
+
+    var arenas: List[_PacketQueueArena[Self.length, Self.integrator]]
+
+    def __init__(out self):
+        self.arenas = List[_PacketQueueArena[Self.length, Self.integrator]]()
+
+    def prepare(mut self, workers: Int, capacity: Int, surfaces: SurfaceStore):
+        while len(self.arenas) < workers:
+            self.arenas.append(
+                _PacketQueueArena[Self.length, Self.integrator](
+                    capacity, surfaces
+                )
+            )
+        var packets = ceildiv(capacity, Int(Self.length))
+        for worker in range(workers):
+            ref arena = self.arenas[worker]
+            arena.active_paths.packets.reserve(packets)
+            comptime if Integrator.is_path_tracing[Self.integrator]:
+                arena.next_paths.packets.reserve(packets)
+                if len(surfaces.lambertians):
+                    arena.lambertian.packets.reserve(packets)
+                if len(surfaces.metals):
+                    arena.metal.packets.reserve(packets)
+                if len(surfaces.dielectrics):
+                    arena.dielectric.packets.reserve(packets)
+                if len(surfaces.coated_diffuses):
+                    arena.coated_diffuse.packets.reserve(packets)
+
+
 def _trace_packet_range[
     length: SIMDLength,
     integrator: Integrator,
@@ -122,6 +154,36 @@ def render_wavefront_configured[
     camera: Camera,
     world: CpuScene[world_bvh_width, instance_bvh_width],
 ) raises -> RenderResult:
+    var workspace = CpuWavefrontWorkspace[length, integrator]()
+    return render_wavefront_configured[
+        traversal_mode,
+        integrator,
+        length,
+        CHUNK_PATHS,
+        PARALLEL,
+        scheduler_mode,
+        world_bvh_width,
+        instance_bvh_width,
+        *adaptive_packet_sizes,
+    ](settings, camera, world, workspace)
+
+
+def render_wavefront_configured[
+    traversal_mode: CpuTraversalMode,
+    integrator: Integrator = .PATH,
+    length: SIMDLength = 16,
+    CHUNK_PATHS: Int = CPU_WAVEFRONT_PARALLEL_CHUNK_PATHS,
+    PARALLEL: Bool = True,
+    scheduler_mode: CpuSchedulerMode = .TASK_PARTITIONS,
+    world_bvh_width: SIMDLength = 16,
+    instance_bvh_width: SIMDLength = 16,
+    *adaptive_packet_sizes: SIMDLength,
+](
+    settings: RenderSettings,
+    camera: Camera,
+    world: CpuScene[world_bvh_width, instance_bvh_width],
+    mut workspace: CpuWavefrontWorkspace[length, integrator],
+) raises -> RenderResult:
     """Render with compile-time packet, chunk, and CPU scheduling choices."""
     comptime assert CHUNK_PATHS > 0, "wavefront chunk size must be positive"
     comptime assert (
@@ -157,18 +219,19 @@ def render_wavefront_configured[
         # private arena. The atomic counter publishes no data; relaxed ordering
         # suffices to assign distinct chunks and therefore distinct pixels.
         var worker_count = min(num_logical_cores(), chunk_count)
+        workspace.prepare(
+            worker_count, arena_capacity, world.scene_data().surfaces()
+        )
         var next_chunk = List[Int](length=1, fill=0)
         var next_chunk_ptr = next_chunk.unsafe_ptr()
 
-        def worker(_worker_idx: Int) {imm, mut pixels}:
+        def worker(_worker_idx: Int) {imm, mut pixels, mut workspace}:
             var chunk_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
                 next_chunk_ptr, 1
             )
             if chunk_idx >= chunk_count:
                 return
-            var queues = _PacketQueueArena[length, integrator](
-                arena_capacity, world.scene_data().surfaces()
-            )
+            ref queues = workspace.arenas[_worker_idx]
             while chunk_idx < chunk_count:
                 var path_begin = chunk_idx * paths_per_chunk
                 var path_end = min(path_begin + paths_per_chunk, path_count)
@@ -201,9 +264,8 @@ def render_wavefront_configured[
             parallelize(worker, worker_count, worker_count)
 
     else:
-        var queues = _PacketQueueArena[length, integrator](
-            arena_capacity, world.scene_data().surfaces()
-        )
+        workspace.prepare(1, arena_capacity, world.scene_data().surfaces())
+        ref queues = workspace.arenas[0]
         var path_begin = 0
         while path_begin < path_count:
             var path_end = min(path_begin + paths_per_chunk, path_count)

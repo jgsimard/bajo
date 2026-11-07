@@ -3,12 +3,23 @@
 from std.algorithm import vectorize
 from std.memory import bitcast
 from std.sys import simd_width_of
+from std.sys import Endian
+from std.sys.info import size_of
 from bajo.core.color import Color, color_to_byte, linear_to_gamma
 
 
 def write_linear_rgb(path: String, pixels: ImmSpan[Color, _]) raises:
     """Write tightly packed little-endian Float32 RGB, preserving channel bits.
     """
+    comptime assert size_of[Color]() == 3 * size_of[Float32]()
+    comptime if Endian.native() == .little:
+        var bytes = ImmSpan(
+            unsafe_ptr=pixels.unsafe_ptr().unsafe_bitcast[UInt8](),
+            length=len(pixels) * 12,
+        )
+        with open(path, "w") as f:
+            f.write_bytes(bytes)
+        return
     var bytes = List[UInt8](unsafe_uninit_length=len(pixels) * 12)
     var index = 0
     for pixel in pixels:

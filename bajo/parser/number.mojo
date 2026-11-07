@@ -67,54 +67,10 @@ def parse_f32_at(bytes: ImmSpan[UInt8, _], pos: Int) raises -> F32ParseResult:
 
         num += fraction / divisor
 
-    if p < end:
-        var b = bytes.unsafe_get(p)
-        if b == _LOWER_E or b == _UPPER_E:
-            p += 1
-            var exponent_sign = 1
-
-            if p < end and bytes.unsafe_get(p) == _MINUS:
-                exponent_sign = -1
-                p += 1
-            elif p < end and bytes.unsafe_get(p) == _PLUS:
-                p += 1
-
-            var exponent = 0
-            var has_exponent_digit = False
-            while p < end:
-                var exponent_byte = bytes.unsafe_get(p)
-                if _is_digit(exponent_byte):
-                    has_exponent_digit = True
-                    var digit = Int(exponent_byte - _ZERO)
-                    if exponent > (_MAX_DECIMAL_EXPONENT - digit) // 10:
-                        raise String(
-                            t"decimal exponent exceeds {_MAX_DECIMAL_EXPONENT}"
-                        )
-
-                    exponent = exponent * 10 + digit
-                    p += 1
-                else:
-                    break
-
-            if not has_exponent_digit:
-                raise String("missing decimal exponent digits")
-
-            if exponent > 0:
-                var power: Float64 = 1.0
-                var base: Float64 = 10.0
-                var remaining = exponent
-
-                while remaining > 0:
-                    if remaining & 1:
-                        power *= base
-                    remaining //= 2
-                    if remaining > 0:
-                        base *= base
-
-                if exponent_sign == 1:
-                    num *= power
-                else:
-                    num /= power
+    if p < end and (
+        bytes.unsafe_get(p) == _LOWER_E or bytes.unsafe_get(p) == _UPPER_E
+    ):
+        return _finish_exponent(bytes, p, num, sign)
 
     return F32ParseResult(Float32(sign * num), p)
 
@@ -239,7 +195,7 @@ def parse_f32_fast_at(
     if p < end and (
         bytes.unsafe_get(p) == _LOWER_E or bytes.unsafe_get(p) == _UPPER_E
     ):
-        return parse_f32_at(bytes, pos)
+        return _finish_exponent(bytes, p, number, sign)
     return F32ParseResult(Float32(sign * number), p)
 
 
@@ -280,3 +236,56 @@ def parse_int_f32(text: StringSpan, context: StringSpan = "") raises -> Int:
         var prefix = String(context) + " " if context.byte_length() else ""
         raise Error("invalid " + prefix + "integer: " + String(text))
     return converted
+
+
+@always_inline
+def _finish_exponent(
+    bytes: ImmSpan[UInt8, _], var p: Int, var num: Float64, sign: Float64
+) raises -> F32ParseResult:
+    var end = len(bytes)
+    p += 1
+    var exponent_sign = 1
+
+    if p < end and bytes.unsafe_get(p) == _MINUS:
+        exponent_sign = -1
+        p += 1
+    elif p < end and bytes.unsafe_get(p) == _PLUS:
+        p += 1
+
+    var exponent = 0
+    var has_exponent_digit = False
+    while p < end:
+        var exponent_byte = bytes.unsafe_get(p)
+        if _is_digit(exponent_byte):
+            has_exponent_digit = True
+            var digit = Int(exponent_byte - _ZERO)
+            if exponent > (_MAX_DECIMAL_EXPONENT - digit) // 10:
+                raise String(
+                    t"decimal exponent exceeds {_MAX_DECIMAL_EXPONENT}"
+                )
+
+            exponent = exponent * 10 + digit
+            p += 1
+        else:
+            break
+
+    if not has_exponent_digit:
+        raise String("missing decimal exponent digits")
+
+    if exponent > 0:
+        var power: Float64 = 1.0
+        var base: Float64 = 10.0
+        var remaining = exponent
+
+        while remaining > 0:
+            if remaining & 1:
+                power *= base
+            remaining //= 2
+            if remaining > 0:
+                base *= base
+
+        if exponent_sign == 1:
+            num *= power
+        else:
+            num /= power
+    return F32ParseResult(Float32(sign * num), p)

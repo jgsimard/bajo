@@ -490,7 +490,7 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
                 box_request_in_flight = False
             if view.worker.state[].result:
                 var completed = view.worker.state[].result.take()
-                if accumulation.add(completed):
+                if accumulation.take_frame(completed):
                     render_ms = completed.render_ms
                     if texture:
                         if (

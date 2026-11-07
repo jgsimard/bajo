@@ -35,6 +35,7 @@ from bajo.rt.render_types import (
     RenderTimings,
     SamplingConfig,
 )
+from bajo.rt.gpu.sampling import GpuRtSamplingConfig
 from bajo.rt.material_types import Integrator
 from bajo.rt.scene_data import SceneData
 
@@ -58,7 +59,7 @@ def _enqueue_scene_bounce[
     src_path_fields: DeviceBuffer[.float32],
     dst_path_ids: DeviceBuffer[.uint32],
     dst_path_fields: DeviceBuffer[.float32],
-    sampling: SamplingConfig,
+    sampling: GpuRtSamplingConfig,
     bounce: UInt32,
 ) raises:
     enqueue_gpu_rt_bounce[
@@ -109,7 +110,7 @@ def _enqueue_scene_primary_bounce[
     image_width: Int,
     image_height: Int,
     samples_per_pixel: Int,
-    sampling: SamplingConfig,
+    sampling: GpuRtSamplingConfig,
 ) raises:
     enqueue_gpu_rt_primary_bounce[
         integrator,
@@ -155,6 +156,9 @@ def enqueue_render_gpu[
         kind, sphere_format, triangle_format, tlas_format, blas_format
     ],
     settings: RenderSettings,
+    sample_offset: Optional[Pointer[UInt32, ImmUntrackedOrigin]] = Optional[
+        Pointer[UInt32, ImmUntrackedOrigin]
+    ](),
 ) raises:
     """Submit any prepared scene through one compile-time-specialized path."""
     enqueue_gpu_wavefront[
@@ -179,16 +183,7 @@ def enqueue_render_gpu[
             MAX_BLOCKS,
             SHADOW_MAX_BLOCKS,
         ],
-    ](ctx, target, world, settings)
-    if settings.film.is_identity():
-        return
-    ctx.enqueue_function[gpu_rt_apply_film_kernel](
-        target.pixels,
-        Int32(target.pixel_count),
-        settings.film,
-        grid_dim=ceildiv(target.pixel_count, 128),
-        block_dim=128,
-    )
+    ](ctx, target, world, settings, sample_offset)
 
 
 def render_gpu_configured[

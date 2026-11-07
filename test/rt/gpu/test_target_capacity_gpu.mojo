@@ -1,8 +1,19 @@
 """Scene-sized target allocation preserves explicit bounds and pixel alignment."""
 
 from test.rt.helpers import assert_pixels_equal
+from std.memory import bitcast
 from std.testing import TestSuite, assert_equal, assert_true, assert_false
 from max.gpu.host import DeviceContext
+from bajo.rt.gpu.preview import GpuRtPreviewAccumulator
+from bajo.rt.gpu.resources import GpuRtRenderTarget
+from bajo.rt.wavefront_contract import WAVE_COUNTER, WAVE_STATUS
+from bajo.viewer.accumulation import FrameAccumulator
+from bajo.viewer.worker import CompletedFrame
+from test.viewer.test_accumulation import _frame
+from bajo.benchmark.gpu_harness import gpu_rt_camera
+from bajo.rt.film import FilmResponse
+from bajo.rt.gpu.render import gpu_rt_apply_film_kernel
+
 from bajo.core import Point3f32, Vec3f32
 from bajo.rt.gpu.resources import download_gpu_pixels, update_gpu_camera
 from bajo.rt.gpu.render import enqueue_render_gpu
@@ -131,7 +142,7 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
         var expected = download_gpu_pixels(renderer.ctx, expected_target)
         for repeat in range(3):
             renderer.enqueue[.MIS](settings)
-            if repeat == 0 and phase != 1:
+            if repeat == 0 and phase != 1 and phase != 5:
                 assert_false(Bool(renderer._render_graph))
             var actual = download_gpu_pixels(renderer.ctx, renderer.target)
             assert_pixels_equal(actual, expected)
@@ -146,12 +157,18 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
             download_gpu_pixels(renderer.ctx, renderer.target), path_expected
         )
     assert_true(Bool(renderer._render_graph))
-    # Progressive batches that never repeat do not pay for graph capture.
+    # Progressive offsets reuse the captured launch sequence.
     for offset in [4, 6, 8]:
         settings.sample_offset = offset
         renderer.enqueue[.PATH](settings)
-        _ = download_gpu_pixels(renderer.ctx, renderer.target)
-        assert_false(Bool(renderer._render_graph))
+        var progressive = download_gpu_pixels(renderer.ctx, renderer.target)
+        enqueue_render_gpu[.PATH](
+            renderer.ctx, expected_target, renderer.scene, settings
+        )
+        assert_pixels_equal(
+            progressive, download_gpu_pixels(renderer.ctx, expected_target)
+        )
+        assert_true(Bool(renderer._render_graph))
 
 
 def test_gpu_prepared_graph_replays_textured_instances() raises:
@@ -169,6 +186,139 @@ def test_gpu_prepared_graph_replays_textured_instances() raises:
             renderer.render[.MIS](settings, camera).pixels, expected.pixels
         )
     assert_true(Bool(renderer._render_graph))
+
+
+def test_gpu_preview_weights_reset_tails_and_failed_work() raises:
+    with DeviceContext() as ctx:
+        for count in [1, 3, 7, 17, 65, 4096]:
+            var target = GpuRtRenderTarget(
+                ctx, RenderSettings(count, 1, 1, 2026, 1), gpu_rt_camera()
+            )
+            var status = ctx.enqueue_create_host_buffer[.uint32](
+                WAVE_COUNTER.COUNT
+            )
+            status.as_span().fill(0)
+            status.enqueue_copy_to(target.arena.counters)
+            var gpu = GpuRtPreviewAccumulator(ctx, count)
+            var cpu = FrameAccumulator()
+            var input = ctx.enqueue_create_host_buffer[.float32](count * 3)
+            for phase in range(6):
+                if phase == 3:
+                    cpu.reset()
+                var samples = (phase * 2 + 1) % 7 + 1
+                var frame = _frame(count, samples, cpu.generation, phase)
+                _ = cpu.add(frame)
+                input.as_span().copy_from(
+                    ImmSpan(
+                        unsafe_ptr=frame.pixels.unsafe_ptr().unsafe_bitcast[
+                            Float32
+                        ](),
+                        length=count * 3,
+                    )
+                )
+                input.enqueue_copy_to(target.pixels)
+                var rgba = gpu.add(ctx, target, cpu.generation, samples)
+                assert_equal(gpu.samples, cpu.samples)
+                assert_equal(gpu.batches, cpu.batches)
+                for i in range(len(rgba)):
+                    assert_equal(rgba[i], cpu.rgba[i])
+                with gpu.sums.map_to_host() as actual:
+                    for i in range(count):
+                        comptime for axis in range(3):
+                            assert_equal(
+                                bitcast[.uint32](actual[i * 3 + axis]),
+                                bitcast[.uint32](cpu.linear[i][axis]),
+                            )
+            status.as_span()[WAVE_COUNTER.STATUS] = WAVE_STATUS.SHADOW_OVERFLOW
+            status.enqueue_copy_to(target.arena.counters)
+            var rejected = False
+            try:
+                _ = gpu.add(ctx, target, cpu.generation + 1, 1)
+            except:
+                rejected = True
+            assert_true(rejected)
+            assert_equal(gpu.generation, cpu.generation)
+            assert_equal(gpu.samples, cpu.samples)
+            with gpu.sums.map_to_host() as actual:
+                for i in range(count):
+                    comptime for axis in range(3):
+                        assert_equal(
+                            bitcast[.uint32](actual[i * 3 + axis]),
+                            bitcast[.uint32](cpu.linear[i][axis]),
+                        )
+
+
+def test_gpu_preview_preserves_weights_across_batch_size_changes_and_resize() raises:
+    var data = _textured_instance_world[True]()
+    var settings = RenderSettings(11, 7, 1, 2026, 3, sample_sequence_length=32)
+    var camera = _camera()
+    var rgb = GpuRtPreparedRenderer[.INSTANCES](
+        settings, camera, data.scene_data()
+    )
+    var preview = GpuRtPreparedRenderer[.INSTANCES](
+        settings, camera, data.scene_data()
+    )
+    var cpu = FrameAccumulator()
+    var display = FrameAccumulator()
+    for phase in range(5):
+        settings.samples_per_pixel = phase + 1
+        settings.sample_offset = phase * 5
+        if phase == 3:
+            cpu.reset()
+            display.reset()
+            settings.image_width = 13
+        var result = rgb.render[.MIS](settings, camera)
+        var frame = CompletedFrame(result^, cpu.generation, settings)
+        assert_true(cpu.add(frame))
+        var device_result = preview.preview[.MIS](
+            settings, camera, cpu.generation
+        )
+        var gpu_frame = CompletedFrame.from_preview(
+            device_result^, cpu.generation, settings
+        )
+        assert_true(display.add(gpu_frame))
+        assert_equal(display.samples, cpu.samples)
+        assert_equal(display.batches, cpu.batches)
+        assert_equal(len(display.rgba), len(cpu.rgba))
+        for i in range(len(cpu.rgba)):
+            assert_equal(display.rgba[i], cpu.rgba[i])
+
+
+def test_fused_gpu_film_matches_separate_pass_across_sample_chunks() raises:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    builder.add_sphere(Point3f32[.WORLD](0, 0, -1), 0.5, matte)
+    var data = builder^.finish()
+    var camera = _camera()
+    with DeviceContext() as ctx:
+        var scene = prepare_gpu_scene[.SPHERES](ctx, data)
+        for samples in [1, 3, 4]:
+            var settings = RenderSettings(7, 5, samples, 2026, 3)
+            var reference = scene.make_render_target(ctx, settings, camera)
+            var candidate = scene.make_render_target(ctx, settings, camera, 12)
+            enqueue_render_gpu[.MIS](ctx, reference, scene, settings)
+            settings.film = FilmResponse(
+                1.25,
+                Color(0.9, 0.1, 0.03),
+                Color(0.04, 0.8, 0.06),
+                Color(0.02, 0.07, 1.1),
+            )
+            ctx.enqueue_function[gpu_rt_apply_film_kernel](
+                reference.pixels,
+                Int32(reference.pixel_count),
+                settings.film,
+                grid_dim=1,
+                block_dim=128,
+            )
+            enqueue_render_gpu[.MIS](ctx, candidate, scene, settings)
+            var expected = download_gpu_pixels(ctx, reference)
+            var actual = download_gpu_pixels(ctx, candidate)
+            for i in range(len(expected)):
+                comptime for axis in range(3):
+                    assert_equal(
+                        bitcast[.uint32](actual[i][axis]),
+                        bitcast[.uint32](expected[i][axis]),
+                    )
 
 
 def run_tests[_discovery: Bool = True]() raises:

@@ -39,7 +39,7 @@ from bajo.core import (
 )
 
 from bajo.core.tensor_layout import record_tile
-from bajo.rt.material_types import PrimitiveId, SurfaceId
+from bajo.rt.material_types import PrimitiveId, SurfaceId, NO_TEXTURE
 from bajo.rt.shading_types import HitRecord, SurfaceHit
 from bajo.rt.scene_data import SceneData
 from bajo.rt.media import SceneMedia
@@ -267,12 +267,24 @@ struct CpuScene[
     var _scene: SceneData
     var _coated_materials: List[Float32]
     var _has_instance_attributes: Bool
+    var _has_displacement: Bool
 
     def __init__[
         build_method: CpuBvhBuildMethod = .SAH
     ](out self, var scene: SceneData):
         self._scene = scene^
         self._has_instance_attributes = False
+        self._has_displacement = False
+        for material in self._scene.surfaces().coated_diffuses:
+            self._has_displacement |= (
+                material.displacement_texture_index != NO_TEXTURE
+                and material.displacement_scale != 0.0
+            )
+        for material in self._scene.surfaces().dielectrics:
+            self._has_displacement |= (
+                material.displacement_texture_index != NO_TEXTURE
+                and material.displacement_scale != 0.0
+            )
         for mesh in range(len(self._scene.triangle_meshes())):
             if (
                 len(self._scene.triangle_mesh_normals()[mesh]) != 0
@@ -296,6 +308,10 @@ struct CpuScene[
     def scene_data(self) -> ref[self._scene] SceneData:
         """Return the immutable authoring snapshot used for preparation."""
         return self._scene
+
+    @always_inline
+    def has_displacement(self) -> Bool:
+        return self._has_displacement
 
     def coated_materials(self) -> ref[self._coated_materials] List[Float32]:
         """Immutable column-major constants prepared once for SIMD shading."""
@@ -405,14 +421,22 @@ struct CpuScene[
 
     def _trace_closest(self, ray: Rayf32[.WORLD]) -> _WorldHit:
         var closest = self._trace_geometry[.SPHERE](ray)
-        var triangle_hit = self._trace_geometry[.TRIANGLE](ray)
+        var triangle_ray = Rayf32[.WORLD](
+            ray.o, ray.d, ray.t_min, closest.surface.t
+        )
+        var triangle_hit = self._trace_geometry[.TRIANGLE](triangle_ray)
         if triangle_hit.surface.hit and (
             not closest.surface.hit
             or triangle_hit.surface.t < closest.surface.t
         ):
             closest = triangle_hit^
 
-        var instance_hit = self._trace_geometry[.TRIANGLE_INSTANCE](ray)
+        var instance_ray = Rayf32[.WORLD](
+            ray.o, ray.d, ray.t_min, closest.surface.t
+        )
+        var instance_hit = self._trace_geometry[.TRIANGLE_INSTANCE](
+            instance_ray
+        )
         if instance_hit.surface.hit and (
             not closest.surface.hit
             or instance_hit.surface.t < closest.surface.t
@@ -611,9 +635,12 @@ struct CpuScene[
             result = self._surface_from_hit[.SPHERE](rays, hits, valid)
 
         if self.triangle_bvh:
+            var bounded_triangles = Ray[.float32, .WORLD, length](
+                rays.o, rays.d, rays.t_min, result.t
+            )
             var hits = self._trace_world_triangle_packet[
                 length, traversal_mode, *adaptive_packet_sizes
-            ](rays, valid)
+            ](bounded_triangles, valid)
             _merge_surface_hit(
                 result,
                 self._surface_from_hit[.TRIANGLE](

@@ -1,6 +1,8 @@
 """Owning indexed mesh for shared CPU/GPU spatial queries."""
 
 from std.sys.info import size_of
+from max.algorithm import parallelize
+from bajo.bvh.cpu.parallel import _worker_count
 from .policy import BUILD_WIDTH
 from bajo.core import AABB, Frame, Point3f32, Vec3f32
 from bajo.bvh.constants import EMPTY_LANE
@@ -125,6 +127,73 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
         self._pack_triangles()
 
     def _pack_triangles[update_bounds: Bool = False](mut self):
+        var count = len(self.indices) // 3
+        var components = len(self.winding.bvh.item_bounds)
+        if count >= 65536 and components == 0:
+            var workers = _worker_count(8)
+
+            def pack_open(task: Int) {mut self, count, workers}:
+                self._pack_triangle_range[update_bounds](
+                    count * task // workers, count * (task + 1) // workers
+                )
+
+            parallelize(pack_open, workers, workers)
+        elif count >= 262144 and components <= 256:
+            comptime if update_bounds:
+                # Worker pools can flush subnormal operands. Preserve the
+                # serial min/max result for these uncommon finite inputs.
+                var words = self.points.unsafe_ptr().unsafe_bitcast[UInt32]()
+                var end = len(self.points) // BUILD_WIDTH * BUILD_WIDTH
+                var subnormal = False
+                for first in range(0, end, BUILD_WIDTH):
+                    var magnitude = words.unsafe_load[width=BUILD_WIDTH](
+                        first
+                    ) & UInt32(0x7FFFFFFF)
+                    if (
+                        magnitude.gt(0) & magnitude.lt(UInt32(0x00800000))
+                    ).reduce_or():
+                        subnormal = True
+                        break
+                if not subnormal:
+                    for first in range(end, len(self.points)):
+                        var magnitude = words.unsafe_load(first) & UInt32(
+                            0x7FFFFFFF
+                        )
+                        subnormal = subnormal or (
+                            magnitude > 0 and magnitude < UInt32(0x00800000)
+                        )
+                if subnormal:
+                    self._pack_triangle_range[update_bounds](0, count)
+                    return
+            var workers = _worker_count(8)
+            var partials = List[AABB[Self.frame]](
+                length=workers * components, fill=AABB[Self.frame].invalid()
+            )
+
+            def pack(
+                task: Int,
+            ) {mut self, mut partials, count, workers, components}:
+                self._pack_triangle_range_with_winding[update_bounds](
+                    count * task // workers,
+                    count * (task + 1) // workers,
+                    Span(partials)[task * components : (task + 1) * components],
+                )
+
+            parallelize(pack, workers, workers)
+            comptime if update_bounds:
+                for component in range(components):
+                    var box = AABB[Self.frame].invalid()
+                    for worker in range(workers):
+                        box = AABB[Self.frame].merge(
+                            box, partials[worker * components + component]
+                        )
+                    self.winding.bvh.item_bounds[component] = box
+        else:
+            self._pack_triangle_range[update_bounds](0, count)
+
+    def _pack_triangle_range[
+        update_bounds: Bool
+    ](mut self, begin: Int, end: Int):
         var has_cache = len(self.packed_triangles) > 0
         comptime if not update_bounds:
             if not has_cache:
@@ -141,7 +210,60 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
                 winding_boxes[unsafe_offset=component] = AABB[
                     Self.frame
                 ].invalid()
-        for face in range(len(self.indices) // 3):
+        for face in range(begin, end):
+            var av = Int(indices.unsafe_load(face * 3)) * 3
+            var bv = Int(indices.unsafe_load(face * 3 + 1)) * 3
+            var cv = Int(indices.unsafe_load(face * 3 + 2)) * 3
+            var a = Point3f32[Self.frame](points.unsafe_offset(av))
+            var b = Point3f32[Self.frame](points.unsafe_offset(bv))
+            var c = Point3f32[Self.frame](points.unsafe_offset(cv))
+            if has_cache:
+                var slot = Int(slots.unsafe_load(face))
+                var block = slot // Self.storage_width
+                var lane = slot % Self.storage_width
+                comptime for corner in range(3):
+                    var vertex = a if corner == 0 else b if corner == 1 else c
+                    comptime for axis in range(3):
+                        packed.unsafe_store(
+                            block * 9 * Self.storage_width
+                            + (corner * 3 + axis) * Self.storage_width
+                            + lane,
+                            vertex[axis],
+                        )
+            comptime if update_bounds:
+                var box = AABB[Self.frame](a, b, c)
+                comptime for axis in range(3):
+                    boxes.unsafe_store(face * 6 + axis, box._min[axis])
+                    boxes.unsafe_store(face * 6 + axis + 3, box._max[axis])
+                if has_cache:
+                    var component = components.unsafe_load(face)
+                    if component != EMPTY_LANE:
+                        winding_boxes[unsafe_offset=Int(component)] = AABB[
+                            Self.frame
+                        ].merge(
+                            winding_boxes[unsafe_offset=Int(component)], box
+                        )
+
+    def _pack_triangle_range_with_winding[
+        update_bounds: Bool
+    ](mut self, begin: Int, end: Int, partials: MutSpan[AABB[Self.frame], _]):
+        var has_cache = len(self.packed_triangles) > 0
+        comptime if not update_bounds:
+            if not has_cache:
+                return
+        var points = self.points.unsafe_ptr()
+        var indices = self.indices.unsafe_ptr()
+        var packed = self.packed_triangles.unsafe_ptr()
+        var boxes = self.bvh.item_bounds.unsafe_ptr().unsafe_bitcast[Float32]()
+        var slots = self.winding.face_slots.unsafe_ptr()
+        var components = self.winding.face_components.unsafe_ptr()
+        var winding_boxes = partials.unsafe_ptr()
+        comptime if update_bounds:
+            for component in range(len(self.winding.bvh.item_bounds)):
+                winding_boxes[unsafe_offset=component] = AABB[
+                    Self.frame
+                ].invalid()
+        for face in range(begin, end):
             var av = Int(indices.unsafe_load(face * 3)) * 3
             var bv = Int(indices.unsafe_load(face * 3 + 1)) * 3
             var cv = Int(indices.unsafe_load(face * 3 + 2)) * 3

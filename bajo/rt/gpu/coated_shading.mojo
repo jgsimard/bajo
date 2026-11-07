@@ -7,6 +7,7 @@ from bajo.bvh.constants import PrimitiveKind
 from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.rt.material_types import Integrator, SurfaceId
 from bajo.rt.render_types import SamplingConfig
+from bajo.rt.gpu.sampling import GpuRtSamplingConfig
 from bajo.rt.wavefront_contract import (
     WAVE_COUNTER,
     load_device_wave_shade,
@@ -51,9 +52,10 @@ def gpu_rt_coated_shade_kernel[
 ](
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
-    sampling: SamplingConfig,
+    sampling_arg: GpuRtSamplingConfig,
     bounce: UInt32,
 ):
+    var sampling = sampling_arg.load()
     var capacity = Int(queues.capacity)
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
     var fields = queues.shade_fields.unsafe_mut_cast[
@@ -155,7 +157,7 @@ def enqueue_coated_shading[
     materials: GpuRtMaterials,
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
-    sampling: SamplingConfig,
+    sampling: GpuRtSamplingConfig,
     bounce: UInt32,
 ) raises:
     if not materials.stages.coated_diffuse:

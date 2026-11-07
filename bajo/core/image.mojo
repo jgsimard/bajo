@@ -1,10 +1,11 @@
 """Pixel addressing, RGB sampling and bulk color-image conversion."""
 
 from max.algorithm import parallelize
+from std.builtin.globals import global_constant
 from std.math import ceildiv, floor
 from std.sys import num_logical_cores, simd_width_of
 from bajo.core import Vec3
-from bajo.core.color import srgb_u8_table, luminance
+from bajo.core.color import _SRGB_U8_VALUES, luminance
 from bajo.core.tensor_layout import RecordTile, gather_record_vec3, record_tile
 
 comptime SRGB_SIMD_WIDTH = simd_width_of[Float32]()
@@ -15,7 +16,7 @@ def linearize_srgb_u8[
     channels_per_task: Int = SRGB_CHANNELS_PER_TASK
 ](encoded: List[UInt8]) -> List[Float32]:
     """Convert exact u8 sRGB values with threaded native-width SIMD gathers."""
-    var table = srgb_u8_table()
+    ref table = global_constant[_SRGB_U8_VALUES]()
     var pixels = List[Float32](unsafe_uninit_length=len(encoded))
     var vector_end = len(encoded) - len(encoded) % SRGB_SIMD_WIDTH
     var vector_count = vector_end // SRGB_SIMD_WIDTH

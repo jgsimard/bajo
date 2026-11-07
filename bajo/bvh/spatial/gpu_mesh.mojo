@@ -16,6 +16,7 @@ from .parallel_refit import (
     refit_mesh_chunks_kernel,
     publish_mesh_chunk_parents_kernel,
 )
+from bajo.gpu.buffers import _download_u32
 from bajo.gpu.buffers import (
     _copy_staging_slice,
     _device_span,
@@ -374,10 +375,9 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         )
 
     def check_update(self, ctx: DeviceContext) raises:
-        ctx.synchronize()
-        with self.update_status.map_to_host() as status:
-            if status[0] != 0:
-                raise Error("Device mesh update rejected nonfinite data")
+        var status = _download_u32(ctx, self.update_status)
+        if status[0] != 0:
+            raise Error("Device mesh update rejected nonfinite data")
 
     def refit_device(
         self, ctx: DeviceContext, points: DeviceBuffer[.float32]

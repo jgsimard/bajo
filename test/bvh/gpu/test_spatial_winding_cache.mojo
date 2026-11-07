@@ -7,6 +7,7 @@ from std.testing import (
     assert_true,
 )
 from std.memory import bitcast
+from std.math import cos, sin, pi
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext
 from bajo.core import Point3f32, Vec3f32
@@ -364,6 +365,110 @@ def test_winding_storage_empty_open_mixed_and_disjoint_views() raises:
                         assert_equal(data[i], host.winding.bvh.nodes[i])
             with cache.tree.update_status.map_to_host() as data:
                 assert_equal(data[0], 0)
+
+
+def check_component_hybrid_graph_and_failed_update[side: Int]() raises:
+    var points = List[Point3f32[.WORLD]]()
+    var indices = List[UInt32]()
+    for y in range(side):
+        var v = Float32(y) * (Float32(2 * pi) / Float32(side))
+        for x in range(side):
+            var u = Float32(x) * (Float32(2 * pi) / Float32(side))
+            var radius = Float32(1) + Float32(0.25) * cos(v)
+            points.append(
+                Point3f32[.WORLD](
+                    radius * cos(u), radius * sin(u), Float32(0.25) * sin(v)
+                )
+            )
+            var a = UInt32(y * side + x)
+            var b = UInt32(y * side + (x + 1) % side)
+            var c = UInt32(((y + 1) % side) * side + x)
+            var d = UInt32(((y + 1) % side) * side + (x + 1) % side)
+            indices.extend([a, b, c, b, d, c])
+    # One large closed component, one tiny component and an open face share
+    # the cache. Both kernels must write disjoint component ranges.
+    append_tetra(points, indices, Point3f32[.WORLD](4, 0, 0), 1)
+    var first = UInt32(len(points))
+    points.extend(
+        [
+            Point3f32[.WORLD](7, 0, 0),
+            Point3f32[.WORLD](8, 0, 0),
+            Point3f32[.WORLD](7, 1, 0),
+        ]
+    )
+    indices.extend([first, first + 1, first + 2])
+    var host = SpatialMesh(points, indices)
+    assert_equal(len(host.winding.bvh.item_bounds), 2)
+    with DeviceContext() as ctx:
+        var gpu = GpuSpatialMesh(ctx, host.copy(), enable_winding=True)
+        assert_equal(
+            len(gpu.winding.value().large_components), 1 if side < 256 else 0
+        )
+        assert_equal(
+            len(gpu.winding.value().tiled_components), 1 if side >= 256 else 0
+        )
+        var input = ctx.enqueue_create_buffer[.float32](len(points) * 3)
+        var graph = gpu.create_update_graph[True](ctx, input)
+        for phase in range(3):
+            for i in range(len(points)):
+                points[i] = points[i] + Vec3f32[.WORLD](0.03, -0.02, 0.01)
+            host.refit(points)
+            with input.map_to_host() as mapped:
+                for i in range(len(points)):
+                    comptime for axis in range(3):
+                        mapped[3 * i + axis] = points[i][axis]
+            if phase == 0:
+                gpu.refit_device(ctx, input)
+            else:
+                graph.replay()
+                gpu.check_update(ctx)
+            with gpu.winding.value().tree.update_items.map_to_host() as actual:
+                for component in range(2):
+                    comptime for axis in range(3):
+                        assert_equal(
+                            bitcast[.uint32](actual[6 * component + axis]),
+                            bitcast[.uint32](
+                                host.winding.bvh.item_bounds[component]._min[
+                                    axis
+                                ]
+                            ),
+                        )
+                        assert_equal(
+                            bitcast[.uint32](actual[6 * component + axis + 3]),
+                            bitcast[.uint32](
+                                host.winding.bvh.item_bounds[component]._max[
+                                    axis
+                                ]
+                            ),
+                        )
+        with input.map_to_host() as mapped:
+            mapped[len(mapped) - 1] = bitcast[.float32](UInt32(0x7FC00000))
+        graph.replay()
+        var rejected = False
+        try:
+            gpu.check_update(ctx)
+        except:
+            rejected = True
+        assert_true(rejected)
+        with gpu.winding.value().tree.update_items.map_to_host() as actual:
+            for component in range(2):
+                comptime for axis in range(3):
+                    assert_equal(
+                        actual[6 * component + axis],
+                        host.winding.bvh.item_bounds[component]._min[axis],
+                    )
+                    assert_equal(
+                        actual[6 * component + axis + 3],
+                        host.winding.bvh.item_bounds[component]._max[axis],
+                    )
+
+
+def test_large_component_hybrid_graph_and_failed_update() raises:
+    check_component_hybrid_graph_and_failed_update[16]()
+
+
+def test_tiled_component_with_tiny_component_graph_and_failed_update() raises:
+    check_component_hybrid_graph_and_failed_update[256]()
 
 
 def run_tests[_discovery: Bool = True]() raises:

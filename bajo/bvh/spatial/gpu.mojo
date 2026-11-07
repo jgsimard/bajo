@@ -12,6 +12,7 @@ from max.gpu.host import (
     DeviceGraph,
     DeviceGraphBuilder,
 )
+from bajo.gpu.buffers import _download_u32
 from bajo.gpu.buffers import upload_list, _device_span, copy_to_device
 from bajo.core import AABB, Frame
 from std.math import ceildiv
@@ -184,10 +185,9 @@ struct GpuSpatialBoundsBvh[frame: Frame = .WORLD]:
         )
 
     def check_update(self, ctx: DeviceContext) raises:
-        ctx.synchronize()
-        with self.update_status.map_to_host() as status:
-            if status[0] != 0:
-                raise Error("Device BVH update rejected invalid bounds")
+        var status = _download_u32(ctx, self.update_status)
+        if status[0] != 0:
+            raise Error("Device BVH update rejected invalid bounds")
 
     def refit_device(
         self, ctx: DeviceContext, boxes: DeviceBuffer[.float32]

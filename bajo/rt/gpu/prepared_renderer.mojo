@@ -4,7 +4,14 @@ from std.time import perf_counter_ns
 from std.memory import bitcast
 from std.reflection import reflect
 from std.builtin.rebind import downcast, rebind
-from max.gpu.host import DeviceContext, DeviceGraph, DeviceGraphBuilder
+from max.gpu.host import (
+    DeviceContext,
+    DeviceGraph,
+    DeviceGraphBuilder,
+    DeviceBuffer,
+    HostBuffer,
+    DeviceEvent,
+)
 
 from bajo.core.camera import Camera
 from bajo.bvh.gpu import GpuBvhBuildMethod
@@ -18,9 +25,11 @@ from bajo.rt.gpu.config import (
 from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import (
     GpuRtRenderTarget,
+    _GpuRtReadback,
     download_gpu_pixels,
     update_gpu_camera,
 )
+from bajo.rt.gpu.preview import GpuRtPreviewAccumulator, GpuRtPreviewResult
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
 from bajo.rt.gpu.views import (
     GpuRtSceneView,
@@ -122,6 +131,13 @@ struct GpuRtPreparedRenderer[
         Self.blas_format,
     ]
     var target: GpuRtRenderTarget
+    var _sample_offset: DeviceBuffer[.uint32]
+    var _sample_staging: HostBuffer[.uint32]
+    var _sample_complete: DeviceEvent
+    var _sample_pending: Bool
+    var _last_offset: UInt32
+    var _readback: Optional[_GpuRtReadback]
+    var _preview: Optional[GpuRtPreviewAccumulator]
     var _render_graph: Optional[DeviceGraph]
     var _graph_arguments: Optional[_RenderGraphArguments]
 
@@ -135,6 +151,8 @@ struct GpuRtPreparedRenderer[
         camera: Camera,
         data: SceneData,
     ) raises:
+        self._readback = Optional[_GpuRtReadback]()
+        self._preview = Optional[GpuRtPreviewAccumulator]()
         self._render_graph = Optional[DeviceGraph]()
         self._graph_arguments = Optional[_RenderGraphArguments]()
         self.ctx = DeviceContext()
@@ -149,6 +167,11 @@ struct GpuRtPreparedRenderer[
             blas_build_method,
         ](self.ctx, data)
         self.target = self.scene.make_render_target(self.ctx, settings, camera)
+        self._sample_offset = self.ctx.enqueue_create_buffer[.uint32](1)
+        self._sample_staging = self.ctx.enqueue_create_host_buffer[.uint32](1)
+        self._sample_complete = self.ctx.create_event()
+        self._sample_pending = False
+        self._last_offset = 0
 
     def invalidate_graph(mut self):
         """Release the retained graph; the next frame uses direct submission."""
@@ -161,9 +184,27 @@ struct GpuRtPreparedRenderer[
         """Submit a frame without a download; repeated configurations replay a graph.
 
         Camera uploads and downstream device operations can use the retained
-        context/target. Captured settings include all sampling and film values.
+        context/target. The sample offset is uploaded separately; other sampling and film
+        values remain part of the graph configuration.
         """
         self.target.validate_compatible(settings)
+        if not self._sample_pending or self._last_offset != UInt32(
+            settings.sample_offset
+        ):
+            if self._sample_pending:
+                self._sample_complete.synchronize()
+            self._sample_staging.as_span()[0] = UInt32(settings.sample_offset)
+            self._sample_staging.enqueue_copy_to(self._sample_offset)
+            self.ctx.stream().record_event(self._sample_complete)
+            self._sample_pending = True
+            self._last_offset = UInt32(settings.sample_offset)
+        var captured_settings = settings.copy()
+        captured_settings.sample_offset = 0
+        var offset = (
+            self._sample_offset.unsafe_ptr()
+            .unsafe_mut_cast[False]()
+            .unsafe_origin_cast[ImmUntrackedOrigin]()
+        )
         var queues = gpu_rt_trace_queue_view(
             self.target.arena,
             self.target.arena.path_a.path_ids,
@@ -175,7 +216,7 @@ struct GpuRtPreparedRenderer[
             0  # The scheduler sets this independently per chunk.
         )
         var arguments = _RenderGraphArguments(
-            settings.copy(),
+            captured_settings.copy(),
             self.scene.view(),
             queues,
             Int(self.target.camera.unsafe_ptr()),
@@ -186,11 +227,15 @@ struct GpuRtPreparedRenderer[
             not self._graph_arguments
             or not self._graph_arguments.value().matches(arguments)
         ):
-            # Changing sample offsets are common in progressive rendering.
-            # Submit a new configuration directly; capture only when reused.
+            # Structural settings and buffer changes still submit directly;
+            # changing only the sample offset reuses the recorded sequence.
             self.invalidate_graph()
             enqueue_render_gpu[integrator](
-                self.ctx, self.target, self.scene, settings
+                self.ctx,
+                self.target,
+                self.scene,
+                captured_settings,
+                Optional(offset),
             )
             self._graph_arguments = arguments^
             return
@@ -203,14 +248,41 @@ struct GpuRtPreparedRenderer[
 
             def record(
                 mut builder: DeviceGraphBuilder,
-            ) raises {mut target, imm scene, settings}:
+            ) raises {mut target, imm scene, captured_settings, offset}:
                 var recording = builder.recording_context()
                 enqueue_render_gpu[integrator](
-                    recording, target, scene, settings
+                    recording,
+                    target,
+                    scene,
+                    captured_settings,
+                    Optional(offset),
                 )
 
             self._render_graph = DeviceGraph.create(ctx, record)
         self._render_graph.value().replay()
+
+    def _prepare_frame(
+        mut self, settings: RenderSettings, camera: Camera
+    ) raises:
+        settings.validate()
+        var resized = (
+            settings.image_width != self.target.image_width
+            or settings.image_height != self.target.image_height
+        )
+        if (
+            settings.image_width != self.target.image_width
+            or settings.image_height != self.target.image_height
+            or settings.samples_per_pixel != self.target.samples_per_pixel
+        ):
+            self.invalidate_graph()
+            if resized:
+                self._readback = Optional[_GpuRtReadback]()
+                self._preview = Optional[GpuRtPreviewAccumulator]()
+            self.target = self.scene.make_render_target(
+                self.ctx, settings, camera
+            )
+        else:
+            update_gpu_camera(self.ctx, self.target, camera)
 
     def render[
         integrator: Integrator,
@@ -222,22 +294,14 @@ struct GpuRtPreparedRenderer[
         """Render while retaining the scene and every compatible allocation."""
         var total_t0 = perf_counter_ns()
         var init_t0 = perf_counter_ns()
-        if (
-            settings.image_width != self.target.image_width
-            or settings.image_height != self.target.image_height
-            or settings.samples_per_pixel != self.target.samples_per_pixel
-        ):
-            self.invalidate_graph()
-            self.target = self.scene.make_render_target(
-                self.ctx, settings, camera
-            )
-        else:
-            update_gpu_camera(self.ctx, self.target, camera)
+        self._prepare_frame(settings, camera)
+        if not self._readback:
+            self._readback = _GpuRtReadback(self.ctx, self.target.pixel_count)
         var init_ns = Int(perf_counter_ns() - init_t0)
 
         var render_t0 = perf_counter_ns()
         self.enqueue[integrator](settings)
-        var pixels = download_gpu_pixels(self.ctx, self.target)
+        var pixels = self._readback.value().download(self.ctx, self.target)
         var render_ns = Int(perf_counter_ns() - render_t0)
         return RenderResult(
             pixels^,
@@ -251,4 +315,40 @@ struct GpuRtPreparedRenderer[
                 * settings.samples_per_pixel,
                 settings.max_depth,
             ),
+        )
+
+    def preview[
+        integrator: Integrator
+    ](
+        mut self, settings: RenderSettings, camera: Camera, generation: UInt64
+    ) raises -> GpuRtPreviewResult:
+        """Render a weighted progressive preview; advance generation on reset.
+
+        Only RGBA is downloaded. Full Float32 output remains available through
+        render(); changed image dimensions clear the retained preview accumulation.
+        """
+        var total_t0 = perf_counter_ns()
+        self._prepare_frame(settings, camera)
+        if not self._preview:
+            self._preview = GpuRtPreviewAccumulator(
+                self.ctx, self.target.pixel_count
+            )
+        var init_ns = Int(perf_counter_ns() - total_t0)
+        var render_t0 = perf_counter_ns()
+        self.enqueue[integrator](settings)
+        var rgba = self._preview.value().add(
+            self.ctx, self.target, generation, settings.samples_per_pixel
+        )
+        return GpuRtPreviewResult(
+            rgba^,
+            RenderTimings(
+                Int(perf_counter_ns() - total_t0),
+                init_ns,
+                Int(perf_counter_ns() - render_t0),
+                self.target.pixel_count,
+                self.target.sample_count,
+                settings.max_depth,
+            ),
+            self._preview.value().samples,
+            self._preview.value().batches,
         )

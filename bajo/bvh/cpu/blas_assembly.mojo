@@ -1,5 +1,7 @@
 """Primitive-independent sizing and assembly of packed CPU BLAS storage."""
 
+from max.algorithm import parallelize
+from bajo.bvh.cpu.parallel import _worker_count
 from bajo.bvh.constants import PrimitiveKind
 from bajo.bvh.cpu.blas_storage import CpuBlasSet
 from bajo.bvh.types import BlasDesc, BlasDescLayout
@@ -38,6 +40,9 @@ def _assemble_exact_blases[
         "CPU BLAS packed offsets exceed UInt32",
     )
 
+    if len(built) > 1 and node_count + leaf_count >= 262144:
+        return _assemble_exact_blases_parallel(built)
+
     var descs = List[UInt32](length=len(built) * BlasDescLayout.STRIDE, fill=0)
     var nodes = List[Float32](unsafe_uninit_length=node_count)
     var leaves = List[Float32](unsafe_uninit_length=leaf_count)
@@ -59,6 +64,58 @@ def _assemble_exact_blases[
         desc.store(descs.unsafe_ptr(), blas_idx)
         node_base += len(local.nodes)
         leaf_base += len(local.leaves)
+
+    return CpuBlasSet[kind, node_width, leaf_width](
+        descs^, nodes^, leaves^, len(built)
+    )
+
+
+def _assemble_exact_blases_parallel[
+    kind: PrimitiveKind,
+    node_width: SIMDLength,
+    leaf_width: SIMDLength,
+](
+    built: ImmSpan[CpuBlasSet[kind, node_width, leaf_width], _],
+) -> CpuBlasSet[
+    kind, node_width, leaf_width
+]:
+    """Concatenate private BLAS buffers and relocate their descriptor bases."""
+    var node_count = 0
+    var leaf_count = 0
+    var node_bases = List[Int](capacity=len(built))
+    var leaf_bases = List[Int](capacity=len(built))
+    for blas_idx in range(len(built)):
+        node_bases.append(node_count)
+        leaf_bases.append(leaf_count)
+        node_count += len(built[blas_idx].nodes)
+        leaf_count += len(built[blas_idx].leaves)
+    debug_assert["safe", _use_compiler_assume=True](
+        node_count <= _U32_MAX_AS_INT and leaf_count <= _U32_MAX_AS_INT,
+        "CPU BLAS packed offsets exceed UInt32",
+    )
+
+    var descs = List[UInt32](length=len(built) * BlasDescLayout.STRIDE, fill=0)
+    var nodes = List[Float32](unsafe_uninit_length=node_count)
+    var leaves = List[Float32](unsafe_uninit_length=leaf_count)
+
+    def copy_blas(blas_idx: Int) {imm, mut descs, mut nodes, mut leaves}:
+        var node_base = node_bases[blas_idx]
+        var leaf_base = leaf_bases[blas_idx]
+        ref local = built[blas_idx]
+        var desc = BlasDesc.load(local.descs.unsafe_ptr(), UInt32(0))
+        if len(local.nodes) > 0:
+            Span(nodes)[node_base : node_base + len(local.nodes)].copy_from(
+                ImmSpan(local.nodes)
+            )
+        if len(local.leaves) > 0:
+            Span(leaves)[leaf_base : leaf_base + len(local.leaves)].copy_from(
+                ImmSpan(local.leaves)
+            )
+        desc.node_f32_base = UInt32(node_base)
+        desc.leaf_f32_base = UInt32(leaf_base)
+        desc.store(descs.unsafe_ptr(), blas_idx)
+
+    parallelize(copy_blas, len(built), _worker_count(min(8, len(built))))
 
     return CpuBlasSet[kind, node_width, leaf_width](
         descs^, nodes^, leaves^, len(built)

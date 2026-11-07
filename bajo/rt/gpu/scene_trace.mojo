@@ -30,6 +30,7 @@ from bajo.rt.lighting import _emissive_hit_weight_from_pdf
 from bajo.rt.rays import make_ao_ray
 from bajo.core.color import Color, luminance
 from bajo.rt.render_types import SamplingConfig
+from bajo.rt.gpu.sampling import GpuRtSamplingConfig
 from bajo.core.optics import medium_transmittance
 from bajo.rt.material_types import (
     NO_TEXTURE,
@@ -655,8 +656,9 @@ def gpu_rt_primary_scene_trace_kernel[
     width_i32: Int32,
     height_i32: Int32,
     samples_per_pixel_i32: Int32,
-    sampling: SamplingConfig,
+    sampling_arg: GpuRtSamplingConfig,
 ):
+    var sampling = sampling_arg.load()
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
     var active_count = Int(counters[unsafe_offset=WAVE_COUNTER.ACTIVE])
     var idx = global_idx.x
@@ -707,9 +709,10 @@ def gpu_rt_scene_trace_kernel[
 ](
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
-    sampling: SamplingConfig,
+    sampling_arg: GpuRtSamplingConfig,
     bounce: UInt32,
 ):
+    var sampling = sampling_arg.load()
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
     var active_count = Int(counters[unsafe_offset=WAVE_COUNTER.ACTIVE])
     var idx = global_idx.x

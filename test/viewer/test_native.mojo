@@ -20,6 +20,8 @@ from bajo.viewer.raster import (
 from bajo.viewer.native import rotate_camera
 from bajo.viewer.debug import object_boxes
 from bajo.viewer.worker import RenderWorker
+from bajo.rt.cpu import render_wavefront
+from std.memory import bitcast
 
 
 def test_raster_camera_and_mirrored_instance_keep_scene_coordinates() raises:
@@ -188,6 +190,50 @@ def test_worker_publishes_frames_bounds_and_reuses_cpu_scene() raises:
         nodes,
     )
     worker.acknowledge()
+
+
+def test_worker_notification_and_retained_queues_across_batches() raises:
+    var scene = ViewerScene(load_viewer_scene(1))
+    var camera = scene.state.camera
+    var settings = scene.state.settings.copy()
+    settings.image_width = 8
+    settings.image_height = 6
+    settings.samples_per_pixel = 2
+    settings.sample_sequence_length = 32
+    settings.max_depth = 3
+    var worker = RenderWorker(scene^)
+    var queue_low = Int(0)
+    var queue_high = Int(0)
+    for batch in range(8):
+        settings.sample_offset = batch * 2
+        worker.submit(camera, settings, UInt64(batch), 0, 0, True, False)
+        _wait(worker)
+        assert_equal(worker.state[].error, String(""))
+        var result = worker.state[].result.take()
+        var expected = render_wavefront[.PATH](
+            settings, camera, worker.state[].scene.cpu_scene()
+        )
+        for i in range(len(result.pixels)):
+            comptime for channel in range(3):
+                assert_equal(
+                    bitcast[.uint32](result.pixels[i][channel]),
+                    bitcast[.uint32](expected.pixels[i][channel]),
+                )
+        ref arena = worker.state[].cpu_path.arenas[0]
+        var active = Int(arena.active_paths.packets.unsafe_ptr())
+        var next = Int(arena.next_paths.packets.unsafe_ptr())
+        if batch:
+            assert_equal(min(active, next), queue_low)
+            assert_equal(max(active, next), queue_high)
+        queue_low = min(active, next)
+        queue_high = max(active, next)
+        worker.acknowledge()
+        _ = external_call["usleep", c_int](UInt32(1000))
+    # Destruction must also wake an idle worker and join one with pending work.
+    for pending in [False, True]:
+        var another = RenderWorker(ViewerScene(load_viewer_scene(1)))
+        if pending:
+            another.submit(camera, settings, 0, 0, 0, True, False)
 
 
 def run_tests[_discovery: Bool = True]() raises:

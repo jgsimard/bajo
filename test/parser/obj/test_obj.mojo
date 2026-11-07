@@ -269,6 +269,36 @@ def test_decimal_exponent_work_is_bounded() raises:
     _assert_obj_parse_error("v 1e999999999999999999999 0 0")
 
 
+def test_fast_scientific_numbers_preserve_bits_and_consumption() raises:
+    for mantissa in [
+        "0",
+        "-0",
+        "+1",
+        ".5",
+        "123456789012345",
+        "1234567890123456",
+        "-0.123456789012345678901234",
+        "123.456789",
+    ]:
+        for marker in ["e", "E"]:
+            for exponent in [-308, -40, -3, 0, 3, 38, 308]:
+                _assert_fast_decimal_matches_reference(
+                    mantissa + marker + String(exponent) + " suffix"
+                )
+    for text in ["1e", "1e+", "1e-", "1e309", "1e999999999999999999999"]:
+        with assert_raises():
+            _ = parse_f32_fast_at(StringSpan(text).as_bytes(), 0)
+    var state = UInt64(817)
+    for _ in range(20000):
+        state = state * UInt64(6364136223846793005) + 1
+        var whole = Int(state % 1000000)
+        var fraction = Int(state % 1000000000000000000)
+        var exponent = Int(state % 617) - 308
+        _assert_fast_decimal_matches_reference(
+            String(t"-{whole}.{fraction}e{exponent} ")
+        )
+
+
 def _assert_fast_decimal_matches_reference(text: String) raises:
     var bytes = StringSpan(text).as_bytes()
     var expected = parse_f32_at(bytes, 0)

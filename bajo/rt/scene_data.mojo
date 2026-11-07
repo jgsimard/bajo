@@ -1,6 +1,9 @@
 """Validated backend-neutral scene construction and ownership."""
 
+from max.algorithm import parallelize
+
 from std.math import pi
+from std.sys import simd_width_of
 from std.utils.numerics import isfinite
 
 from bajo.core import AABB, Affine3f32, Point3f32
@@ -656,7 +659,20 @@ struct SceneData:
                 raise Error("image texture dimensions must be positive")
             if len(texture.pixels) != 3 * texture.width * texture.height:
                 raise Error("image texture RGB storage has an invalid length")
-            for channel in texture.pixels:
+            comptime width = simd_width_of[Float32]()
+            var end = len(texture.pixels) // width * width
+            for first in range(0, end, width):
+                var channels = (
+                    texture.pixels.unsafe_ptr()
+                    .unsafe_offset(first)
+                    .unsafe_load[width=width, alignment=1]()
+                )
+                if not (isfinite(channels) & channels.ge(0.0)).reduce_and():
+                    raise Error(
+                        "image texture channels must be finite and non-negative"
+                    )
+            for first in range(end, len(texture.pixels)):
+                var channel = texture.pixels[first]
                 if not isfinite(channel) or channel < 0.0:
                     raise Error(
                         "image texture channels must be finite and non-negative"
@@ -714,6 +730,61 @@ struct SceneData:
         if not isfinite(self._environment_weight):
             raise Error("environment light weight must be finite")
 
+    def _prepare_instance_light_records(self) -> List[LightRecord]:
+        var count = len(self.triangle_instances())
+        var work = List[Int]()
+        var offsets = List[Int]()
+        offsets.append(0)
+        for i in range(count):
+            if self.triangle_instance_surfaces()[i].kind() == .EMISSIVE:
+                work.append(i)
+                offsets.append(
+                    offsets[len(offsets) - 1]
+                    + len(
+                        self.triangle_meshes()[
+                            Int(self.triangle_instances()[i].blas_idx)
+                        ]
+                    )
+                    // 3
+                )
+        count = len(work)
+        var records = List[LightRecord](unsafe_uninit_length=offsets[count])
+
+        def prepare(task: Int) {imm, mut records}:
+            var i = work[task]
+            if offsets[task] == offsets[task + 1]:
+                return
+            ref surface = self.triangle_instance_surfaces()[i]
+            var radiance = (
+                self.surfaces().emissives[Int(surface.index())].radiance
+            )
+            ref instance = self.triangle_instances()[i]
+            ref vertices = self.triangle_meshes()[Int(instance.blas_idx)]
+            var reverse = instance.transform.reverses_orientation()[0]
+            for triangle in range(offsets[task + 1] - offsets[task]):
+                var p0 = instance.transform.point(vertices[3 * triangle])
+                var p1 = instance.transform.point(vertices[3 * triangle + 1])
+                var p2 = instance.transform.point(vertices[3 * triangle + 2])
+                if reverse:
+                    swap(p1, p2)
+                var weight = triangle_area(p0, p1, p2) * _light_importance(
+                    radiance
+                )
+                records[offsets[task] + triangle] = LightRecord.triangle(
+                    PrimitiveId(PrimitiveKind.TRIANGLE_INSTANCE, UInt32(i)),
+                    surface,
+                    weight,
+                    p0,
+                    p1,
+                    p2,
+                )
+
+        if count > 1:
+            parallelize(prepare, count, min(8, count))
+        elif count:
+            prepare(0)
+        return records^
+
     def _build_light_store(mut self) raises:
         for idx, surface in enumerate(self._triangle_surfaces):
             if surface.kind() == .EMISSIVE:
@@ -761,6 +832,37 @@ struct SceneData:
                             radius,
                         )
                     )
+
+        if (
+            len(self._triangle_instances) > 1
+            and len(self._surfaces.emissives) > 0
+        ):
+            var instances = 0
+            var triangles = 0
+            for i in range(len(self._triangle_instances)):
+                if self._triangle_instance_surfaces[i].kind() == .EMISSIVE:
+                    instances += 1
+                    triangles += (
+                        len(
+                            self._triangle_meshes[
+                                Int(self._triangle_instances[i].blas_idx)
+                            ]
+                        )
+                        // 3
+                    )
+            if instances > 1 and triangles >= 4096:
+                var records = self._prepare_instance_light_records()
+                self._lights.records.reserve(
+                    len(self._lights.records) + len(records)
+                )
+                for record in records:
+                    if not isfinite(record.weight):
+                        raise Error(
+                            "triangle instance light weight must be finite"
+                        )
+                    if record.weight > 0.0:
+                        self._append_light(record.copy())
+                return
 
         for instance_idx, surface in enumerate(
             self._triangle_instance_surfaces

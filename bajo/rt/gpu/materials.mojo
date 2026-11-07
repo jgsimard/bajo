@@ -56,6 +56,27 @@ def _flatten_texture_pixels(world: SceneData) -> List[Float32]:
     return out^
 
 
+def _upload_texture_pixels(
+    mut ctx: DeviceContext, world: SceneData
+) raises -> DeviceBuffer[.float32]:
+    var count = 0
+    for index in range(len(world.surfaces().image_textures)):
+        count += len(world.surfaces().image_textures[index].pixels)
+    if count == 0:
+        return _upload_nonempty(ctx, List[Float32]())
+    var staging = ctx.enqueue_create_host_buffer[.float32](count)
+    var target = ctx.enqueue_create_buffer[.float32](count)
+    var first = 0
+    for index in range(len(world.surfaces().image_textures)):
+        ref image = world.surfaces().image_textures[index]
+        staging.as_span()[first : first + len(image.pixels)].copy_from(
+            image.pixels
+        )
+        first += len(image.pixels)
+    staging.enqueue_copy_to(target)
+    return target^
+
+
 def _flatten_metals(world: SceneData) -> List[Float32]:
     var out = List[Float32](
         length=len(world.surfaces().metals) * GpuMetalLayout.STRIDE, fill=0.0
@@ -185,9 +206,7 @@ struct GpuRtMaterials:
         self.texture_descs = _upload_nonempty(
             ctx, _flatten_texture_descs(world)
         )
-        self.texture_pixels = _upload_nonempty(
-            ctx, _flatten_texture_pixels(world)
-        )
+        self.texture_pixels = _upload_texture_pixels(ctx, world)
         self.mix_surfaces = _upload_nonempty(ctx, world.surfaces().mix_surfaces)
         self.mix_amounts = _upload_nonempty(ctx, world.surfaces().mix_amounts)
         self.mix_texture_indices = _upload_nonempty(

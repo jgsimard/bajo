@@ -140,6 +140,79 @@ def _undo_average_four(raw: MutSpan[UInt8, _], first_row: Int, width: Int):
         _average_diagonal[False](raw, first_row, width, diagonal, left)
 
 
+@always_inline
+def _paeth_diagonal[
+    steady: Bool
+](
+    raw: MutSpan[UInt8, _],
+    first_row: Int,
+    width: Int,
+    diagonal: Int,
+    mut left: SIMD[.int16, 16],
+    mut upper_left: SIMD[.int16, 16],
+):
+    var stride = width * 3 + 1
+    var packed = SIMD[.uint32, 4](0)
+    comptime for row in range(4):
+        var x = diagonal - row
+        if steady or (x >= 0 and x < width):
+            packed[row] = (
+                raw.unsafe_ptr()
+                .unsafe_offset((first_row + row) * stride + 1 + x * 3)
+                .unsafe_bitcast[UInt32]()
+                .unsafe_load[alignment=1]()
+            )
+    var above = UInt32(0)
+    if steady or diagonal < width:
+        above = (
+            raw.unsafe_ptr()
+            .unsafe_offset((first_row - 1) * stride + 1 + diagonal * 3)
+            .unsafe_bitcast[UInt32]()
+            .unsafe_load[alignment=1]()
+        )
+    var top = bitcast[.uint8, 16](SIMD[.uint32, 4](above, 0, 0, 0)).cast[
+        .int16
+    ]()
+    # A diagonal makes both left and up available from the previous step.
+    # The four RGB pixels occupy independent four-lane groups (RGB + padding).
+    var up = left.shuffle[16, 17, 18, 19, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11](
+        top
+    )
+    var a = abs(up - upper_left)
+    var b = abs(left - upper_left)
+    var c = abs(left + up - 2 * upper_left)
+    var predictor = (a.le(b) & a.le(c)).select(
+        left, b.le(c).select(up, upper_left)
+    )
+    var value = bitcast[.uint8, 16](packed) + predictor.cast[.uint8]()
+    upper_left = up
+    left = value.cast[.int16]()
+    var output = (bitcast[.uint32, 4](value) & UInt32(0xFFFFFF)) | (
+        packed & UInt32(0xFF000000)
+    )
+    comptime for row in range(4):
+        var x = diagonal - row
+        if steady or (x >= 0 and x < width):
+            raw.unsafe_ptr().unsafe_offset(
+                (first_row + row) * stride + 1 + x * 3
+            ).unsafe_bitcast[UInt32]().unsafe_store[alignment=1](output[row])
+
+
+def _undo_paeth_four(raw: MutSpan[UInt8, _], first_row: Int, width: Int):
+    var left = SIMD[.int16, 16](0)
+    var upper_left = SIMD[.int16, 16](0)
+    for diagonal in range(3):
+        _paeth_diagonal[False](
+            raw, first_row, width, diagonal, left, upper_left
+        )
+    for diagonal in range(3, width):
+        _paeth_diagonal[True](raw, first_row, width, diagonal, left, upper_left)
+    for diagonal in range(width, width + 3):
+        _paeth_diagonal[False](
+            raw, first_row, width, diagonal, left, upper_left
+        )
+
+
 def _unfilter_row(
     row: MutSpan[UInt8, _], above: ImmSpan[UInt8, _], filter: UInt8
 ) raises:
@@ -173,6 +246,16 @@ def _unfilter_rgb(mut raw: List[UInt8], width: Int, height: Int) raises:
                 and raw[offset + 3 * stride] == 3
             ):
                 _undo_average_four(Span(raw), y, width)
+                y += 4
+                continue
+        if width >= 4 and y > 0 and y + 4 <= height:
+            if (
+                raw[offset] == 4
+                and raw[offset + stride] == 4
+                and raw[offset + 2 * stride] == 4
+                and raw[offset + 3 * stride] == 4
+            ):
+                _undo_paeth_four(Span(raw), y, width)
                 y += 4
                 continue
         var row = Span(raw)[offset + 1 : offset + stride]

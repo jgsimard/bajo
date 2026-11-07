@@ -724,6 +724,7 @@ struct _FaceChunk(TrivialRegisterPassable):
     var face_count: Int
     var output_offset: Int
     var output_count: Int
+    var counts_validated: Bool
 
 
 def _common_vertices(header: _Header) -> Bool:
@@ -776,24 +777,31 @@ def _triangle_face_chunks(
         return Optional[List[_FaceChunk]]()
     if header.face_count > (len(bytes) - begin) // 13:
         return Optional[List[_FaceChunk]]()
-    comptime width = min(64, simd_width_of[UInt8]())
-    comptime faces_per_block = width // 16
-    comptime mask = _triangle_count_mask[width]()
-    var end = begin + 13 * header.face_count
-    var pos = begin
-    while end - pos >= width:
-        var block = (
-            bytes.unsafe_ptr()
-            .unsafe_offset(pos)
-            .unsafe_load[width=width, alignment=1]()
-        )
-        if UInt64(pack_bits(block.eq(UInt8(3)))) & mask != mask:
-            return Optional[List[_FaceChunk]]()
-        pos += 13 * faces_per_block
-    while pos < end:
-        if bytes.unsafe_get(pos) != UInt8(3):
-            return Optional[List[_FaceChunk]]()
-        pos += 13
+    # Exact-size triangle payloads can validate count bytes in the decoder.
+    # Variable-length polygons and trailing data retain the structural scan.
+    var counts_validated = (
+        len(bytes) - begin != 13 * header.face_count
+        or header.face_count < header.vertex_count
+    )
+    if counts_validated:
+        comptime width = min(64, simd_width_of[UInt8]())
+        comptime faces_per_block = width // 16
+        comptime mask = _triangle_count_mask[width]()
+        var end = begin + 13 * header.face_count
+        var pos = begin
+        while end - pos >= width:
+            var block = (
+                bytes.unsafe_ptr()
+                .unsafe_offset(pos)
+                .unsafe_load[width=width, alignment=1]()
+            )
+            if UInt64(pack_bits(block.eq(UInt8(3)))) & mask != mask:
+                return Optional[List[_FaceChunk]]()
+            pos += 13 * faces_per_block
+        while pos < end:
+            if bytes.unsafe_get(pos) != UInt8(3):
+                return Optional[List[_FaceChunk]]()
+            pos += 13
     var chunks = List[_FaceChunk](capacity=ceildiv(header.face_count, 4096))
     for face in range(0, header.face_count, 4096):
         var count = min(4096, header.face_count - face)
@@ -804,12 +812,15 @@ def _triangle_face_chunks(
                 count,
                 3 * face,
                 3 * count,
+                counts_validated,
             )
         )
     return Optional(chunks^)
 
 
-def _emit_triangles(
+def _emit_triangles[
+    validate_counts: Bool = True
+](
     bytes: ImmSpan[UInt8, _], output: MutSpan[UInt32, _], vertex_count: Int
 ) raises:
     comptime width = min(64, simd_width_of[UInt8]())
@@ -827,6 +838,10 @@ def _emit_triangles(
             .unsafe_offset(pos)
             .unsafe_load[width=width, alignment=1]()
         )
+        comptime if validate_counts:
+            comptime count_mask = _triangle_count_mask[width]()
+            if UInt64(pack_bits(block.eq(UInt8(3)))) & count_mask != count_mask:
+                raise Error("PLY triangle count mismatch")
         var indices = bitcast[.uint32, lanes](block.shuffle[permutation](zero))
         if not indices.lt(limit).reduce_and():
             raise Error("PLY face index is out of range")
@@ -839,6 +854,9 @@ def _emit_triangles(
         pos += 13 * faces_per_block
         write += 3 * faces_per_block
     while pos < len(bytes):
+        comptime if validate_counts:
+            if bytes.unsafe_get(pos) != UInt8(3):
+                raise Error("PLY triangle count mismatch")
         for corner in range(3):
             var index = (
                 bytes.unsafe_ptr()
@@ -905,7 +923,9 @@ def _face_chunks(
                 raise Error("PLY faces require at least three vertices")
             output_count += 3 * (polygon_count - 2)
         chunks.append(
-            _FaceChunk(start, cursor.pos, end - begin, total, output_count)
+            _FaceChunk(
+                start, cursor.pos, end - begin, total, output_count, True
+            )
         )
         total += output_count
     return chunks^
@@ -922,9 +942,14 @@ def _emit_faces(
         and chunk.output_count == 3 * chunk.face_count
         and chunk.end - chunk.begin == 13 * chunk.face_count
     ):
-        _emit_triangles(
-            bytes[chunk.begin : chunk.end], output, header.vertex_count
-        )
+        if chunk.counts_validated:
+            _emit_triangles[False](
+                bytes[chunk.begin : chunk.end], output, header.vertex_count
+            )
+        else:
+            _emit_triangles[True](
+                bytes[chunk.begin : chunk.end], output, header.vertex_count
+            )
         return
     # Limit each cursor and output span to its chunk, including malformed input.
     var cursor = _BinaryCursor(bytes[chunk.begin : chunk.end], 0)

@@ -687,9 +687,16 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
         Temporary builder storage is allowed. Item count and groups stay fixed.
         Iterators must be discarded before any update or rebuild.
         """
-        _ = self._validate_update(boxes)
-        var fresh = Self(boxes, self.groups)
-        debug_assert["safe"](len(fresh.nodes) == len(self.nodes))
-        Span(self.nodes).copy_from(Span(fresh.nodes))
-        Span(self.bounds).copy_from(Span(fresh.bounds))
-        Span(self.item_bounds).copy_from(Span(fresh.item_bounds))
+        var precise = self._validate_update(boxes)
+        var items = List[BoundsItem[Self.frame]](capacity=len(boxes))
+        for i in range(len(boxes)):
+            items.append(BoundsItem(boxes[i], UInt32(i)))
+        var group_index = Dict[UInt32, Int]()
+        for i in range(len(self.group_ids)):
+            group_index[self.group_ids[i]] = i
+        Span(self.item_bounds).copy_from(boxes)
+        self.group_roots.clear()
+        if precise:
+            self._build_all_trees[True](items, group_index)
+        else:
+            self._build_all_trees[False](items, group_index)

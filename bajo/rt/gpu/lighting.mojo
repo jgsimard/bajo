@@ -7,7 +7,6 @@ from std.memory import bitcast
 from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.bvh.constants import PrimitiveKind
 from bajo.core import Point3f32, Rayf32, Vec3f32, dot, normalize
-from bajo.core.tensor_layout import record_tile
 from bajo.core.random import random_unit_vector
 from bajo.core.mappings import equal_area_square_to_sphere
 from bajo.rt.common import path_stage_rng, path_stage_seed, sky_color

@@ -134,12 +134,9 @@ def sample_environment_texture[
 
 @always_inline
 def sample_image_texture_bilinear[
-    mut: Bool,
-    origin: Origin[mut=mut],
-    //,
     length: SIMDLength,
 ](
-    pixels: RecordTile[.float32, 3, origin],
+    pixels: RecordTile[.float32, 3, _],
     width: Int,
     height: Int,
     u: SIMD[.float32, length],
@@ -172,12 +169,9 @@ def sample_image_texture_bilinear[
 
 @always_inline
 def sample_scalar_texture_bilinear[
-    mut: Bool,
-    origin: Origin[mut=mut],
-    //,
     length: SIMDLength,
 ](
-    pixels: RecordTile[.float32, 1, origin],
+    pixels: RecordTile[.float32, 1, _],
     width: Int,
     height: Int,
     u: SIMD[.float32, length],

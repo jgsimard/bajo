@@ -8,14 +8,16 @@ from bajo.rt.scene_data import SceneData
 from bajo.rt.gpu.opacity_tables import GpuOpacityTables
 from bajo.rt.gpu.emission import GpuEmissionTables
 from bajo.rt.gpu.spectra import GpuMaterialSpectra
-from bajo.rt.gpu.texture_storage import TextureUploadPlan, plan_texture_upload
+from bajo.rt.gpu.texture_storage import (
+    plan_texture_upload,
+    upload_texture_pixels,
+)
 from bajo.rt.gpu.upload import _upload_nonempty
 from bajo.rt.gpu.material_layout import (
     GpuRgbMaterialLayout,
     GpuDielectricLayout,
     GpuMetalLayout,
     GpuCoatedDiffuseLayout,
-    GpuTextureDescLayout,
 )
 
 
@@ -30,59 +32,6 @@ def _flatten_lambertians(world: SceneData) -> List[Float32]:
 
 def _flatten_lambertian_texture_indices(world: SceneData) -> List[UInt32]:
     return [material.texture_index for material in world.surfaces().lambertians]
-
-
-def _flatten_texture_descs(world: SceneData) -> List[UInt32]:
-    var out = List[UInt32](
-        length=len(world.surfaces().image_textures)
-        * GpuTextureDescLayout.STRIDE,
-        fill=0,
-    )
-    var pixel_offset = UInt32(0)
-    for texture_idx in range(len(world.surfaces().image_textures)):
-        ref texture = world.surfaces().image_textures[texture_idx]
-        var base = texture_idx * GpuTextureDescLayout.STRIDE
-        out[base + GpuTextureDescLayout.PIXEL_OFFSET] = pixel_offset
-        out[base + GpuTextureDescLayout.WIDTH] = UInt32(texture.width)
-        out[base + GpuTextureDescLayout.HEIGHT] = UInt32(texture.height)
-        pixel_offset += UInt32(len(texture.pixels))
-    return out^
-
-
-def _flatten_texture_pixels(world: SceneData) -> List[Float32]:
-    var count = 0
-    for texture_idx in range(len(world.surfaces().image_textures)):
-        count += len(world.surfaces().image_textures[texture_idx].pixels)
-    var out = List[Float32](capacity=count)
-    for texture_idx in range(len(world.surfaces().image_textures)):
-        ref texture = world.surfaces().image_textures[texture_idx]
-        out.extend(Span(texture.pixels))
-    return out^
-
-
-def _upload_texture_pixels(
-    mut ctx: DeviceContext, world: SceneData, plan: TextureUploadPlan
-) raises -> DeviceBuffer[.float32]:
-    if plan.word_count == 0:
-        return _upload_nonempty(ctx, List[Float32]())
-    var staging = ctx.enqueue_create_host_buffer[.float32](plan.word_count)
-    var target = ctx.enqueue_create_buffer[.float32](plan.word_count)
-    for index in range(len(world.surfaces().image_textures)):
-        var base = index * GpuTextureDescLayout.STRIDE
-        var first = Int(
-            plan.descriptors[base + GpuTextureDescLayout.PIXEL_OFFSET]
-        )
-        if (
-            plan.descriptors[base + GpuTextureDescLayout.FORMAT]
-            == GpuTextureDescLayout.RGB_F32
-        ):
-            ref pixels = world.surfaces().image_textures[index].pixels
-            staging.as_span()[first : first + len(pixels)].copy_from(pixels)
-        else:
-            ref words = plan.packed_images[index]
-            staging.as_span()[first : first + len(words)].copy_from(words)
-    staging.enqueue_copy_to(target)
-    return target^
 
 
 def _flatten_metals(world: SceneData) -> List[Float32]:
@@ -219,7 +168,9 @@ struct GpuRtMaterials:
         )
         var textures = plan_texture_upload(world.surfaces())
         self.texture_descs = _upload_nonempty(ctx, textures.descriptors)
-        self.texture_pixels = _upload_texture_pixels(ctx, world, textures)
+        self.texture_pixels = upload_texture_pixels(
+            ctx, world.surfaces(), textures
+        )
         var normal_keys = List[UInt32]()
         for entry in world.surfaces().normal_maps.items():
             normal_keys.append(entry.key)

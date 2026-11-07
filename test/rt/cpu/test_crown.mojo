@@ -19,10 +19,9 @@ from bajo.core.optics import medium_transmittance
 from bajo.rt.material_types import ImageTexture
 from bajo.rt.material_storage import pack_coated_materials
 from bajo.rt.shading import _sample_dielectric
+from bajo.rt.gpu.texture_storage import pack_texture_tables
 from bajo.rt.gpu.materials import (
     _flatten_coated_diffuse_texture_indices,
-    _flatten_texture_descs,
-    _flatten_texture_pixels,
     _flatten_dielectrics,
 )
 from bajo.rt.gpu.textures import (
@@ -140,8 +139,9 @@ def test_gpu_texture_and_bump_adapters_match_cpu() raises:
     var world = builder^.finish()
     var records = pack_coated_materials[False](world.surfaces())
     var indices = _flatten_coated_diffuse_texture_indices(world)
-    var descs = _flatten_texture_descs(world)
-    var pixels = _flatten_texture_pixels(world)
+    var textures = pack_texture_tables(world.surfaces())
+    ref descs = textures.descriptors
+    ref pixels = textures.words
     var data = _flatten_dielectrics(world)
     for u in [0.1, 0.6]:
         var gpu = _sample_gpu_coated_parameters(

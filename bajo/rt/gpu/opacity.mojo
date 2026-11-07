@@ -1,7 +1,7 @@
 """GPU opacity evaluation and filtered primitive/TLAS traversal."""
 
-from std.math import acos, atan2, min, pi, sqrt
-from bajo.core import Affine3f32, GeoKind, Point3f32, Rayf32, Vec3f32, dot
+from std.math import min, sqrt
+from bajo.core import Affine3f32, GeoKind, Point3f32, Rayf32, dot
 from bajo.core.tensor_layout import record_tile
 from bajo.bvh.constants import EMPTY_LANE, SPHERE_LEAF_PACKED_STRIDE, TraceMode
 from bajo.bvh.filter import TriangleHitFilter
@@ -20,8 +20,12 @@ from bajo.rt.gpu.views import (
     GpuRtSphereView,
 )
 from bajo.rt.material_types import NO_TEXTURE, PrimitiveId
-from bajo.rt.opacity import opacity_accepts, opacity_ray_sample
-from bajo.rt.texture_math import sample_scalar_texture_bilinear
+from bajo.rt.opacity import (
+    opacity_accepts,
+    opacity_ray_sample,
+    opacity_sphere_uv,
+)
+from bajo.core.image import sample_scalar_texture_bilinear
 
 
 @always_inline
@@ -249,14 +253,13 @@ def _opacity_sphere_leaf[
                 ]
                 > 0.0 else -normal
             )
-            var phi = atan2(signed_normal.y, signed_normal.x)
-            if phi < 0.0:
-                phi += Float32(2.0 * pi)
-            var u = phi / Float32(2.0 * pi)
-            var v = acos(signed_normal.z.clamp(-1.0, 1.0)) / Float32(pi)
+            var uv = opacity_sphere_uv(signed_normal)
             if not opacity_accepts(
                 gpu_opacity_value(
-                    state.opacity, PrimitiveId(.SPHERE, primitive).value, u, v
+                    state.opacity,
+                    PrimitiveId(.SPHERE, primitive).value,
+                    uv[0],
+                    uv[1],
                 ),
                 state.sample,
             ):

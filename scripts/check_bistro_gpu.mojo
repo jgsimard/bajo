@@ -17,7 +17,6 @@ from bajo.rt.image_output import write_linear_rgb
 from bajo.rt.material_storage import TextureDescLayout
 from bajo.rt.gpu import (
     prepare_gpu_scene,
-    GpuRtRenderTarget,
     enqueue_render_gpu,
     download_gpu_pixels,
 )

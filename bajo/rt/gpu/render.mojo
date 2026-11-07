@@ -29,7 +29,6 @@ from bajo.rt.render_types import (
     RenderResult,
     RenderSettings,
     RenderTimings,
-    SamplingConfig,
 )
 from bajo.rt.gpu.sampling import GpuRtSamplingConfig
 from bajo.rt.material_types import Integrator

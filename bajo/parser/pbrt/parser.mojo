@@ -21,6 +21,7 @@ from bajo.core.color import Color
 from bajo.rt.render_types import RenderSettings
 from bajo.core.image import ImageTexture
 from bajo.rt.material_types import (
+    PrimitiveId,
     Environment,
     Integrator,
     NO_TEXTURE,
@@ -30,8 +31,6 @@ from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.media import SceneMedia
 from bajo.rt.opacity import Opacity
 from bajo.rt.emission import AreaEmitter
-from bajo.rt.material_types import PrimitiveId
-from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.film import FilmResponse
 from bajo.rt.filter import ReconstructionFilter
 from bajo.rt.scene_description import SceneDescription

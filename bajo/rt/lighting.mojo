@@ -5,7 +5,7 @@ from bajo.core.sampling import power_heuristic
 from std.math import abs, sqrt
 from bajo.core.geometry import sample_triangle_surface, sample_sphere_surface
 
-from bajo.core import Point3, Vec3, cross, dot, length2, normalize
+from bajo.core import Point3, Vec3, dot, length2, normalize
 from bajo.rt.rays import RT_RAY_T_MIN, RT_SHADOW_END_OFFSET
 from bajo.rt.material_types import Integrator
 from bajo.rt.lighting_types import _light_importance

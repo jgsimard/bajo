@@ -4,8 +4,10 @@ from max.gpu import global_idx
 from max.gpu.host import DeviceContext
 from std.memory import bitcast
 from std.testing import TestSuite, assert_equal, assert_almost_equal
-from bajo.rt.gpu.texture_storage import plan_texture_upload
-from bajo.rt.gpu.materials import _upload_texture_pixels
+from bajo.rt.gpu.texture_storage import (
+    plan_texture_upload,
+    upload_texture_pixels,
+)
 from bajo.rt.scene_data import SceneBuilder
 from bajo.core import Point3f32
 from bajo.core.color import Color
@@ -59,7 +61,7 @@ def test_device_palette_and_raw_fallback_recover_texels_and_sample_domains() rai
     var plan = plan_texture_upload(world.surfaces())
     with DeviceContext() as ctx:
         var descriptors = _upload_nonempty(ctx, plan.descriptors)
-        var words = _upload_texture_pixels(ctx, world, plan)
+        var words = upload_texture_pixels(ctx, world.surfaces(), plan)
         var output = ctx.enqueue_create_buffer[.uint32](4 * 289 * 12)
         ctx.enqueue_function[_decode_kernel[True]](
             descriptors, words, output, grid_dim=3, block_dim=128

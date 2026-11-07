@@ -5,18 +5,15 @@ GPU, preserving its authored geometry, materials, lights, sampling, and film
 settings. Do not replace missing behavior with material substitutions, dropped
 parameters, or RGB stand-ins for spectral transport.
 
-Status reviewed: 2026-10-30. Reconstruction filtering and the spectral foundations
-described below have passing targeted checks. Spectral transport is not connected.
-All three Bistro entrypoints load; full-asset GPU RGB
-diagnostics have been produced for each camera. A complete, faithful render at
-the authored settings has not been produced or verified. Loading and diagnostic rendering
-do not close the missing features below.
+Bistro support is partial. The parser, RGB rendering features, reconstruction
+filters, and spectral foundations have regression coverage. CPU/GPU transport
+still uses RGB; a faithful render at the authored settings remains unverified.
 
 ## Confirmed remaining gaps
 
 These are implementation requirements, not proposed visual approximations.
-The references below identify behavior in the current working tree; passing
-older tests does not verify later edits.
+The source links identify the remaining integration points. Passing component
+regressions does not establish complete-scene fidelity.
 
 | Missing behavior | Evidence and required change |
 | --- | --- |
@@ -260,7 +257,9 @@ When an image contains at most 256 distinct channel bit patterns and the palette
 saves memory, its palette stores the original Float32 values and each texel
 stores three 8-bit indices in one word. There is no sample quantization,
 transfer-function recomputation, or resolution reduction. Images that exceed
-the palette capacity roll back to their original Float32 storage.
+the palette capacity retain their original Float32 storage. Raw images copy
+directly into pinned upload buffers; packing does not flatten them into an
+additional RGB array.
 
 Nearest and bilinear material lookup, normal-map lookup, environment radiance,
 and environment light sampling decode the selected format. Host/device tests
@@ -497,7 +496,7 @@ Scalar image evaluation uses a nontrivial alpha channel when present and the RGB
 average otherwise. Opacity uses repeating bilinear interpolation and retained UV
 scales. GPU preparation uploads compact scalar images and binding tables;
 filtered wide/compressed triangle BLAS, instance TLAS, sphere traversal, primary
-rays, and shadow rays have implementations in the working tree.
+rays, and shadow rays use the same opacity acceptance rule.
 
 CPU/GPU light sampling now interpolates each emitter triangle's UVs and tests
 opacity at the sampled point. UV corners follow geometry corners when mirrored
@@ -509,14 +508,11 @@ emitted-radiance masking in
 [PBRT's diffuse area light](https://github.com/mmp/pbrt-v4/blob/master/src/pbrt/lights.h)
 and [light sampling](https://github.com/mmp/pbrt-v4/blob/master/src/pbrt/lights.cpp).
 
-Six GPU tests pass: coplanar flat triangles, textured coincident triangles in one
-mesh, fractional coverage matching CPU decisions for identical rays, coplanar
-spheres, masked-emitter MIS renders, and a fully transparent canopy that
-preserves the baseline MIS render. They cover wide/compressed triangle BLAS,
-TLAS2 and wide TLAS, and wide/compact sphere trees. GPU test kernel arguments
-now use a fixed-width count, and filtered any-hit callbacks set the required
-shadow-hit marker. The initial compilation and shadow-visibility failures are
-resolved. A sphere fixture also needed preparation in its requested BVH format.
+GPU regressions cover coplanar flat triangles, textured coincident triangles in
+one mesh, fractional coverage matching CPU decisions for identical rays,
+coplanar spheres, masked-emitter MIS renders, and a fully transparent canopy
+that preserves the baseline MIS render. They exercise wide/compressed triangle
+BLAS, TLAS4 and wide-leaf TLAS, and wide/compact sphere trees.
 
 CPU tests cover emitter coverage/PDFs and emission masking in addition to
 closest-hit/shadow rejection. All three Bistro scenes load with 243 opacity
@@ -531,139 +527,44 @@ Sources: [opacity records](bajo/rt/opacity.mojo),
 [CPU tests](test/rt/cpu/test_opacity.mojo), and
 [GPU tests](test/rt/gpu/test_opacity_gpu.mojo).
 
-## Scene and runtime evidence
+## Verification
 
-- Assets contain 132 materials (123 coated diffuse, 6 dielectric, and 3 coated
-  conductor) and 131 active normal-map declarations (the
-  Vespa headlight normal-map line is commented out), 243 alpha-masked shapes,
-  850 PLY mesh declarations, 741 inline attributed triangle meshes, and
-  102 area-light declarations attached to named scattering materials.
-- The initial load failed on `metal-CuZn-eta`, followed by a matrix-layout error.
-  Both blockers are resolved.
-- `pixi run mojo -I . examples/viewer_scene.mojo --pbrt assets/bistro/bistro_cafe.pbrt`
-  completed with 1,591 meshes and 1,591 instances and camera position
-  `[-11.7, 2.5, 6.5]`. This inspected scene data without preparing a CPU BVH.
-- That load still reported independent sampling for the authored `zsobol`, and
-  it preceded the normal-map implementation. Successful ingestion alone is not
-  evidence of complete scene support.
-- A subsequent parser probe loaded Café, Boulangerie, and Vespa in sequence with
-  all active normal maps enabled. Each contains 1,591 meshes, 1,591 instances,
-  131 normal-map bindings, 263 images, and two retained brass spectra. The probe
-  was run with `pixi run mojo -I . /tmp/bajo_inspect_bistro.mojo` and the three
-  scene paths; the temporary probe is not a committed regression fixture.
-- An asset-backed check after opacity integration loaded all three entrypoints
-  successfully. Each retains 243 opacity bindings, alongside the same 1,591
-  meshes/instances, 131 normal-map bindings, 263 images, and two spectra. Each
-  contains 2,832,101 source triangles and 20,638 triangle light records. Run
-  `pixi run mojo -I . scripts/check_bistro_load.mojo` to repeat the assertions.
-  Remaining material and sampling/film parameters listed above are unfinished.
-  No render with complete authored semantics/settings or PBRT reference
-  comparison is verified yet.
-- GPU access requires running outside the sandbox. An escalated `nvidia-smi`
-  identifies an RTX 5060 Ti with 16 GiB VRAM. After reconstruction-filter
-  integration, all 71 GPU RT tests across sixteen modules passed in two runs on
-  that device, including actual rendering, CPU/GPU pixel comparisons, sample
-  storage, primary grid caps, queue ordering, and prepared graph replay.
-- A CPU diagnostic rendered Café's complete 2,832,101-triangle geometry with
-  alpha enabled using
-  `pixi run mojo -I . examples/pbrt_scene.mojo assets/bistro/bistro_cafe.pbrt /tmp/bajo_bistro_cafe_alpha_cpu.ppm 96 4 4`.
-  It completed with finite pixels. The tiny 96×54 image was inspected after a
-  format-only PNG conversion; 4 spp is too noisy to assess material fidelity
-  or claim a finished render. The overrides are diagnostic settings, not the
-  authored target.
-- The corresponding full-asset GPU probe failed while allocating its
-  10,984,956,144-byte RGB texture buffer, before rendering. Its allocator
-  reported an 8.25 GiB chunk limit and the direct allocation also failed.
-  A subsequent device query showed 9,281 MiB free out of 16,311 MiB; other
-  applications occupied part of VRAM. This is an observed capacity failure,
-  not evidence that Bistro can never fit on a 16 GiB device. The subsequent
-  lossless storage implementation resolves this failure.
-- The full-asset GPU diagnostic now completes with original texture samples and
-  resolution. `pixi run mojo -I . scripts/check_bistro_gpu.mojo assets/bistro/bistro_cafe.pbrt /tmp/bajo_bistro_cafe_lossless_gpu.ppm 192 32 8`
-  prepares every mesh/instance, reports the 3,670,288,624-byte texture allocation,
-  renders finite RGB pixels, and writes PPM plus raw Float32 RGB. The image was
-  inspected after a format-only PNG conversion. Buildings, pavement, foliage,
-  and the camera composition are visible; Monte Carlo noise remains substantial.
-  This is a diagnostic with sampling/resolution/depth overrides and the remaining
-  semantic gaps listed above, not a completed faithful reference render.
-- After coated-conductor reflectance integration, all three entrypoints also
-  completed 192×108, 32 spp, depth-8 full-asset GPU diagnostics through
-  `scripts/check_bistro_gpu.mojo`, producing finite pixels. Their filenames are
-  `/tmp/bajo_bistro_cafe_coated_gpu.ppm`,
-  `/tmp/bajo_bistro_boulangerie_coated_gpu.ppm`, and
-  `/tmp/bajo_bistro_vespa_coated_gpu.ppm`, with companion `.ppm.rgb` buffers.
-  These were intermediate diagnostics before independent emission/BSDF support.
-  The later eta=1 layered-MIS fix does not affect Bistro's
-  authored coated-conductor interface IORs, but final rendering verification
-  must still use the final implementation.
-- After independent emission/BSDF integration, all three full-asset GPU
-  diagnostics again completed at 192×108, 32 spp, depth 8, with finite pixels
-  and the same lossless texture storage. Outputs are
-  `/tmp/bajo_bistro_cafe_emissive_gpu.ppm`,
-  `/tmp/bajo_bistro_boulangerie_emissive_gpu.ppm`, and
-  `/tmp/bajo_bistro_vespa_emissive_gpu.ppm`, each with a companion `.ppm.rgb`.
-- After depth and per-sample film integration, Café completed a full-asset GPU
-  diagnostic at 96×54, 4 spp, depth 5 with the authored sample limit of 20.
-  `pixi run mojo -I . scripts/check_bistro_gpu.mojo assets/bistro/bistro_cafe.pbrt /tmp/bajo_bistro_cafe_film_gpu.ppm 96 4 5`
-  wrote finite pixels to PPM and a companion `.ppm.rgb` buffer. The PPM was
-  inspected after a format-only PNG conversion; the image is very noisy and
-  too small to assess material fidelity. This remains an RGB diagnostic with
-  explicit overrides, not an authored-settings or spectral reference render.
-- After reconstruction-filter integration, the same Café diagnostic completed
-  with the actual default Gaussian filter at 96×54, 4 spp, depth 5, preserving
-  all original geometry and texture samples. Outputs are
-  `/tmp/bajo_bistro_cafe_filter_gpu.ppm` and its `.ppm.rgb` buffer. The pixels
-  are finite and nonzero; its format-only PNG was inspected. It remains too
-  small and noisy to establish material fidelity or reference agreement.
+Run the parser and CPU rendering regressions with:
 
-## Verified checks
+```sh
+pixi run bash scripts/run_tests.sh test/parser test/rt/cpu
+```
 
-The latest recorded CPU/PBRT and GPU runs below include independent emission/BSDF
-support, the depth correction, per-sample film processing, and reconstruction
-filtering. They predate the new spectral helpers and subsequent `FilmResponse`
-changes, so they are historical evidence, not a passing result for the current
-working tree. Earlier rows record narrower checks from their respective
-integration stages; their test counts describe those runs, not the current
-suite size. No renderer tests were rerun for this documentation update.
+The Bistro-specific GPU checks cover material and normal-map agreement,
+filtered opacity traversal, independent emission, film/filter processing,
+lossless texture storage, and retained render targets:
 
-| Command | Result | Scope |
-| --- | --- | --- |
-| `pixi run bash scripts/run_tests.sh test/parser/png/test_png.mojo test/parser/pbrt` | 56 tests passed across 5 modules | 10 Bistro, 6 BMW, 5 Crown, 21 existing PBRT, 14 PNG tests |
-| `pixi run bash scripts/run_tests.sh test/parser/pbrt/test_bistro.mojo test/rt/cpu/test_dielectric.mojo` | 16 tests passed across 2 modules | Includes normal-map path/encoding, tangent orientation, and bilinear scalar/SIMD checks |
-| `pixi run bash scripts/run_tests.sh test/rt/cpu/test_instance_shading_simd.mojo test/rt/cpu/test_gpu_material_layout.mojo test/rt/cpu/test_crown.mojo test/rt/cpu/test_cpu.mojo` | 60 tests passed across 4 modules | Existing instance, material ABI, Crown, and CPU renderer behavior after normal-map integration |
-| `pixi run bash scripts/run_tests.sh test/rt/gpu/test_bistro_gpu.mojo` | 3 tests passed on the RTX 5060 Ti | Rough-glass PATH/NEE/MIS agreement, inline-mesh normals, and 16 normal-map material/transform/view combinations |
-| `pixi run bash scripts/run_tests.sh test/rt/cpu/test_opacity.mojo test/parser/png/test_png.mojo test/parser/pbrt/test_bistro.mojo` | 29 tests passed across 3 modules after opacity integration | 5 CPU opacity, 14 PNG, and 10 Bistro parser tests |
-| `pixi run bash scripts/run_tests.sh test/rt/cpu/test_opacity.mojo test/rt/cpu/test_instance_shading_simd.mojo test/rt/cpu/test_cpu.mojo test/parser/pbrt test/parser/png/test_png.mojo` | 113 tests passed across 8 modules after emitter integration | 9 CPU opacity/emitter, 2 instance packet, 46 CPU renderer, and 56 parser/PNG tests |
-| `pixi run bash scripts/run_tests.sh test/rt/gpu/test_opacity_gpu.mojo test/rt/gpu/test_bistro_gpu.mojo` | 9 GPU tests passed after opacity/emitter integration | 6 opacity tests plus rough dielectric, inline normals, and all 16 normal-map combinations |
-| `pixi run bash scripts/run_tests.sh test/bvh/gpu/test_triangle_shadow.mojo test/bvh/gpu/test_tlas_visibility.mojo test/bvh/gpu/test_cwbvh8_node_tasks.mojo` | 12 GPU tests passed | Existing triangle shadow masks, 10 TLAS visibility/closest-hit cases, and compressed-node slab boundaries |
-| `pixi run mojo -I . scripts/check_bistro_load.mojo` | All 3 scenes passed after reconstruction-filter integration | Geometry/image/normal-map/spectrum counts, 243 image opacity bindings and 102 emission bindings per scene, original BSDFs on all 20,638 light records, resolution, sample count, depth 5, MIS selection, film sample limit 20, and Gaussian radius 1.5 / sigma 0.5 |
-| `pixi run bash scripts/run_tests.sh test/rt/cpu/test_texture_storage.mojo test/rt/cpu/test_gpu_material_layout.mojo test/rt/cpu/test_cpu.mojo` | 55 tests passed after lossless storage integration | Exact texel reconstruction, mixed storage/addressing/filtering, material layout, and CPU renderer regressions |
-| `pixi run bash scripts/run_tests.sh test/rt/gpu/test_texture_storage_gpu.mojo test/rt/gpu/test_bistro_gpu.mojo test/rt/gpu/test_opacity_gpu.mojo` | 10 GPU tests passed after lossless storage integration | Bit-exact device texels, material/environment addressing/filtering, all earlier Bistro shader and opacity cases |
-| `pixi run bash scripts/run_tests.sh test/rt/cpu/test_coated_reflectance.mojo test/rt/cpu/test_coated_simd.mojo test/rt/cpu/test_dielectric.mojo test/rt/cpu/test_bmw_materials.mojo test/rt/cpu/test_coated_diffuse.mojo` | 25 tests passed after matching-index fix | Reflectance/defaults, scalar/SIMD coating, dielectric transport, conductor optics, and matching-index layered value/PDF invariance |
-| `pixi run bash scripts/run_tests.sh test/rt/gpu/test_bistro_gpu.mojo test/rt/gpu/test_texture_storage_gpu.mojo test/rt/gpu/test_opacity_gpu.mojo test/rt/gpu/test_coated_shading_gpu.mojo test/rt/gpu/test_bmw_materials_gpu.mojo` | 14 GPU tests passed after final matching-index corrections | Reflectance PATH/NEE/MIS at two interface IORs, earlier Bistro shader/opacity cases, exact texture decoding, coating sample parity, and mixed-material/chunk/batch invariance |
-| `pixi run bash scripts/run_tests.sh test/rt/cpu` | All 125 tests passed across 17 modules after lossless storage, coated reflectance, and matching-index fixes | Complete CPU RT subsystem, including material ABI, packets, media, sampling, continuation, and the new feature regressions |
-| `pixi run bash scripts/run_tests.sh test/rt/cpu test/parser/pbrt` | All 172 tests passed across 22 modules after independent emission/BSDF integration | 130 CPU RT tests and 42 PBRT parser tests; includes emission plus reflection, sided light PDFs, scope/validation, packet merging, and geometry binding identity |
-| `pixi run bash scripts/run_tests.sh test/rt/gpu/test_emissive_bsdf_gpu.mojo test/rt/gpu/test_opacity_gpu.mojo test/rt/gpu/test_bistro_gpu.mojo test/rt/gpu/test_gpu.mojo test/rt/gpu/test_bmw_materials_gpu.mojo test/rt/gpu/test_coated_shading_gpu.mojo test/rt/gpu/test_texture_storage_gpu.mojo` | All 43 tests passed across 7 modules after independent emission/BSDF integration | 4 independent-emission, 6 opacity, 4 Bistro, 25 general GPU, 1 BMW, 2 coating, and 1 lossless-texture test |
-| `pixi run bash scripts/run_tests.sh test/rt/gpu/test_emissive_bsdf_gpu.mojo test/rt/gpu/test_gpu.mojo` | All 30 tests passed across 2 modules after depth correction | Analytic terminal emission at depths 0/1/2, no terminal scattering/direct-light sample, chunk invariance, independent emission, and all general GPU rendering regressions |
-| `pixi run bash scripts/run_tests.sh test/rt/cpu test/parser/pbrt` | All 174 tests passed across 22 modules after depth correction | 131 CPU RT tests and 43 PBRT parser tests; includes explicit/default limits, MIS selection, terminal emission, packet widths, all existing transport, and material/opacity regressions |
-| `pixi run bash scripts/run_tests.sh test/rt/gpu/test_bistro_gpu.mojo test/rt/gpu/test_opacity_gpu.mojo test/rt/gpu/test_texture_storage_gpu.mojo test/rt/gpu/test_coated_shading_gpu.mojo test/rt/gpu/test_bmw_materials_gpu.mojo` | All 14 tests passed across 5 modules after depth correction | Bistro normal maps, dielectric/coated-conductor transport, alpha traversal and emitters, exact texture storage, layered shading, and mixed-material CPU/GPU agreement |
-| `pixi run bash scripts/run_tests.sh test/rt/cpu test/parser/pbrt` | All 178 tests passed across 23 modules after film integration | 135 CPU RT tests and 43 PBRT parser tests; complete-sample film clamping, independent CIE matrix values, all existing transport/material/opacity tests, and authored/default settings |
-| `pixi run bash scripts/run_tests.sh test/rt/gpu/test_film_gpu.mojo test/rt/gpu/test_crown_gpu.mojo test/rt/gpu/test_emissive_bsdf_gpu.mojo test/rt/gpu/test_gpu.mojo test/rt/gpu/test_bistro_gpu.mojo test/rt/gpu/test_opacity_gpu.mojo test/rt/gpu/test_texture_storage_gpu.mojo test/rt/gpu/test_coated_shading_gpu.mojo test/rt/gpu/test_bmw_materials_gpu.mojo test/rt/gpu/test_target_capacity_gpu.mojo` | All 53 tests passed across 10 modules after film integration | Complete-sample scalar/vector reduction, chunk capacities, ISO/media response, all earlier Bistro material/opacity/emission cases, general rendering, and graph capture/replay with changing film limits and sensor matrices |
-| `pixi run bash scripts/run_tests.sh test/rt/cpu/test_filter.mojo test/rt/cpu/test_film.mojo test/parser/pbrt/test_pbrt.mojo` | All 31 tests passed across 3 modules after reconstruction-filter integration | 5 filter, 4 film, and 22 PBRT parser tests; includes reference Gaussian sampling, nonlocal reconstruction, host owner lifetime, and clamp-before-filter behavior |
-| `pixi run bash scripts/run_tests.sh test/rt/gpu/test_filter_gpu.mojo test/rt/gpu/test_film_gpu.mojo test/rt/gpu/test_target_capacity_gpu.mojo test/rt/gpu/test_wavefront_contract_gpu.mojo` | All 9 tests passed across 4 modules after reconstruction-filter integration | Device sampler agreement, edge reconstruction, film reduction, changing-filter graph replay, and four-plane sample storage |
-| `pixi run bash scripts/run_tests.sh test/rt/gpu/test_bistro_gpu.mojo test/rt/gpu/test_bmw_materials_gpu.mojo test/rt/gpu/test_coated_shading_gpu.mojo test/rt/gpu/test_crown_gpu.mojo test/rt/gpu/test_cwbvh_call_gpu.mojo test/rt/gpu/test_delta_metal_gpu.mojo test/rt/gpu/test_emissive_bsdf_gpu.mojo test/rt/gpu/test_gpu.mojo test/rt/gpu/test_opacity_gpu.mojo test/rt/gpu/test_primary_launch_gpu.mojo test/rt/gpu/test_ray_order_gpu.mojo test/rt/gpu/test_texture_storage_gpu.mojo` | All 62 tests passed across 12 modules after reconstruction-filter integration | Every remaining GPU RT module: all materials, opacity and emitters, media/ISO, traversal call boundaries, delta reflection, all integrators, exact texture storage, primary grid caps, and queue ordering |
-| `pixi run bash scripts/run_tests.sh test/rt/cpu test/parser/pbrt` | All 183 tests passed across 24 modules after reconstruction-filter integration | Complete CPU RT subsystem (140 tests) and PBRT parser (43 tests), including filter ownership, sampling/weighting, all prior features, packets, scheduling, and material ABI checks |
+```sh
+pixi run bash scripts/run_tests.sh \
+  test/rt/gpu/test_bistro_gpu.mojo \
+  test/rt/gpu/test_opacity_gpu.mojo \
+  test/rt/gpu/test_emissive_bsdf_gpu.mojo \
+  test/rt/gpu/test_film_gpu.mojo \
+  test/rt/gpu/test_filter_gpu.mojo \
+  test/rt/gpu/test_texture_storage_gpu.mojo \
+  test/rt/gpu/test_target_capacity_gpu.mojo
+pixi run bash scripts/run_tests.sh test/rt/cpu/test_spectra.mojo test/rt/gpu/test_spectra_gpu.mojo
+```
 
-Additional targeted BMW, Crown, coated-diffuse, and SIMD sampling modules passed
-during dielectric implementation. A repository-wide host/GPU suite has not
-been run; the complete GPU RT subsystem has passed after filter integration.
-The data-decoder unused-assignment warning has been fixed. GPU Bistro shader
-regressions now pass after opacity traversal and emitter integration. One
-normal-map fixture initially assumed that mirroring reverses the authored
-outward normal; that expectation was corrected to match the inverse-transpose
-orientation convention, and explicit back-face views now test the actual flip.
-All eight generated optical tables were also compared numerically with their
-original PBRT source arrays; every wavelength and value matched.
+Once the original Bistro assets are available under `assets/bistro`, check all
+three entrypoints and generate a small GPU diagnostic with:
+
+```sh
+pixi run mojo -I . scripts/check_bistro_load.mojo assets/bistro
+pixi run mojo -I . scripts/check_bistro_gpu.mojo assets/bistro/bistro_cafe.pbrt /tmp/bistro_cafe.ppm 96 4 4
+```
+
+The load check verifies retained geometry, texture/normal-map/opacity/emission
+bindings, optical curves, and supported scene settings. The GPU diagnostic
+reports texture storage and retained optical curves, checks finite output, and
+writes a PPM plus a raw linear RGB buffer. Its resolution, sample count, and
+depth are explicit diagnostic overrides. Neither script establishes spectral
+fidelity or agreement with PBRT at the authored settings.
 
 ## Next implementation work
 

@@ -11,7 +11,6 @@ from bajo.core.color import Color
 from bajo.rt.film import FilmResponse
 from bajo.rt.gpu.filter import GpuFilterTables
 from bajo.rt.render_types import RenderSettings, SamplingConfig
-from bajo.rt.film import FilmResponse
 from bajo.rt.gpu.sampling import GpuRtSamplingConfig
 from bajo.rt.material_types import Integrator, SurfaceId
 from bajo.rt.wavefront_contract import WAVE_PATH_ID_MASK

@@ -44,13 +44,13 @@ from bajo.rt.render_types import SamplingConfig
 from bajo.rt.gpu.sampling import GpuRtSamplingConfig
 from bajo.core.optics import medium_transmittance
 from bajo.rt.material_types import (
+    PrimitiveId,
     NO_TEXTURE,
     Integrator,
     SurfaceId,
     sample_mix_branch,
 )
 from bajo.rt.lighting_types import _light_importance
-from bajo.rt.material_types import PrimitiveId
 from bajo.rt.opacity import (
     opacity_accepts,
     opacity_point_sample,

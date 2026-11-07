@@ -6,12 +6,11 @@ from std.sys.info import size_of
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from bajo.rt.texture_math import (
     mapped_normal,
-    sample_environment_texture,
     albedo_from_texture,
     roughness_from_texture,
     bump_slope,
 )
-from bajo.core.color import luminance, Color
+from bajo.core.color import Color
 from bajo.core.spectrum import PiecewiseLinearSpectrum
 from std.utils.numerics import isfinite
 

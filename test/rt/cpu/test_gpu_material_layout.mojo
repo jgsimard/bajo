@@ -1,7 +1,6 @@
 """CPU/GPU material layouts retain field offsets and decoder semantics."""
 
 from layout import TileTensor, Coord, Idx, row_major
-from bajo.rt.material_types import SurfaceStore
 from bajo.rt.material_storage import (
     CoatedDiffuseLayout,
     pack_coated_materials,
@@ -14,15 +13,19 @@ from std.testing import TestSuite, assert_equal
 
 from bajo.core import Point3f32, Vec3f32, normalize
 from test.helpers import assert_vec_equal
-from bajo.rt.material_types import ImageTexture, NO_TEXTURE, SurfaceId
+from bajo.rt.material_types import (
+    ImageTexture,
+    NO_TEXTURE,
+    SurfaceId,
+    SurfaceStore,
+)
 from bajo.core.color import Color
 from bajo.rt.scene_data import SceneBuilder, SceneData
 from bajo.rt.gpu.material_layout import _load_gpu_coated_parameters
+from bajo.rt.gpu.texture_storage import pack_texture_tables
 from bajo.rt.gpu.materials import (
     _flatten_coated_diffuse_texture_indices,
     _flatten_metals,
-    _flatten_texture_descs,
-    _flatten_texture_pixels,
 )
 from bajo.rt.gpu.textures import (
     _sample_gpu_coated_albedo,
@@ -219,8 +222,9 @@ def test_material_texture_tables_address_second_record() raises:
     var world = _world()
     var coated = pack_coated_materials[False](world.surfaces())
     var indices = _flatten_coated_diffuse_texture_indices(world)
-    var descs = _flatten_texture_descs(world)
-    var pixels = _flatten_texture_pixels(world)
+    var textures = pack_texture_tables(world.surfaces())
+    ref descs = textures.descriptors
+    ref pixels = textures.words
     var expected_indices: List[UInt32] = [
         0,
         1,

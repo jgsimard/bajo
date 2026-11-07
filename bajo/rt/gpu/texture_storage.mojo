@@ -1,6 +1,8 @@
 """Lossless GPU image packing with exact Float32 palettes and raw fallback."""
 
 from std.memory import bitcast
+from max.gpu.host import DeviceBuffer, DeviceContext
+from bajo.rt.gpu.upload import _upload_nonempty
 from bajo.rt.material_types import SurfaceStore
 from bajo.rt.material_storage import TextureDescLayout
 
@@ -99,3 +101,27 @@ def pack_texture_tables(surfaces: SurfaceStore) raises -> PackedTextureTables:
         else:
             words.extend(ImmSpan(plan.packed_images[index]))
     return PackedTextureTables(plan.descriptors.copy(), words^)
+
+
+def upload_texture_pixels(
+    mut ctx: DeviceContext, surfaces: SurfaceStore, plan: TextureUploadPlan
+) raises -> DeviceBuffer[.float32]:
+    """Copy raw or packed images directly into pinned staging storage."""
+    if plan.word_count == 0:
+        return _upload_nonempty(ctx, List[Float32]())
+    var staging = ctx.enqueue_create_host_buffer[.float32](plan.word_count)
+    var target = ctx.enqueue_create_buffer[.float32](plan.word_count)
+    for index in range(len(surfaces.image_textures)):
+        var base = index * TextureDescLayout.STRIDE
+        var first = Int(plan.descriptors[base + TextureDescLayout.PIXEL_OFFSET])
+        if (
+            plan.descriptors[base + TextureDescLayout.FORMAT]
+            == TextureDescLayout.RGB_F32
+        ):
+            ref pixels = surfaces.image_textures[index].pixels
+            staging.as_span()[first : first + len(pixels)].copy_from(pixels)
+        else:
+            ref words = plan.packed_images[index]
+            staging.as_span()[first : first + len(words)].copy_from(words)
+    staging.enqueue_copy_to(target)
+    return target^

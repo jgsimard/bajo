@@ -1,10 +1,12 @@
 """Device-safe access to GPU material textures and shading normals."""
-from bajo.core.image import sample_image_texture
+from bajo.core.image import (
+    sample_image_texture,
+    sample_image_texture_bilinear,
+    image_pixel_index,
+)
 from bajo.core.geometry import normal_from_slopes as bump_normal
 
 from bajo.rt.texture_math import (
-    sample_image_texture_bilinear,
-    image_pixel_index,
     mapped_normal,
     albedo_from_texture,
     roughness_from_texture,

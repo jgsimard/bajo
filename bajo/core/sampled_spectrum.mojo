@@ -7,7 +7,6 @@ wavelengths, per-wavelength PDFs, and explicit secondary termination.
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.builtin.globals import global_constant
 from std.math import atanh, cosh, floor, sqrt, exp
-from std.utils.numerics import isfinite
 from bajo.core.cie_data import CIE_XYZ
 from bajo.core.vec import Vec3
 

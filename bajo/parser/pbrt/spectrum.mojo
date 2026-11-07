@@ -2,7 +2,6 @@
 
 from bajo.core.color import Color, blackbody_rgb as _blackbody_rgb
 
-from std.utils.numerics import isfinite
 from bajo.parser.pbrt.optical_data import named_optical_spectrum
 
 

@@ -1,8 +1,12 @@
 """Geometry-owned alpha acceptance inside CPU BLAS and TLAS traversal."""
 
 from bajo.core import Point3, Rayf32, Vec3, dot
-from std.math import acos, atan2, pi, sqrt
-from bajo.rt.opacity import opacity_accepts, opacity_ray_sample
+from std.math import sqrt
+from bajo.rt.opacity import (
+    opacity_accepts,
+    opacity_ray_sample,
+    opacity_sphere_uv,
+)
 from bajo.bvh.constants import EMPTY_LANE, TraceMode
 from bajo.bvh.filter import TriangleHitFilter
 from bajo.bvh.types import Hit
@@ -40,13 +44,9 @@ def trace_opacity_spheres[
             var normal = (ray.at(t) - sphere.center) / sphere.radius
             var key = PrimitiveId(.SPHERE, UInt32(index)).value
             if case .Some(opacity) = data.opacity().records.get(key):
-                var phi = atan2(normal.y, normal.x)
-                if phi < 0.0:
-                    phi += Float32(2.0 * pi)
-                var u = phi / Float32(2.0 * pi)
-                var v = acos(normal.z.clamp(-1.0, 1.0)) / Float32(pi)
+                var uv = opacity_sphere_uv(normal)
                 if not opacity_accepts(
-                    opacity.evaluate(data.surfaces(), u, v), sample
+                    opacity.evaluate(data.surfaces(), uv[0], uv[1]), sample
                 ):
                     continue
             comptime if mode == .ANY_HIT:

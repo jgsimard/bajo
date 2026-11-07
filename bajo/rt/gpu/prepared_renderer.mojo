@@ -26,7 +26,6 @@ from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import (
     GpuRtRenderTarget,
     _GpuRtReadback,
-    download_gpu_pixels,
     update_gpu_camera,
 )
 from bajo.rt.gpu.preview import GpuRtPreviewAccumulator, GpuRtPreviewResult

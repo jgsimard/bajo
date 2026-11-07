@@ -4,16 +4,6 @@ from bajo.core.color import luminance
 
 from std.math import sqrt
 from bajo.core import Vec3, cross, dot, length2, normalize, orthonormal_basis
-from bajo.core.image import (
-    image_pixel_index,
-    sample_image_texture,
-    sample_image_texture_bilinear,
-    sample_scalar_texture_bilinear,
-    load_environment_texel,
-    sample_environment_texture,
-)
-from bajo.core.geometry import normal_from_slopes as bump_normal
-from bajo.core.tensor_layout import RecordTile, gather_record_vec3
 
 
 @always_inline

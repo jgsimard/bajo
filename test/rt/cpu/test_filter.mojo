@@ -12,7 +12,10 @@ from bajo.rt.filter import ReconstructionFilter, FilterSampler
 from bajo.rt import CpuScene, render_wavefront
 from bajo.rt.material_types import Integrator
 from bajo.rt.film import FilmResponse
-from bajo.rt.render_types import RenderSettings
+from bajo.rt.render_types import RenderSettings, SamplingConfig
+from bajo.core.random import Sampler
+from bajo.rt.camera_sampling import sample_camera
+from std.math import iota
 from bajo.parser.pbrt import parse_pbrt
 from bajo.rt.scene_description import SceneDescription
 from test.rt.cpu.test_film import make_film_path
@@ -188,6 +191,38 @@ def test_filter_weight_is_applied_after_sample_clamping() raises:
                 assert_almost_equal(
                     pixel[channel], expected[channel], atol=1e-5
                 )
+
+
+def test_pinhole_shortcut_keeps_filter_samples_and_rng_dimensions() raises:
+    for config in [
+        ReconstructionFilter(),
+        ReconstructionFilter.gaussian(),
+        ReconstructionFilter.triangle(),
+    ]:
+        var filter = FilterSampler(config)
+        for sampler in range(6):
+            var settings = RenderSettings(8, 4, 16, 2026, 1, Sampler(sampler))
+            var sampling = SamplingConfig.from_settings(settings)
+            sampling.filter = filter.view()
+            var ids = iota[.uint32, 4]() + UInt32(37)
+            var expected = sample_camera(sampling, ids)
+            var actual = sample_camera(sampling, ids, True)
+            assert_equal(actual.lens_u, SIMD[.float32, 4](0))
+            assert_equal(actual.lens_v, SIMD[.float32, 4](0))
+            for lane in range(4):
+                assert_equal(
+                    bitcast[.uint32](actual.pixel_u[lane]),
+                    bitcast[.uint32](expected.pixel_u[lane]),
+                )
+                assert_equal(
+                    bitcast[.uint32](actual.pixel_v[lane]),
+                    bitcast[.uint32](expected.pixel_v[lane]),
+                )
+                assert_equal(
+                    bitcast[.uint32](actual.filter_weight[lane]),
+                    bitcast[.uint32](expected.filter_weight[lane]),
+                )
+        _ = filter^
 
 
 def run_tests[_discovery: Bool = True]() raises:

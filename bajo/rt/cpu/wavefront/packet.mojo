@@ -330,6 +330,77 @@ def _trace_packets[
     mut coated_diffuse_queue: PacketShadeQueue[length],
     sample_base: Int = -1,
 ):
+    # The emission-only preview has no BSDF continuations. Bistro counts
+    # scattering events, so depth zero is main's former depth-one shortcut;
+    # positive depths must still trace their terminal emitted-light vertex.
+    comptime if Integrator.is_path_tracing[integrator]:
+        if settings.max_depth == 0:
+            _trace_packets_impl[
+                False,
+                length,
+                integrator,
+                world_bvh_width,
+                instance_bvh_width,
+                traversal_mode,
+                *adaptive_packet_sizes,
+            ](
+                settings,
+                sampling,
+                world,
+                pixels,
+                active_paths,
+                next_paths,
+                lambertian_queue,
+                metal_queue,
+                dielectric_queue,
+                coated_diffuse_queue,
+                sample_base,
+            )
+            return
+    _trace_packets_impl[
+        True,
+        length,
+        integrator,
+        world_bvh_width,
+        instance_bvh_width,
+        traversal_mode,
+        *adaptive_packet_sizes,
+    ](
+        settings,
+        sampling,
+        world,
+        pixels,
+        active_paths,
+        next_paths,
+        lambertian_queue,
+        metal_queue,
+        dielectric_queue,
+        coated_diffuse_queue,
+        sample_base,
+    )
+
+
+def _trace_packets_impl[
+    continue_paths: Bool,
+    length: SIMDLength,
+    integrator: Integrator,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
+    traversal_mode: CpuTraversalMode,
+    *adaptive_packet_sizes: SIMDLength,
+](
+    settings: RenderSettings,
+    sampling: SamplingConfig,
+    world: CpuScene[world_bvh_width, instance_bvh_width],
+    pixels: MutSpan[Color, _],
+    mut active_paths: PacketPathQueue[length],
+    mut next_paths: PacketPathQueue[length],
+    mut lambertian_queue: PacketShadeQueue[length],
+    mut metal_queue: PacketShadeQueue[length],
+    mut dielectric_queue: PacketShadeQueue[length],
+    mut coated_diffuse_queue: PacketShadeQueue[length],
+    sample_base: Int = -1,
+):
     var bounce_count = (
         settings.max_depth + 1 if Integrator.is_path_tracing[integrator] else 1
     )
@@ -387,19 +458,20 @@ def _trace_packets[
                                 )
                                 .value[0]
                             )
-            surface_hits.normal = (
-                world.scene_data()
-                .surfaces()
-                .shading_normal(
-                    surface_hits.surface,
-                    surface_hits.normal,
-                    surface_hits.uv_u,
-                    surface_hits.uv_v,
-                    surface_hits.hit & valid_lanes,
-                    surface_hits.dpdu,
-                    surface_hits.front_face,
+            if world.has_shading_normals():
+                surface_hits.normal = (
+                    world.scene_data()
+                    .surfaces()
+                    .shading_normal(
+                        surface_hits.surface,
+                        surface_hits.normal,
+                        surface_hits.uv_u,
+                        surface_hits.uv_v,
+                        surface_hits.hit & valid_lanes,
+                        surface_hits.dpdu,
+                        surface_hits.front_face,
+                    )
                 )
-            )
 
             comptime if Integrator.is_path_tracing[integrator]:
                 if (valid_lanes & packet.medium_ids.ne(0)).reduce_or():
@@ -470,34 +542,35 @@ def _trace_packets[
                 if bounce == settings.max_depth:
                     continue
 
-                # Gather ray/throughput rows once, after per-lane attenuation;
-                # append one compact tile per material, preserving lane order.
-                var shade = ShadePacket[length]()
-                shade.set_paths(packet)
-                shade.set_hits(surface_hits)
                 var valid_shade = surface_hits.hit & valid_lanes
                 var kinds = surface_hits.surface.value >> SURFACE_INDEX_BITS
-                lambertian_queue.append_packet_masked(
-                    shade,
-                    kinds.eq(MaterialKind.LAMBERTIAN.value) & valid_shade,
-                    lane_count,
-                )
-                metal_queue.append_packet_masked(
-                    shade,
-                    kinds.eq(MaterialKind.METAL.value) & valid_shade,
-                    lane_count,
-                )
-                dielectric_queue.append_packet_masked(
-                    shade,
-                    kinds.eq(MaterialKind.DIELECTRIC.value) & valid_shade,
-                    lane_count,
-                )
-                coated_diffuse_queue.append_packet_masked(
-                    shade,
-                    kinds.eq(MaterialKind.COATED_DIFFUSE.value) & valid_shade,
-                    lane_count,
-                )
-
+                comptime if continue_paths:
+                    # Gather ray/throughput rows once, after per-lane attenuation;
+                    # append one compact tile per material, preserving lane order.
+                    var shade = ShadePacket[length]()
+                    shade.set_paths(packet)
+                    shade.set_hits(surface_hits)
+                    lambertian_queue.append_packet_masked(
+                        shade,
+                        kinds.eq(MaterialKind.LAMBERTIAN.value) & valid_shade,
+                        lane_count,
+                    )
+                    metal_queue.append_packet_masked(
+                        shade,
+                        kinds.eq(MaterialKind.METAL.value) & valid_shade,
+                        lane_count,
+                    )
+                    dielectric_queue.append_packet_masked(
+                        shade,
+                        kinds.eq(MaterialKind.DIELECTRIC.value) & valid_shade,
+                        lane_count,
+                    )
+                    coated_diffuse_queue.append_packet_masked(
+                        shade,
+                        kinds.eq(MaterialKind.COATED_DIFFUSE.value)
+                        & valid_shade,
+                        lane_count,
+                    )
                 comptime if Integrator.uses_direct_lighting[integrator]:
                     direct_lights.point = ShadingPoint[length].from_hit(
                         ray_packet, surface_hits
@@ -600,7 +673,7 @@ def _trace_packets[
                         color.x[lane], color.y[lane], color.z[lane]
                     )
 
-        comptime if Integrator.is_path_tracing[integrator]:
+        comptime if continue_paths and Integrator.is_path_tracing[integrator]:
             if bounce == settings.max_depth:
                 break
             _shade_material_packets[.LAMBERTIAN, length](

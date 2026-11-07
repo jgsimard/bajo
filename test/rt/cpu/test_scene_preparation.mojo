@@ -1,12 +1,14 @@
 """SIMD preparation preserves scalar geometry, ordering and rejection."""
 from std.memory import bitcast
-from std.testing import TestSuite, assert_equal
+from std.testing import TestSuite, assert_equal, assert_almost_equal
 from std.utils.numerics import isfinite
 from bajo.core import AABB, Affine3f32, Point3f32, Vec3f32
 from bajo.core.geometry import triangle_area, triangle_is_valid
 from bajo.rt import Color, SceneBuilder
 from bajo.rt.lighting_types import LightStore, LightRecord, _light_importance
-from bajo.rt.material_types import SurfaceId, PrimitiveId
+from bajo.rt.material_types import SurfaceId, PrimitiveId, NO_TEXTURE
+from bajo.rt.emission import AreaEmitter
+from bajo.rt.opacity import Opacity
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.scene_preparation import (
     _validate_mesh_bounds,
@@ -240,6 +242,88 @@ def test_emissive_triangle_packets_preserve_records_aliases_and_failures() raise
         vertices[3 * bad].x = bitcast[.float32](UInt32(0x7F7FFFFF))
         _check_lights(vertices, identity, Color(2, 3, 4), 1)
         vertices[3 * bad] = saved
+
+
+def test_instance_light_preparation_retains_uvs_emission_and_opacity_on_both_paths() raises:
+    # Two large meshes cross main's parallel threshold; the small case uses
+    # its serial SIMD path. Neither path may drop independent emission or UVs.
+    for triangles in [3, 2053]:
+        var builder = SceneBuilder()
+        var surface = builder.add_lambertian(Color(0.7))
+        var texcoords = List[Float32]()
+        for _ in range(triangles):
+            texcoords.extend([Float32(0.125), 0.25, 0.75, 0.25, 0.5, 0.875])
+        var mesh = builder.add_owned_triangle_mesh(
+            _vertices(triangles, 2), List[Float32](), texcoords^
+        )
+        for instance in range(2):
+            var transform = Affine3f32[.LOCAL, .WORLD].from_scale(
+                Vec3f32[.LOCAL](Float32(-1 if instance else 2), 3, 1)
+            )
+            builder.add_triangle_instance(
+                mesh, transform, AABB[.LOCAL].invalid(), surface
+            )
+            var key = PrimitiveId(.TRIANGLE_INSTANCE, UInt32(instance)).value
+            builder.emission.records[key] = AreaEmitter(
+                Color(Float32(2 + instance), 3, 4), instance == 1
+            )
+            builder.opacity.records[key] = Opacity(0.5, NO_TEXTURE, 1, 1)
+        var data = builder^.finish()
+        var parallel_records = data._prepare_instance_light_records()
+        assert_equal(len(data.lights().records), 2 * triangles)
+        assert_equal(len(parallel_records), 2 * triangles)
+        for instance in range(2):
+            ref transform = data.triangle_instances()[instance].transform
+            var radiance = Color(Float32(2 + instance), 3, 4)
+            for triangle in range(triangles):
+                var base = 3 * triangle
+                ref vertices = data.triangle_meshes()[Int(mesh)]
+                var p0 = transform.point(vertices[base])
+                var p1 = transform.point(vertices[base + 1])
+                var p2 = transform.point(vertices[base + 2])
+                if instance == 1:
+                    swap(p1, p2)
+                var expected_weight = (
+                    triangle_area(p0, p1, p2)
+                    * _light_importance(radiance)
+                    * Float32(2 if instance else 1)
+                )
+                for path in range(2):
+                    var record = (
+                        data.lights()
+                        .records[instance * triangles + triangle]
+                        .copy() if path
+                        == 0 else parallel_records[
+                            instance * triangles + triangle
+                        ].copy()
+                    )
+                    assert_equal(
+                        record.primitive.value,
+                        PrimitiveId(.TRIANGLE_INSTANCE, UInt32(instance)).value,
+                    )
+                    assert_equal(record.flags, UInt32(instance))
+                    assert_almost_equal(
+                        record.weight, expected_weight, atol=1e-5
+                    )
+                    comptime for axis in range(3):
+                        assert_equal(record.radiance[axis], radiance[axis])
+                        assert_equal(record.p0[axis], p0[axis])
+                        assert_equal(record.p1[axis], p1[axis])
+                        assert_equal(record.p2[axis], p2[axis])
+                    assert_equal(record.uv0_u, Float32(0.125))
+                    assert_equal(record.uv0_v, Float32(0.25))
+                    assert_equal(
+                        record.uv1_u, Float32(0.5 if instance else 0.75)
+                    )
+                    assert_equal(
+                        record.uv1_v, Float32(0.875 if instance else 0.25)
+                    )
+                    assert_equal(
+                        record.uv2_u, Float32(0.75 if instance else 0.5)
+                    )
+                    assert_equal(
+                        record.uv2_v, Float32(0.25 if instance else 0.875)
+                    )
 
 
 def run_tests[_discovery: Bool = True]() raises:

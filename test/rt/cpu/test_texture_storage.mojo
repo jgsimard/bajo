@@ -9,7 +9,7 @@ from std.testing import (
 )
 from bajo.rt.material_types import SurfaceStore, ImageTexture
 from bajo.rt.material_storage import TextureDescLayout
-from bajo.rt.gpu.texture_storage import pack_texture_tables
+from bajo.rt.gpu.texture_storage import pack_texture_tables, plan_texture_upload
 from bajo.rt.gpu.textures import _GpuImageTextureView
 from std.builtin.globals import global_constant
 from bajo.core.color import _SRGB_U8_VALUES
@@ -41,6 +41,18 @@ def make_textures() -> SurfaceStore:
         pixels.append(bitcast[.float32](word))
     _ = surfaces.add_image_texture(ImageTexture(17, 17, pixels^))
     return surfaces^
+
+
+def test_upload_plan_leaves_raw_images_in_their_original_storage() raises:
+    var surfaces = make_textures()
+    var plan = plan_texture_upload(surfaces)
+    var packed = pack_texture_tables(surfaces)
+    assert_equal(plan.descriptors, packed.descriptors)
+    assert_equal(plan.word_count, len(packed.words))
+    assert_equal(len(plan.packed_images[0]), 0)
+    assert_equal(len(plan.packed_images[2]), 0)
+    assert_equal(len(plan.packed_images[1]), 256 + 17 * 17)
+    assert_equal(len(plan.packed_images[3]), 256 + 17 * 17)
 
 
 def test_palette_and_raw_fallback_preserve_every_float32_bit() raises:

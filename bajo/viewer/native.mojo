@@ -147,7 +147,15 @@ def parse_options() raises -> ViewerOptions:
             case "--sampler":
                 options.sampler = _choice(
                     value,
-                    ["independent", "halton", "r2", "sobol", "sz", "stbn"],
+                    [
+                        "independent",
+                        "halton",
+                        "r2",
+                        "sobol",
+                        "sz",
+                        "stbn",
+                        "zsobol",
+                    ],
                 )
             case "--build":
                 options.build_method = _choice(
@@ -195,7 +203,7 @@ def print_help():
     )
     print(
         "--integrator path|nee|mis|normals|ao --sampler"
-        " independent|halton|r2|sobol|sz|stbn"
+        " independent|halton|r2|sobol|sz|stbn|zsobol"
     )
     print("--build sah|lbvh|hploc|median --traversal auto|fixed|adaptive")
     print("--bounds off|objects|bvh|both --bvh-depth N")
@@ -308,6 +316,7 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
         "Owen-Sobol",
         "SZ",
         "STBN",
+        "Z-Sobol",
     ]
     var bounds = options.bounds
     var depth = options.bvh_depth
@@ -396,7 +405,9 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
                 backend = 1 - backend
                 changed = True
             if window.is_key_pressed(80):
-                settings.sampler = Sampler((Int(settings.sampler) + 1) % 6)
+                settings.sampler = Sampler(
+                    (Int(settings.sampler) + 1) % len(sampler_names)
+                )
                 changed = True
             for index in range(5):
                 if window.is_key_pressed(49 + index):

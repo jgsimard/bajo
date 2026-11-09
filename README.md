@@ -50,7 +50,8 @@ Both modes share the loaded geometry, instance transforms, camera, and field of
 view. Raster geometry is uploaded once per scene; shared meshes stay shared.
 Raster materials use approximate colors and directional lighting, including
 unlit emitters; glass, textures, shadows, and indirect lighting are not reproduced.
-Ray tracing supports `PATH`, `NEE`, `MIS`, `NORMALS`, and `AO`, and all six samplers.
+Ray tracing supports `PATH`, `NEE`, `MIS`, `NORMALS`, and `AO`, and all seven samplers,
+including Z-Sobol (`--sampler zsobol`).
 A native background thread handles tracing and acceleration preparation while
 raylib continues processing input. Camera/settings changes reset accumulation;
 completed frames from an older camera are discarded. Closing waits for the

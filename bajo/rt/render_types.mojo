@@ -6,6 +6,7 @@ from bajo.core.color import Color
 from bajo.rt.film import FilmResponse
 from bajo.rt.filter import ReconstructionFilter, FilterView
 from bajo.core.random import Sampler
+from bajo.core.zsobol import zsobol_log2_samples
 
 
 struct RenderSettings(Copyable, Writable):
@@ -104,6 +105,15 @@ struct RenderSettings(Copyable, Writable):
         var pixel_count = UInt64(self.image_width) * UInt64(self.image_height)
         if pixel_count > u32_max / UInt64(self.samples_per_pixel):
             raise Error("render requires more than 2^32-1 sample paths")
+        if self.sampler == .Z_SOBOL:
+            var resolution_bits = zsobol_log2_samples(
+                UInt32(max(self.image_width, self.image_height))
+            )
+            var sample_bits = zsobol_log2_samples(
+                UInt32(self.sample_sequence_length)
+            )
+            if 2 * resolution_bits + sample_bits > 52:
+                raise Error("Z-Sobol pixel/sample index exceeds 52 bits")
 
 
 struct SamplingConfig(Copyable, DevicePassable, ImplicitlyCopyable, Writable):
@@ -115,6 +125,7 @@ struct SamplingConfig(Copyable, DevicePassable, ImplicitlyCopyable, Writable):
     var sample_offset: UInt32
     var sequence_length: UInt32
     var image_width: UInt32
+    var image_height: UInt32
     var filter: FilterView
 
     def __init__(
@@ -126,6 +137,7 @@ struct SamplingConfig(Copyable, DevicePassable, ImplicitlyCopyable, Writable):
         sequence_length: UInt32,
         image_width: UInt32,
         filter: FilterView = FilterView(),
+        image_height: UInt32 = 1,
     ):
         self.seed = seed
         self.sampler = sampler
@@ -133,6 +145,7 @@ struct SamplingConfig(Copyable, DevicePassable, ImplicitlyCopyable, Writable):
         self.sample_offset = sample_offset
         self.sequence_length = sequence_length
         self.image_width = image_width
+        self.image_height = image_height
         self.filter = filter
 
     comptime device_type: AnyType = Self
@@ -156,6 +169,7 @@ struct SamplingConfig(Copyable, DevicePassable, ImplicitlyCopyable, Writable):
             UInt32(settings.sample_sequence_length),
             UInt32(settings.image_width),
             FilterView(settings.filter),
+            UInt32(settings.image_height),
         )
 
 

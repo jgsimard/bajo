@@ -4,6 +4,12 @@ from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import cos, floor, pi, sin, sqrt, cbrt
 
 from bajo.core import Vec3, dot, Frame
+from bajo.core.zsobol import (
+    zsobol_log2_samples,
+    zsobol_morton_index,
+    zsobol_sample_index,
+    zsobol_scramble,
+)
 
 
 __enum Sampler(
@@ -17,10 +23,11 @@ __enum Sampler(
     case OWEN_SOBOL
     case SZ
     case STBN
+    case Z_SOBOL
 
     def __init__[value: Int](out self):
         """Construct a sampler from a compile-time sequence ID."""
-        comptime assert 0 <= value <= 5
+        comptime assert 0 <= value <= 6
         self = (
             Self.INDEPENDENT,
             Self.HALTON,
@@ -28,6 +35,7 @@ __enum Sampler(
             Self.OWEN_SOBOL,
             Self.SZ,
             Self.STBN,
+            Self.Z_SOBOL,
         )[value]
 
     def __init__(out self, value: Int) raises:
@@ -45,9 +53,11 @@ __enum Sampler(
                 self = Self.SZ
             case 5:
                 self = Self.STBN
+            case 6:
+                self = Self.Z_SOBOL
             case _:
                 raise Error(
-                    "unknown sampler: expected a sequence ID from 0 to 5"
+                    "unknown sampler: expected a sequence ID from 0 to 6"
                 )
 
     def __init__(out self, value: UInt32) raises:
@@ -410,6 +420,9 @@ struct Rng[length: SIMDLength = 1]:
     var _pixel_id: SIMD[.uint32, Self.length]
     var _image_width: UInt32
     var _stage: UInt32
+    var _z_morton_index: SIMD[.uint64, Self.length]
+    var _z_log2_samples: Int
+    var _z_base4_digits: Int
 
     def __init__(
         out self,
@@ -420,6 +433,8 @@ struct Rng[length: SIMDLength = 1]:
         pixel_id: SIMD[.uint32, Self.length] = 0,
         image_width: UInt32 = 1,
         stage: UInt32 = 0,
+        sequence_length: UInt32 = 1,
+        image_height: UInt32 = 1,
     ):
         self._counter = [
             0,
@@ -443,6 +458,21 @@ struct Rng[length: SIMDLength = 1]:
         self._pixel_id = pixel_id
         self._image_width = image_width
         self._stage = stage
+        self._z_morton_index = 0
+        self._z_log2_samples = 0
+        self._z_base4_digits = 0
+        if sampler == .Z_SOBOL:
+            self._z_log2_samples = zsobol_log2_samples(sequence_length)
+            var resolution_bits = zsobol_log2_samples(
+                max(image_width, image_height)
+            )
+            debug_assert(2 * resolution_bits + self._z_log2_samples <= 52)
+            self._z_base4_digits = (
+                resolution_bits + (self._z_log2_samples + 1) // 2
+            )
+            self._z_morton_index = zsobol_morton_index(
+                pixel_id, image_width, sample_index, self._z_log2_samples
+            )
         self._buffer = self._step_uniform()
 
     @always_inline
@@ -529,6 +559,35 @@ struct Rng[length: SIMDLength = 1]:
                     self._stage,
                     self._global_seed,
                 )
+            case .Z_SOBOL:
+                # Dimension pairs share a permuted index, preserving the
+                # two-dimensional Sobol net. Stage salts stay independent of
+                # pixel IDs and sample batches, retaining spatial ordering.
+                var dimension = _mix32(self._stage) + UInt32(
+                    self._dimension & ~1
+                )
+                var index = zsobol_sample_index(
+                    self._z_morton_index,
+                    self._z_log2_samples,
+                    self._z_base4_digits,
+                    dimension,
+                )
+                var hash = zsobol_scramble(
+                    dimension + UInt32(2), self._key[0] ^ self._key[1]
+                )
+                var bits = bit_reverse(index.cast[.uint32]())
+                var scramble = UInt32(hash)
+                if self._dimension & 1:
+                    # Dimension one's direction numbers repeat every 32 bits;
+                    # fold the upper index bits instead of dropping them.
+                    bits = _sobol_bits(
+                        (index ^ (index >> UInt64(32))).cast[.uint32](), 1
+                    )
+                    scramble = UInt32(hash >> UInt64(32))
+                val = (
+                    _owen_scramble(bits, scramble).cast[.float32]()
+                    * Float32(2.3283064365386963e-10)
+                ).clamp(0.0, Float32(0.9999999403953552))
         self._dimension += 1
         return val * (upper_bound - lower_bound) + lower_bound
 

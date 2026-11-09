@@ -51,6 +51,8 @@ def main() raises:
         assert_equal(scene.settings.image_width, 1920)
         assert_equal(scene.settings.image_height, 1080)
         assert_equal(scene.settings.samples_per_pixel, 256)
+        assert_true(scene.settings.sampler == .Z_SOBOL)
+        assert_equal(scene.settings.rng_seed, UInt64(0))
         assert_equal(scene.settings.max_depth, 5)
         assert_equal(scene.settings.film.max_component_value, Float32(20))
         assert_equal(scene.settings.filter.kind, UInt32(1))

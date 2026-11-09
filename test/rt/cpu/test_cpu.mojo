@@ -147,7 +147,7 @@ def test_pinhole_primary_paths_preserve_sampler_dimensions_and_signed_zero() rai
                 4.2,
                 aperture,
             )
-            for sampler in range(6):
+            for sampler in range(7):
                 var settings = RenderSettings(
                     16, 16, 2, UInt64(2026), 1, Sampler(sampler)
                 )
@@ -853,8 +853,22 @@ def test_wavefront_philox_streams_are_deterministic_and_separate() raises:
     assert_true(replay.f32() != roulette.f32())
 
 
+def test_zsobol_settings_validate_the_full_pixel_sample_domain() raises:
+    var settings = RenderSettings(9, 73, 3, UInt64(0), 5, .Z_SOBOL, 0, 5)
+    settings.validate()
+    var sampling = SamplingConfig.from_settings(settings)
+    assert_equal(sampling.image_width, UInt32(9))
+    assert_equal(sampling.image_height, UInt32(73))
+    assert_equal(sampling.sequence_length, UInt32(5))
+    var boundary = RenderSettings(1 << 26, 1, 1, UInt64(0), 1, .Z_SOBOL)
+    boundary.validate()
+    var too_large = RenderSettings(1 << 27, 1, 1, UInt64(0), 1, .Z_SOBOL)
+    with assert_raises():
+        too_large.validate()
+
+
 def test_sample_sequences_are_deterministic_and_batch_invariant() raises:
-    for sampler_idx in range(6):
+    for sampler_idx in range(7):
         var sampler = Sampler(UInt32(sampler_idx))
         var full = RenderSettings(3, 1, 4, UInt64(123), 2, sampler, 0, 4)
         var first = RenderSettings(3, 1, 2, UInt64(123), 2, sampler, 0, 4)

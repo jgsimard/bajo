@@ -155,7 +155,7 @@ def path_stage_rng[
                 seed=sampling.seed,
                 id=wavefront_rng_subsequence(canonical_path_id, stage),
             )
-        case .HALTON | .R2 | .OWEN_SOBOL | .SZ | .STBN:
+        case .HALTON | .R2 | .OWEN_SOBOL | .SZ | .STBN | .Z_SOBOL:
             pass
     return Rng[length](
         seed=sampling.seed,
@@ -165,6 +165,8 @@ def path_stage_rng[
         pixel_id=pixel_id,
         image_width=sampling.image_width,
         stage=stage,
+        sequence_length=sampling.sequence_length,
+        image_height=sampling.image_height,
     )
 
 

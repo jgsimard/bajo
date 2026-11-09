@@ -13,7 +13,7 @@ from bajo.core import Affine3f32, Point3, Point3f32, Vec3, Vec3f32, Rayf32
 from bajo.core.random import Rng, Sampler
 from bajo.rt.common import path_stage_rng
 from bajo.core.color import Color
-from bajo.rt.render_types import SamplingConfig
+from bajo.rt.render_types import SamplingConfig, RenderSettings
 from bajo.rt.material_types import (
     Environment,
     MaterialKind,
@@ -54,7 +54,7 @@ def _streams[length: SIMDLength]() raises:
             var values = rng.f32()
             for lane in range(Int(length)):
                 assert_equal(values[lane], expected[lane * 20 + dim])
-    for sampler in range(6):
+    for sampler in range(7):
         for stage in [
             UInt32(0),
             UInt32(9),
@@ -76,6 +76,43 @@ def _streams[length: SIMDLength]() raises:
                 var values = wide.f32()
                 for lane in range(Int(length)):
                     assert_equal(values[lane], expected[lane * 20 + dim])
+
+
+def test_zsobol_odd_sequence_preserves_streams_across_partial_batches() raises:
+    var full = SamplingConfig.from_settings(
+        RenderSettings(9, 73, 5, UInt64(97), 4, .Z_SOBOL, 0, 5)
+    )
+    var first = SamplingConfig.from_settings(
+        RenderSettings(9, 73, 2, UInt64(97), 4, .Z_SOBOL, 0, 5)
+    )
+    var second = SamplingConfig.from_settings(
+        RenderSettings(9, 73, 3, UInt64(97), 4, .Z_SOBOL, 2, 5)
+    )
+    for pixel in [0, 8, 9, 656]:
+        for sample in range(5):
+            for stage in [
+                UInt32(0),
+                UInt32(9),
+                UInt32(0x40000009),
+                UInt32(0x80000009),
+                UInt32(0xC0000009),
+            ]:
+                var expected = path_stage_rng(
+                    full, UInt32(pixel * 5 + sample), stage
+                )
+                var actual = path_stage_rng(
+                    first if sample < 2 else second,
+                    UInt32(
+                        pixel * 2 + sample if sample
+                        < 2 else pixel * 3 + sample - 2
+                    ),
+                    stage,
+                )
+                for _ in range(12):
+                    assert_equal(
+                        bitcast[.uint32](actual.f32()),
+                        bitcast[.uint32](expected.f32()),
+                    )
 
 
 def test_packet_random_streams_match_philox_and_all_samplers() raises:
@@ -238,7 +275,7 @@ def _direct_lights[length: SIMDLength](image_environment: Bool) raises:
         Vec3[.float32, .WORLD, length](0, 1, 0),
         SIMD[.bool, length](fill=True),
     )
-    for sampler in range(6):
+    for sampler in range(7):
         var config = SamplingConfig(2026, Sampler(sampler), 7, 100, 1024, 320)
         for packet in range(20):
             var ids = SIMD[.uint32, length](0)
@@ -394,7 +431,7 @@ def test_scalar_bsdf_setup_preserves_rng_draw_counts_for_all_samplers() raises:
         mixed_matte.value[0],
     ]
     var draws: List[Int] = [2, 0, 2, 1, 0, 2, 0, 1, 3]
-    for sampler_id in range(6):
+    for sampler_id in range(7):
         var sampler = Sampler(sampler_id)
         for scenario in range(len(ids)):
             var rng = Rng[1](UInt64(2026), UInt64(17), sampler=sampler)

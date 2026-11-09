@@ -32,6 +32,7 @@ import test.rt.gpu.test_emissive_bsdf_gpu as gpu_test_emissive_bsdf_gpu
 import test.rt.gpu.test_film_gpu as gpu_test_film_gpu
 import test.rt.gpu.test_filter_gpu as gpu_test_filter_gpu
 import test.rt.gpu.test_spectra_gpu as gpu_test_spectra_gpu
+import test.rt.gpu.test_zsobol_gpu as gpu_test_zsobol_gpu
 import test.rt.gpu.test_coated_shading_gpu as gpu_test_coated_shading_gpu
 import test.rt.gpu.test_crown_gpu as gpu_test_crown_gpu
 import test.rt.gpu.test_cwbvh_call_gpu as gpu_test_cwbvh_call_gpu
@@ -45,6 +46,11 @@ import test.rt.gpu.test_wavefront_contract_gpu as gpu_test_wavefront_contract_gp
 
 def main() raises:
     var tests = TestRunner()
+    comptime if module_selected["gpu_test_zsobol_gpu"]():
+        tests.run(
+            "test/rt/gpu/test_zsobol_gpu.mojo",
+            gpu_test_zsobol_gpu.run_tests[True],
+        )
     comptime if module_selected["gpu_test_spectra_gpu"]():
         tests.run(
             "test/rt/gpu/test_spectra_gpu.mojo",

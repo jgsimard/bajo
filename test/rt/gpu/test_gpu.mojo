@@ -448,7 +448,7 @@ def test_gpu_sphere_path_matches_cpu_wavefront() raises:
 def test_gpu_sample_sequences_are_batch_invariant() raises:
     var world = _sphere_world()
     var camera = _camera()
-    for sampler_idx in range(1, 6):
+    for sampler_idx in range(1, 7):
         var sampler = Sampler(UInt32(sampler_idx))
         var full_settings = RenderSettings(
             4, 3, 4, UInt64(97), 4, sampler, 0, 4

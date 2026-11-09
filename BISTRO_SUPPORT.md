@@ -21,7 +21,6 @@ regressions does not establish complete-scene fidelity.
 | Spectral materials and textures | Original-table RGB reconstruction and packed optical-curve evaluation have passing reference tests. GPU scene preparation now retains optical curves and material spectrum IDs. BSDF evaluation still uses RGB projections or scalar IOR. Connect spectral material/texture evaluation at the path's actual wavelengths, including dispersive transmission and wavelength-PDF updates where required; give RGB reconstruction data renderer-owned storage. |
 | Spectral lights and environment | Emission and environment evaluation still supply RGB. Implement wavelength-dependent area-light/environment evaluation, photometric normalization, and consistent light-sampling and emissive-hit MIS PDFs. The tested RGB reconstruction upload wrapper still needs renderer ownership/binding and actual light/texture consumers. |
 | Texture footprints and filtering | Normal and opacity maps use repeating bilinear lookups; general material/environment lookups still use the existing sampling paths. There is no complete mipmap/footprint pipeline. Propagate derivatives or ray differentials, build mip levels, and implement the required filtering on CPU and GPU. Verify scalar-channel and color/data decoding semantics across every consumer. |
-| Authored `zsobol` sampling | All three entrypoints request `Sampler "zsobol"` with 256 samples per pixel. The parser recognizes only `halton` and `sobol`; `zsobol` silently becomes independent sampling. Implement Z-Sobol and its CPU/GPU sequence integration. |
 | Spectral film input for sample clamping | `apply_spectral_sample` now has CPU/GPU numerical tests for PDF-weighted CIE integration, exposure, and sensor-space clamping. CPU accumulation and GPU reduction still call the RGB `apply_sample` path. Connect actual complete-path radiance/wavelength/PDF samples and validated light normalization, preserving sensor clamp → output conversion → filter weighting → pixel reduction. |
 | Declared EXR output | Film filenames are `bistro_cafe.exr`, `bistro_boulangerie.exr`, and `bistro_vespa.exr`. The parser does not retain the filename, and `image_output.mojo` provides raw Float32 RGB and PPM output, not an EXR writer. Retain output settings and write the requested linear HDR image. |
 | Complete-scene verification | All three entrypoints load with 243 opacity bindings and 102 independent emission bindings each. Full-asset RGB diagnostics render all three cameras on GPU at 192×108, 32 spp, depth 8; an earlier Café diagnostic also rendered on CPU. Authored-resolution/settings renders, a complete parameter audit, converged image inspection, and PBRT comparison remain unverified. |
@@ -71,7 +70,7 @@ and [path integrators](https://github.com/mmp/pbrt-v4/blob/master/src/pbrt/cpu/i
 - [x] Coated-conductor reflectance textures and correct optical defaults in the current transport path.
 - [x] Independent emission and scattering properties on the same surface.
 - [ ] Filtered texture sampling, mipmaps, derivatives, and data-image semantics.
-- [ ] Z-Sobol sampling with the authored 256 samples per pixel on CPU/GPU.
+- [x] Z-Sobol sampling with the authored 256 samples per pixel on CPU/GPU.
 - [ ] Retain declared film filenames and implement linear HDR EXR output.
 - [ ] Complete spectral film sample clamping.
   - [x] Retain the authored limit and implement complete-sample CPU/GPU clamping before averaging.
@@ -98,7 +97,7 @@ and [path integrators](https://github.com/mmp/pbrt-v4/blob/master/src/pbrt/cpu/i
   - [x] Honor shape alpha and retain 102 emission bindings with their original BSDFs per scene.
   - [x] Load all three entrypoints with the implicit depth of 5 and MIS transport selection.
   - [x] Load all three entrypoints with the implicit Gaussian filter: radius 1.5 and sigma 0.5.
-  - [ ] Honor remaining authored sampling/film settings and audit all remaining parameters.
+  - [ ] Honor declared film output settings and audit all remaining parameters.
 - [ ] Render and inspect full-scene output; compare with a PBRT reference.
 
 ## Implemented behavior
@@ -344,7 +343,7 @@ emission-only replacement materials. Their 20,638 triangle light records retain
 the original BSDF IDs. Full-asset GPU diagnostics after this change complete at
 192×108, 32 spp, depth 8. Those diagnostics predate the depth, film, and
 reconstruction-filter corrections below. Spectral rendering, texture filtering,
-authored sampling/output, and final verification remain open.
+authored output, and final verification remain open.
 
 Sources: [emission bindings](bajo/rt/emission.mojo),
 [scene/light construction](bajo/rt/scene_data.mojo),
@@ -527,6 +526,35 @@ Sources: [opacity records](bajo/rt/opacity.mojo),
 [CPU tests](test/rt/cpu/test_opacity.mojo), and
 [GPU tests](test/rt/gpu/test_opacity_gpu.mojo).
 
+### Z-Sobol sampling
+
+The PBRT parser now selects `Sampler.Z_SOBOL` for `Sampler "zsobol"`, retains
+its sample count, and honors the signed 32-bit `seed` parameter (default 0).
+The native viewer exposes the same sampler through `--sampler zsobol` and P.
+Existing sampler IDs remain unchanged; Z-Sobol is ID 6.
+
+CPU SIMD and GPU code use PBRT's hierarchical Morton-index permutation and
+Fast Owen scrambling. Adjacent random dimensions share a two-dimensional net;
+path-stage salts distinguish camera, scattering, light, material, and roulette
+streams. Full image width/height and sequence length are retained across batches,
+including portrait images and nonzero sample offsets. Non-power-of-two sequence
+lengths take a prefix of the next power-of-two domain without changing the
+requested number of samples. Pixel/sample indices are limited to 52 bits.
+
+The default `fastowen` randomization is implemented; other explicitly requested
+randomizations are rejected. The renderer keeps its existing path-stage dimension
+allocation, so identical whole-image sample order to PBRT is not claimed.
+Independent scalar C++ fixtures cover 108 index/sample pairs, including odd
+sample exponents, high index bits, and signed seed bit patterns. CPU/GPU tests
+check exact reference bits, two-dimensional stratification, SIMD agreement,
+partial batches, rendered-image agreement, and sample-batch invariance.
+
+Sources: [Z-Sobol permutation](bajo/core/zsobol.mojo),
+[shared sampler integration](bajo/core/random.mojo),
+[independent C++ reference generator](scripts/generate_zsobol_references.py),
+[CPU references and stratification](test/core/test_sampler.mojo), and
+[GPU references and streams](test/rt/gpu/test_zsobol_gpu.mojo).
+
 ## Verification
 
 Run the parser and CPU rendering regressions with:
@@ -574,7 +602,7 @@ fidelity or agreement with PBRT at the authored settings.
    Validate per-light photometric normalization with independent path references.
 2. Add texture footprints, mipmaps, and the required material/environment
    filtering; verify color versus scalar/data semantics for each consumer.
-3. Implement Z-Sobol, retain film filenames, and write the declared EXR outputs.
+3. Retain film filenames and write the declared EXR outputs.
 4. Audit every authored parameter and implicit default, then render all three
    cameras on CPU/GPU at 1920×1080 and 256 spp with the implicit depth of 5 and
    Gaussian radius 1.5 / sigma 0.5. Preserve each camera's lens settings, ISO,

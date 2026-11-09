@@ -103,7 +103,7 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
     var expected_target = renderer.scene.make_render_target(
         renderer.ctx, settings, camera
     )
-    for phase in range(17):
+    for phase in range(20):
         if phase == 1:
             camera = Camera.from_vfov(
                 Point3f32[.WORLD](0.5, 0.0, 3.0),
@@ -144,6 +144,12 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
             settings.filter = ReconstructionFilter(x_radius=1.25)
         elif phase == 16:
             settings.filter = ReconstructionFilter.triangle()
+        elif phase == 17:
+            settings.sampler = .Z_SOBOL
+        elif phase == 18:
+            settings.sample_offset = 4
+        elif phase == 19:
+            settings.sample_sequence_length = 32
         update_gpu_camera(renderer.ctx, renderer.target, camera)
         update_gpu_camera(renderer.ctx, expected_target, camera)
         enqueue_render_gpu[.MIS](
@@ -152,7 +158,7 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
         var expected = download_gpu_pixels(renderer.ctx, expected_target)
         for repeat in range(3):
             renderer.enqueue[.MIS](settings)
-            if repeat == 0 and phase != 1 and phase != 5:
+            if repeat == 0 and phase != 1 and phase != 5 and phase != 18:
                 assert_false(Bool(renderer._render_graph))
             var actual = download_gpu_pixels(renderer.ctx, renderer.target)
             assert_pixels_equal(actual, expected)

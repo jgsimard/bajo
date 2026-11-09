@@ -6,51 +6,49 @@ from std.math import cos, floor, pi, sin, sqrt, cbrt
 from bajo.core import Vec3, dot, Frame
 
 
-struct Sampler(
-    DevicePassable,
-    EnumLike,
-    Equatable,
-    Intable,
-    TrivialRegisterPassable,
-    Writable,
+__enum Sampler(
+    DevicePassable, Equatable, ImplicitlyCopyable, Intable, Writable
 ):
     """Runtime-selectable sample sequence, validated at construction."""
 
-    var _value: UInt32
-    comptime INDEPENDENT = Self.__init__[0]()
-    comptime HALTON = Self.__init__[1]()
-    comptime R2 = Self.__init__[2]()
-    comptime OWEN_SOBOL = Self.__init__[3]()
-    comptime SZ = Self.__init__[4]()
-    comptime STBN = Self.__init__[5]()
-    comptime _enum_case_names = ParameterList.of[
-        "INDEPENDENT".value,
-        "HALTON".value,
-        "R2".value,
-        "OWEN_SOBOL".value,
-        "SZ".value,
-        "STBN".value,
-    ].values
-    comptime _enum_case_types = TypeList.of[
-        Trait=AnyType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-    ].values
+    case INDEPENDENT
+    case HALTON
+    case R2
+    case OWEN_SOBOL
+    case SZ
+    case STBN
 
     def __init__[value: Int](out self):
         """Construct a sampler from a compile-time sequence ID."""
         comptime assert 0 <= value <= 5
-        self._value = UInt32(value)
+        self = (
+            Self.INDEPENDENT,
+            Self.HALTON,
+            Self.R2,
+            Self.OWEN_SOBOL,
+            Self.SZ,
+            Self.STBN,
+        )[value]
 
     def __init__(out self, value: Int) raises:
         """Construct a sampler from an external sequence ID."""
-        if value < 0 or value > 5:
-            raise Error("unknown sampler: expected a sequence ID from 0 to 5")
-        self._value = UInt32(value)
+        match value:
+            case 0:
+                self = Self.INDEPENDENT
+            case 1:
+                self = Self.HALTON
+            case 2:
+                self = Self.R2
+            case 3:
+                self = Self.OWEN_SOBOL
+            case 4:
+                self = Self.SZ
+            case 5:
+                self = Self.STBN
+            case _:
+                raise Error(
+                    "unknown sampler: expected a sequence ID from 0 to 5"
+                )
 
     def __init__(out self, value: UInt32) raises:
         """Construct a sampler from a 32-bit sequence ID."""
@@ -58,7 +56,7 @@ struct Sampler(
 
     def __int__(self) -> Int:
         """Return the external sequence ID."""
-        return Int(self._value)
+        return self._get_enum_discriminant()
 
     comptime device_type: AnyType = Self
 
@@ -70,17 +68,6 @@ struct Sampler(
     @staticmethod
     def get_type_name() -> String:
         return "Sampler"
-
-    def _get_enum_discriminant(self) -> Int:
-        return Int(self)
-
-    def _unsafe_get_enum_payload[
-        id: Int
-    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
-        id
-    ]:
-        while True:
-            pass
 
 
 @always_inline

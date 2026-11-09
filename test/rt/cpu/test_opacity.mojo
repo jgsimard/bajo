@@ -5,17 +5,18 @@ from std.testing import (
     assert_equal,
     assert_almost_equal,
     assert_true,
+    assert_raises,
 )
 from bajo.core import Point3f32, Vec3f32, Rayf32, Point3, Vec3, Ray
 from bajo.parser.pbrt import parse_pbrt, read_pbrt
 from bajo.parser import MemoryAssetLoader
-from bajo.rt import CpuScene
-from bajo.rt.material_types import ImageTexture
+from bajo.rt import CpuScene, SceneBuilder
+from bajo.rt.material_types import ImageTexture, NO_TEXTURE
 from bajo.rt.shading_types import ShadingPoint
 from bajo.rt.cpu.lighting import _sample_direct_light_candidate
 from bajo.core.random import Rng
 from bajo.rt import Color, render_wavefront
-from bajo.rt.opacity import opacity_accepts, opacity_point_sample
+from bajo.rt.opacity import Opacity, opacity_accepts, opacity_point_sample
 from bajo.rt.lighting import _sample_triangle_light_surface, light_sample_uv
 from test.parser.png.test_png import _encode
 
@@ -24,6 +25,17 @@ def _ray(t_max: Float32 = 100.0) -> Rayf32[.WORLD]:
     return Rayf32[.WORLD](
         Point3f32[.WORLD](0.2, 0.3, 2), Vec3f32[.WORLD](0, 0, -1), 1e-4, t_max
     )
+
+
+def test_opacity_rejects_unknown_primitive_kind() raises:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    builder.add_sphere(Point3f32[.WORLD](0), 1.0, matte)
+    builder.opacity.records[UInt32(3) << 28] = Opacity(
+        1.0, NO_TEXTURE, 1.0, 1.0
+    )
+    with assert_raises():
+        _ = builder^.finish()
 
 
 def test_coplanar_flat_alpha_rejection_preserves_opaque_hit() raises:

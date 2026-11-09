@@ -16,7 +16,7 @@ from bajo.parser.pbrt import parse_pbrt
 from bajo.rt import CpuScene, SceneBuilder, render_wavefront
 from bajo.rt.scene_description import SceneDescription
 from bajo.rt.emission import AreaEmitter
-from bajo.rt.material_types import PrimitiveId, Integrator
+from bajo.rt.material_types import MaterialKind, PrimitiveId, Integrator
 from bajo.rt.shading_types import ShadingPoint
 from bajo.rt.cpu.lighting import (
     _sample_direct_light_candidate,
@@ -62,8 +62,8 @@ def test_emissive_diffuse_retains_bsdf_and_reflects_the_environment() raises:
             assert_equal(len(parsed.data.surfaces().emissives), 0)
             assert_equal(len(parsed.data.emission().records), 1)
             assert_equal(
-                parsed.data.triangle_instance_surfaces()[0].kind().value,
-                UInt32(0),
+                parsed.data.triangle_instance_surfaces()[0].kind(),
+                MaterialKind.LAMBERTIAN,
             )
             var settings = parsed.settings.copy()
             var camera = parsed.camera
@@ -147,11 +147,13 @@ def test_two_sided_direct_light_and_hit_pdfs_agree_from_the_back() raises:
 
 
 def test_invalid_geometry_emission_is_rejected() raises:
-    for invalid in [0, 1, 2]:
+    for invalid in [0, 1, 2, 3]:
         var builder = SceneBuilder()
         var matte = builder.add_lambertian(Color(0.5))
         builder.add_sphere(Point3f32[.WORLD](0), 1.0, matte)
         var key = PrimitiveId(.SPHERE, UInt32(10 if invalid == 0 else 0)).value
+        if invalid == 3:
+            key = UInt32(3) << 28
         var radiance = (
             Color(-1.0) if invalid
             == 1 else Color(bitcast[.float32](UInt32(0x7F800000))) if invalid

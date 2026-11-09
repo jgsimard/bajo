@@ -116,7 +116,7 @@ struct GpuRtLights:
             var radiance = light.radiance
             kinds.append(
                 (world.lights().alias_indices[light_idx] << UInt32(4))
-                | kind.value
+                | kind.value()
             )
             fields.append(light.p0.x)
             fields.append(light.p0.y)

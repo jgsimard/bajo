@@ -38,31 +38,19 @@ struct WAVE_STATUS(Equatable, TrivialRegisterPassable, Writable):
     comptime SHADOW_OVERFLOW = UInt32(3)
 
 
-@fieldwise_init
-struct WAVE_RNG_DOMAIN(EnumLike, Equatable, TrivialRegisterPassable, Writable):
-    var v: UInt32
+__enum WAVE_RNG_DOMAIN(Equatable, ImplicitlyCopyable, Writable):
+    case BSDF
+    case ROULETTE
+    case LIGHT
+    case MATERIAL
+
     comptime SHIFT = UInt32(30)
-    comptime BSDF = Self(0)
-    comptime ROULETTE = Self(1)
-    comptime LIGHT = Self(2)
-    comptime MATERIAL = Self(3)
-    comptime _enum_case_names = ParameterList.of[
-        "BSDF".value, "ROULETTE".value, "LIGHT".value, "MATERIAL".value
-    ].values
-    comptime _enum_case_types = TypeList.of[
-        Trait=AnyType, NoneType, NoneType, NoneType, NoneType
-    ].values
 
-    def _get_enum_discriminant(self) -> Int:
-        return Int(self.v)
-
-    def _unsafe_get_enum_payload[
-        id: Int
-    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
-        id
-    ]:
-        while True:
-            pass
+    @always_inline
+    def stage(self, bounce: UInt32) -> UInt32:
+        return (UInt32(self._get_enum_discriminant()) << Self.SHIFT) | (
+            bounce + UInt32(1)
+        )
 
 
 # The path queue owns the full UInt32 ID word, unlike material path references.
@@ -124,33 +112,25 @@ def wavefront_rng_subsequence[
 @always_inline
 def wavefront_rng_stage(bounce: UInt32) -> UInt32:
     """Map zero-based bounce to the existing shade RNG stage."""
-    return (WAVE_RNG_DOMAIN.BSDF.v << WAVE_RNG_DOMAIN.SHIFT) | (
-        bounce + UInt32(1)
-    )
+    return WAVE_RNG_DOMAIN.BSDF.stage(bounce)
 
 
 @always_inline
 def wavefront_rng_roulette_stage(bounce: UInt32) -> UInt32:
     """Independent Philox domain for zero-based-bounce roulette decisions."""
-    return (WAVE_RNG_DOMAIN.ROULETTE.v << WAVE_RNG_DOMAIN.SHIFT) | (
-        bounce + UInt32(1)
-    )
+    return WAVE_RNG_DOMAIN.ROULETTE.stage(bounce)
 
 
 @always_inline
 def wavefront_rng_light_stage(bounce: UInt32) -> UInt32:
     """Independent Philox domain for zero-based-bounce light sampling."""
-    return (WAVE_RNG_DOMAIN.LIGHT.v << WAVE_RNG_DOMAIN.SHIFT) | (
-        bounce + UInt32(1)
-    )
+    return WAVE_RNG_DOMAIN.LIGHT.stage(bounce)
 
 
 @always_inline
 def wavefront_rng_material_stage(bounce: UInt32) -> UInt32:
     """Independent material selection shared by CPU and GPU schedulers."""
-    return (WAVE_RNG_DOMAIN.MATERIAL.v << WAVE_RNG_DOMAIN.SHIFT) | (
-        bounce + UInt32(1)
-    )
+    return WAVE_RNG_DOMAIN.MATERIAL.stage(bounce)
 
 
 struct DeviceWavePath(

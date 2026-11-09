@@ -22,30 +22,13 @@ from bajo.bvh.constants import PrimitiveKind
 comptime NO_TEXTURE = UInt32.MAX
 
 
-struct EnvironmentKind(
-    DevicePassable, EnumLike, Equatable, TrivialRegisterPassable, Writable
-):
-    """Environment model with checked compile-time construction."""
+__enum EnvironmentKind(DevicePassable, Equatable, ImplicitlyCopyable, Writable):
+    """Environment model."""
 
-    var _value: UInt32
-    comptime BLACK = Self.__init__[0]()
-    comptime PROCEDURAL = Self.__init__[1]()
-    comptime UNIFORM = Self.__init__[2]()
-    comptime IMAGE = Self.__init__[3]()
-    comptime _enum_case_names = ParameterList.of[
-        "BLACK".value,
-        "PROCEDURAL".value,
-        "UNIFORM".value,
-        "IMAGE".value,
-    ].values
-    comptime _enum_case_types = TypeList.of[
-        Trait=AnyType, NoneType, NoneType, NoneType, NoneType
-    ].values
-
-    def __init__[value: Int](out self):
-        """Construct an environment kind from a compile-time model ID."""
-        comptime assert 0 <= value <= 3
-        self._value = UInt32(value)
+    case BLACK
+    case PROCEDURAL
+    case UNIFORM
+    case IMAGE
 
     comptime device_type: AnyType = Self
 
@@ -57,17 +40,6 @@ struct EnvironmentKind(
     @staticmethod
     def get_type_name() -> String:
         return "EnvironmentKind"
-
-    def _get_enum_discriminant(self) -> Int:
-        return Int(self._value)
-
-    def _unsafe_get_enum_payload[
-        id: Int
-    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
-        id
-    ]:
-        while True:
-            pass
 
 
 struct Environment(Copyable, Writable):
@@ -116,50 +88,35 @@ struct Environment(Copyable, Writable):
         return result^
 
 
-@fieldwise_init
-struct MaterialKind(EnumLike, Equatable, TrivialRegisterPassable, Writable):
-    var value: UInt32
-    comptime LAMBERTIAN = Self(0)
-    comptime METAL = Self(1)
-    comptime DIELECTRIC = Self(2)
-    comptime EMISSIVE = Self(3)
-    comptime COATED_DIFFUSE = Self(4)
-    comptime MIX = Self(5)
-    comptime _enum_case_names = ParameterList.of[
-        "LAMBERTIAN".value,
-        "METAL".value,
-        "DIELECTRIC".value,
-        "EMISSIVE".value,
-        "COATED_DIFFUSE".value,
-        "MIX".value,
-    ].values
-    comptime _enum_case_types = TypeList.of[
-        Trait=AnyType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-    ].values
-    comptime has_bsdf[kind: Self] = (
-        kind.value == Self.LAMBERTIAN.value
-        or kind.value == Self.METAL.value
-        or kind.value == Self.DIELECTRIC.value
-        or kind.value == Self.COATED_DIFFUSE.value
-        or kind.value == Self.MIX.value
-    )
+__enum MaterialKind(Equatable, ImplicitlyCopyable, Writable):
+    case LAMBERTIAN
+    case METAL
+    case DIELECTRIC
+    case EMISSIVE
+    case COATED_DIFFUSE
+    case MIX
 
-    def _get_enum_discriminant(self) -> Int:
-        return Int(self.value)
+    comptime has_bsdf[kind: Self] = kind != Self.EMISSIVE
 
-    def _unsafe_get_enum_payload[
-        id: Int
-    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
-        id
-    ]:
-        while True:
-            pass
+    def __init__(out self, value: UInt32):
+        debug_assert(value <= 5)
+        match Int(value):
+            case 0:
+                self = Self.LAMBERTIAN
+            case 1:
+                self = Self.METAL
+            case 2:
+                self = Self.DIELECTRIC
+            case 3:
+                self = Self.EMISSIVE
+            case 4:
+                self = Self.COATED_DIFFUSE
+            case _:
+                self = Self.MIX
+
+    @always_inline
+    def value(self) -> UInt32:
+        return UInt32(self._get_enum_discriminant())
 
 
 comptime SURFACE_KIND_BITS = UInt32(4)
@@ -182,25 +139,15 @@ def sample_mix_branch(amount: Float32, mut random: Float32) -> Int:
     return 0
 
 
-struct Integrator(EnumLike, Equatable, TrivialRegisterPassable, Writable):
-    """Render algorithm with checked compile-time construction."""
+__enum Integrator(Equatable, ImplicitlyCopyable, Writable):
+    """Render algorithm."""
 
-    var _value: UInt32
-    comptime PATH = Self.__init__[0]()
-    comptime NORMALS = Self.__init__[1]()
-    comptime AO = Self.__init__[2]()
-    comptime NEE = Self.__init__[3]()
-    comptime MIS = Self.__init__[4]()
-    comptime _enum_case_names = ParameterList.of[
-        "PATH".value,
-        "NORMALS".value,
-        "AO".value,
-        "NEE".value,
-        "MIS".value,
-    ].values
-    comptime _enum_case_types = TypeList.of[
-        Trait=AnyType, NoneType, NoneType, NoneType, NoneType, NoneType
-    ].values
+    case PATH
+    case NORMALS
+    case AO
+    case NEE
+    case MIS
+
     comptime is_path_tracing[integrator: Self] = (
         integrator == Self.PATH
         or integrator == Self.NEE
@@ -213,35 +160,17 @@ struct Integrator(EnumLike, Equatable, TrivialRegisterPassable, Writable):
         integrator == Self.AO or Self.uses_direct_lighting[integrator]
     )
 
-    def __init__[value: Int](out self):
-        """Construct an integrator from a compile-time algorithm ID."""
-        comptime assert 0 <= value <= 4
-        self._value = UInt32(value)
-
-    def _get_enum_discriminant(self) -> Int:
-        return Int(self._value)
-
-    def _unsafe_get_enum_payload[
-        id: Int
-    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
-        id
-    ]:
-        while True:
-            pass
-
 
 @fieldwise_init
 struct PrimitiveId(Copyable, Writable):
     var value: UInt32
 
     def __init__(out self, kind: PrimitiveKind, index: UInt32):
-        debug_assert["safe", _use_compiler_assume=True](
-            kind.value < (UInt32(1) << PRIMITIVE_KIND_BITS)
-        )
+        debug_assert["safe", _use_compiler_assume=True](kind != .UNKNOWN)
         debug_assert["safe", _use_compiler_assume=True](
             index < (UInt32(1) << PRIMITIVE_INDEX_BITS)
         )
-        self.value = (kind.value << PRIMITIVE_INDEX_BITS) | index
+        self.value = (kind.value() << PRIMITIVE_INDEX_BITS) | index
 
     def kind(self) -> PrimitiveKind:
         return PrimitiveKind(self.value >> PRIMITIVE_INDEX_BITS)
@@ -256,9 +185,6 @@ struct SurfaceId[length: SIMDLength = 1](Copyable, Writable):
 
     def __init__(out self, kind: MaterialKind, index: UInt32):
         debug_assert["safe", _use_compiler_assume=True](
-            kind.value < (UInt32(1) << SURFACE_KIND_BITS)
-        )
-        debug_assert["safe", _use_compiler_assume=True](
             index < (UInt32(1) << SURFACE_INDEX_BITS)
         )
         self.value = Self.pack_raw(kind, index)
@@ -266,7 +192,7 @@ struct SurfaceId[length: SIMDLength = 1](Copyable, Writable):
     @staticmethod
     @always_inline
     def pack_raw(kind: MaterialKind, index: UInt32) -> UInt32:
-        return (kind.value << SURFACE_INDEX_BITS) | index
+        return (kind.value() << SURFACE_INDEX_BITS) | index
 
     @always_inline
     def kind(self) -> MaterialKind:
@@ -743,7 +669,7 @@ struct SurfaceStore:
             active
             & front_face
             & (surface.value >> SURFACE_INDEX_BITS).eq(
-                MaterialKind.EMISSIVE.value
+                MaterialKind.EMISSIVE.value()
             )
         )
         var zero = Vec3[.float32, .WORLD, length](0.0)

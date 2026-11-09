@@ -9,30 +9,11 @@ from bajo.bvh.gpu.builder.lbvh import build_binary_bvh_with_lbvh
 from bajo.bvh.gpu.utils import GpuBuildTimings
 
 
-@fieldwise_init
-struct GpuBvhBuildMethod(EnumLike, Equatable):
+__enum GpuBvhBuildMethod(Equatable, ImplicitlyCopyable):
     """Compile-time GPU binary builder selector; LBVH remains the default."""
 
-    comptime LBVH = Self(0)
-    comptime HPLOC = Self(1)
-    comptime _enum_case_names = ParameterList.of[
-        "LBVH".value, "HPLOC".value
-    ].values
-    comptime _enum_case_types = TypeList.of[
-        Trait=AnyType, NoneType, NoneType
-    ].values
-    var value: Int
-
-    def _get_enum_discriminant(self) -> Int:
-        return self.value
-
-    def _unsafe_get_enum_payload[
-        id: Int
-    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
-        id
-    ]:
-        while True:
-            pass
+    case LBVH
+    case HPLOC
 
 
 def build_binary_bvh[

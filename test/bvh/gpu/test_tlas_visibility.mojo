@@ -248,7 +248,7 @@ def _assert_visibility[
                 tlas_node_width,
             ](ctx, blases, instances, rays, expected, expected_hits)
         else:
-            comptime blas_node_width = 8 if blas_layout.compressed else 4
+            comptime blas_node_width = 8 if blas_layout == .CWBVH8 else 4
             var blases = build_gpu_triangle_blas_set[
                 blas_node_width, 4, .HPLOC, blas_layout
             ](ctx, [vertices^])

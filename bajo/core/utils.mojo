@@ -4,6 +4,18 @@ from std.bit import count_trailing_zeros
 from std.memory import pack_bits
 
 
+def enum_label[T: EnumLike](value: T) -> String:
+    comptime names = ParameterList[T._enum_case_names]()
+    var discriminant = value._get_enum_discriminant()
+    comptime for index in range(len(names)):
+        if discriminant == index:
+            comptime label = (
+                String(StringLiteral[names[index]]()).lower().replace("_", "-")
+            )
+            return label
+    return ""
+
+
 def print_size_of[type: AnyType]():
     comptime name = reflect[type].name()
     var size_bytes = size_of[type]()

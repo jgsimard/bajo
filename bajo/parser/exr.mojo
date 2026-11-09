@@ -81,31 +81,14 @@ struct _Cursor[origin: ImmOrigin]:
         self.pos += count
 
 
-@fieldwise_init
-struct _OutputChannel(EnumLike, Equatable, TrivialRegisterPassable):
-    var value: UInt8
+__enum _OutputChannel(Equatable, ImplicitlyCopyable, Intable):
+    case RED
+    case GREEN
+    case BLUE
+    case IGNORE
 
-    comptime RED = Self(0)
-    comptime GREEN = Self(1)
-    comptime BLUE = Self(2)
-    comptime IGNORE = Self(3)
-    comptime _enum_case_names = ParameterList.of[
-        "RED".value, "GREEN".value, "BLUE".value, "IGNORE".value
-    ].values
-    comptime _enum_case_types = TypeList.of[
-        Trait=AnyType, NoneType, NoneType, NoneType, NoneType
-    ].values
-
-    def _get_enum_discriminant(self) -> Int:
-        return Int(self.value)
-
-    def _unsafe_get_enum_payload[
-        id: Int
-    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
-        id
-    ]:
-        while True:
-            pass
+    def __int__(self) -> Int:
+        return self._get_enum_discriminant()
 
 
 @fieldwise_init
@@ -370,7 +353,7 @@ def _decode_chunk(
                             "OpenEXR environment contains a non-finite value"
                         )
                     pixels[
-                        3 * (pixel_y * width + x) + Int(output_channel.value)
+                        3 * (pixel_y * width + x) + Int(output_channel)
                     ] = value
 
 
@@ -565,7 +548,7 @@ def _decode_scanlines(
         for channel in header.channels:
             var size = width * channel.byte_width
             if channel.output_channel != _OutputChannel.IGNORE:
-                var lane = Int(channel.output_channel.value)
+                var lane = Int(channel.output_channel)
                 var values = chunk[offset : offset + size]
                 match channel.pixel_type:
                     case 0:

@@ -92,7 +92,7 @@ def gpu_rt_order_bounds[
         var t = scene.triangles.unsafe_value()
         var a: Point3f32[.WORLD]
         var b: Point3f32[.WORLD]
-        comptime if triangle_format.layout.compressed:
+        comptime if triangle_format.layout == .CWBVH8:
             a, b = _compressed_order_bounds(t.nodes, t.root)
         else:
             a, b = _wide_order_bounds[triangle_format.node_width](

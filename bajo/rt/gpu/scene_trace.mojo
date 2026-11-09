@@ -1083,7 +1083,7 @@ def enqueue_gpu_shadows[
                 comptime if not scene_kind.has_spheres():
                     comptime if not scene_kind.has_instances() or (
                         not scene_kind.has_triangles()
-                        and not blas_format.layout.compressed
+                        and blas_format.layout != .CWBVH8
                     ):
                         limit = GPU_RT_DIRECT_WIDE_SHADOW_MAX_BLOCKS
                 blocks = min(blocks, limit)

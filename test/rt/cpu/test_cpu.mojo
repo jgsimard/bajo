@@ -467,7 +467,7 @@ def test_reflect_and_fresnel_schlick() raises:
 
 def test_surface_id_is_packed() raises:
     var surface = SurfaceId(MaterialKind(UInt32(2)), UInt32(123))
-    assert_equal(surface.kind().value, UInt32(2))
+    assert_equal(surface.kind(), MaterialKind.DIELECTRIC)
     assert_equal(surface.index(), UInt32(123))
     assert_equal(surface.value, (UInt32(2) << UInt32(28)) | UInt32(123))
     var decoded = SurfaceId.from_raw(surface.value[0])
@@ -476,6 +476,33 @@ def test_surface_id_is_packed() raises:
     assert_equal(
         SurfaceId.pack_raw(surface.kind(), surface.index()), surface.value[0]
     )
+
+
+def test_enum_kind_ids_preserve_packed_ids() raises:
+    var materials = [
+        MaterialKind.LAMBERTIAN,
+        MaterialKind.METAL,
+        MaterialKind.DIELECTRIC,
+        MaterialKind.EMISSIVE,
+        MaterialKind.COATED_DIFFUSE,
+        MaterialKind.MIX,
+    ]
+    for id in range(len(materials)):
+        var surface = SurfaceId(materials[id], UInt32(123))
+        assert_equal(surface.value[0], (UInt32(id) << 28) | UInt32(123))
+        assert_equal(SurfaceId.from_raw(surface.value[0]).kind(), materials[id])
+
+    var primitives = [
+        PrimitiveKind.TRIANGLE,
+        PrimitiveKind.SPHERE,
+        PrimitiveKind.TRIANGLE_INSTANCE,
+    ]
+    for id in range(len(primitives)):
+        var primitive = PrimitiveId(primitives[id], UInt32(123))
+        assert_equal(primitive.value, (UInt32(id) << 28) | UInt32(123))
+        assert_equal(primitive.kind(), primitives[id])
+    assert_equal(PrimitiveKind.UNKNOWN.value(), UInt32.MAX)
+    assert_equal(PrimitiveKind(UInt32.MAX), PrimitiveKind.UNKNOWN)
 
 
 def test_surface_hit_is_width_generic() raises:
@@ -1776,7 +1803,7 @@ def test_direct_light_packet_matches_scalar_for_mixed_materials() raises:
     direct.sample.surface_cosine = 1.0
     direct.sample.valid = SIMD[.bool, 4](True, True, True, False)
     for lane in range(4):
-        direct.surface_kinds[lane] = ids[lane].kind().value
+        direct.surface_kinds[lane] = ids[lane].kind().value()
         direct.surface_indices[lane] = ids[lane].index()
     var pixels = List[Color](length=4, fill=Color(0.0))
     var sampling = SamplingConfig.from_settings(
@@ -1837,7 +1864,10 @@ def test_wavefront_workers_reuse_chunks_without_changing_pixels() raises:
     )
     var serial = render_wavefront[.PATH, 4, 7, False](settings, camera, world)
     comptime for mode_idx in range(2):
-        comptime mode = CpuSchedulerMode(mode_idx)
+        comptime mode = (
+            CpuSchedulerMode.RUNTIME_DEFAULT,
+            CpuSchedulerMode.TASK_PARTITIONS,
+        )[mode_idx]
         var parallel = render_wavefront[.PATH, 4, 7, True, mode](
             settings, camera, world
         )

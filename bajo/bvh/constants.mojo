@@ -10,28 +10,9 @@ comptime MORTON_REFINEMENT_TILE_SIZE = 256
 comptime MORTON_REFINEMENT_MIN_RUN = 8
 
 
-@fieldwise_init
-struct TraceMode(EnumLike, Equatable):
-    comptime CLOSEST_HIT = Self(0)
-    comptime ANY_HIT = Self(1)
-    comptime _enum_case_names = ParameterList.of[
-        "CLOSEST_HIT".value, "ANY_HIT".value
-    ].values
-    comptime _enum_case_types = TypeList.of[
-        Trait=AnyType, NoneType, NoneType
-    ].values
-    var value: Int
-
-    def _get_enum_discriminant(self) -> Int:
-        return self.value
-
-    def _unsafe_get_enum_payload[
-        id: Int
-    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
-        id
-    ]:
-        while True:
-            pass
+__enum TraceMode(Equatable, ImplicitlyCopyable):
+    case CLOSEST_HIT
+    case ANY_HIT
 
 
 comptime GPU_STACK_SIZE = 24
@@ -49,35 +30,35 @@ comptime CPU_TRI_LEAF_PACKED_STRIDE = 10
 comptime SPHERE_LEAF_PACKED_STRIDE = 5
 
 
-@fieldwise_init
-struct PrimitiveKind(EnumLike, Equatable, TrivialRegisterPassable, Writable):
-    comptime UNKNOWN = Self(UInt32(0xFFFFFFFF))
-    comptime TRIANGLE = Self(0)
-    comptime SPHERE = Self(1)
-    comptime TRIANGLE_INSTANCE = Self(2)
-    comptime _enum_case_names = ParameterList.of[
-        "TRIANGLE".value,
-        "SPHERE".value,
-        "TRIANGLE_INSTANCE".value,
-        "UNKNOWN".value,
-    ].values
-    comptime _enum_case_types = TypeList.of[
-        Trait=AnyType, NoneType, NoneType, NoneType, NoneType
-    ].values
-    var value: UInt32
+__enum PrimitiveKind(Equatable, ImplicitlyCopyable, Writable):
+    case UNKNOWN
+    case TRIANGLE
+    case SPHERE
+    case TRIANGLE_INSTANCE
 
-    def _get_enum_discriminant(self) -> Int:
-        if self.value == Self.UNKNOWN.value:
-            return 3
-        return Int(self.value)
+    def __init__(out self, value: UInt32):
+        """Decode a primitive tag; unrecognized tags map to UNKNOWN."""
+        match Int(value):
+            case 0:
+                self = Self.TRIANGLE
+            case 1:
+                self = Self.SPHERE
+            case 2:
+                self = Self.TRIANGLE_INSTANCE
+            case _:
+                self = Self.UNKNOWN
 
-    def _unsafe_get_enum_payload[
-        id: Int
-    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
-        id
-    ]:
-        while True:
-            pass
+    @always_inline
+    def value(self) -> UInt32:
+        match self:
+            case .UNKNOWN:
+                return UInt32.MAX
+            case .TRIANGLE:
+                return 0
+            case .SPHERE:
+                return 1
+            case .TRIANGLE_INSTANCE:
+                return 2
 
 
 struct BinaryBvhNode:

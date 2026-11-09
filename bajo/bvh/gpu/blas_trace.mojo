@@ -41,7 +41,7 @@ def trace_gpu_blas[
     separate_traversal: Bool = False,
 ) -> Hit[frame]:
     """Select storage and an optional GPU call boundary for compressed trees."""
-    comptime if layout.compressed:
+    comptime if layout == .CWBVH8:
         if separate_traversal:
             return _trace_compressed_blas_separate[frame, mode](
                 nodes, leaves, root_idx, ray

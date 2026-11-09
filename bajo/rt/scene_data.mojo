@@ -20,8 +20,6 @@ from bajo.rt.material_types import (
     PrimitiveId,
     SurfaceId,
     SurfaceStore,
-    PRIMITIVE_INDEX_BITS,
-    PRIMITIVE_INDEX_MASK,
 )
 from bajo.core.color import Color
 from bajo.rt.media import SceneMedia
@@ -493,19 +491,18 @@ struct SceneData:
             len(self._triangle_instances),
         )
         for entry in self._opacity.records.items():
-            var primitive = entry.key >> PRIMITIVE_INDEX_BITS
-            var index = entry.key & PRIMITIVE_INDEX_MASK
-            var count = (
-                len(self._triangle_surfaces) if primitive
-                == PrimitiveKind.TRIANGLE.value else len(
-                    self._spheres
-                ) if primitive
-                == PrimitiveKind.SPHERE.value else len(
-                    self._triangle_instances
-                ) if primitive
-                == PrimitiveKind.TRIANGLE_INSTANCE.value else 0
-            )
-            if index >= UInt32(count):
+            var primitive = PrimitiveId(entry.key)
+            var count = 0
+            match primitive.kind():
+                case .TRIANGLE:
+                    count = len(self._triangle_surfaces)
+                case .SPHERE:
+                    count = len(self._spheres)
+                case .TRIANGLE_INSTANCE:
+                    count = len(self._triangle_instances)
+                case .UNKNOWN:
+                    pass
+            if primitive.index() >= UInt32(count):
                 raise Error("opacity primitive index is out of range")
             entry.value.validate(len(self._surfaces.image_textures))
 

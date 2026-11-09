@@ -96,7 +96,7 @@ def trace_gpu_blas_filtered[
     ray: Rayf32[frame],
     ref filter: Filter,
 ) -> Hit[frame]:
-    comptime if layout.compressed:
+    comptime if layout == .CWBVH8:
         return trace_cwbvh8_triangles_filtered[frame, mode](
             nodes, leaves, root, ray, filter
         )

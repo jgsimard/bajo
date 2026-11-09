@@ -1,11 +1,9 @@
 """Geometry-owned emission, independent of the surface scattering material."""
 
 from bajo.core.color import Color
-from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.material_types import (
     Emissive,
-    PRIMITIVE_INDEX_BITS,
-    PRIMITIVE_INDEX_MASK,
+    PrimitiveId,
 )
 
 
@@ -31,13 +29,17 @@ struct SceneEmission:
 
     def validate(self, spheres: Int, triangles: Int, instances: Int) raises:
         for entry in self.records.items():
-            var kind = entry.key >> PRIMITIVE_INDEX_BITS
-            var count = (
-                spheres if kind
-                == PrimitiveKind.SPHERE.value else triangles if kind
-                == PrimitiveKind.TRIANGLE.value else instances if kind
-                == PrimitiveKind.TRIANGLE_INSTANCE.value else 0
-            )
-            if (entry.key & PRIMITIVE_INDEX_MASK) >= UInt32(count):
+            var primitive = PrimitiveId(entry.key)
+            var count = 0
+            match primitive.kind():
+                case .SPHERE:
+                    count = spheres
+                case .TRIANGLE:
+                    count = triangles
+                case .TRIANGLE_INSTANCE:
+                    count = instances
+                case .UNKNOWN:
+                    pass
+            if primitive.index() >= UInt32(count):
                 raise Error("emission primitive index is out of range")
             entry.value.validate()

@@ -35,7 +35,7 @@ def _extract_blas_root_children[
     var bounds = AABB[.LOCAL].invalid()
     var active = False
     if desc.prim_count != 0:
-        comptime if layout.compressed:
+        comptime if layout == .CWBVH8:
             comptime assert width == 8
             var base = (
                 Int(desc.node_f32_base) + Int(desc.root_idx) * CWBVH_NODE_WORDS

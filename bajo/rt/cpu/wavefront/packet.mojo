@@ -106,12 +106,13 @@ def _accumulate_direct_light_packet[
         surface, lights.point.uv_u, lights.point.uv_v, lights.sample.valid
     )
     var coated_active = lights.sample.valid & lights.surface_kinds.eq(
-        MaterialKind.COATED_DIFFUSE.value
+        MaterialKind.COATED_DIFFUSE.value()
     )
     material.gather[.METAL](
         surfaces,
         lights.surface_indices,
-        lights.sample.valid & lights.surface_kinds.eq(MaterialKind.METAL.value),
+        lights.sample.valid
+        & lights.surface_kinds.eq(MaterialKind.METAL.value()),
     )
     material.load[.COATED_DIFFUSE, False](
         surfaces,
@@ -143,13 +144,13 @@ def _accumulate_direct_light_packet[
         material.coated,
         lights.sample.direction,
         active=lights.sample.valid
-        & lights.surface_kinds.eq(MaterialKind.COATED_DIFFUSE.value),
+        & lights.surface_kinds.eq(MaterialKind.COATED_DIFFUSE.value()),
         estimator_seed=estimator_seeds,
     )
-    var is_lambertian = lights.surface_kinds.eq(MaterialKind.LAMBERTIAN.value)
-    var is_metal = lights.surface_kinds.eq(MaterialKind.METAL.value)
-    var is_coated = lights.surface_kinds.eq(MaterialKind.COATED_DIFFUSE.value)
-    var is_dielectric = lights.surface_kinds.eq(MaterialKind.DIELECTRIC.value)
+    var is_lambertian = lights.surface_kinds.eq(MaterialKind.LAMBERTIAN.value())
+    var is_metal = lights.surface_kinds.eq(MaterialKind.METAL.value())
+    var is_coated = lights.surface_kinds.eq(MaterialKind.COATED_DIFFUSE.value())
+    var is_dielectric = lights.surface_kinds.eq(MaterialKind.DIELECTRIC.value())
     var dielectric = _MaterialParameters[length]()
     dielectric.gather[.DIELECTRIC](
         surfaces, lights.surface_indices, lights.sample.valid & is_dielectric
@@ -435,7 +436,7 @@ def _trace_packets_impl[
                     surface_hits.hit
                     & valid_lanes
                     & (surface_hits.surface.value >> SURFACE_INDEX_BITS).eq(
-                        MaterialKind.MIX.value
+                        MaterialKind.MIX.value()
                     )
                 )
                 if mixed.reduce_or():
@@ -552,22 +553,22 @@ def _trace_packets_impl[
                     shade.set_hits(surface_hits)
                     lambertian_queue.append_packet_masked(
                         shade,
-                        kinds.eq(MaterialKind.LAMBERTIAN.value) & valid_shade,
+                        kinds.eq(MaterialKind.LAMBERTIAN.value()) & valid_shade,
                         lane_count,
                     )
                     metal_queue.append_packet_masked(
                         shade,
-                        kinds.eq(MaterialKind.METAL.value) & valid_shade,
+                        kinds.eq(MaterialKind.METAL.value()) & valid_shade,
                         lane_count,
                     )
                     dielectric_queue.append_packet_masked(
                         shade,
-                        kinds.eq(MaterialKind.DIELECTRIC.value) & valid_shade,
+                        kinds.eq(MaterialKind.DIELECTRIC.value()) & valid_shade,
                         lane_count,
                     )
                     coated_diffuse_queue.append_packet_masked(
                         shade,
-                        kinds.eq(MaterialKind.COATED_DIFFUSE.value)
+                        kinds.eq(MaterialKind.COATED_DIFFUSE.value())
                         & valid_shade,
                         lane_count,
                     )
@@ -589,8 +590,8 @@ def _trace_packets_impl[
                         world,
                         direct_lights.point,
                         light_rng,
-                        valid_shade & kinds.ne(MaterialKind.EMISSIVE.value),
-                        kinds.eq(MaterialKind.DIELECTRIC.value),
+                        valid_shade & kinds.ne(MaterialKind.EMISSIVE.value()),
+                        kinds.eq(MaterialKind.DIELECTRIC.value()),
                     )
                     if (
                         direct_lights.sample.valid & packet.medium_ids.ne(0)

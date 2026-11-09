@@ -9,7 +9,7 @@ from bajo.rt.material_storage import (
 from bajo.core.tensor_layout import record_tile
 
 from std.memory import bitcast
-from std.testing import TestSuite, assert_equal
+from std.testing import TestSuite, assert_equal, assert_raises
 
 from bajo.core import Point3f32, Vec3f32, normalize
 from test.helpers import assert_vec_equal
@@ -21,6 +21,7 @@ from bajo.rt.material_types import (
 )
 from bajo.core.color import Color
 from bajo.rt.scene_data import SceneBuilder, SceneData
+from bajo.rt.gpu.config import GpuRtSceneKind
 from bajo.rt.gpu.material_layout import _load_gpu_coated_parameters
 from bajo.rt.gpu.texture_storage import pack_texture_tables
 from bajo.rt.gpu.materials import (
@@ -32,6 +33,32 @@ from bajo.rt.gpu.textures import (
     _GpuImageTextureView,
     _gpu_bump_normal,
 )
+
+
+def test_scene_kind_masks_preserve_external_ids() raises:
+    var kinds = [
+        GpuRtSceneKind.SPHERES,
+        GpuRtSceneKind.TRIANGLES,
+        GpuRtSceneKind.SPHERES_TRIANGLES,
+        GpuRtSceneKind.INSTANCES,
+        GpuRtSceneKind.SPHERES_INSTANCES,
+        GpuRtSceneKind.TRIANGLES_INSTANCES,
+        GpuRtSceneKind.ALL,
+    ]
+    for index in range(len(kinds)):
+        var bits = index + 1
+        var kind = GpuRtSceneKind(bits)
+        assert_equal(kind == kinds[index], True)
+        assert_equal(Int(kind), bits)
+        assert_equal(kind.has_spheres(), Bool(bits & 1))
+        assert_equal(kind.has_triangles(), Bool(bits & 2))
+        assert_equal(kind.has_instances(), Bool(bits & 4))
+    comptime for bits in range(1, 8):
+        comptime kind = GpuRtSceneKind.__init__[bits]()
+        comptime assert Int(kind) == bits
+    for bits in [Int.MIN, -1, 0, 8, Int.MAX]:
+        with assert_raises():
+            _ = GpuRtSceneKind(bits)
 
 
 def test_texture_view_offsets_wrapping_and_bump_gradients() raises:

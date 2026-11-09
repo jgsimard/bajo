@@ -3,74 +3,65 @@
 from bajo.bvh.gpu import GpuBvhLayout
 
 
-struct GpuRtSceneKind(EnumLike, Equatable, ImplicitlyCopyable, Intable):
-    """Enum-like geometry-presence mask used as one specialization value."""
+__enum GpuRtSceneKind(Equatable, ImplicitlyCopyable, Intable):
+    """Geometry-presence mask used as one specialization value."""
 
-    comptime SPHERES = Self.__init__[1]()
-    comptime TRIANGLES = Self.__init__[2]()
-    comptime SPHERES_TRIANGLES = Self.__init__[3]()
-    comptime INSTANCES = Self.__init__[4]()
-    comptime SPHERES_INSTANCES = Self.__init__[5]()
-    comptime TRIANGLES_INSTANCES = Self.__init__[6]()
-    comptime ALL = Self.__init__[7]()
-    comptime _enum_case_names = ParameterList.of[
-        "SPHERES".value,
-        "TRIANGLES".value,
-        "SPHERES_TRIANGLES".value,
-        "INSTANCES".value,
-        "SPHERES_INSTANCES".value,
-        "TRIANGLES_INSTANCES".value,
-        "ALL".value,
-    ].values
-    comptime _enum_case_types = TypeList.of[
-        Trait=AnyType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-    ].values
-
-    var _bits: UInt8
+    case SPHERES
+    case TRIANGLES
+    case SPHERES_TRIANGLES
+    case INSTANCES
+    case SPHERES_INSTANCES
+    case TRIANGLES_INSTANCES
+    case ALL
 
     def __init__[bits: Int](out self):
         """Construct a scene kind from a compile-time geometry mask."""
         comptime assert 1 <= bits <= 7
-        self._bits = UInt8(bits)
+        self = (
+            Self.SPHERES,
+            Self.TRIANGLES,
+            Self.SPHERES_TRIANGLES,
+            Self.INSTANCES,
+            Self.SPHERES_INSTANCES,
+            Self.TRIANGLES_INSTANCES,
+            Self.ALL,
+        )[bits - 1]
 
     def __init__(out self, bits: Int) raises:
         """Construct a scene kind from a nonempty geometry mask."""
-        if bits < 1 or bits > 7:
-            raise Error(
-                "invalid GPU scene kind: expected a geometry mask from 1 to 7"
-            )
-        self._bits = UInt8(bits)
+        match bits:
+            case 1:
+                self = Self.SPHERES
+            case 2:
+                self = Self.TRIANGLES
+            case 3:
+                self = Self.SPHERES_TRIANGLES
+            case 4:
+                self = Self.INSTANCES
+            case 5:
+                self = Self.SPHERES_INSTANCES
+            case 6:
+                self = Self.TRIANGLES_INSTANCES
+            case 7:
+                self = Self.ALL
+            case _:
+                raise Error(
+                    "invalid GPU scene kind: expected a geometry mask from 1"
+                    " to 7"
+                )
 
     def __int__(self) -> Int:
         """Return the geometry mask used by external scene handles."""
-        return Int(self._bits)
-
-    def _get_enum_discriminant(self) -> Int:
-        return Int(self._bits) - 1
-
-    def _unsafe_get_enum_payload[
-        id: Int
-    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
-        id
-    ]:
-        while True:
-            pass
+        return self._get_enum_discriminant() + 1
 
     def has_spheres(self) -> Bool:
-        return Bool(self._bits & UInt8(1))
+        return Bool(Int(self) & 1)
 
     def has_triangles(self) -> Bool:
-        return Bool(self._bits & UInt8(2))
+        return Bool(Int(self) & 2)
 
     def has_instances(self) -> Bool:
-        return Bool(self._bits & UInt8(4))
+        return Bool(Int(self) & 4)
 
 
 @fieldwise_init

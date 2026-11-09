@@ -223,10 +223,6 @@ def render_wavefront_configured[
         or integrator == .NORMALS
         or integrator == .AO
     )
-    comptime if PARALLEL:
-        comptime assert CpuSchedulerMode.is_valid[
-            scheduler_mode
-        ], "unknown parallel wavefront scheduler mode"
 
     settings.validate()
     var sampling = SamplingConfig.from_settings(settings)

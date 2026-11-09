@@ -11,50 +11,15 @@ from std.utils import IndexList
 from bajo.parser.ply.types import PlyMesh
 
 
-@fieldwise_init
-struct _ScalarType(EnumLike, Equatable, TrivialRegisterPassable):
-    var value: UInt8
-
-    comptime I8 = Self(0)
-    comptime U8 = Self(1)
-    comptime I16 = Self(2)
-    comptime U16 = Self(3)
-    comptime I32 = Self(4)
-    comptime U32 = Self(5)
-    comptime F32 = Self(6)
-    comptime F64 = Self(7)
-    comptime _enum_case_names = ParameterList.of[
-        "I8".value,
-        "U8".value,
-        "I16".value,
-        "U16".value,
-        "I32".value,
-        "U32".value,
-        "F32".value,
-        "F64".value,
-    ].values
-    comptime _enum_case_types = TypeList.of[
-        Trait=AnyType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-        NoneType,
-    ].values
-
-    def _get_enum_discriminant(self) -> Int:
-        return Int(self.value)
-
-    def _unsafe_get_enum_payload[
-        id: Int
-    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
-        id
-    ]:
-        while True:
-            pass
+__enum _ScalarType(Equatable, ImplicitlyCopyable):
+    case I8
+    case U8
+    case I16
+    case U16
+    case I32
+    case U32
+    case F32
+    case F64
 
     def byte_width(self) -> Int:
         match self:
@@ -76,7 +41,7 @@ struct _ScalarType(EnumLike, Equatable, TrivialRegisterPassable):
 
 
 @fieldwise_init
-struct _Property(TrivialRegisterPassable):
+struct _Property(ImplicitlyCopyable):
     var scalar_type: _ScalarType
     var list_item_type: _ScalarType
     var semantic: UInt8

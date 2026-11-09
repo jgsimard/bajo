@@ -1,44 +1,19 @@
 """Enum-like compile-time selector for CPU BVH topology builders."""
 
 
-@fieldwise_init
-struct CpuBvhBuildMethod(EnumLike, Equatable, ImplicitlyCopyable):
+from bajo.core.utils import enum_label
+
+
+__enum CpuBvhBuildMethod(Equatable, ImplicitlyCopyable):
     """Typed CPU builder selector; SAH is the packed-BLAS default."""
 
-    comptime MEDIAN = Self(0)
-    comptime SAH = Self(1)
-    comptime LBVH = Self(2)
-    comptime HPLOC = Self(3)
-    comptime _enum_case_names = ParameterList.of[
-        "MEDIAN".value, "SAH".value, "LBVH".value, "HPLOC".value
-    ].values
-    comptime _enum_case_types = TypeList.of[
-        Trait=AnyType, NoneType, NoneType, NoneType, NoneType
-    ].values
-
-    var value: Int
-
-    def _get_enum_discriminant(self) -> Int:
-        return self.value
-
-    def _unsafe_get_enum_payload[
-        id: Int
-    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
-        id
-    ]:
-        while True:
-            pass
+    case MEDIAN
+    case SAH
+    case LBVH
+    case HPLOC
 
     def name(self) -> String:
-        match self:
-            case .MEDIAN:
-                return "median"
-            case .SAH:
-                return "sah"
-            case .LBVH:
-                return "lbvh"
-            case .HPLOC:
-                return "hploc"
+        return enum_label(self)
 
 
 struct CpuBvhBuildTraits[method: CpuBvhBuildMethod]:

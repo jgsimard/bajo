@@ -243,7 +243,7 @@ def _trace_tlas_ray[
             leaf_fn,
             tlas_node_width == 2,
             # Preserve the existing any-hit ordering for each BLAS layout.
-            not blas_layout.compressed,
+            blas_layout != .CWBVH8,
         ](tlas_wide_nodes, leaf_state, tlas_root_idx, ray)
     comptime if mode == .CLOSEST_HIT:
         if hit.is_hit():

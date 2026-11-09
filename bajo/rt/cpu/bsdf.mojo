@@ -24,7 +24,6 @@ from bajo.rt.material_types import (
     NO_TEXTURE,
     SurfaceId,
     SurfaceStore,
-    SURFACE_INDEX_BITS,
     SURFACE_INDEX_MASK,
 )
 from bajo.rt.shading_types import BsdfEvaluation, BsdfSample, ShadingPoint
@@ -108,8 +107,7 @@ struct _MaterialParameters[length: SIMDLength]:
         if not active.reduce_or():
             return
         var surface = SurfaceId[Self.length](
-            (SIMD[.uint32, Self.length](kind.value) << SURFACE_INDEX_BITS)
-            | indices
+            SurfaceId.pack_raw(kind, 0) | indices
         )
         var texture_albedo = True
         var texture_roughness = True

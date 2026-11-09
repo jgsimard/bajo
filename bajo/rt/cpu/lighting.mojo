@@ -107,7 +107,7 @@ def light_pdf_for_emissive_hit[
     ref data = world.scene_data()
     var radiance = hit.emission
     var legacy = (hit.surface.value >> SURFACE_INDEX_BITS).eq(
-        MaterialKind.EMISSIVE.value
+        MaterialKind.EMISSIVE.value()
     )
     if (legacy & active).reduce_or():
         radiance = Vec3.select(
@@ -339,7 +339,7 @@ def _sample_direct_light_candidate[
         to=lights.records[0].primitive.value
     ).unsafe_gather(offsets)
     var spheres = (primitives >> PRIMITIVE_INDEX_BITS).eq(
-        PrimitiveKind.SPHERE.value
+        PrimitiveKind.SPHERE.value()
     ) & finite_lanes
     var radiance = Pointer(to=lights.records[0].radiance.x)
     var emission = Vec3[.float32, .WORLD, length](

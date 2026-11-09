@@ -7,35 +7,10 @@ from bajo.core.utils import fmin, fmax
 from bajo.core.frame import Frame
 
 
-@fieldwise_init
-struct GeoKind(EnumLike, Equatable, TrivialRegisterPassable):
-    var v: Int
-
-    comptime VECTOR: GeoKind = GeoKind(0)
-    comptime POINT: GeoKind = GeoKind(1)
-    comptime NORMAL: GeoKind = GeoKind(2)
-    comptime _enum_case_names = ParameterList.of[
-        "VECTOR".value, "POINT".value, "NORMAL".value
-    ].values
-    comptime _enum_case_types = TypeList.of[
-        Trait=AnyType, NoneType, NoneType, NoneType
-    ].values
-
-    def _get_enum_discriminant(self) -> Int:
-        return self.v
-
-    def _unsafe_get_enum_payload[
-        id: Int
-    ](ref self) -> ref[self] TypeList[Trait=AnyType, Self._enum_case_types]()[
-        id
-    ]:
-        while True:
-            pass
-
-    # see : https://github.com/modular/modular/issues/6744#issuecomment-4898810092
-    @always_inline("builtin")
-    def __eq__(self, rhs: Self) -> Bool:
-        return self.v == rhs.v
+__enum GeoKind(Equatable, ImplicitlyCopyable):
+    case VECTOR
+    case POINT
+    case NORMAL
 
 
 comptime Vec2[dtype: DType, frame: Frame, width: SIMDLength = 1] = Geo2[

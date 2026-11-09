@@ -8,8 +8,7 @@ from std.sys.arg import argv
 from std.os.path import join
 from std.testing import assert_equal, assert_true
 from bajo.parser.pbrt import read_pbrt
-from bajo.rt.material_types import NO_TEXTURE, PRIMITIVE_INDEX_BITS
-from bajo.bvh.constants import PrimitiveKind
+from bajo.rt.material_types import NO_TEXTURE, PrimitiveId
 
 
 def main() raises:
@@ -48,10 +47,7 @@ def main() raises:
             assert_true(entry.value.texture_index != NO_TEXTURE)
             assert_equal(entry.value.u_scale, Float32(1.0))
             assert_equal(entry.value.v_scale, Float32(1.0))
-            assert_true(
-                entry.key >> PRIMITIVE_INDEX_BITS
-                == PrimitiveKind.TRIANGLE_INSTANCE.value
-            )
+            assert_true(PrimitiveId(entry.key).kind() == .TRIANGLE_INSTANCE)
         assert_equal(scene.settings.image_width, 1920)
         assert_equal(scene.settings.image_height, 1080)
         assert_equal(scene.settings.samples_per_pixel, 256)

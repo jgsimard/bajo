@@ -119,7 +119,10 @@ def bench_gpu_integrator[
     leaf_width: SIMDLength = LEAF_WIDTH,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
-    layout: GpuBvhLayout = GpuBvhLayout(node_width == 8 and leaf_width == 4),
+    layout: GpuBvhLayout = (
+        GpuBvhLayout.CWBVH8 if node_width == 8
+        and leaf_width == 4 else GpuBvhLayout.WIDE
+    ),
     kind: GpuRtSceneKind = .TRIANGLES,
     sphere_format: GpuRtBvhFormat = GPU_RT_BVH_WIDE4,
 ](

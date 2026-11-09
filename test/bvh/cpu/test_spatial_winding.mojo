@@ -382,6 +382,17 @@ def test_high_edge_incidence_does_not_wrap_into_a_closed_certificate() raises:
         assert_equal(component, EMPTY_LANE)
 
 
+def _assert_float_bits_equal(
+    actual: ImmSpan[Float32, _], expected: ImmSpan[Float32, _]
+) raises:
+    assert_equal(len(actual), len(expected))
+    for index in range(len(actual)):
+        assert_equal(
+            bitcast[.uint32](actual[index]),
+            bitcast[.uint32](expected[index]),
+        )
+
+
 def test_large_closed_refit_matches_serial_bounds_and_packing_bits() raises:
     comptime side = 384
     var points = List[Point3f32[.WORLD]]()
@@ -412,17 +423,11 @@ def test_large_closed_refit_matches_serial_bounds_and_packing_bits() raises:
         serial._pack_triangle_range[True](0, len(indices) // 3)
         serial.bvh._refit_nodes()
         serial.winding.bvh._refit_nodes()
-        for actual, expected in [
-            (mesh.packed_triangles.copy(), serial.packed_triangles.copy()),
-            (mesh.bvh.bounds.copy(), serial.bvh.bounds.copy()),
-            (mesh.winding.bvh.bounds.copy(), serial.winding.bvh.bounds.copy()),
-        ]:
-            assert_equal(len(actual), len(expected))
-            for index in range(len(actual)):
-                assert_equal(
-                    bitcast[.uint32](actual[index]),
-                    bitcast[.uint32](expected[index]),
-                )
+        _assert_float_bits_equal(mesh.packed_triangles, serial.packed_triangles)
+        _assert_float_bits_equal(mesh.bvh.bounds, serial.bvh.bounds)
+        _assert_float_bits_equal(
+            mesh.winding.bvh.bounds, serial.winding.bvh.bounds
+        )
 
 
 def run_tests[_discovery: Bool = True]() raises:

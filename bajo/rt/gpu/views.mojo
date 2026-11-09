@@ -7,6 +7,7 @@ from bajo.core import Affine3f32
 from bajo.rt.material_types import EnvironmentKind
 from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
 from bajo.rt.gpu.spectra import GpuMaterialSpectraView
+from bajo.rt.gpu.spectral_resources import GpuSpectralSceneView
 
 
 @always_inline
@@ -138,6 +139,7 @@ struct GpuRtSceneView(Copyable, DevicePassable):
     var environment_scale_z: Float32
     var environment_world_to_light: Affine3f32[.WORLD, .LOCAL]
     var environment_light_to_world: Affine3f32[.LOCAL, .WORLD]
+    var spectral: Optional[GpuSpectralSceneView]
 
     comptime device_type: AnyType = Self
 

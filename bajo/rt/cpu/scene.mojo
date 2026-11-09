@@ -4,6 +4,7 @@ from std.utils.numerics import max_finite
 
 from std.bit import count_trailing_zeros
 from std.memory import pack_bits
+from std.memory import ArcPointer
 
 from bajo.bvh.constants import EMPTY_LANE, PrimitiveKind
 from bajo.core.geometry import (
@@ -260,6 +261,9 @@ def _merge_surface_hit[
         candidate.emission_visible, result.emission_visible
     )
     result.emission = Vec3.select(take, candidate.emission, result.emission)
+    result.emission_spectrum = take.select(
+        candidate.emission_spectrum, result.emission_spectrum
+    )
     result.emission_two_sided = take.select(
         candidate.emission_two_sided, result.emission_two_sided
     )
@@ -288,10 +292,12 @@ struct CpuScene[
     var _has_instance_attributes: Bool
     var _has_displacement: Bool
     var _has_shading_normals: Bool
+    var _identity: ArcPointer[UInt8]
 
     def __init__[
         build_method: CpuBvhBuildMethod = .SAH
     ](out self, var scene: SceneData):
+        self._identity = ArcPointer[UInt8](UInt8(0))
         self._scene = scene^
         self._has_instance_attributes = False
         self._has_displacement = False
@@ -332,6 +338,10 @@ struct CpuScene[
     def scene_data(self) -> ref[self._scene] SceneData:
         """Return the immutable authoring snapshot used for preparation."""
         return self._scene
+
+    def snapshot_identity(self) -> ArcPointer[UInt8]:
+        """A retained identity survives moves and prevents allocator reuse."""
+        return self._identity.copy()
 
     @always_inline
     def has_displacement(self) -> Bool:
@@ -628,6 +638,7 @@ struct CpuScene[
         var boundaries = SIMD[.uint32, length](0)
         var emission = Vec3[.float32, .WORLD, length](0.0)
         var emission_two_sided = SIMD[.bool, length](fill=False)
+        var emission_spectrum = SIMD[.uint32, length](UInt32.MAX)
         var center = Point3[.float32, .WORLD, length](0.0)
         var radius = SIMD[.float32, length](1.0)
         for lane in range(length):
@@ -732,6 +743,7 @@ struct CpuScene[
                     SurfaceId.from_raw(surfaces[lane]),
                 )
                 emission_two_sided[lane] = emitter.two_sided
+                emission_spectrum[lane] = emitter.spectrum
                 if geometric.front_face[lane] or emitter.two_sided:
                     emission.x[lane] = emitter.radiance.x
                     emission.y[lane] = emitter.radiance.y
@@ -776,6 +788,7 @@ struct CpuScene[
             emission_visible,
             emission,
             emission_two_sided,
+            emission_spectrum,
         )
 
     def _trace_surface_shared_stack[

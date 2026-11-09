@@ -35,7 +35,12 @@ from bajo.rt.gpu.views import (
     GpuRtTraceQueueView,
     gpu_rt_trace_queue_view,
 )
-from bajo.rt.render_types import RenderResult, RenderSettings, RenderTimings
+from bajo.rt.render_types import (
+    RenderResult,
+    RenderSettings,
+    RenderTimings,
+    RenderColorMode,
+)
 from bajo.rt.material_types import Integrator
 from bajo.rt.scene_data import SceneData
 from bajo.rt.filter import FilterView
@@ -79,13 +84,16 @@ def _same_scene_capture(a: GpuRtSceneView, b: GpuRtSceneView) -> Bool:
         _same_optional_capture(a.spheres, b.spheres)
         and _same_optional_capture(a.triangles, b.triangles)
         and _same_optional_capture(a.instances, b.instances)
+        and _same_optional_capture(a.spectral, b.spectral)
     ):
         return False
     comptime names = reflect[GpuRtSceneView].field_names()
     comptime for field in range(reflect[GpuRtSceneView].field_count()):
         comptime if names[field] != "spheres" and names[
             field
-        ] != "triangles" and names[field] != "instances":
+        ] != "triangles" and names[field] != "instances" and names[
+            field
+        ] != "spectral":
             if not _same_captured_fields(
                 __struct_field_ref(field, a), __struct_field_ref(field, b)
             ):
@@ -140,6 +148,7 @@ struct GpuRtPreparedRenderer[
     var _last_offset: UInt32
     var _readback: Optional[_GpuRtReadback]
     var _preview: Optional[GpuRtPreviewAccumulator]
+    var _preview_color_mode: RenderColorMode
     var _render_graph: Optional[DeviceGraph]
     var _graph_arguments: Optional[_RenderGraphArguments]
 
@@ -155,6 +164,7 @@ struct GpuRtPreparedRenderer[
     ) raises:
         self._readback = Optional[_GpuRtReadback]()
         self._preview = Optional[GpuRtPreviewAccumulator]()
+        self._preview_color_mode = .RGB
         self._render_graph = Optional[DeviceGraph]()
         self._graph_arguments = Optional[_RenderGraphArguments]()
         self.ctx = DeviceContext()
@@ -190,6 +200,10 @@ struct GpuRtPreparedRenderer[
         values remain part of the graph configuration.
         """
         self.target.validate_compatible(settings)
+        comptime if Integrator.is_path_tracing[integrator]:
+            if settings.color_mode == .SPECTRAL:
+                self.scene.enable_spectral(self.ctx)
+                self.target.ensure_spectral(self.ctx)
         if not self._sample_pending or self._last_offset != UInt32(
             settings.sample_offset
         ):
@@ -333,6 +347,9 @@ struct GpuRtPreparedRenderer[
         """
         var total_t0 = perf_counter_ns()
         self._prepare_frame(settings, camera)
+        if self._preview_color_mode != settings.color_mode:
+            self._preview = Optional[GpuRtPreviewAccumulator]()
+        self._preview_color_mode = settings.color_mode
         if not self._preview:
             self._preview = GpuRtPreviewAccumulator(
                 self.ctx, self.target.pixel_count

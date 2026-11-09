@@ -1,6 +1,14 @@
 """Unified prepared and synchronous GPU RT entry points."""
 
 from std.time import perf_counter_ns
+from std.math import ceildiv
+from bajo.rt.gpu.views import gpu_rt_trace_queue_view
+from bajo.rt.gpu.spectral_render import (
+    spectral_initialize_kernel,
+    spectral_bounce_kernel,
+    spectral_resolve_kernel,
+)
+from bajo.rt.render_types import SamplingConfig
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.core.camera import Camera
@@ -21,9 +29,13 @@ from bajo.rt.gpu.resources import (
     GpuRtRenderTarget,
     download_gpu_pixels,
     enqueue_gpu_wavefront,
+    _enqueue_gpu_primary,
 )
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
-from bajo.rt.gpu.wavefront_contract import GpuWavefrontArena
+from bajo.rt.gpu.wavefront_contract import (
+    GpuWavefrontArena,
+    enqueue_wavefront_advance,
+)
 from bajo.core.color import Color
 from bajo.rt.render_types import (
     RenderResult,
@@ -158,6 +170,88 @@ def enqueue_render_gpu[
     ](),
 ) raises:
     """Submit any prepared scene through one compile-time-specialized path."""
+    comptime if Integrator.is_path_tracing[integrator]:
+        if settings.color_mode == .SPECTRAL:
+            target.validate_compatible(settings)
+            if not world.view().spectral:
+                raise Error(
+                    "spectral GPU rendering requires scene.enable_spectral(ctx)"
+                )
+            target.ensure_spectral(ctx)
+            target.filter.update(ctx, settings.filter)
+            var fixed = SamplingConfig.from_settings(settings)
+            fixed.filter = target.filter.view()
+            var sampling = GpuRtSamplingConfig(fixed, sample_offset)
+            var film = settings.film.prepared_spectral()
+            for sample_begin in range(
+                0, target.sample_count, target.arena.capacity
+            ):
+                var count = min(
+                    target.arena.capacity, target.sample_count - sample_begin
+                )
+                _enqueue_gpu_primary[integrator](
+                    ctx, target, sampling, sample_begin, count
+                )
+                var state = target.spectral.value().view(UInt32(sample_begin))
+                ctx.enqueue_function[spectral_initialize_kernel](
+                    state,
+                    sampling,
+                    Int32(count),
+                    grid_dim=ceildiv(count, 128),
+                    block_dim=128,
+                )
+                for bounce in range(settings.max_depth + 1):
+                    var queues = gpu_rt_trace_queue_view(
+                        target.arena,
+                        target.arena.path_a.path_ids,
+                        target.arena.path_a.fields,
+                        target.arena.path_b.path_ids,
+                        target.arena.path_b.fields,
+                    )
+                    if bounce % 2 != 0:
+                        queues = gpu_rt_trace_queue_view(
+                            target.arena,
+                            target.arena.path_b.path_ids,
+                            target.arena.path_b.fields,
+                            target.arena.path_a.path_ids,
+                            target.arena.path_a.fields,
+                        )
+                    queues.sample_base = UInt32(sample_begin)
+                    ctx.enqueue_function[
+                        spectral_bounce_kernel[
+                            integrator,
+                            kind,
+                            sphere_format,
+                            triangle_format,
+                            tlas_format,
+                            blas_format,
+                        ]
+                    ](
+                        world.view(),
+                        queues,
+                        state,
+                        sampling,
+                        UInt32(bounce),
+                        UInt32(settings.max_depth),
+                        grid_dim=min(ceildiv(count, 128), 2048),
+                        block_dim=128,
+                    )
+                    enqueue_wavefront_advance(ctx, target.arena)
+                ctx.enqueue_function[spectral_resolve_kernel](
+                    state,
+                    target.arena.sample_radiance.unsafe_ptr()
+                    .unsafe_mut_cast[False]()
+                    .unsafe_origin_cast[ImmUntrackedOrigin](),
+                    target.pixels.unsafe_ptr()
+                    .unsafe_mut_cast[True]()
+                    .unsafe_origin_cast[MutUntrackedOrigin](),
+                    Int32(settings.samples_per_pixel),
+                    Int32(count),
+                    film,
+                    grid_dim=ceildiv(count // settings.samples_per_pixel, 128),
+                    block_dim=128,
+                )
+            return
     enqueue_gpu_wavefront[
         integrator,
         _enqueue_scene_primary_bounce[
@@ -218,6 +312,9 @@ def render_gpu_configured[
             tlas_build_method,
             blas_build_method,
         ](ctx, world)
+        comptime if Integrator.is_path_tracing[integrator]:
+            if settings.color_mode == .SPECTRAL:
+                gpu_world.enable_spectral(ctx)
         var target = gpu_world.make_render_target(ctx, settings, camera)
         init_ns = Int(perf_counter_ns() - init_t0)
 

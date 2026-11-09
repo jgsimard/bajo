@@ -135,6 +135,9 @@ struct GpuRtScene[
         )
         return GpuRtRenderTarget(ctx, settings, camera, capacity)
 
+    def enable_spectral(mut self, mut ctx: DeviceContext) raises:
+        self.materials.spectral.enable(ctx)
+
     def view(self) -> GpuRtSceneView:
         """Borrow the selected owner fields through the common device ABI."""
         var spheres = Optional[GpuRtSphereView]()
@@ -240,6 +243,7 @@ struct GpuRtScene[
             self.environment_scale_z,
             self.environment_world_to_light.copy(),
             self.environment_light_to_world.copy(),
+            self.materials.spectral.view(self.materials.spectra.view().curves),
         )
 
 

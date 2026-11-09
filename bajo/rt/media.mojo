@@ -1,6 +1,7 @@
 """Runtime absorption media and geometry-owned medium boundaries."""
 
 from bajo.core.optics import medium_transmittance
+from bajo.rt.spectrum_sources import NO_SPECTRUM
 
 
 from std.sys.info import size_of
@@ -19,12 +20,14 @@ struct SceneMedia:
     # ID zero denotes vacuum. Boundary words pack inside/outside UInt16 IDs.
     # Empty sidecars mean vacuum; allocate prefixes only when boundaries exist.
     var absorption: List[Color]
+    var spectra: List[UInt32]
     var spheres: List[UInt32]
     var triangles: List[UInt32]
     var instances: List[UInt32]
 
     def __init__(out self):
         self.absorption = [Color(0.0)]
+        self.spectra = [NO_SPECTRUM]
         self.spheres = List[UInt32]()
         self.triangles = List[UInt32]()
         self.instances = List[UInt32]()
@@ -51,7 +54,10 @@ struct SceneMedia:
         var sigma = gather_record_vec3(fields, absorbing.select(ids, 0))
         return medium_transmittance(sigma, absorbing.select(distance, 0.0))
 
-    def add(mut self, sigma_a: Color) raises -> UInt32:
+    def add(
+        mut self, sigma_a: Color, spectrum: UInt32 = NO_SPECTRUM
+    ) raises -> UInt32:
+        self.prepare_spectral_bindings()
         if (
             not sigma_a.is_finite()[0]
             or sigma_a.x < 0.0
@@ -63,7 +69,14 @@ struct SceneMedia:
             raise Error("too many media")
         var index = UInt32(len(self.absorption))
         self.absorption.append(sigma_a)
+        self.spectra.append(spectrum)
         return index
+
+    def prepare_spectral_bindings(mut self) raises:
+        """Legacy RGB authors may append absorption records directly."""
+        if len(self.spectra) > len(self.absorption):
+            raise Error("medium spectrum bindings exceed absorption records")
+        self.spectra.resize(len(self.absorption), fill=NO_SPECTRUM)
 
     @staticmethod
     def set_boundary(mut values: List[UInt32], index: Int, boundary: UInt32):
@@ -93,6 +106,10 @@ struct SceneMedia:
             or self.absorption[0].z != 0.0
         ):
             raise Error("medium zero must be vacuum")
+        if len(self.spectra) != len(self.absorption):
+            raise Error(
+                "medium spectrum bindings must match absorption records"
+            )
         self._validate_boundaries(self.spheres)
         self._validate_boundaries(self.triangles)
         self._validate_boundaries(self.instances)

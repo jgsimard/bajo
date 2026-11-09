@@ -12,6 +12,7 @@ from bajo.rt.texture_math import (
 )
 from bajo.core.color import Color
 from bajo.core.spectrum import PiecewiseLinearSpectrum
+from bajo.rt.spectrum_sources import SpectrumSource, NO_SPECTRUM
 from std.utils.numerics import isfinite
 
 from bajo.core import Affine3f32, Vec3
@@ -48,6 +49,7 @@ struct Environment(Copyable, Writable):
     var kind: EnvironmentKind
     var texture_index: UInt32
     var scale: Color
+    var spectrum: UInt32
     var world_to_light: Affine3f32[.WORLD, .LOCAL]
     var light_to_world: Affine3f32[.LOCAL, .WORLD]
 
@@ -55,6 +57,7 @@ struct Environment(Copyable, Writable):
         self.kind = .PROCEDURAL
         self.texture_index = NO_TEXTURE
         self.scale = Color(1.0)
+        self.spectrum = NO_SPECTRUM
         self.world_to_light = Affine3f32[.WORLD, .LOCAL].identity()
         self.light_to_world = Affine3f32[.LOCAL, .WORLD].identity()
 
@@ -497,6 +500,10 @@ struct SurfaceStore:
     var coated_diffuses: List[CoatedDiffuse]
     var image_textures: List[ImageTexture]
     var optical_spectra: List[PiecewiseLinearSpectrum]
+    var spectrum_sources: List[SpectrumSource]
+    var albedo_spectra: Dict[UInt32, UInt32]
+    var dielectric_eta_sources: Dict[UInt32, UInt32]
+    var layer_albedo_spectra: Dict[UInt32, UInt32]
     var normal_maps: Dict[UInt32, UInt32]
     # Mix nodes refer only to existing surfaces, forming an acyclic graph.
     var mix_surfaces: List[UInt32]
@@ -512,6 +519,10 @@ struct SurfaceStore:
         self.coated_diffuses = List[CoatedDiffuse]()
         self.image_textures = List[ImageTexture]()
         self.optical_spectra = List[PiecewiseLinearSpectrum]()
+        self.spectrum_sources = List[SpectrumSource]()
+        self.albedo_spectra = Dict[UInt32, UInt32]()
+        self.dielectric_eta_sources = Dict[UInt32, UInt32]()
+        self.layer_albedo_spectra = Dict[UInt32, UInt32]()
         self.normal_maps = Dict[UInt32, UInt32]()
         self.mix_surfaces = List[UInt32]()
         self.mix_amounts = List[Float32]()

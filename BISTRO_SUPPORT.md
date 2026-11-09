@@ -5,9 +5,10 @@ GPU, preserving its authored geometry, materials, lights, sampling, and film
 settings. Do not replace missing behavior with material substitutions, dropped
 parameters, or RGB stand-ins for spectral transport.
 
-Bistro support is partial. The parser, RGB rendering features, reconstruction
-filters, and spectral foundations have regression coverage. CPU/GPU transport
-still uses RGB; a faithful render at the authored settings remains unverified.
+Bistro support is partial. RGB and opt-in spectral CPU/GPU transport, physical
+CIE/Canon sensors, and reconstruction filters have regression coverage. Texture
+footprints, EXR output, and full authored-settings fidelity remain unverified.
+See [spectral rendering](#end-to-end-spectral-rendering) for usage and scope.
 
 ## Confirmed remaining gaps
 
@@ -17,18 +18,14 @@ regressions does not establish complete-scene fidelity.
 
 | Missing behavior | Evidence and required change |
 | --- | --- |
-| Wavelength sampling and path state | Four-wavelength arithmetic, visible/uniform sampling, PDFs, and secondary termination have CPU/GPU tests. Neither renderer carries their wavelengths/PDFs through primary rays, continuation, material/shadow queues, compaction, or sample accumulation. Integrate four-component throughput and radiance throughout CPU/GPU transport. |
-| Spectral materials and textures | Original-table RGB reconstruction and packed optical-curve evaluation have passing reference tests. GPU scene preparation now retains optical curves and material spectrum IDs. BSDF evaluation still uses RGB projections or scalar IOR. Connect spectral material/texture evaluation at the path's actual wavelengths, including dispersive transmission and wavelength-PDF updates where required; give RGB reconstruction data renderer-owned storage. |
-| Spectral lights and environment | Emission and environment evaluation still supply RGB. Implement wavelength-dependent area-light/environment evaluation, photometric normalization, and consistent light-sampling and emissive-hit MIS PDFs. The tested RGB reconstruction upload wrapper still needs renderer ownership/binding and actual light/texture consumers. |
 | Texture footprints and filtering | Normal and opacity maps use repeating bilinear lookups; general material/environment lookups still use the existing sampling paths. There is no complete mipmap/footprint pipeline. Propagate derivatives or ray differentials, build mip levels, and implement the required filtering on CPU and GPU. Verify scalar-channel and color/data decoding semantics across every consumer. |
-| Spectral film input for sample clamping | `apply_spectral_sample` now has CPU/GPU numerical tests for PDF-weighted CIE integration, exposure, and sensor-space clamping. CPU accumulation and GPU reduction still call the RGB `apply_sample` path. Connect actual complete-path radiance/wavelength/PDF samples and validated light normalization, preserving sensor clamp → output conversion → filter weighting → pixel reduction. |
 | Declared EXR output | Film filenames are `bistro_cafe.exr`, `bistro_boulangerie.exr`, and `bistro_vespa.exr`. The parser does not retain the filename, and `image_output.mojo` provides raw Float32 RGB and PPM output, not an EXR writer. Retain output settings and write the requested linear HDR image. |
 | Complete-scene verification | All three entrypoints load with 243 opacity bindings and 102 independent emission bindings each. Full-asset RGB diagnostics render all three cameras on GPU at 192×108, 32 spp, depth 8; an earlier Café diagnostic also rendered on CPU. Authored-resolution/settings renders, a complete parameter audit, converged image inspection, and PBRT comparison remain unverified. |
 
 Film ISO is already read and applied through `FilmResponse`: Café and Vespa use
 110, and Boulangerie uses 40. Resolution and sample count are also retained;
-they are not missing parser features. Spectral film integration remains part of
-the wavelength-domain requirement above.
+they are not missing parser features. Spectral sensor integration is implemented
+in the opt-in spectral mode.
 
 Primary evidence: [scene declarations](assets/bistro/bistro_cafe.pbrt),
 [materials](assets/bistro/materials.pbrt),
@@ -46,13 +43,13 @@ and [path integrators](https://github.com/mmp/pbrt-v4/blob/master/src/pbrt/cpu/i
 ## Required work
 
 - [x] Named brass (CuZn) spectra with original wavelength tables retained in scene data.
-- [ ] Spectral material/light evaluation, wavelength transport, and film integration.
+- [x] Spectral material/light evaluation, wavelength transport, and film integration.
   - [x] Verify four-wavelength arithmetic, wavelength sampling/PDFs, and secondary-wavelength termination on CPU/GPU.
   - [x] Verify the original-resolution RGB-to-spectrum evaluator against the original PBRT table, including reflectance, unbounded, and illuminant cases.
   - [x] Pack original optical curves and bind their material IDs in GPU scene preparation; verify device evaluation.
-  - [ ] Bind retained optical/reconstruction spectra to material, texture, light, and environment evaluation on CPU/GPU.
-  - [ ] Carry wavelength/PDF state and four-component throughput/radiance through every transport queue and contribution.
-  - [ ] Implement and verify spectral light normalization, dispersive transmission, MIS consistency, and actual sensor integration.
+  - [x] Bind retained optical/reconstruction spectra to material, texture, light, and environment evaluation on CPU/GPU.
+  - [x] Carry wavelength/PDF state and four-component throughput/radiance through every transport queue and contribution.
+  - [x] Implement and verify spectral light normalization, dispersive transmission, MIS consistency, and actual sensor integration.
 - [x] Tangent-space normal maps on triangle instances, linear decoding, and CPU/GPU shading.
   - [x] Linear PNG data decoding and separate, unassociated alpha storage.
   - [x] Resolve material normal-map paths and load them with data encoding.
@@ -72,11 +69,11 @@ and [path integrators](https://github.com/mmp/pbrt-v4/blob/master/src/pbrt/cpu/i
 - [ ] Filtered texture sampling, mipmaps, derivatives, and data-image semantics.
 - [x] Z-Sobol sampling with the authored 256 samples per pixel on CPU/GPU.
 - [ ] Retain declared film filenames and implement linear HDR EXR output.
-- [ ] Complete spectral film sample clamping.
+- [x] Complete spectral film sample clamping.
   - [x] Retain the authored limit and implement complete-sample CPU/GPU clamping before averaging.
   - [x] Retain full original CIE/D65 tables and use CIE XYZ sensor coordinates for the RGB transport diagnostic.
   - [x] Implement and numerically verify four-wavelength CIE sensor integration and clamping as a shared CPU/GPU API.
-  - [ ] Feed actual wavelength-integrated sensor samples into the clamp.
+  - [x] Feed actual wavelength-integrated sensor samples into the clamp.
 - [x] PBRT's default Gaussian reconstruction filtering, declared box/triangle/Gaussian filters, and CPU/GPU sampling/weighting.
 - [x] PBRT path-depth defaults, MIS selection, and terminal-emission semantics for Bistro's surface transport.
 - [x] Fit the complete, original-resolution texture set in available GPU memory without reducing precision or image resolution.
@@ -90,7 +87,8 @@ and [path integrators](https://github.com/mmp/pbrt-v4/blob/master/src/pbrt/cpu/i
   - [x] Emissive BSDFs, sided emission/light PDFs, and continued scattering on CPU/GPU.
   - [x] Depth-zero primary emission/environment, terminal emission, and scattering limits on CPU/GPU.
   - [x] Gaussian reference samples, reconstruction beyond pixel bounds, film/filter order, and filter changes during GPU graph replay.
-  - [ ] General texture filtering and spectral rendering.
+  - [x] Spectral rendering and physical CIE/Canon integration.
+  - [ ] General texture filtering.
 - [ ] Load all three Bistro camera scenes without discarded supported parameters.
   - [x] Load Café, Boulangerie, and Vespa geometry, images, and active normal maps.
   - [x] Load all three entrypoints with 243 retained opacity bindings each.
@@ -154,61 +152,61 @@ supports scalar and SIMD wavelengths. Imported named tables are shared in
 `SurfaceStore.optical_spectra`; conductor and dielectric materials retain
 spectral indices, including authored dielectric wavelength curves.
 
-The current rendering path still uses its RGB compatibility projection. Retaining
-the tables and accepting brass does **not** complete spectral rendering. The
-spectral foundations below have targeted tests; spectral material/light
-evaluation, transport, device-table integration, and film input remain required.
-
+RGB remains the compatibility default. Opt-in spectral transport samples these
+curves at the camera sample's actual wavelengths on CPU and GPU. Dielectric
+IOR curves select a primary-wavelength direction and terminate secondary
+wavelengths exactly once.
 Sources: [spectral values](bajo/core/spectrum.mojo),
 [original optical tables](bajo/parser/pbrt/optical_data.mojo),
 [table generator](scripts/generate_optical_spectra.py), and
 [PBRT license](bajo/parser/pbrt/LICENSE-pbrt.txt).
 
-### Spectral foundations and optical device data
+### End-to-end spectral rendering
 
-Seven CPU and three GPU spectral regressions pass. They verify the foundations
-below, including actual GPU scene preparation and device execution. No spectral
-Bistro render has been produced; full transport integration remains open.
+`RenderSettings.color_mode = .SPECTRAL` and `--color-mode spectral` select actual
+four-wavelength transport. Scalar/RGB/curve/blackbody sources and texture products
+survive authoring and preparation. Lazy renderer-owned reconstruction resources
+feed spectral BSDFs, emission, NEE/MIS, and homogeneous absorption. Complete
+sample radiance reaches CIE 1931 or measured Canon sensor integration before
+exposure, common sensor-channel clamping, output conversion, and filtering.
+RGB remains the default with its original streams and queue layouts.
 
-| Verified foundation | Integration still missing |
-| --- | --- |
-| `SampledSpectrum` and `SampledWavelengths`: four components per path, visible/uniform sampling, PDFs, and lane-specific idempotent secondary termination | Primary generation and all CPU/GPU transport queues must retain this state |
-| Dense original CIE lookup, zero-PDF handling, and PDF-weighted XYZ sensor integration | Actual spectral path contributions must reach the sensor estimator |
-| Resolution-64 RGB reconstruction using the unchanged original generator and table; albedo/unbounded/illuminant evaluation matches independent C++ references | Renderer ownership and binding to actual material/light/texture consumers |
-| `GpuRgbSpectrumTable`, checked against every uploaded Float32 word and independent spectral references; scalar and SIMD device evaluation | Integrate this owner into render resources and dispatches |
-| Packed original optical curves, binary-search interpolation, GPU scene-owned curve buffers and conductor/dielectric spectrum IDs | BSDFs must consume these curves at path wavelengths instead of RGB/scalar projections |
-| `FilmResponse.apply_spectral_sample`: CIE integration, exposure, sensor clamp, then RGB output; negative output RGB is preserved | Validated per-light photometric scaling and calls from actual complete-path reduction |
+For programmatic renders, set `settings.color_mode = .SPECTRAL`. Low-level GPU
+callers must enable scene resources with `scene.enable_spectral(ctx)` before
+`enqueue_render_gpu`; convenience entrypoints and the prepared renderer handle
+this automatically. Retain GPU owners until asynchronous work completes.
+Changing color mode resets prepared progressive accumulation and graph capture.
 
-The generated RGB reconstruction asset contains 64 nodes and 2,359,296 Float32
-coefficients in a 9,437,456-byte binary file. The manifest records the generator
-command and SHA-256 hashes. The independent C++ reference generator uses the
-original generated C++ table, not Bajo's binary or evaluator. Cases cover every
-maximum-channel axis, ties, low values, black/white/gray, and all three spectrum
-roles. D65 normalization and dense spectral-to-RGB round trips also pass. These
-checks verify the reconstruction model, not full spectral transport.
+`settings.film.sensor_kind` selects `.CIE1931` or `.CANON_EOS_5D_MKIV`.
+PBRT sensor and white-balance declarations are retained. Use
+`film.set_output_transform(red, green, blue)` for user output transforms,
+independently of Canon calibration. Output remains linear RGB, including
+negative values. Coating interfaces currently require a constant float IOR;
+unsupported spectral declarations fail explicitly.
 
-The existing CPU accumulation and GPU resolve code still call `apply_sample`
-with RGB radiance. Spectral CPU/GPU modules are now registered in the RT runner.
-Tests use scalar, four-lane, and sixteen-lane execution and 257 device cases;
-prepared-scene checks evaluate retained brass eta/k and wavelength-dependent
-dielectric curves plus constant fallbacks. This does not make the current RGB
-renderer a spectral renderer.
+The reconstruction table is loaded once per owning spectral renderer/workspace.
+Compile with an absolute import path for working-directory-independent package
+lookup, bundle `srgb_spectra.bin` beside a portable Linux executable, or set
+`BAJO_SPECTRUM_TABLE`. Missing resources fail before tracing.
 
-Sources: [sampled spectra and wavelengths](bajo/core/sampled_spectrum.mojo),
-[RGB reconstruction evaluator](bajo/core/rgb_spectrum.mojo),
-[packed optical curves](bajo/core/spectrum_tables.mojo),
-[table manifest](bajo/core/data/srgb_spectra.json),
-[original generator](scripts/pbrt_rgb2spec_opt.cpp),
-[binary importer](scripts/generate_rgb_spectra.py),
-[independent C++ reference generator](scripts/generate_spectral_references.py),
-[GPU upload wrapper](bajo/rt/gpu/spectra.mojo),
-[GPU material ownership](bajo/rt/gpu/materials.mojo),
-[CPU spectral tests](test/rt/cpu/test_spectra.mojo),
-[GPU spectral tests](test/rt/gpu/test_spectra_gpu.mojo),
-[film response](bajo/rt/film.mojo),
-[CPU sample reduction](bajo/rt/cpu/wavefront/__init__.mojo),
-[GPU sample reduction](bajo/rt/gpu/common_kernels.mojo), and
-[RT test registration](test/rt/run_tests.mojo).
+Independent original-source references cover reconstruction, wavelength PDFs,
+physical sensor calibration, and integration. Additional transport tests cover
+sample IDs, scalar/SIMD execution, chunks, progressive offsets, graph replay,
+mode changes, and absorption with dispersion. Controlled eight-seed PBRT image
+comparisons retain the agreed error tolerance; the analytical dispersive sphere
+provides an independent reference where PBRT's volumetric estimator differs.
+
+Regression coverage lives in the
+[CPU transport tests](test/rt/cpu/test_spectral_transport.mojo) and
+[GPU transport tests](test/rt/gpu/test_spectral_transport_gpu.mojo).
+The [sensor tables](bajo/core/sensor_data.mojo) retain the measured data's source
+hashes. Reference values in the CPU transport tests were computed independently
+from the original PBRT sources using NumPy.
+
+At 192×108, 32 spp, depth five and Z-Sobol, all three Bistro cameras passed
+CPU/GPU integration checks. Median warmed spectral render time was 1.09–1.18×
+RGB on a Ryzen 7 9700X and 1.61–1.69× on an RTX 5060 Ti. Those measurements do
+not establish performance for other scenes or complete Bistro fidelity.
 
 ### Dielectrics
 
@@ -288,12 +286,12 @@ the hit UV, derive eta=1 and k=2 sqrt(R)/sqrt(1-R), and divide both optical
 constants by the coating's IOR. Reflectance is capped at 0.9999 for this
 conversion, matching PBRT's finite white limit. Reflectance and explicit eta/k
 are mutually exclusive. Absent eta or k defaults independently to the original
-copper spectrum, which remains retained for future spectral transport.
+copper spectrum, evaluated at the sampled wavelengths in spectral mode.
 
 This implements the parameter rules in
 [PBRT's coated-conductor material](https://github.com/mmp/pbrt-v4/blob/master/src/pbrt/materials.cpp).
-The current transport is still RGB; wavelength-dependent evaluation remains
-an explicit separate requirement.
+RGB uses its compatibility projection; spectral mode derives these parameters
+from sampled reflectance or the retained eta/k curves.
 
 The new render test exposed an existing matching-index interface bug in layered
 MIS. Sampling treated eta=1 as delta transmission while value/PDF evaluation
@@ -377,7 +375,7 @@ All three asset-backed Bistro loads also assert depth 5 and MIS selection.
 
 This closes the depth/terminal-emission gap for Bistro, which declares no
 participating media. It does not implement general volumetric scattering or
-close the remaining spectral film or texture-filtering requirements. Earlier full-asset
+close the remaining texture-filtering requirements. Earlier full-asset
 diagnostics below predate the depth correction and are intermediate evidence.
 
 Sources: [PBRT defaults](https://github.com/mmp/pbrt-v4/blob/master/src/pbrt/scene.cpp),
@@ -420,12 +418,10 @@ different chunk capacities. Prepared GPU graph replay also tracks changes to
 the clamp limit and sensor matrix. All three asset-backed Bistro loads assert
 the retained limit of 20.
 
-This implements the sample storage and clamp operation for current RGB
-transport. It does **not** complete spectral film support: future spectral
-transport must integrate its sampled wavelengths into sensor coordinates
-before this nonlinear operation. The spectral film API has numerical CPU/GPU
-coverage but remains disconnected from transport. Reconstruction filtering is implemented and
-verified separately below; texture-footprint filtering remains unfinished.
+RGB and spectral transport both reduce complete camera samples. Spectral mode
+integrates the actual wavelengths against the selected physical sensor first;
+it does not reuse the RGB Canon approximation. Reconstruction filtering is
+implemented separately below; texture-footprint filtering remains unfinished.
 
 Sources: [film response](bajo/rt/film.mojo),
 [original CIE/D65 tables](bajo/core/cie_data.mojo),
@@ -470,8 +466,8 @@ graph replay, and the expanded sample-storage contract pass. All three Bistro
 loads assert the default filter parameters.
 
 This closes Bistro's reconstruction-filter gap. Texture mipmaps and surface
-footprints remain separate requirements; full spectral rendering and authored
-sampling/output verification are also unfinished.
+footprints remain separate requirements; authored-resolution convergence and
+output verification are also unfinished.
 
 Sources: [filter authoring and sampler](bajo/rt/filter.mojo),
 [camera samples](bajo/rt/camera_sampling.mojo),
@@ -591,23 +587,20 @@ The load check verifies retained geometry, texture/normal-map/opacity/emission
 bindings, optical curves, and supported scene settings. The GPU diagnostic
 reports texture storage and retained optical curves, checks finite output, and
 writes a PPM plus a raw linear RGB buffer. Its resolution, sample count, and
-depth are explicit diagnostic overrides. Neither script establishes spectral
-fidelity or agreement with PBRT at the authored settings.
+depth are explicit diagnostic overrides. Append `--color-mode spectral` to the
+existing GPU diagnostic to select spectral transport. These checks do not
+establish agreement with PBRT at the full authored settings.
 
 ## Next implementation work
 
-1. Connect spectral material/texture/light evaluation and four-wavelength path
-   state throughout CPU/GPU transport. Feed complete spectral samples to the
-   CIE sensor before clamping, output conversion, filter weighting, and reduction.
-   Validate per-light photometric normalization with independent path references.
-2. Add texture footprints, mipmaps, and the required material/environment
+1. Add texture footprints, mipmaps, and the required material/environment
    filtering; verify color versus scalar/data semantics for each consumer.
-3. Retain film filenames and write the declared EXR outputs.
-4. Audit every authored parameter and implicit default, then render all three
+2. Retain film filenames and write the declared EXR outputs.
+3. Audit every authored parameter and implicit default, then render all three
    cameras on CPU/GPU at 1920×1080 and 256 spp with the implicit depth of 5 and
    Gaussian radius 1.5 / sigma 0.5. Preserve each camera's lens settings, ISO,
    sample clamp, and environment settings. Inspect converged linear HDR output
-   and compare with PBRT before claiming completion.
+   and compare with PBRT before claiming complete Bistro support.
 
 | Entrypoint | Declared output | ISO | Camera settings to preserve |
 | --- | --- | --- | --- |

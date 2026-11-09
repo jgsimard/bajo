@@ -6,7 +6,7 @@ from std.sys.arg import argv
 from bajo.core.camera import Camera
 from bajo.core import Vec3W, cross, dot, length, normalize
 from bajo.core.random import Sampler
-from bajo.rt.render_types import RenderSettings
+from bajo.rt.render_types import RenderSettings, RenderColorMode
 from .core import ViewerScene
 from .scenes import (
     BUILTIN_SCENE_COUNT,
@@ -51,6 +51,7 @@ struct ViewerOptions(Copyable):
     var integrator: Int
     var backend: Int
     var sampler: Int
+    var color_mode: RenderColorMode
     var build_method: Int
     var traversal: Int
     var traced: Bool
@@ -77,6 +78,7 @@ struct ViewerOptions(Copyable):
         self.integrator = 0
         self.backend = 0
         self.sampler = -1
+        self.color_mode = .RGB
         self.build_method = 0
         self.traversal = 0
         self.traced = False
@@ -144,6 +146,11 @@ def parse_options() raises -> ViewerOptions:
                 options.integrator = _choice(
                     value, ["path", "nee", "mis", "normals", "ao"]
                 )
+            case "--color-mode":
+                options.color_mode = (
+                    .SPECTRAL if _choice(value, ["rgb", "spectral"])
+                    == 1 else .RGB
+                )
             case "--sampler":
                 options.sampler = _choice(
                     value,
@@ -196,6 +203,7 @@ def print_help():
         " rtiaw|cornell|veach|lbvh|emissive-instance|many-lights|indirect-hall|specular-transport|pbrt"
     )
     print("--pbrt PATH  --mode raster|trace  --backend cpu|gpu")
+    print("--color-mode rgb|spectral (default: rgb)")
     print("--width N --height N --max-spp N --moving-spp N --max-depth N")
     print(
         "--samples-per-batch N (or --batch-spp): positive count, -1 for all"
@@ -269,6 +277,7 @@ struct PreparedScene:
             settings.max_depth = options.max_depth
         if options.sampler >= 0:
             settings.sampler = Sampler(options.sampler)
+        settings.color_mode = options.color_mode
         settings.samples_per_pixel = 1
         settings.sample_offset = 0
         settings.sample_sequence_length = max_samples

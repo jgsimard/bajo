@@ -5,6 +5,7 @@ from std.atomic import Atomic, Ordering
 from std.math import ceildiv
 from std.sys import num_logical_cores
 from std.time import perf_counter_ns
+from std.memory import ArcPointer
 
 from bajo.core.camera import Camera
 from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
@@ -12,6 +13,7 @@ from bajo.core.color import Color
 from bajo.rt.render_types import (
     RenderResult,
     RenderSettings,
+    RenderColorMode,
     RenderTimings,
     SamplingConfig,
 )
@@ -24,6 +26,11 @@ from bajo.rt.filter import FilterSampler
 
 from .primary import _initialize_path_packets_range
 from .packet import _trace_packets
+from .spectral import SpectralSampleState, trace_spectral_packets
+from ..spectral_resources import CpuSpectralResources
+from bajo.rt.spectrum_sources import SpectrumSourcesView
+from bajo.rt.film import FilmResponse
+from bajo.rt.spectral_light_distribution import SpectralLightDistributionView
 
 
 comptime CPU_WAVEFRONT_SERIAL_CHUNK_PATHS = 8192
@@ -46,6 +53,7 @@ struct _PacketQueueArena[length: SIMDLength, integrator: Integrator]:
     var coated_diffuse: PacketShadeQueue[Self.length]
     var samples: List[Color]
     var weights: List[Float32]
+    var spectral: SpectralSampleState
 
     def __init__(out self, capacity: Int, surfaces: SurfaceStore):
         # Two path buffers ping-pong between bounces. Material queues reserve
@@ -53,6 +61,7 @@ struct _PacketQueueArena[length: SIMDLength, integrator: Integrator]:
         self.active_paths = PacketPathQueue[Self.length](capacity)
         self.samples = List[Color](length=capacity, fill=Color(0.0))
         self.weights = List[Float32](length=capacity, fill=1)
+        self.spectral = SpectralSampleState()
         var shade_capacity = capacity if Integrator.is_path_tracing[
             Self.integrator
         ] else 0
@@ -76,9 +85,13 @@ struct CpuWavefrontWorkspace[length: SIMDLength, integrator: Integrator]:
     """
 
     var arenas: List[_PacketQueueArena[Self.length, Self.integrator]]
+    var spectral: Optional[CpuSpectralResources]
+    var spectral_scene: Optional[ArcPointer[UInt8]]
 
     def __init__(out self):
         self.arenas = List[_PacketQueueArena[Self.length, Self.integrator]]()
+        self.spectral = Optional[CpuSpectralResources]()
+        self.spectral_scene = Optional[ArcPointer[UInt8]]()
 
     def prepare(mut self, workers: Int, capacity: Int, surfaces: SurfaceStore):
         while len(self.arenas) < workers:
@@ -121,6 +134,9 @@ def _trace_packet_range[
     path_begin: Int,
     path_end: Int,
     mut queues: _PacketQueueArena[length, integrator],
+    spectra: Optional[SpectrumSourcesView],
+    film: FilmResponse,
+    lighting: Optional[SpectralLightDistributionView],
 ):
     _initialize_path_packets_range[length](
         queues.active_paths,
@@ -132,6 +148,44 @@ def _trace_packet_range[
         queues.weights,
     )
     var count = path_end - path_begin
+    comptime if Integrator.is_path_tracing[integrator]:
+        if spectra:
+            trace_spectral_packets[
+                length,
+                integrator,
+                world_bvh_width,
+                instance_bvh_width,
+                traversal_mode,
+                *adaptive_packet_sizes,
+            ](
+                settings,
+                sampling,
+                world,
+                spectra.value(),
+                lighting.value(),
+                queues.spectral,
+                queues.active_paths,
+                queues.next_paths,
+                path_begin,
+                count,
+            )
+            var spp = settings.samples_per_pixel
+            for first in range(0, count, spp):
+                var total = Color(0)
+                var weight = Float32(0)
+                for index in range(first, first + spp):
+                    total += (
+                        film.apply_spectral_sample(
+                            queues.spectral.radiance[index],
+                            queues.spectral.wavelengths[index],
+                        )
+                        * queues.weights[index]
+                    )
+                    weight += queues.weights[index]
+                pixels[
+                    (path_begin + first) // spp
+                ] = total / weight if weight != 0 else Color(0)
+            return
     for index in range(count):
         queues.samples[index] = Color(0.0)
     _trace_packets[
@@ -236,6 +290,36 @@ def render_wavefront_configured[
     )
     var arena_capacity = min(paths_per_chunk, path_count)
     var init_t0 = perf_counter_ns()
+    var spectra = Optional[SpectrumSourcesView]()
+    var lighting = Optional[SpectralLightDistributionView]()
+    var film = settings.film.copy()
+    comptime if Integrator.is_path_tracing[integrator]:
+        if settings.color_mode == .SPECTRAL:
+            var scene_identity = world.snapshot_identity()
+            var same_scene = False
+            if workspace.spectral_scene:
+                same_scene = Int(
+                    Pointer(to=workspace.spectral_scene.value()[])
+                ) == Int(Pointer(to=scene_identity[]))
+            if not workspace.spectral:
+                workspace.spectral = Optional(
+                    CpuSpectralResources(world.scene_data().surfaces())
+                )
+            elif not same_scene:
+                # A failed preparation must not leave the previous identity
+                # pointing at partially replaced tables.
+                workspace.spectral_scene = Optional[ArcPointer[UInt8]]()
+                workspace.spectral.value().prepare(
+                    world.scene_data().surfaces()
+                )
+            if not workspace.spectral.value().lighting:
+                workspace.spectral.value().prepare_lighting(world.scene_data())
+            lighting = Optional(
+                workspace.spectral.value().lighting.value().view()
+            )
+            workspace.spectral_scene = Optional(scene_identity^)
+            spectra = Optional(workspace.spectral.value().view())
+            film = settings.film.prepared_spectral()
     var pixels = List[Color](length=pixel_count, fill=Color(0.0))
     var init_t1 = perf_counter_ns()
 
@@ -281,6 +365,9 @@ def render_wavefront_configured[
                     path_begin,
                     path_end,
                     queues,
+                    spectra,
+                    film,
+                    lighting,
                 )
                 chunk_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
                     next_chunk_ptr, 1
@@ -315,6 +402,9 @@ def render_wavefront_configured[
                 path_begin,
                 path_end,
                 queues,
+                spectra,
+                film,
+                lighting,
             )
             path_begin = path_end
     var render_t1 = perf_counter_ns()

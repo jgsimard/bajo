@@ -206,15 +206,35 @@ def _trace_bounds_bvh_impl[
     comptime if mode == .CLOSEST_HIT:
         # stack entries are tagged child references, so they can represent either an internal node or a packed leaf
         var ordered_stack = Array[UInt64, CPU_STACK_SIZE](uninitialized=True)
+        # Best-first traversal may retain more than a depth-sized frontier in
+        # overlapping scenes. Keep the common inline stack and spill lazily.
+        var ordered_overflow = List[UInt64]()
+
+        @always_inline
+        def pending_at(index: Int) {imm} -> UInt64:
+            if ordered_overflow:
+                return ordered_overflow[index]
+            return ordered_stack.unsafe_get(index)
 
         @always_inline
         def push_pending(
             child_ref: UInt32, child_t: Float32
-        ) {imm, mut stack_ptr, mut ordered_stack}:
-            debug_assert["safe", _use_compiler_assume=True](
-                stack_ptr < CPU_STACK_SIZE,
-                "CPU BVH traversal stack overflow",
-            )
+        ) {imm, mut stack_ptr, mut ordered_stack, mut ordered_overflow}:
+            var storage = ordered_stack.unsafe_ptr().unsafe_origin_cast[
+                MutAnyOrigin
+            ]()
+            if stack_ptr >= CPU_STACK_SIZE or ordered_overflow:
+                if not ordered_overflow:
+                    ordered_overflow.resize(2 * CPU_STACK_SIZE, fill=0)
+                    for index in range(stack_ptr):
+                        ordered_overflow[index] = ordered_stack.unsafe_get(
+                            index
+                        )
+                elif stack_ptr >= len(ordered_overflow):
+                    ordered_overflow.resize(2 * len(ordered_overflow), fill=0)
+                storage = ordered_overflow.unsafe_ptr().unsafe_origin_cast[
+                    MutAnyOrigin
+                ]()
 
             # Keep pending tasks far-to-near so the nearest global task is
             # always the final entry and can be popped in O(1).
@@ -222,13 +242,13 @@ def _trace_bounds_bvh_impl[
             var insert_idx = stack_ptr
             while insert_idx > 0:
                 var previous_idx = insert_idx - 1
-                var previous = ordered_stack.unsafe_get(previous_idx)
+                var previous = storage[unsafe_offset=previous_idx]
                 if previous >= task:
                     break
-                ordered_stack.unsafe_get(insert_idx) = previous
+                storage[unsafe_offset=insert_idx] = previous
                 insert_idx = previous_idx
 
-            ordered_stack.unsafe_get(insert_idx) = task
+            storage[unsafe_offset=insert_idx] = task
 
             stack_ptr += 1
 
@@ -340,7 +360,7 @@ def _trace_bounds_bvh_impl[
                 if has_nearest:
                     if stack_ptr > 0:
                         var pending_idx = stack_ptr - 1
-                        var pending = ordered_stack.unsafe_get(pending_idx)
+                        var pending = pending_at(pending_idx)
                         if _pending_task_t(pending) < nearest_t:
                             stack_ptr = pending_idx
                             push_pending(nearest_ref, nearest_t)
@@ -355,7 +375,7 @@ def _trace_bounds_bvh_impl[
             var found_pending = False
             if stack_ptr > 0:
                 var next_idx = stack_ptr - 1
-                var task = ordered_stack.unsafe_get(next_idx)
+                var task = pending_at(next_idx)
                 if _pending_task_t(task) <= hit.t:
                     stack_ptr = next_idx
                     current_ref = _pending_task_ref(task)
@@ -385,6 +405,7 @@ def _trace_bounds_bvh_impl[
             return hit
         # ANY_HIT : leaf-first behavior
         var stack = Array[UInt32, CPU_STACK_SIZE](uninitialized=True)
+        var overflow = List[UInt32]()
         var n_idx = initial_ref
 
         while True:
@@ -417,6 +438,7 @@ def _trace_bounds_bvh_impl[
                 mut has_next,
                 mut next_idx,
                 mut stack,
+                mut overflow,
                 mut stack_ptr,
             } -> Bool:
                 if is_leaf_ref(child_ref):
@@ -432,11 +454,16 @@ def _trace_bounds_bvh_impl[
                     return leaf_hit
 
                 if has_next:
-                    debug_assert["safe", _use_compiler_assume=True](
-                        stack_ptr < CPU_STACK_SIZE,
-                        "CPU BVH traversal stack overflow",
-                    )
-                    stack.unsafe_get(stack_ptr) = next_idx
+                    if stack_ptr >= CPU_STACK_SIZE or overflow:
+                        if not overflow:
+                            overflow.resize(2 * CPU_STACK_SIZE, fill=0)
+                            for index in range(stack_ptr):
+                                overflow[index] = stack.unsafe_get(index)
+                        elif stack_ptr >= len(overflow):
+                            overflow.resize(2 * len(overflow), fill=0)
+                        overflow[stack_ptr] = next_idx
+                    else:
+                        stack.unsafe_get(stack_ptr) = next_idx
                     stack_ptr += 1
 
                 next_idx = child_ref
@@ -477,7 +504,9 @@ def _trace_bounds_bvh_impl[
                 break
 
             stack_ptr -= 1
-            n_idx = stack.unsafe_get(stack_ptr)
+            n_idx = overflow[stack_ptr] if overflow else stack.unsafe_get(
+                stack_ptr
+            )
     return hit
 
 

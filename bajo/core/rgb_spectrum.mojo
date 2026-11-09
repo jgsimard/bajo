@@ -5,6 +5,11 @@ from std.builtin.globals import global_constant
 from std.memory import bitcast
 from std.math import floor, sqrt, fma
 from std.utils.numerics import isfinite
+from std.reflection import source_location
+from std.os import getenv
+from std.ffi import external_call
+from std.os.path import dirname, join, exists
+from std.sys.arg import argv
 from bajo.core.vec import Vec3
 from bajo.core.cie_data import CIE_XYZ, D65
 from bajo.core.sampled_spectrum import (
@@ -200,6 +205,50 @@ struct RgbSpectrumTable:
             if t != 0:
                 v = (1 - t) * v + t * (d65[i + 3] * normalization)
             self.values.append(v)
+
+    @staticmethod
+    def read_default() raises -> Self:
+        """Use an explicit override, package location, or bundled executable data.
+
+        Installed/source packages compiled with an absolute import path retain
+        their module location. Portable binaries can bundle srgb_spectra.bin
+        beside the executable or set BAJO_SPECTRUM_TABLE to its installed path.
+        """
+        var configured = getenv("BAJO_SPECTRUM_TABLE")
+        if configured:
+            return Self.read(configured)
+        var package_path = join(
+            dirname(String(source_location().file_name())),
+            "data/srgb_spectra.bin",
+        )
+        if package_path.startswith("/") and exists(package_path):
+            return Self.read(package_path)
+        var executable = String(argv()[0])
+        # Linux is the supported package platform. /proc resolves PATH-based
+        # invocation and symlinks independently of the current directory.
+        var link = String("/proc/self/exe")
+        var buffer = List[UInt8](unsafe_uninit_length=4096)
+        var count = external_call["readlink", Int](
+            link.as_c_string_span(), buffer.unsafe_ptr(), UInt(len(buffer))
+        )
+        if count > 0 and count < len(buffer):
+            executable = String(
+                StringSpan(
+                    unsafe_from_utf8=ImmSpan(
+                        unsafe_ptr=buffer.unsafe_ptr(), length=count
+                    )
+                )
+            )
+        var bundled = join(dirname(executable), "srgb_spectra.bin")
+        if exists(bundled):
+            return Self.read(bundled)
+        # Source execution with a relative -I remains convenient in a checkout.
+        if exists(package_path):
+            return Self.read(package_path)
+        raise Error(
+            "spectral reconstruction table not found; bundle srgb_spectra.bin"
+            " beside the executable or set BAJO_SPECTRUM_TABLE"
+        )
 
     @staticmethod
     def read(path: String) raises -> Self:

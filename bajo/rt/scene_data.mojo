@@ -356,6 +356,7 @@ struct SceneData:
         self._surfaces = surfaces^
         self._lights = LightStore()
         self._media = media^
+        self._media.prepare_spectral_bindings()
         self._opacity = opacity^
         self._emission = emission^
         self._environment = environment.copy()

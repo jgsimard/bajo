@@ -1,5 +1,7 @@
 """Prepared GPU material and texture table ownership."""
 
+from bajo.rt.gpu.spectral_resources import GpuSpectralResources
+
 from std.memory import bitcast
 from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.rt.material_storage import pack_coated_materials
@@ -132,6 +134,7 @@ struct GpuRtMaterials:
     var opacity: GpuOpacityTables
     var emission: GpuEmissionTables
     var spectra: GpuMaterialSpectra
+    var spectral: GpuSpectralResources
     var mix_surfaces: DeviceBuffer[.uint32]
     var mix_amounts: DeviceBuffer[.float32]
     var mix_texture_indices: DeviceBuffer[.uint32]
@@ -184,6 +187,7 @@ struct GpuRtMaterials:
         self.opacity = GpuOpacityTables(ctx, world)
         self.emission = GpuEmissionTables(ctx, world)
         self.spectra = GpuMaterialSpectra(ctx, world.surfaces())
+        self.spectral = GpuSpectralResources(world)
         self.mix_surfaces = _upload_nonempty(ctx, world.surfaces().mix_surfaces)
         self.mix_amounts = _upload_nonempty(ctx, world.surfaces().mix_amounts)
         self.mix_texture_indices = _upload_nonempty(

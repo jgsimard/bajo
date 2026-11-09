@@ -83,6 +83,19 @@ struct SampledSpectrum[width: SIMDLength = 1](
             self.s3 = value
 
     @always_inline
+    def get(self, lane: Int) -> SampledSpectrum[1]:
+        return SampledSpectrum[1](
+            self.s0[lane], self.s1[lane], self.s2[lane], self.s3[lane]
+        )
+
+    @always_inline
+    def set(mut self, lane: Int, value: SampledSpectrum[1]):
+        self.s0[lane] = value.s0
+        self.s1[lane] = value.s1
+        self.s2[lane] = value.s2
+        self.s3[lane] = value.s3
+
+    @always_inline
     def __add__(self, other: Self) -> Self:
         return Self(
             self.s0 + other.s0,
@@ -133,6 +146,26 @@ struct SampledSpectrum[width: SIMDLength = 1](
             self.s2 / other.s2,
             self.s3 / other.s3,
         )
+
+    @always_inline
+    def __iadd__(mut self, other: Self):
+        self = self + other
+
+    @always_inline
+    def __isub__(mut self, other: Self):
+        self = self - other
+
+    @always_inline
+    def __imul__(mut self, other: Self):
+        self = self * other
+
+    @always_inline
+    def __imul__(mut self, scale: SIMD[.float32, Self.width]):
+        self = self * scale
+
+    @always_inline
+    def __itruediv__(mut self, scale: SIMD[.float32, Self.width]):
+        self = self / scale
 
     @always_inline
     def safe_divide(self, other: Self) -> Self:
@@ -212,6 +245,17 @@ struct SampledWavelengths[width: SIMDLength = 1](
     @staticmethod
     def get_type_name() -> String:
         return "SampledWavelengths"
+
+    @always_inline
+    def get(self, lane: Int) -> SampledWavelengths[1]:
+        return SampledWavelengths[1](
+            self.lambda_nm.get(lane), self.pdf.get(lane)
+        )
+
+    @always_inline
+    def set(mut self, lane: Int, value: SampledWavelengths[1]):
+        self.lambda_nm.set(lane, value.lambda_nm)
+        self.pdf.set(lane, value.pdf)
 
     @staticmethod
     def visible(u: SIMD[.float32, Self.width]) -> Self:

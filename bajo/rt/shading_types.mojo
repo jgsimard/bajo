@@ -37,6 +37,7 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
     var emission_visible: SIMD[.bool, Self.length]
     var emission: Vec3[.float32, .WORLD, Self.length]
     var emission_two_sided: SIMD[.bool, Self.length]
+    var emission_spectrum: SIMD[.uint32, Self.length]
 
     def __init__(out self, t_max: SIMD[.float32, Self.length]):
         self = Self(
@@ -91,6 +92,7 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
         emission_two_sided: SIMD[.bool, Self.length] = SIMD[.bool, Self.length](
             fill=False
         ),
+        emission_spectrum: SIMD[.uint32, Self.length] = UInt32.MAX,
     ):
         self.normal = normal
         self.surface = surface.copy()
@@ -105,6 +107,7 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
         self.emission_visible = emission_visible
         self.emission = emission
         self.emission_two_sided = emission_two_sided
+        self.emission_spectrum = emission_spectrum
 
     @always_inline
     def get(self, lane: Int) -> SurfaceHit[1]:
@@ -136,6 +139,7 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
                 self.emission.z[lane],
             ),
             self.emission_two_sided[lane],
+            self.emission_spectrum[lane],
         )
 
     @always_inline
@@ -161,6 +165,7 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
         self.emission.y[lane] = value.emission.y
         self.emission.z[lane] = value.emission.z
         self.emission_two_sided[lane] = value.emission_two_sided
+        self.emission_spectrum[lane] = value.emission_spectrum
 
 
 struct ShadingPoint[length: SIMDLength = 1](Copyable, Writable):

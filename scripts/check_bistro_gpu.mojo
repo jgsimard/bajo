@@ -2,7 +2,7 @@
 
 Usage from the repository root after downloading assets:
     pixi run mojo -I . scripts/check_bistro_gpu.mojo [scene] [output.ppm]
-        [width=96] [samples=4] [depth=4]
+        [width=96] [samples=4] [depth=4] [--color-mode rgb|spectral]
 
 Resolution, sample count, and depth overrides are for diagnostics. Geometry and
 decoded texture samples retain their original resolution and precision.
@@ -15,6 +15,7 @@ from bajo.parser.number import parse_int_f32
 from bajo.rt import write_ppm_from_colors
 from bajo.rt.image_output import write_linear_rgb
 from bajo.rt.material_storage import TextureDescLayout
+from bajo.rt.render_types import RenderColorMode
 from bajo.rt.gpu import (
     prepare_gpu_scene,
     enqueue_render_gpu,
@@ -23,7 +24,23 @@ from bajo.rt.gpu import (
 
 
 def main() raises:
-    var args = argv()
+    var raw = argv()
+    var args = List[String]()
+    var color_mode = RenderColorMode.RGB
+    var index = 0
+    while index < len(raw):
+        var value = String(raw[index])
+        if value == "--color-mode":
+            index += 1
+            if index >= len(raw):
+                raise Error("--color-mode requires rgb or spectral")
+            value = String(raw[index])
+            if value != "rgb" and value != "spectral":
+                raise Error("--color-mode requires rgb or spectral")
+            color_mode = .SPECTRAL if value == "spectral" else .RGB
+        else:
+            args.append(value^)
+        index += 1
     if len(args) > 6:
         raise Error(
             "usage: check_bistro_gpu [scene] [output.ppm] [width] [samples]"
@@ -50,6 +67,7 @@ def main() raises:
         )
     var parsed = read_pbrt(path)
     var settings = parsed.settings.copy()
+    settings.color_mode = color_mode
     settings.image_height = max(
         1, width * settings.image_height // settings.image_width
     )
@@ -107,6 +125,8 @@ def main() raises:
             paletted,
         )
         var target = scene.make_render_target(ctx, settings, camera)
+        if color_mode == .SPECTRAL:
+            scene.enable_spectral(ctx)
         enqueue_render_gpu[.MIS](ctx, target, scene, settings)
         var pixels = download_gpu_pixels(ctx, target)
         for pixel in pixels:

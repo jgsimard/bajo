@@ -458,6 +458,7 @@ struct _Builder(
     var image_height: Int
     var samples_per_pixel: Int
     var sampler: Sampler
+    var rng_seed: UInt64
     var max_depth: Int
     var integrator: Integrator
     var film: FilmResponse
@@ -495,6 +496,7 @@ struct _Builder(
         self.image_height = 480
         self.samples_per_pixel = 16
         self.sampler = .INDEPENDENT
+        self.rng_seed = 2026
         self.max_depth = 5
         # PBRT path/volpath combine light and BSDF sampling with MIS. Bistro
         # has no participating media, so its default uses this surface path.
@@ -742,7 +744,7 @@ struct _Builder(
             self.image_width,
             self.image_height,
             self.samples_per_pixel,
-            UInt64(2026),
+            self.rng_seed,
             self.max_depth,
             self.sampler,
         )
@@ -1556,17 +1558,35 @@ def _parse_text[
 
             case "Sampler":
                 var sampler_name = lexer.next().value
+                builder.rng_seed = 2026
                 match sampler_name:
                     case "halton":
                         builder.sampler = .HALTON
                     case "sobol":
                         builder.sampler = .OWEN_SOBOL
+                    case "zsobol":
+                        builder.sampler = .Z_SOBOL
                     case _:
                         builder.sampler = .INDEPENDENT
                 var params = _parse_params(lexer)
                 builder.samples_per_pixel = params.integer(
                     "integer pixelsamples", 16
                 )
+                if builder.sampler == .Z_SOBOL:
+                    var randomization = params.string_or_empty(
+                        "string randomization"
+                    )
+                    if (
+                        randomization.byte_length()
+                        and randomization != "fastowen"
+                    ):
+                        raise Error("Z-Sobol supports fastowen randomization")
+                    var seed = params.integer("integer seed", 0)
+                    if seed < Int(Int32.MIN) or seed > Int(Int32.MAX):
+                        raise Error(
+                            "Z-Sobol seed must fit a signed 32-bit integer"
+                        )
+                    builder.rng_seed = UInt64(UInt32(seed))
 
             case "Integrator":
                 var integrator_name = lexer.next().value

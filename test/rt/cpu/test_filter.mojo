@@ -200,7 +200,7 @@ def test_pinhole_shortcut_keeps_filter_samples_and_rng_dimensions() raises:
         ReconstructionFilter.triangle(),
     ]:
         var filter = FilterSampler(config)
-        for sampler in range(6):
+        for sampler in range(7):
             var settings = RenderSettings(8, 4, 16, 2026, 1, Sampler(sampler))
             var sampling = SamplingConfig.from_settings(settings)
             sampling.filter = filter.view()

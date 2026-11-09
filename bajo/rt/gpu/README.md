@@ -31,7 +31,7 @@ float planes, plus IDs and packed material/face flags. Coated shade records
 retain UVs, boundary geometry and medium-adjusted throughput. Typed TileTensor
 views in `queue_layout.mojo` define these field-major contracts and borrow the
 existing buffers; material tables use record-major views. Queue order is
-unspecified; global path IDs and sample offsets preserve all six sampler
+unspecified; global path IDs and sample offsets preserve all seven sampler
 sequences across scheduling, chunks and sample batches.
 
 Geometry, BVH layout and integrator specialize kernels. Runtime material

@@ -14,6 +14,7 @@ from bajo.parser import MemoryAssetLoader, AssetLoader
 from bajo.parser.ply import PlyMesh
 from bajo.rt.material_types import ImageTexture
 from bajo.rt import CpuScene
+from bajo.core.random import Sampler
 from bajo.core.spectrum import PiecewiseLinearSpectrum
 from bajo.parser.pbrt.optical_data import named_optical_spectrum
 from test.parser.png.test_png import _encode
@@ -38,6 +39,34 @@ struct _NormalMapLoader(AssetLoader):
         if path != "scene/normal.png":
             raise Error("incorrect normal-map path: " + path)
         return ImageTexture(1, 1, [0.75, 0.5, 1.0])
+
+
+def test_zsobol_sampler_retains_sequence_length_and_seed() raises:
+    var source = (
+        'Film "rgb" "integer xresolution" 9 "integer yresolution" 73\n'
+        'Sampler "zsobol" "integer pixelsamples" 256\n'
+        'WorldBegin\nShape "sphere"\n'
+    )
+    var scene = parse_pbrt(source)
+    assert_equal(scene.settings.sampler, Sampler.Z_SOBOL)
+    assert_equal(scene.settings.samples_per_pixel, 256)
+    assert_equal(scene.settings.sample_sequence_length, 256)
+    assert_equal(scene.settings.rng_seed, UInt64(0))
+    scene.settings.validate()
+    for seed in [0, 31, -1]:
+        var seeded = parse_pbrt(
+            'Sampler "zsobol" "integer pixelsamples" 3 "integer seed" '
+            + String(seed)
+            + ' "string randomization" "fastowen"\nWorldBegin\nShape "sphere"'
+        )
+        assert_equal(seeded.settings.sampler, Sampler.Z_SOBOL)
+        assert_equal(seeded.settings.samples_per_pixel, 3)
+        assert_equal(seeded.settings.rng_seed, UInt64(UInt32(seed)))
+    with assert_raises():
+        _ = parse_pbrt(
+            'Sampler "zsobol" "string randomization" "owen"\n'
+            'WorldBegin\nShape "sphere"'
+        )
 
 
 def test_inline_mesh_interpolates_uvs_and_inverse_transpose_normals() raises:

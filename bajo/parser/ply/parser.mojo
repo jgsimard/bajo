@@ -249,7 +249,8 @@ def _parse_scalar_type(name: StringSpan) raises -> _ScalarType:
         case "double" | "float64":
             return .F64
 
-    raise Error("unsupported PLY scalar type: " + String(name))
+        case _:
+            raise Error("unsupported PLY scalar type: " + String(name))
 
 
 def _vertex_semantic(name: StringSpan) -> UInt8:
@@ -278,7 +279,8 @@ def _vertex_semantic(name: StringSpan) -> UInt8:
         case "v" | "t" | "texture_v":
             return _V
 
-    return _IGNORE
+        case _:
+            return _IGNORE
 
 
 def _parse_property(

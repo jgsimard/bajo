@@ -30,7 +30,13 @@ from bajo.rt.material_types import (
 from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.media import SceneMedia
 from bajo.rt.opacity import Opacity
+from std.builtin.globals import global_constant
+from bajo.core.cie_data import CIE_XYZ
+from bajo.core.colorimetry import srgb_to_xyz_matrix
+from bajo.core.mat import inverse
+from bajo.rt.sensor import FilmSensorKind
 from bajo.rt.emission import AreaEmitter
+from bajo.rt.spectrum_sources import SpectrumSource, NO_SPECTRUM
 from bajo.rt.film import FilmResponse
 from bajo.rt.filter import ReconstructionFilter
 from bajo.rt.scene_description import SceneDescription
@@ -410,14 +416,25 @@ struct _GraphicsState(Copyable):
     var area_light: Bool
     var emission: Color
     var emission_two_sided: Bool
+    var emission_spectrum: UInt32
     var reverse_orientation: Bool
     var medium_boundary: UInt32
 
 
-@fieldwise_init
 struct _ColorTexture(Copyable):
     var scale: Color
     var image_index: UInt32
+    var spectrum: UInt32
+
+    def __init__(
+        out self,
+        scale: Color,
+        image_index: UInt32,
+        spectrum: UInt32 = NO_SPECTRUM,
+    ):
+        self.scale = scale
+        self.image_index = image_index
+        self.spectrum = spectrum
 
 
 @fieldwise_init
@@ -486,6 +503,7 @@ struct _Builder(
             False,
             Color(0.0),
             False,
+            NO_SPECTRUM,
             False,
             UInt32(0),
         )
@@ -820,8 +838,103 @@ def _parse_transform_matrix[
     return Affine3f32[.LOCAL, To].from_matrix(matrix)
 
 
+def _pbrt_spectral_curve(
+    var samples: List[Float32],
+) raises -> PiecewiseLinearSpectrum:
+    # PBRT FromInterleaved extends endpoint values across the visible domain.
+    # The core curve type retains its general zero-outside-domain convention.
+    _ = PiecewiseLinearSpectrum(samples.copy())
+    var extended = List[Float32]()
+    if samples[0] > 360:
+        extended.extend([Float32(359), samples[1]])
+    extended.extend(Span(samples))
+    if samples[len(samples) - 2] < 830:
+        extended.extend([Float32(831), samples[len(samples) - 1]])
+    return PiecewiseLinearSpectrum(extended^)
+
+
+def _append_spectrum(mut builder: _Builder, source: SpectrumSource) -> UInt32:
+    var index = UInt32(len(builder.scene.surfaces.spectrum_sources))
+    builder.scene.surfaces.spectrum_sources.append(source.copy())
+    return index
+
+
+def _radiometric_parameter(
+    mut builder: _Builder, params: _Parameters, name: StringSpan, default: Color
+) raises -> _ColorTexture:
+    if params.has("texture " + name):
+        raise Error(
+            "texture binding is not supported for radiometric parameter: "
+            + String(name)
+        )
+    var values = params.values("spectrum " + name)
+    var source: SpectrumSource
+    var rgb = params.color(name, default)
+    if values:
+        if len(values) == 1:
+            if values[0].startswith("metal-"):
+                var curve = _retain_named_optical_spectrum(
+                    builder, String(values[0])
+                )
+                source = SpectrumSource.curve(curve)
+                rgb = _named_optical_constant(values[0])
+            else:
+                var value = _parse_f32(values[0])
+                source = SpectrumSource.constant(value)
+                rgb = Color(value)
+        elif len(values) % 2 == 0:
+            var curve = _pbrt_spectral_curve([_parse_f32(v) for v in values])
+            rgb = Color(
+                curve.evaluate(610), curve.evaluate(550), curve.evaluate(460)
+            )
+            if name == StringSpan("L"):
+                # Every visible emission curve needs a nonzero legacy sampling
+                # proxy, including curves between the former RGB wavelengths.
+                ref observer = global_constant[CIE_XYZ]()
+                var xyz = Color(0)
+                for nm in range(360, 831):
+                    xyz += observer[nm - 360] * curve.evaluate(Float32(nm))
+                if xyz.y > 0:
+                    xyz = xyz / xyz.y
+                    var matrix = inverse(srgb_to_xyz_matrix())
+                    for channel in range(3):
+                        rgb[channel] = max(
+                            Float32(matrix[channel][0]) * xyz.x
+                            + Float32(matrix[channel][1]) * xyz.y
+                            + Float32(matrix[channel][2]) * xyz.z,
+                            0,
+                        )
+
+            var index = UInt32(len(builder.scene.surfaces.optical_spectra))
+            builder.scene.surfaces.optical_spectra.append(curve^)
+            source = SpectrumSource.curve(index)
+        else:
+            raise Error(
+                "spectral parameter requires a named spectrum or"
+                " wavelength/value pairs"
+            )
+    elif params.has("blackbody " + name):
+        var blackbody = params.values("blackbody " + name)
+        if len(blackbody) != 1:
+            raise Error("PBRT blackbody requires one temperature")
+        var temperature = _parse_f32(blackbody[0])
+        if not isfinite(temperature) or temperature <= 0:
+            raise Error("blackbody temperature must be finite and positive")
+        source = SpectrumSource.blackbody(temperature)
+        rgb = _blackbody_rgb(temperature)
+    elif params.has("float " + name):
+        var value = params.f32("float " + name, 1)
+        source = SpectrumSource.constant(value)
+        rgb = Color(value)
+    else:
+        source = SpectrumSource.rgb(rgb)
+    if not rgb.is_finite()[0] or (rgb.x < 0 or rgb.y < 0 or rgb.z < 0):
+        raise Error("spectral parameters must be finite and non-negative")
+    return _ColorTexture(rgb, NO_TEXTURE, _append_spectrum(builder, source))
+
+
 def _color_texture_parameter(
-    builder: _Builder,
+    mut builder: _Builder,
     params: _Parameters,
     name: StringSpan,
     default: Color,
@@ -832,11 +945,7 @@ def _color_texture_parameter(
         if texture_name not in builder.color_textures:
             raise Error("unknown PBRT spectrum texture: " + texture_name)
         return builder.color_textures[texture_name].copy()
-    if params.has("float " + name):
-        return _ColorTexture(
-            Color(params.f32("float " + name, 1.0)), NO_TEXTURE
-        )
-    return _ColorTexture(params.color(name, default), NO_TEXTURE)
+    return _radiometric_parameter(builder, params, name, default)
 
 
 def _scalar_parameter(
@@ -873,8 +982,8 @@ def _texture(
         var value: _ColorTexture
         match implementation:
             case "constant":
-                value = _ColorTexture(
-                    params.color("value", Color(1.0)), NO_TEXTURE
+                value = _radiometric_parameter(
+                    builder, params, "value", Color(1.0)
                 )
             case "scale":
                 var tex = _color_texture_parameter(
@@ -890,7 +999,14 @@ def _texture(
                     raise Error(
                         "PBRT scale of two image textures is not supported"
                     )
-                value = _ColorTexture(tex.scale * scale.scale, tex.image_index)
+                value = _ColorTexture(
+                    tex.scale * scale.scale,
+                    tex.image_index,
+                    _append_spectrum(
+                        builder,
+                        SpectrumSource.product(tex.spectrum, scale.spectrum),
+                    ),
+                )
                 if value.image_index == NO_TEXTURE:
                     value.image_index = scale.image_index
             case "imagemap":
@@ -901,7 +1017,11 @@ def _texture(
                     std.os.path.dirname(source_path), String(filename)
                 )
                 var image_index = builder.image_index(image_path)
-                value = _ColorTexture(Color(1.0), image_index)
+                value = _ColorTexture(
+                    Color(1.0),
+                    image_index,
+                    _append_spectrum(builder, SpectrumSource.constant(1)),
+                )
             case _:
                 raise Error(
                     "unsupported PBRT spectrum texture: " + implementation
@@ -1032,7 +1152,7 @@ def _retain_optical_spectrum(
     if len(values) == 1 and values[0].find("metal-") == 0:
         return _retain_named_optical_spectrum(builder, String(values[0]))
     if len(values) >= 4 and len(values) % 2 == 0:
-        var spectrum = PiecewiseLinearSpectrum(
+        var spectrum = _pbrt_spectral_curve(
             [_parse_f32(value) for value in values]
         )
         var index = UInt32(len(builder.scene.surfaces.optical_spectra))
@@ -1060,7 +1180,92 @@ def _surface(
     params: _Parameters,
     source_path: String = "",
 ) raises -> SurfaceId[1]:
+    # These coating interfaces currently have a constant IOR. Reject an
+    # authored wavelength-dependent declaration rather than dropping it.
+    var interface_name = String("interface.eta") if model == StringSpan(
+        "coatedconductor"
+    ) else String("eta")
+    if model == StringSpan("coateddiffuse") or model == StringSpan(
+        "coatedconductor"
+    ):
+        if (
+            params.has("spectrum " + interface_name)
+            or params.has("rgb " + interface_name)
+            or params.has("color " + interface_name)
+            or params.has("texture " + interface_name)
+            or params.has("blackbody " + interface_name)
+        ):
+            raise Error(
+                "coating interface IOR currently requires a float constant"
+            )
     var surface = _surface_parameters(builder, model, params)
+    if (
+        model == "diffuse"
+        or model == "matte"
+        or model == "coateddiffuse"
+        or model == "coatedconductor"
+        or surface.kind() == .METAL
+    ):
+        var fallback = Color(0.5)
+        if surface.kind() == .METAL:
+            fallback = builder.scene.surfaces.metals[
+                Int(surface.index())
+            ].albedo
+        elif surface.kind() == .COATED_DIFFUSE:
+            fallback = builder.scene.surfaces.coated_diffuses[
+                Int(surface.index())
+            ].albedo
+        var reflectance = _color_texture_parameter(
+            builder, params, "reflectance", fallback
+        )
+        builder.scene.surfaces.albedo_spectra[
+            surface.value[0]
+        ] = reflectance.spectrum
+    if surface.kind() == .DIELECTRIC:
+        ref material = builder.scene.surfaces.dielectrics[Int(surface.index())]
+        var source: SpectrumSource
+        if material.eta_spectrum != NO_TEXTURE:
+            ref curve = builder.scene.surfaces.optical_spectra[
+                Int(material.eta_spectrum)
+            ]
+            if (
+                curve.evaluate(Float32(360)) <= 0
+                or curve.evaluate(Float32(830)) <= 0
+            ):
+                raise Error(
+                    "dielectric IOR must be positive across the visible domain"
+                )
+            for index in range(0, len(curve.samples), 2):
+                if (
+                    curve.samples[index] >= 360
+                    and curve.samples[index] <= 830
+                    and curve.samples[index + 1] <= 0
+                ):
+                    raise Error(
+                        "dielectric IOR must be positive across the visible"
+                        " domain"
+                    )
+            source = SpectrumSource.curve(material.eta_spectrum)
+        elif (
+            params.has("rgb eta")
+            or params.has("color eta")
+            or len(params.values("spectrum eta")) == 3
+        ):
+            source = SpectrumSource.rgb(
+                _optical_constant(
+                    params, "eta", Color(material.refraction_index)
+                )
+            )
+        else:
+            source = SpectrumSource.constant(material.refraction_index)
+        builder.scene.surfaces.dielectric_eta_sources[
+            surface.value[0]
+        ] = _append_spectrum(builder, source)
+    if surface.kind() == .COATED_DIFFUSE:
+        var layer = _radiometric_parameter(builder, params, "albedo", Color(0))
+        builder.scene.surfaces.layer_albedo_spectra[
+            surface.value[0]
+        ] = layer.spectrum
     var normal_map = params.string_or_empty("string normalmap")
     if normal_map.byte_length():
         var filename = std.os.path.join(
@@ -1102,6 +1307,8 @@ def _surface_parameters(
                 or params.has("rgb reflectance")
                 or params.has("color reflectance")
                 or params.has("float reflectance")
+                or params.has("spectrum reflectance")
+                or params.has("blackbody reflectance")
             )
             var has_eta = (
                 params.has("spectrum conductor.eta")
@@ -1218,6 +1425,10 @@ def _surface_parameters(
                 or params.has("spectrum k")
                 or params.has("rgb eta")
                 or params.has("rgb k")
+                or params.has("color eta")
+                or params.has("color k")
+                or params.has("float eta")
+                or params.has("float k")
             ):
                 var surface = builder.scene.surfaces.add_conductor(
                     _optical_constant(params, "eta", Color(1.0)),
@@ -1454,7 +1665,9 @@ def _shape[
                     surface,
                 )
             return
-    raise Error("unsupported PBRT shape: " + kind)
+
+        case _:
+            raise Error("unsupported PBRT shape: " + kind)
 
 
 def _fixed_f32(mut lexer: _Lexer, count: Int) raises -> List[Float32]:
@@ -1527,6 +1740,11 @@ def _parse_text[
                     raise Error("film ISO must be finite and positive")
                 var sensor = params.string_or_empty("string sensor")
                 builder.film = FilmResponse(iso / 100.0)
+                builder.film.white_balance_temperature = params.f32(
+                    "float whitebalance", 0
+                )
+                if sensor == StringSpan("canon_eos_5d_mkiv"):
+                    builder.film.sensor_kind = .CANON_EOS_5D_MKIV
                 builder.film_uses_cie1931 = sensor != StringSpan(
                     "canon_eos_5d_mkiv"
                 )
@@ -1763,6 +1981,20 @@ def _parse_text[
                         inverse.inv,
                         builder.state.transform,
                     )
+                var source = _radiometric_parameter(
+                    builder, params, "L", Color(1)
+                )
+                var scale = _append_spectrum(
+                    builder,
+                    SpectrumSource.constant(params.f32("float scale", 1)),
+                )
+                if params.has("spectrum L"):
+                    builder.environment.scale = source.scale * params.f32(
+                        "float scale", 1
+                    )
+                builder.environment.spectrum = _append_spectrum(
+                    builder, SpectrumSource.product(source.spectrum, scale)
+                )
                 builder.has_environment = True
 
             case "AreaLightSource":
@@ -1777,6 +2009,20 @@ def _parse_text[
                 builder.state.emission = emission * params.f32(
                     "float scale", 1.0
                 )
+                var source = _radiometric_parameter(
+                    builder, params, "L", Color(1)
+                )
+                var scale = _append_spectrum(
+                    builder,
+                    SpectrumSource.constant(params.f32("float scale", 1)),
+                )
+                if params.has("spectrum L"):
+                    builder.state.emission = source.scale * params.f32(
+                        "float scale", 1
+                    )
+                builder.state.emission_spectrum = _append_spectrum(
+                    builder, SpectrumSource.product(source.spectrum, scale)
+                )
                 builder.state.emission_two_sided = params.string_or_empty(
                     "bool twosided"
                 ) == StringSpan("true")
@@ -1790,12 +2036,51 @@ def _parse_text[
                     raise Error(
                         "only homogeneous absorption media are supported"
                     )
-                var sigma_s = params.color("sigma_s", Color(0.0))
+                var scattering = _radiometric_parameter(
+                    builder, params, "sigma_s", Color(0)
+                )
+                var sigma_s = scattering.scale
+                # A curve may be zero at the three legacy RGB wavelengths.
+                var pending = List[UInt32]([scattering.spectrum])
+                while pending:
+                    var node = builder.scene.surfaces.spectrum_sources[
+                        Int(pending.pop())
+                    ].copy()
+                    if node.kind == SpectrumSource.CURVE:
+                        for i in range(
+                            1,
+                            len(
+                                builder.scene.surfaces.optical_spectra[
+                                    Int(node.first)
+                                ].samples
+                            ),
+                            2,
+                        ):
+                            if (
+                                builder.scene.surfaces.optical_spectra[
+                                    Int(node.first)
+                                ].samples[i]
+                                != 0
+                            ):
+                                raise Error(
+                                    "medium scattering is not supported"
+                                )
+                    elif node.kind == SpectrumSource.BLACKBODY:
+                        raise Error("medium scattering is not supported")
                 if sigma_s.x != 0.0 or sigma_s.y != 0.0 or sigma_s.z != 0.0:
                     raise Error("medium scattering is not supported")
+                var absorption = _radiometric_parameter(
+                    builder, params, "sigma_a", Color(0)
+                )
+                var scale = _append_spectrum(
+                    builder,
+                    SpectrumSource.constant(params.f32("float scale", 1)),
+                )
+                var spectrum = _append_spectrum(
+                    builder, SpectrumSource.product(absorption.spectrum, scale)
+                )
                 builder.named_media[name] = builder.scene.media.add(
-                    params.color("sigma_a", Color(0.0))
-                    * params.f32("float scale", 1.0)
+                    absorption.scale * params.f32("float scale", 1), spectrum
                 )
 
             case "MediumInterface":
@@ -1831,7 +2116,9 @@ def _parse_text[
                 )
                 if builder.state.area_light:
                     var emitter = AreaEmitter(
-                        builder.state.emission, builder.state.emission_two_sided
+                        builder.state.emission,
+                        builder.state.emission_two_sided,
+                        builder.state.emission_spectrum,
                     )
                     for index in range(
                         sphere_begin, len(builder.scene.spheres)

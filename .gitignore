@@ -47,3 +47,5 @@ bench/prototypes/*
 
 *.json
 *.log
+
+artifacts/*

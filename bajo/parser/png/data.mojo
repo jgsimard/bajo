@@ -40,8 +40,10 @@ def _unfilter_data(
             var upper_left = (
                 Int(raw[start + x - stride - bpp]) if y and x >= bpp else 0
             )
-            var predictor = 0
+            var predictor: Int
             match filter:
+                case 0:
+                    predictor = 0
                 case 1:
                     predictor = left
                 case 2:
@@ -56,6 +58,8 @@ def _unfilter_data(
                         left if a <= b
                         and a <= c else up if b <= c else upper_left
                     )
+                case _:
+                    raise Error("invalid PNG data filter type")
             raw[start + x] += UInt8(predictor)
 
 

@@ -9,6 +9,11 @@ from bajo.core.random import Sampler
 from bajo.core.zsobol import zsobol_log2_samples
 
 
+__enum RenderColorMode(Equatable, ImplicitlyCopyable, Writable):
+    case RGB
+    case SPECTRAL
+
+
 struct RenderSettings(Copyable, Writable):
     var image_width: Int
     var image_height: Int
@@ -22,6 +27,7 @@ struct RenderSettings(Copyable, Writable):
     var sample_sequence_length: Int
     var film: FilmResponse
     var filter: ReconstructionFilter
+    var color_mode: RenderColorMode
 
     def __init__(
         out self,
@@ -35,6 +41,7 @@ struct RenderSettings(Copyable, Writable):
         sample_sequence_length: Int = 0,
         film: FilmResponse = FilmResponse(),
         filter: ReconstructionFilter = ReconstructionFilter(),
+        color_mode: RenderColorMode = .RGB,
     ):
         debug_assert["safe", _use_compiler_assume=True](
             image_width > 0, "image width must be positive"
@@ -67,6 +74,7 @@ struct RenderSettings(Copyable, Writable):
         self.sample_sequence_length = sequence_length
         self.film = film.copy()
         self.filter = filter
+        self.color_mode = color_mode
 
     def validate(self) raises:
         """Validate mutable render settings at a host API boundary."""

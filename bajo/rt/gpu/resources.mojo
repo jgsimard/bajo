@@ -1,5 +1,7 @@
 """Persistent render resources and asynchronous GPU RT submission helpers."""
 
+from bajo.rt.gpu.spectral_state import GpuSpectralState
+
 from std.math import ceildiv, min
 from std.sys import size_of, align_of
 from max.gpu.host import DeviceBuffer, DeviceContext, HostBuffer
@@ -61,6 +63,7 @@ struct GpuRtRenderTarget:
     var camera: DeviceBuffer[.float32]
     var pixels: DeviceBuffer[.float32]
     var filter: GpuFilterTables
+    var spectral: Optional[GpuSpectralState]
 
     def __init__(
         out self,
@@ -71,6 +74,7 @@ struct GpuRtRenderTarget:
     ) raises:
         settings.validate()
         self.filter = GpuFilterTables(ctx, settings.filter)
+        self.spectral = Optional[GpuSpectralState]()
         self.image_width = settings.image_width
         self.image_height = settings.image_height
         self.samples_per_pixel = settings.samples_per_pixel
@@ -93,6 +97,13 @@ struct GpuRtRenderTarget:
         self.arena = GpuWavefrontArena(ctx, arena_capacity)
         self.camera = upload_camera(ctx, camera)
         self.pixels = ctx.enqueue_create_buffer[.float32](self.pixel_count * 3)
+
+    def ensure_spectral(mut self, ctx: DeviceContext) raises:
+        if not self.spectral:
+            var context = ctx.copy()
+            self.spectral = Optional(
+                GpuSpectralState(context, self.arena.capacity)
+            )
 
     def validate_compatible(self, settings: RenderSettings) raises:
         settings.validate()

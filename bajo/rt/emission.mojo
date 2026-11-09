@@ -1,6 +1,7 @@
 """Geometry-owned emission, independent of the surface scattering material."""
 
 from bajo.core.color import Color
+from bajo.rt.spectrum_sources import NO_SPECTRUM
 from bajo.rt.material_types import (
     Emissive,
     PrimitiveId,
@@ -10,12 +11,17 @@ from bajo.rt.material_types import (
 struct AreaEmitter(Copyable, Writable):
     var radiance: Color
     var two_sided: Bool
+    var spectrum: UInt32
 
     def __init__(
-        out self, radiance: Color = Color(0.0), two_sided: Bool = False
+        out self,
+        radiance: Color = Color(0.0),
+        two_sided: Bool = False,
+        spectrum: UInt32 = NO_SPECTRUM,
     ):
         self.radiance = radiance
         self.two_sided = two_sided
+        self.spectrum = spectrum
 
     def validate(self) raises:
         Emissive(self.radiance).validate()

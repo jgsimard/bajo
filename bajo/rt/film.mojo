@@ -12,6 +12,7 @@ from bajo.core import Vec3f32
 from bajo.core.tensor_layout import RecordTile, record_tile
 from bajo.core.colorimetry import srgb_to_xyz_matrix
 from bajo.core.mat import inverse
+from bajo.rt.sensor import FilmSensorKind, canon_sensor_sample, sensor_to_xyz
 from bajo.core.sampled_spectrum import (
     SampledSpectrum,
     SampledWavelengths,
@@ -64,6 +65,12 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
     var xyz_green: Color
     var xyz_blue: Color
     var cie_sensor: UInt32
+    var sensor_kind: FilmSensorKind
+    var white_balance_temperature: Float32
+    # User output transforms are distinct from the parser's legacy Canon RGB fit.
+    var output_red: Color
+    var output_green: Color
+    var output_blue: Color
 
     def __init__(
         out self,
@@ -85,6 +92,11 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
         self.xyz_green = Color(0)
         self.xyz_blue = Color(0)
         self.cie_sensor = 0
+        self.sensor_kind = .CIE1931
+        self.white_balance_temperature = 0
+        self.output_red = red
+        self.output_green = green
+        self.output_blue = blue
 
     def use_cie1931(mut self) raises:
         var matrix = srgb_to_xyz_matrix()
@@ -108,6 +120,40 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
             Float32(rgb[2][0]), Float32(rgb[2][1]), Float32(rgb[2][2])
         )
         self.cie_sensor = 1
+        self.sensor_kind = .CIE1931
+
+    def set_output_transform(mut self, red: Color, green: Color, blue: Color):
+        """Set the user transform independently of measured sensor calibration.
+        """
+        self.red = red
+        self.green = green
+        self.blue = blue
+        self.output_red = red
+        self.output_green = green
+        self.output_blue = blue
+
+    def prepared_spectral(self) raises -> Self:
+        var result = self.copy()
+        var calibration = sensor_to_xyz(
+            self.sensor_kind, self.white_balance_temperature
+        )
+        var output = inverse(srgb_to_xyz_matrix())
+        var rows = Array[Color, 3](fill=Color(0))
+        for row in range(3):
+            for column in range(3):
+                var value = Float64(0)
+                for k in range(3):
+                    value += output[row][k] * calibration[k][column]
+                rows[row][column] = Float32(value)
+        result.xyz_red = rows[0]
+        result.xyz_green = rows[1]
+        result.xyz_blue = rows[2]
+        result.cie_sensor = 2 if self.sensor_kind == .CANON_EOS_5D_MKIV else 1
+        if self.sensor_kind == .CIE1931:
+            result.output_red = self.red
+            result.output_green = self.green
+            result.output_blue = self.blue
+        return result^
 
     @always_inline
     def apply_spectral_sample[
@@ -117,18 +163,20 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
         radiance: SampledSpectrum[width],
         wavelengths: SampledWavelengths[width],
     ) -> Vec3[.float32, .WORLD, width]:
-        """Integrate four actual wavelengths, clamp sensor XYZ, then output RGB.
+        """Integrate four actual wavelengths, clamp sensor channels, then output RGB.
 
-        Only the physical CIE observer is implemented here. RGB-fitted camera
-        response matrices are not a substitute for a spectral sensor response.
+        CIE and measured Canon responses integrate actual sampled radiance.
         The caller supplies radiance with the light's photometric scale already
         applied, matching PBRT's PixelSensor convention.
         """
         debug_assert["safe"](
-            self.cie_sensor == 1,
-            "spectral film requires a configured CIE sensor",
+            self.cie_sensor != 0,
+            "spectral film requires a prepared sensor",
         )
-        var sensor = sampled_sensor_xyz(radiance, wavelengths) * self.exposure
+        var sensor = sampled_sensor_xyz(radiance, wavelengths)
+        if self.sensor_kind == .CANON_EOS_5D_MKIV:
+            sensor = canon_sensor_sample(radiance, wavelengths)
+        sensor = sensor * self.exposure
         var maximum = sensor.max_component()
         var limit = SIMD[.float32, width](self.max_component_value)
         sensor = sensor * maximum.gt(limit).select(
@@ -140,9 +188,9 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
             dot(self.xyz_blue.broadcast[width](), sensor),
         )
         return Vec3[.float32, .WORLD, width](
-            dot(self.red.broadcast[width](), rgb),
-            dot(self.green.broadcast[width](), rgb),
-            dot(self.blue.broadcast[width](), rgb),
+            dot(self.output_red.broadcast[width](), rgb),
+            dot(self.output_green.broadcast[width](), rgb),
+            dot(self.output_blue.broadcast[width](), rgb),
         )
 
     @always_inline
@@ -274,6 +322,14 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
 
     def validate(self) raises:
         if (
+            not isfinite(self.white_balance_temperature)
+            or self.white_balance_temperature < 0
+        ):
+            raise Error(
+                "film white balance must be zero or a finite positive"
+                " temperature"
+            )
+        if (
             self.max_component_value != self.max_component_value
             or self.max_component_value < 0.0
         ):
@@ -292,6 +348,9 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
             or not self.xyz_red.is_finite()[0]
             or not self.xyz_green.is_finite()[0]
             or not self.xyz_blue.is_finite()[0]
+            or not self.output_red.is_finite()[0]
+            or not self.output_green.is_finite()[0]
+            or not self.output_blue.is_finite()[0]
         ):
             raise Error(
                 "film response must be finite with non-negative exposure"

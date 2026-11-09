@@ -8,6 +8,7 @@ from std.testing import (
 
 from bajo.core import (
     AABB,
+    AxisAlignedBoundingBox,
     Vec3f32,
     Point3f32,
     Normal3f32,
@@ -39,6 +40,7 @@ from bajo.core.geometry import Sphere
 from bajo.core.random import Rng
 from bajo.bvh.constants import (
     EMPTY_LANE,
+    TraceMode,
     SPHERE_LEAF_PACKED_STRIDE,
     CPU_TRI_LEAF_PACKED_STRIDE,
     WideNode,
@@ -103,6 +105,59 @@ def test_any_hit_continuation_accepts_tagged_leaf_references() raises:
                 leaf_fn,
             )
             assert_true(hit.is_occluded() == (leaf == 7 and limit >= 2))
+
+
+def test_overlapping_wide_frontiers_spill_without_losing_tasks() raises:
+    # An acyclic tree whose overlapping bounds create >1000 pending tasks.
+    # Closest-hit must visit every leaf; any-hit must reach the deep terminal.
+    comptime depth = 80
+    var nodes = List[WideBvhNode[.WORLD, 16]]()
+    for index in range(depth * 16):
+        var node = WideBvhNode[.WORLD, 16]()
+        if index < depth:
+            node.aabb = AxisAlignedBoundingBox[.float32, .WORLD, 16](
+                Point3[.float32, .WORLD, 16](-1, -1, 1),
+                Point3[.float32, .WORLD, 16](1, 1, 2),
+            )
+            for lane in range(15):
+                node.data[lane] = UInt32(depth + index * 15 + lane)
+            node.data[15] = UInt32(
+                index + 1
+            ) if index + 1 < depth else encode_leaf_ref(UInt32(0))
+        else:
+            node.aabb._min.x[0] = -1
+            node.aabb._min.y[0] = -1
+            node.aabb._min.z[0] = 1
+            node.aabb._max.x[0] = 1
+            node.aabb._max.y[0] = 1
+            node.aabb._max.z[0] = 2
+            node.data[0] = encode_leaf_ref(UInt32(index))
+        nodes.append(node^)
+    comptime for mode in [TraceMode.CLOSEST_HIT, TraceMode.ANY_HIT]:
+        var visited = 0
+
+        def leaf_fn(
+            ray: Rayf32[.WORLD],
+            _origin: Point3[.float32, .WORLD, 4],
+            _direction: Vec3[.float32, .WORLD, 4],
+            _a: SIMD[.float32, 4],
+            _inv: SIMD[.float32, 4],
+            _leaf: UInt32,
+            mut _hit: Hit[.WORLD],
+        ) {mut visited} -> Bool:
+            visited += 1
+            return mode == .ANY_HIT
+
+        var ray = Rayf32[.WORLD](Point3W(0), Vec3W(0, 0, 1))
+        var hit = trace_bounds_bvh_from_ref[
+            frame=.WORLD, bounds_width=16, leaf_width=4, mode=mode
+        ](Span(nodes), ray, 0, Hit[.WORLD].miss(ray.t_max), leaf_fn)
+        comptime if mode == .CLOSEST_HIT:
+            assert_equal(visited, depth * 15 + 1)
+            assert_true(not hit.is_hit())
+        else:
+            assert_equal(visited, 1)
+            assert_true(hit.is_occluded())
 
 
 def test_shadow_hit_sentinel_distinguishes_bounded_miss() raises:

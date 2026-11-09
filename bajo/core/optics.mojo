@@ -1,3 +1,4 @@
+from bajo.core.sampled_spectrum import SampledSpectrum
 from std.math import abs, exp, fma, sqrt
 from std.utils.numerics import max_finite
 
@@ -93,6 +94,36 @@ def fresnel_conductor[
     var s2 = 1.0 - c2
     var result = Vec3[.float32, .WORLD, length](0.0)
     comptime for channel in range(3):
+        var e2 = eta[channel] * eta[channel]
+        var k2 = k[channel] * k[channel]
+        var t = e2 - k2 - s2
+        var magnitude = sqrt(t * t + 4.0 * e2 * k2)
+        var real = sqrt(max(SIMD[.float32, length](0.0), (magnitude + t) * 0.5))
+        var rs = (magnitude + c2 - 2.0 * c * real) / max(
+            SIMD[.float32, length](1.0e-20), magnitude + c2 + 2.0 * c * real
+        )
+        var rp = (
+            rs
+            * (c2 * magnitude + s2 * s2 - 2.0 * c * real * s2)
+            / max(c2 * magnitude + s2 * s2 + 2.0 * c * real * s2, 1.0e-20)
+        )
+        result[channel] = ((rs + rp) * 0.5).clamp(0.0, 1.0)
+    return result
+
+
+@always_inline
+def fresnel_conductor[
+    length: SIMDLength = 1
+](
+    cosine: SIMD[.float32, length],
+    eta: SampledSpectrum[length],
+    k: SampledSpectrum[length],
+) -> SampledSpectrum[length]:
+    var c = abs(cosine).clamp(0.0, 1.0)
+    var c2 = c * c
+    var s2 = 1.0 - c2
+    var result = SampledSpectrum[length](0.0)
+    comptime for channel in range(4):
         var e2 = eta[channel] * eta[channel]
         var k2 = k[channel] * k[channel]
         var t = e2 - k2 - s2

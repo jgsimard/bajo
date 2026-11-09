@@ -43,6 +43,7 @@ pixi run viewer
 pixi run viewer --scene cornell --bounds both
 pixi run viewer --scene cornell --mode trace --width 320 --max-spp 32 --samples-per-batch 4
 pixi run viewer --pbrt examples/scenes/pbrt_showcase.pbrt
+pixi run viewer --pbrt assets/bistro/bistro_cafe.pbrt --mode trace --color-mode spectral
 ```
 
 `Tab` switches between raylib rasterization and progressive Bajo ray tracing.
@@ -52,6 +53,10 @@ Raster materials use approximate colors and directional lighting, including
 unlit emitters; glass, textures, shadows, and indirect lighting are not reproduced.
 Ray tracing supports `PATH`, `NEE`, `MIS`, `NORMALS`, and `AO`, and all seven samplers,
 including Z-Sobol (`--sampler zsobol`).
+RGB is the default. `--color-mode spectral` enables four-wavelength CPU/GPU
+transport with physical CIE or Canon sensor integration. See the
+[spectral rendering notes](BISTRO_SUPPORT.md#end-to-end-spectral-rendering).
+This does not imply complete Bistro or volume support.
 A native background thread handles tracing and acceleration preparation while
 raylib continues processing input. Camera/settings changes reset accumulation;
 completed frames from an older camera are discarded. Closing waits for the

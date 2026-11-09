@@ -14,7 +14,12 @@ from .cpu import (
 from .gpu import render_gpu
 from .scene_description import SceneDescription
 from bajo.core.color import Color
-from .render_types import RenderResult, RenderSettings, RenderTimings
+from .render_types import (
+    RenderResult,
+    RenderSettings,
+    RenderTimings,
+    RenderColorMode,
+)
 from .material_types import (
     Dielectric,
     Emissive,
@@ -43,3 +48,5 @@ from bajo.rt.media import SceneMedia
 from bajo.core.optics import medium_transmittance
 from .film import FilmResponse
 from .filter import ReconstructionFilter
+
+from .sensor import FilmSensorKind

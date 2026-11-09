@@ -16,7 +16,10 @@ from bajo.rt.common import (
     environment_pdf_from_radiance,
     environment_radiance,
 )
-from bajo.core.mappings import equal_area_square_to_sphere
+from bajo.core.mappings import (
+    equal_area_square_to_sphere,
+    equal_area_sphere_to_square,
+)
 from bajo.core.sampling import draw_alias_column, resolve_alias_draw
 from bajo.rt.lighting import (
     _emissive_hit_light_pdf,
@@ -35,6 +38,7 @@ from bajo.rt.material_types import (
 )
 from bajo.rt.shading_types import ShadingPoint, SurfaceHit
 from .scene import CpuScene
+from bajo.rt.spectral_light_distribution import SpectralLightDistributionView
 
 
 @fieldwise_init
@@ -47,6 +51,8 @@ struct _DirectLightSample[length: SIMDLength = 1](Copyable):
     var surface_cosine: SIMD[.float32, Self.length]
     var light_pdf: SIMD[.float32, Self.length]
     var shadow_t_max: SIMD[.float32, Self.length]
+    var spectrum_ids: SIMD[.uint32, Self.length]
+    var is_environment: SIMD[.bool, Self.length]
 
     @staticmethod
     @always_inline
@@ -58,6 +64,8 @@ struct _DirectLightSample[length: SIMDLength = 1](Copyable):
             0.0,
             0.0,
             0.0,
+            UInt32.MAX,
+            SIMD[.bool, Self.length](fill=False),
         )
 
 
@@ -194,21 +202,33 @@ def _sample_environment_candidate[
     random_v: SIMD[.float32, length],
     jitter_v: SIMD[.float32, length],
     allow_transmission: SIMD[.bool, length] = SIMD[.bool, length](fill=False),
+    lighting: Optional[SpectralLightDistributionView] = Optional[
+        SpectralLightDistributionView
+    ](),
 ) -> _DirectLightSample[length]:
     ref data = world.scene_data()
+    var alias_count = len(data.environment_alias_probabilities())
+    var probabilities = (
+        data.environment_alias_probabilities()
+        .unsafe_ptr()
+        .unsafe_origin_cast[ImmUntrackedOrigin]()
+    )
+    var aliases = (
+        data.environment_alias_indices()
+        .unsafe_ptr()
+        .unsafe_origin_cast[ImmUntrackedOrigin]()
+    )
+    if lighting:
+        alias_count = Int(lighting.value().environment_count)
+        probabilities = lighting.value().environment_probabilities
+        aliases = lighting.value().environment_aliases
     var local_direction: Vec3[.float32, .LOCAL, length]
-    if len(data.environment_alias_probabilities()) > 0:
-        var draw = draw_alias_column(
-            random_u, len(data.environment_alias_probabilities())
-        )
+    if alias_count > 0:
+        var draw = draw_alias_column(random_u, alias_count)
         var pixel_idx = resolve_alias_draw(
             draw,
-            data.environment_alias_probabilities()
-            .unsafe_ptr()
-            .unsafe_gather(draw.column),
-            data.environment_alias_indices()
-            .unsafe_ptr()
-            .unsafe_gather(draw.column),
+            probabilities.unsafe_gather(draw.column),
+            aliases.unsafe_gather(draw.column),
         )
         ref texture = data.surfaces().image_textures[
             Int(data.environment().texture_index)
@@ -249,6 +269,17 @@ def _sample_environment_candidate[
         data.total_light_weight(),
         emission,
     )
+    if lighting:
+        if data.environment().kind == .IMAGE:
+            var uv = equal_area_sphere_to_square(local_direction)
+            emission = (
+                data.surfaces()
+                .image_textures[Int(data.environment().texture_index)]
+                .sample_environment(uv.u, uv.v)
+            )
+        light_pdf = lighting.value().environment_pdf(
+            data.environment().kind, emission
+        )
     return _DirectLightSample[length](
         surface_cosine.gt(0.0) & light_pdf.gt(0.0),
         direction,
@@ -256,6 +287,8 @@ def _sample_environment_candidate[
         surface_cosine,
         light_pdf,
         max_finite[.float32](),
+        UInt32.MAX,
+        SIMD[.bool, length](fill=True),
     )
 
 
@@ -269,25 +302,36 @@ def _sample_direct_light_candidate[
     mut rng: Rng[length],
     active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
     allow_transmission: SIMD[.bool, length] = SIMD[.bool, length](fill=False),
+    lighting: Optional[SpectralLightDistributionView] = Optional[
+        SpectralLightDistributionView
+    ](),
 ) -> _DirectLightSample[length]:
     """Select and sample emitters across a packet; scalar is width one."""
     ref data = world.scene_data()
-    var total_weight = data.total_light_weight()
+    var total_weight = (
+        lighting.value().total_weight if lighting else data.total_light_weight()
+    )
     if total_weight <= 0.0 or not active.reduce_or():
         return _DirectLightSample[length].make_empty()
     ref lights = data.lights()
     var selection_u = rng.f32()
-    var environment_probability = data.environment_weight() / total_weight
+    var environment_probability = (
+        lighting.value().environment_weight if lighting else data.environment_weight()
+    ) / total_weight
     var environment_lanes = active & selection_u.lt(environment_probability)
     var result = _DirectLightSample[length].make_empty()
     var u = rng.f32()
     var v = rng.f32()
     var jitter_v = SIMD[.float32, length](0.0)
     if environment_lanes.reduce_or():
-        if len(data.environment_alias_probabilities()) > 0:
+        if (
+            lighting.value().environment_count
+            > 0 if lighting else len(data.environment_alias_probabilities())
+            > 0
+        ):
             jitter_v = rng.f32()
         result = _sample_environment_candidate(
-            world, point, u, v, jitter_v, allow_transmission
+            world, point, u, v, jitter_v, allow_transmission, lighting
         )
         result.valid &= environment_lanes
     var finite_lanes = active & ~environment_lanes
@@ -307,8 +351,16 @@ def _sample_direct_light_candidate[
     )
     var selected = resolve_alias_draw(
         draw,
-        lights.alias_probabilities.unsafe_ptr().unsafe_gather(draw.column),
-        lights.alias_indices.unsafe_ptr().unsafe_gather(draw.column),
+        lighting.value()
+        .probabilities.unsafe_gather(
+            draw.column
+        ) if lighting else lights.alias_probabilities.unsafe_ptr()
+        .unsafe_gather(draw.column),
+        lighting.value()
+        .aliases.unsafe_gather(
+            draw.column
+        ) if lighting else lights.alias_indices.unsafe_ptr()
+        .unsafe_gather(draw.column),
     )
     # Read each field across records, using the field's actual address and
     # the ABI record stride. Inactive lanes always reference record zero.
@@ -393,15 +445,28 @@ def _sample_direct_light_candidate[
                             Point3f32[.WORLD](p.x[lane], p.y[lane], p.z[lane])
                         ),
                     )
+    var sampling_emission = emission
+    if lighting:
+        var importance = lighting.value().weights.unsafe_gather(selected)
+        sampling_emission = Vec3[.float32, .WORLD, length](
+            importance, importance, importance
+        )
     var geometry = _finish_direct_light_geometry(
         point.p,
         point.normal,
         surface_sample,
-        emission,
+        sampling_emission,
         total_weight,
         allow_transmission,
         two_sided,
     )
+    for lane in range(Int(length)):
+        if finite_lanes[lane]:
+            ref light = lights.records[Int(selected[lane])]
+            result.spectrum_ids[lane] = data.emitter(
+                light.primitive.value, light.surface
+            ).spectrum
+    result.is_environment = environment_lanes
     result.valid |= finite_lanes & geometry.valid
     result.direction = Vec3.select(
         finite_lanes, geometry.direction, result.direction

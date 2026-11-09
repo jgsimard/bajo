@@ -14,6 +14,7 @@ import test.rt.cpu.test_emissive_bsdf as cpu_test_emissive_bsdf
 import test.rt.cpu.test_film as cpu_test_film
 import test.rt.cpu.test_filter as cpu_test_filter
 import test.rt.cpu.test_spectra as cpu_test_spectra
+import test.rt.cpu.test_spectral_transport as cpu_test_spectral_transport
 import test.rt.cpu.test_crown as cpu_test_crown
 import test.rt.cpu.test_gpu_material_layout as cpu_test_gpu_material_layout
 import test.rt.cpu.test_gpu_path_continuation as cpu_test_gpu_path_continuation
@@ -32,6 +33,7 @@ import test.rt.gpu.test_emissive_bsdf_gpu as gpu_test_emissive_bsdf_gpu
 import test.rt.gpu.test_film_gpu as gpu_test_film_gpu
 import test.rt.gpu.test_filter_gpu as gpu_test_filter_gpu
 import test.rt.gpu.test_spectra_gpu as gpu_test_spectra_gpu
+import test.rt.gpu.test_spectral_transport_gpu as gpu_test_spectral_transport_gpu
 import test.rt.gpu.test_zsobol_gpu as gpu_test_zsobol_gpu
 import test.rt.gpu.test_coated_shading_gpu as gpu_test_coated_shading_gpu
 import test.rt.gpu.test_crown_gpu as gpu_test_crown_gpu
@@ -51,10 +53,20 @@ def main() raises:
             "test/rt/gpu/test_zsobol_gpu.mojo",
             gpu_test_zsobol_gpu.run_tests[True],
         )
+    comptime if module_selected["gpu_test_spectral_transport_gpu"]():
+        tests.run(
+            "test/rt/gpu/test_spectral_transport_gpu.mojo",
+            gpu_test_spectral_transport_gpu.run_tests[True],
+        )
     comptime if module_selected["gpu_test_spectra_gpu"]():
         tests.run(
             "test/rt/gpu/test_spectra_gpu.mojo",
             gpu_test_spectra_gpu.run_tests[True],
+        )
+    comptime if module_selected["cpu_test_spectral_transport"]():
+        tests.run(
+            "test/rt/cpu/test_spectral_transport.mojo",
+            cpu_test_spectral_transport.run_tests[True],
         )
     comptime if module_selected["cpu_test_spectra"]():
         tests.run(

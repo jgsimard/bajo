@@ -84,8 +84,8 @@ def test_intersect_ray_aabb_rcp() raises:
     assert_almost_equal(res.t, 4.0, atol=1e-4)
 
     # Ray missing the AABB
-    var pos_miss = Point3W([5.0, 5.0, 5.0])
-    var dir_miss = Vec3W([0.0, 1.0, 0.0])
+    var pos_miss = Point3W(5.0, 5.0, 5.0)
+    var dir_miss = Vec3W(0.0, 1.0, 0.0)
     var rcp_dir_miss = Vec3W(1e9, 1.0 / dir_miss.y, 1e9)
     res = intersect_ray_aabb_rcp(pos_miss, rcp_dir_miss, lower, upper, 1e30)
     assert_false(res.mask)

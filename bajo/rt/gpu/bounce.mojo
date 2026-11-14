@@ -57,9 +57,12 @@ def _enqueue_primary_trace[
     sampling: GpuRtSamplingConfig,
     blocks: Int,
 ) raises:
+    comptime trace_integrator = Integrator.MIS if Integrator.uses_direct_lighting[
+        integrator
+    ] else integrator
     ctx.enqueue_function[
         gpu_rt_primary_scene_trace_kernel[
-            integrator, scene_kind, Formats, store_source_path
+            trace_integrator, scene_kind, Formats, store_source_path
         ]
     ](
         camera,
@@ -72,6 +75,7 @@ def _enqueue_primary_trace[
         Int32(samples_per_pixel),
         sampling,
         uniform_sampling_kind.value(),
+        UInt32(integrator == .MIS),
         grid_dim=blocks,
         block_dim=GPU_RT_BLOCK_SIZE,
     )
@@ -214,8 +218,11 @@ def enqueue_gpu_rt_bounce[
     )
 
     def enqueue_trace() raises {imm}:
+        comptime trace_integrator = Integrator.MIS if Integrator.uses_direct_lighting[
+            integrator
+        ] else integrator
         ctx.enqueue_function[
-            gpu_rt_scene_trace_kernel[integrator, scene_kind, Formats]
+            gpu_rt_scene_trace_kernel[trace_integrator, scene_kind, Formats]
         ](
             scene,
             queues,
@@ -223,6 +230,7 @@ def enqueue_gpu_rt_bounce[
             bounce,
             UInt32(1 if allow_scattering else 0),
             uniform_sampling_kind.value(),
+            UInt32(integrator == .MIS),
             grid_dim=blocks,
             block_dim=trace_block_size,
         )

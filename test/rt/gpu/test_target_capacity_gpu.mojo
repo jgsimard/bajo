@@ -24,6 +24,7 @@ from bajo.viewer.worker import CompletedFrame
 from test.viewer.test_accumulation import _frame
 from bajo.benchmark.gpu_harness import gpu_rt_camera
 from bajo.rt.film import FilmResponse
+from bajo.rt.material_types import Integrator
 
 from bajo.core import Point3f32, Vec3f32
 from bajo.rt.gpu.resources import download_gpu_pixels, update_gpu_camera
@@ -257,6 +258,27 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
             var actual = download_gpu_pixels(renderer.ctx, renderer.target)
             assert_pixels_equal(actual, expected)
         assert_true(Bool(renderer._render_graph))
+    # Estimator switches must invalidate graphs even when tracing is shared.
+    comptime for direct_integrator in [
+        Integrator.NEE,
+        Integrator.MIS,
+        Integrator.NEE,
+        Integrator.MIS,
+    ]:
+        enqueue_render_gpu[direct_integrator](
+            renderer.ctx, expected_target, renderer.scene, settings
+        )
+        var direct_expected = download_gpu_pixels(renderer.ctx, expected_target)
+        for repeat in range(3):
+            renderer.enqueue[direct_integrator](settings)
+            if repeat == 0:
+                assert_false(Bool(renderer._render_graph))
+            assert_pixels_equal(
+                download_gpu_pixels(renderer.ctx, renderer.target),
+                direct_expected,
+            )
+        assert_true(Bool(renderer._render_graph))
+
     enqueue_render_gpu[.PATH](
         renderer.ctx, expected_target, renderer.scene, settings
     )

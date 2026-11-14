@@ -192,9 +192,23 @@ def _emissive_hit_weight_from_pdf[
     previous_bsdf_pdf: SIMD[.float32, length],
     light_pdf: SIMD[.float32, length],
 ) -> SIMD[.float32, length]:
+    return _emissive_hit_weight_from_pdf[length](
+        integrator, bounce, previous_delta, previous_bsdf_pdf, light_pdf
+    )
+
+
+def _emissive_hit_weight_from_pdf[
+    length: SIMDLength = 1,
+](
+    integrator: Integrator,
+    bounce: UInt32,
+    previous_delta: SIMD[.bool, length],
+    previous_bsdf_pdf: SIMD[.float32, length],
+    light_pdf: SIMD[.float32, length],
+) -> SIMD[.float32, length]:
     """Apply one NEE/MIS policy to scalar and packet emission."""
     if bounce > 0:
-        comptime match integrator:
+        match integrator:
             case .NEE:
                 return previous_delta.select(Float32(1.0), Float32(0.0))
             case .MIS:
@@ -215,10 +229,25 @@ def _direct_light_scale[
     valid: SIMD[.bool, length],
 ) -> SIMD[.float32, length]:
     comptime assert Integrator.uses_direct_lighting[integrator]
+    return _direct_light_scale[length](
+        integrator, surface_cosine, light_pdf, bsdf_pdf, valid
+    )
+
+
+def _direct_light_scale[
+    length: SIMDLength,
+](
+    integrator: Integrator,
+    surface_cosine: SIMD[.float32, length],
+    light_pdf: SIMD[.float32, length],
+    bsdf_pdf: SIMD[.float32, length],
+    valid: SIMD[.bool, length],
+) -> SIMD[.float32, length]:
+    """Weight a direct-light sample using the selected NEE/MIS estimator."""
     var ok = valid & light_pdf.gt(0.0) & bsdf_pdf.gt(0.0)
     var safe_light_pdf = ok.select(light_pdf, Float32(1.0))
     var estimator_weight = SIMD[.float32, length](1.0)
-    comptime if integrator == .MIS:
+    if integrator == .MIS:
         estimator_weight = power_heuristic(light_pdf, bsdf_pdf)
     return ok.select(
         surface_cosine * estimator_weight / safe_light_pdf, Float32(0.0)

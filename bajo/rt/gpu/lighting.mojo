@@ -12,6 +12,7 @@ from bajo.core.mappings import equal_area_square_to_sphere
 from bajo.rt.common import path_stage_rng, path_stage_seed, sky_color
 from bajo.rt.lighting import (
     _direct_light_scale,
+    _emissive_hit_weight_from_pdf,
     _finish_direct_light_geometry,
     _DirectLightGeometrySample,
     _LightSurfaceSample,
@@ -196,6 +197,7 @@ def _sample_direct_light_candidate[
     sampling: SamplingConfig,
     bounce: UInt32,
     front_face: Bool = True,
+    use_mis: Bool = integrator == .MIS,
 ) -> GpuDirectLightSample:
     comptime assert Integrator.uses_direct_lighting[integrator]
     comptime assert light_kind in (
@@ -557,8 +559,12 @@ def _sample_direct_light_candidate[
                 return GpuDirectLightSample.make_empty()
         case _:
             return GpuDirectLightSample.make_empty()
-    var scale = _direct_light_scale[integrator, 1](
-        geometry.surface_cosine, geometry.light_pdf, bsdf_pdf, True
+    var scale = _direct_light_scale[1](
+        Integrator.MIS if use_mis else Integrator.NEE,
+        geometry.surface_cosine,
+        geometry.light_pdf,
+        bsdf_pdf,
+        True,
     )
     return GpuDirectLightSample(
         scale > 0.0,
@@ -585,9 +591,10 @@ def _sample_direct_light_by_kind[
     bounce: UInt32,
     uniform_sampling_kind: UInt32,
     front_face: Bool = True,
+    use_mis: Bool = integrator == .MIS,
 ) -> GpuDirectLightSample:
     """Keep MIS light specialization inside lighting, not traversal kernels."""
-    comptime if integrator == .MIS:
+    if use_mis:
         if uniform_sampling_kind == PrimitiveKind.SPHERE.value():
             return _sample_direct_light_candidate[integrator, .SPHERE](
                 path,
@@ -601,6 +608,7 @@ def _sample_direct_light_by_kind[
                 sampling,
                 bounce,
                 front_face,
+                True,
             )
         if uniform_sampling_kind == PrimitiveKind.TRIANGLE.value():
             return _sample_direct_light_candidate[integrator, .TRIANGLE](
@@ -615,6 +623,7 @@ def _sample_direct_light_by_kind[
                 sampling,
                 bounce,
                 front_face,
+                True,
             )
     return _sample_direct_light_candidate[integrator](
         path,
@@ -628,4 +637,24 @@ def _sample_direct_light_by_kind[
         sampling,
         bounce,
         front_face,
+        use_mis,
+    )
+
+
+@inline(.always)
+def _gpu_emissive_hit_weight[
+    integrator: Integrator
+](
+    bounce: UInt32,
+    previous_delta: Bool,
+    previous_bsdf_pdf: Float32,
+    light_pdf: Float32,
+    use_mis: Bool,
+) -> Float32:
+    """Choose the direct estimator without specializing traversal."""
+    var estimator = integrator
+    comptime if Integrator.uses_direct_lighting[integrator]:
+        estimator = Integrator.MIS if use_mis else Integrator.NEE
+    return _emissive_hit_weight_from_pdf[1](
+        estimator, bounce, previous_delta, previous_bsdf_pdf, light_pdf
     )

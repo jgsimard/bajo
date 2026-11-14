@@ -40,7 +40,7 @@ struct _MaterialParameters[length: SIMDLength]:
         self.albedo = Vec3[.float32, .WORLD, Self.length](0.0)
         self.parameter = SIMD[.float32, Self.length](1.0)
         self.roughness = 0.0
-        self.coated = CoatedParameters[Self.length]()
+        self.coated = {}
 
     def gather[
         kind: MaterialKind

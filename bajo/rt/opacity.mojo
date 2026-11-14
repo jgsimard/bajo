@@ -45,7 +45,7 @@ struct SceneOpacity:
     var records: Dict[UInt32, Opacity]
 
     def __init__(out self):
-        self.records = Dict[UInt32, Opacity]()
+        self.records = {}
 
 
 def opacity_ray_sample(ray: Rayf32[.WORLD]) -> Float32:

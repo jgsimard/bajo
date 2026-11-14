@@ -74,7 +74,7 @@ struct GpuRtRenderTarget:
     ) raises:
         settings.validate()
         self.filter = GpuFilterTables(ctx, settings.filter)
-        self.spectral = Optional[GpuSpectralState]()
+        self.spectral = {}
         self.image_width = settings.image_width
         self.image_height = settings.image_height
         self.samples_per_pixel = settings.samples_per_pixel
@@ -176,7 +176,7 @@ def _enqueue_gpu_resolve(
     target: GpuRtRenderTarget,
     sample_begin: Int = 0,
     chunk_sample_count: Int = -1,
-    film: FilmResponse = FilmResponse(),
+    film: FilmResponse = {},
 ) raises:
     """Enqueue sample reduction into `target.pixels` without synchronizing."""
     var active_count = chunk_sample_count
@@ -250,9 +250,7 @@ def enqueue_gpu_wavefront[
     mut target: GpuRtRenderTarget,
     scene: Scene,
     settings: RenderSettings,
-    sample_offset: Optional[Pointer[UInt32, ImmUntrackedOrigin]] = Optional[
-        Pointer[UInt32, ImmUntrackedOrigin]
-    ](),
+    sample_offset: Optional[Pointer[UInt32, ImmUntrackedOrigin]] = {},
 ) raises:
     """Compile-time scheduler shared by every geometry specialization."""
     target.validate_compatible(settings)

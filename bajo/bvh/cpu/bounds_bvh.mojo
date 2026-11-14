@@ -113,7 +113,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         SAH cost. Disable it only for workloads that prioritize build latency;
         the greedy collapse is faster but can reduce traversal quality.
         """
-        self.nodes = List[WideBvhNode[Self.frame, Self.width]]()
+        self.nodes = {}
 
         if bvh.nodes_used > 0:
             self._collapse_root[PackLeafFn, parallel_emit, use_dp_collapse](

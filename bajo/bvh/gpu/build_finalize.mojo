@@ -153,21 +153,11 @@ struct GpuCompactWideLayout:
         leaf_block_counts: DeviceBuffer[.uint32],
         segment_count: Int,
         *,
-        primitive_offsets: Optional[DeviceBuffer[.uint32]] = Optional[
-            DeviceBuffer[.uint32]
-        ](),
-        node_capacity_offsets: Optional[DeviceBuffer[.uint32]] = Optional[
-            DeviceBuffer[.uint32]
-        ](),
-        hploc_status: Optional[DeviceBuffer[.uint32]] = Optional[
-            DeviceBuffer[.uint32]
-        ](),
-        collapse_status: Optional[DeviceBuffer[.uint32]] = Optional[
-            DeviceBuffer[.uint32]
-        ](),
-        encoded_counts: Optional[DeviceBuffer[.uint32]] = Optional[
-            DeviceBuffer[.uint32]
-        ](),
+        primitive_offsets: Optional[DeviceBuffer[.uint32]] = {},
+        node_capacity_offsets: Optional[DeviceBuffer[.uint32]] = {},
+        hploc_status: Optional[DeviceBuffer[.uint32]] = {},
+        collapse_status: Optional[DeviceBuffer[.uint32]] = {},
+        encoded_counts: Optional[DeviceBuffer[.uint32]] = {},
         fat_leaves: Bool = True,
     ) raises:
         debug_assert["safe", _use_compiler_assume=True](

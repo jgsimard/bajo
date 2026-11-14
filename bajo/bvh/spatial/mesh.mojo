@@ -108,7 +108,7 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
         self.winding = WindingLayout[Self.frame, Self.storage_width](
             List[UInt32](), List[AABB[Self.frame]]()
         )
-        self.packed_triangles = List[Float32]()
+        self.packed_triangles = {}
         if cache_winding:
             self._ensure_winding_cache()
 

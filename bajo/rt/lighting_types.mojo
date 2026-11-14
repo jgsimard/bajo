@@ -98,10 +98,10 @@ struct LightStore:
     var alias_indices: List[UInt32]
 
     def __init__(out self):
-        self.records = List[LightRecord]()
+        self.records = {}
         self.total_weight = 0.0
-        self.alias_probabilities = List[Float32]()
-        self.alias_indices = List[UInt32]()
+        self.alias_probabilities = {}
+        self.alias_indices = {}
 
     def append(mut self, var record: LightRecord):
         self.total_weight += record.weight

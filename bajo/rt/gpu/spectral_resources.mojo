@@ -117,15 +117,15 @@ struct GpuSpectralResources:
         ref surfaces = data.surfaces()
         self.host = PackedSpectrumSources(surfaces.spectrum_sources)
         self.curves = PiecewiseSpectrumTable(surfaces.optical_spectra)
-        self.rgb = Optional[RgbSpectrumTable]()
+        self.rgb = {}
         # RGB/product normalizers use CIE_Y_INTEGRAL without accessing RGB
         # reconstruction coefficients. The table remains unloaded in RGB mode.
         self.host.prepare_photometric(self.curves.view())
         self.lighting = SpectralLightDistribution(data, self.host)
-        self.bindings = List[UInt32]()
+        self.bindings = {}
         self.offsets = Array[Int, 9](fill=0)
         self.environment = data.environment().spectrum
-        self.device = Optional[_GpuSpectralBuffers]()
+        self.device = {}
         comptime for group in range(3):
             self.offsets[group] = len(self.bindings)
             var count = (

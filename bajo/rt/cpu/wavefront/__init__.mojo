@@ -61,7 +61,7 @@ struct _PacketQueueArena[length: SIMDLength, integrator: Integrator]:
         self.active_paths = PacketPathQueue[Self.length](capacity)
         self.samples = List[Color](length=capacity, fill=Color(0.0))
         self.weights = List[Float32](length=capacity, fill=1)
-        self.spectral = SpectralSampleState()
+        self.spectral = {}
         var shade_capacity = capacity if Integrator.is_path_tracing[
             Self.integrator
         ] else 0
@@ -89,9 +89,9 @@ struct CpuWavefrontWorkspace[length: SIMDLength, integrator: Integrator]:
     var spectral_scene: Optional[ArcPointer[UInt8]]
 
     def __init__(out self):
-        self.arenas = List[_PacketQueueArena[Self.length, Self.integrator]]()
-        self.spectral = Optional[CpuSpectralResources]()
-        self.spectral_scene = Optional[ArcPointer[UInt8]]()
+        self.arenas = {}
+        self.spectral = {}
+        self.spectral_scene = {}
 
     def prepare(mut self, workers: Int, capacity: Int, surfaces: SurfaceStore):
         while len(self.arenas) < workers:

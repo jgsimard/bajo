@@ -58,10 +58,8 @@ struct ViewerScene[
             description.camera, description.settings, description.integrator
         )
         self._data = description^.take_data()
-        self._cpu = Optional[
-            CpuScene[Self.world_bvh_width, Self.instance_bvh_width]
-        ]()
-        self._cpu_build_method = Optional[CpuBvhBuildMethod]()
+        self._cpu = {}
+        self._cpu_build_method = {}
 
     def scene_data(
         self,

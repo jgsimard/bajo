@@ -63,9 +63,9 @@ struct MemoryAssetLoader(AssetLoader):
     var image_files: Dict[String, List[UInt8]]
 
     def __init__(out self):
-        self.files = Dict[String, String]()
-        self.ply_files = Dict[String, List[UInt8]]()
-        self.image_files = Dict[String, List[UInt8]]()
+        self.files = {}
+        self.ply_files = {}
+        self.image_files = {}
 
     def add_file(mut self, path: String, text: String):
         self.files[path] = text

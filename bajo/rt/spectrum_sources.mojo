@@ -160,8 +160,8 @@ struct PackedSpectrumSources:
 
     def __init__(out self, sources: ImmSpan[SpectrumSource, _]) raises:
         self.sources = List[SpectrumSource](sources)
-        self.leaves = List[UInt32]()
-        self.ranges = List[UInt32]()
+        self.leaves = {}
+        self.ranges = {}
         for source in sources:
             if source.kind > SpectrumSource.PRODUCT:
                 raise Error("unsupported spectrum source kind")

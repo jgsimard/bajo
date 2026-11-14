@@ -57,7 +57,7 @@ struct FilePicker:
     def __init__(out self):
         self.active = False
         self.directory = "."
-        self.entries = List[FileEntry]()
+        self.entries = {}
         self.selected = -1
         self.offset = 0
         self.last_click = -1
@@ -111,12 +111,12 @@ struct FilePicker:
             self.error = "Select a .pbrt or .pbrt-v4 scene."
         else:
             return path
-        return Optional[String]()
+        return {}
 
     def update(mut self, window: Window) raises -> Optional[String]:
         if window.is_key_pressed(256):
             self.active = False
-            return Optional[String]()
+            return {}
         if (
             window.is_key_down(341) or window.is_key_down(345)
         ) and window.is_key_pressed(86):
@@ -156,7 +156,7 @@ struct FilePicker:
                 self.last_click = now
         if clicked and contains(mouse, width - 252, height - 60, 100, 32):
             self.active = False
-            return Optional[String]()
+            return {}
         if clicked and contains(mouse, width - 140, height - 60, 108, 32):
             activate = True
         if (
@@ -166,7 +166,7 @@ struct FilePicker:
         ):
             var path = self.entries[self.selected].path
             return self.open_path(window, path)
-        return Optional[String]()
+        return {}
 
     def draw(self, mut frame: Frame, font: Font, width: Int, height: Int):
         frame.draw_rectangle(0, 0, width, height, Color(0, 0, 0, 180))

@@ -172,7 +172,7 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
             self.update_parents = storage.create_sub_buffer[.uint32](
                 offsets[7], lengths[7]
             )
-        self.winding = Optional[GpuWindingCache[Self.frame]]()
+        self.winding = {}
         if enable_winding:
             host._ensure_winding_cache()
             self.winding = Optional(GpuWindingCache(ctx, host))

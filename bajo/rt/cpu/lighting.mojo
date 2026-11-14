@@ -198,9 +198,7 @@ def _sample_environment_candidate[
     random_v: SIMD[.float32, length],
     jitter_v: SIMD[.float32, length],
     allow_transmission: SIMD[.bool, length] = SIMD[.bool, length](fill=False),
-    lighting: Optional[SpectralLightDistributionView] = Optional[
-        SpectralLightDistributionView
-    ](),
+    lighting: Optional[SpectralLightDistributionView] = {},
 ) -> _DirectLightSample[length]:
     ref data = world.scene_data()
     var alias_count = len(data.environment_alias_probabilities())
@@ -298,9 +296,7 @@ def _sample_direct_light_candidate[
     mut rng: Rng[length],
     active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
     allow_transmission: SIMD[.bool, length] = SIMD[.bool, length](fill=False),
-    lighting: Optional[SpectralLightDistributionView] = Optional[
-        SpectralLightDistributionView
-    ](),
+    lighting: Optional[SpectralLightDistributionView] = {},
 ) -> _DirectLightSample[length]:
     """Select and sample emitters across a packet; scalar is width one."""
     ref data = world.scene_data()

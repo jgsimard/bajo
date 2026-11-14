@@ -503,22 +503,22 @@ struct SurfaceStore:
     var mix_uv_scales: List[Float32]
 
     def __init__(out self):
-        self.lambertians = List[Lambertian]()
-        self.metals = List[Metal]()
-        self.dielectrics = List[Dielectric]()
-        self.emissives = List[Emissive]()
-        self.coated_diffuses = List[CoatedDiffuse]()
-        self.image_textures = List[ImageTexture]()
-        self.optical_spectra = List[PiecewiseLinearSpectrum]()
-        self.spectrum_sources = List[SpectrumSource]()
-        self.albedo_spectra = Dict[UInt32, UInt32]()
-        self.dielectric_eta_sources = Dict[UInt32, UInt32]()
-        self.layer_albedo_spectra = Dict[UInt32, UInt32]()
-        self.normal_maps = Dict[UInt32, UInt32]()
-        self.mix_surfaces = List[UInt32]()
-        self.mix_amounts = List[Float32]()
-        self.mix_texture_indices = List[UInt32]()
-        self.mix_uv_scales = List[Float32]()
+        self.lambertians = {}
+        self.metals = {}
+        self.dielectrics = {}
+        self.emissives = {}
+        self.coated_diffuses = {}
+        self.image_textures = {}
+        self.optical_spectra = {}
+        self.spectrum_sources = {}
+        self.albedo_spectra = {}
+        self.dielectric_eta_sources = {}
+        self.layer_albedo_spectra = {}
+        self.normal_maps = {}
+        self.mix_surfaces = {}
+        self.mix_amounts = {}
+        self.mix_texture_indices = {}
+        self.mix_uv_scales = {}
 
     def contains(self, surface: SurfaceId[1]) -> Bool:
         match surface.kind():

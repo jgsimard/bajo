@@ -18,8 +18,8 @@ struct FrameAccumulator:
         self.generation = 0
         self.samples = 0
         self.batches = 0
-        self.linear = List[Color]()
-        self.rgba = List[UInt8]()
+        self.linear = {}
+        self.rgba = {}
 
     def reset(mut self):
         self.generation += 1

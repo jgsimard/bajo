@@ -150,7 +150,7 @@ struct _Huffman:
     def __init__(out self):
         self.root = 1
         self.paired = False
-        self.entries = List[UInt32]()
+        self.entries = {}
 
     def build(
         mut self, lengths: ImmSpan[UInt8, _], alphabet: Int, root_bits: Int = 12

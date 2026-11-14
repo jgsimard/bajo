@@ -121,10 +121,8 @@ struct FilterView(Copyable, DevicePassable, ImplicitlyCopyable, Writable):
 
     def __init__(
         out self,
-        config: ReconstructionFilter = ReconstructionFilter(),
-        data: Optional[ImmPointer[Float32, ImmUntrackedOrigin]] = Optional[
-            ImmPointer[Float32, ImmUntrackedOrigin]
-        ](),
+        config: ReconstructionFilter = {},
+        data: Optional[ImmPointer[Float32, ImmUntrackedOrigin]] = {},
         nx: Int32 = 0,
         ny: Int32 = 0,
     ):

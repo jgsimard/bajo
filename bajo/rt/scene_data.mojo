@@ -56,25 +56,17 @@ struct SceneBuilder(
 
     def __init__(
         out self,
-        var spheres: List[Sphere[.WORLD]] = List[Sphere[.WORLD]](),
-        var sphere_surfaces: List[SurfaceId[1]] = List[SurfaceId[1]](),
-        var triangle_vertices: List[Point3f32[.WORLD]] = List[
-            Point3f32[.WORLD]
-        ](),
-        var triangle_surfaces: List[SurfaceId[1]] = List[SurfaceId[1]](),
-        var triangle_meshes: List[List[Point3f32[.LOCAL]]] = List[
-            List[Point3f32[.LOCAL]]
-        ](),
-        var triangle_mesh_normals: List[List[Float32]] = List[List[Float32]](),
-        var triangle_mesh_texcoords: List[List[Float32]] = List[
-            List[Float32]
-        ](),
-        var triangle_instances: List[Instance] = List[Instance](),
-        var triangle_instance_surfaces: List[SurfaceId[1]] = List[
-            SurfaceId[1]
-        ](),
-        var surfaces: SurfaceStore = SurfaceStore(),
-        environment: Environment = Environment(),
+        var spheres: List[Sphere[.WORLD]] = {},
+        var sphere_surfaces: List[SurfaceId[1]] = {},
+        var triangle_vertices: List[Point3f32[.WORLD]] = {},
+        var triangle_surfaces: List[SurfaceId[1]] = {},
+        var triangle_meshes: List[List[Point3f32[.LOCAL]]] = {},
+        var triangle_mesh_normals: List[List[Float32]] = {},
+        var triangle_mesh_texcoords: List[List[Float32]] = {},
+        var triangle_instances: List[Instance] = {},
+        var triangle_instance_surfaces: List[SurfaceId[1]] = {},
+        var surfaces: SurfaceStore = {},
+        environment: Environment = {},
     ):
         self.spheres = spheres^
         self.sphere_surfaces = sphere_surfaces^
@@ -87,9 +79,9 @@ struct SceneBuilder(
         self.triangle_instance_surfaces = triangle_instance_surfaces^
         self.surfaces = surfaces^
         self.environment = environment.copy()
-        self.media = SceneMedia()
-        self.opacity = SceneOpacity()
-        self.emission = SceneEmission()
+        self.media = {}
+        self.opacity = {}
+        self.emission = {}
 
     def set_environment(mut self, environment: Environment):
         self.environment = environment.copy()
@@ -340,9 +332,9 @@ struct SceneData:
         var triangle_instance_surfaces: List[SurfaceId[1]],
         var surfaces: SurfaceStore,
         environment: Environment,
-        var media: SceneMedia = SceneMedia(),
-        var opacity: SceneOpacity = SceneOpacity(),
-        var emission: SceneEmission = SceneEmission(),
+        var media: SceneMedia = {},
+        var opacity: SceneOpacity = {},
+        var emission: SceneEmission = {},
     ) raises:
         self._spheres = spheres^
         self._sphere_surfaces = sphere_surfaces^
@@ -354,15 +346,15 @@ struct SceneData:
         self._triangle_instances = triangle_instances^
         self._triangle_instance_surfaces = triangle_instance_surfaces^
         self._surfaces = surfaces^
-        self._lights = LightStore()
+        self._lights = {}
         self._media = media^
         self._media.prepare_spectral_bindings()
         self._opacity = opacity^
         self._emission = emission^
         self._environment = environment.copy()
         self._environment_weight = 0.0
-        self._environment_alias_probabilities = List[Float32]()
-        self._environment_alias_indices = List[UInt32]()
+        self._environment_alias_probabilities = {}
+        self._environment_alias_indices = {}
         self._validate()
         self._build_environment_distribution()
         self._build_light_store()
@@ -383,7 +375,7 @@ struct SceneData:
             return AreaEmitter(
                 self._surfaces.emissives[Int(surface.index())].radiance
             )
-        return AreaEmitter()
+        return {}
 
     def spheres(self) -> ref[self._spheres] List[Sphere[.WORLD]]:
         return self._spheres

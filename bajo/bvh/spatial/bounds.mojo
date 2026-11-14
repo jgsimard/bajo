@@ -50,10 +50,10 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
             raise Error("BVH group count must match item count")
         self.item_bounds = List[AABB[Self.frame]](capacity=len(boxes))
         self.groups = List[UInt32](capacity=len(groups))
-        self.group_ids = List[UInt32]()
-        self.group_roots = List[UInt32]()
-        self.bounds = List[Float32]()
-        self.nodes = List[UInt32]()
+        self.group_ids = {}
+        self.group_roots = {}
+        self.bounds = {}
+        self.nodes = {}
         var precise = bounds_have_subnormal(boxes)
         if precise:
             self._append_validated_boxes[True](boxes)

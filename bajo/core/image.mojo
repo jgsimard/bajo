@@ -216,7 +216,7 @@ struct ImageTexture:
         width: Int,
         height: Int,
         var pixels: List[Float32],
-        var alpha: List[Float32] = List[Float32](),
+        var alpha: List[Float32] = {},
     ):
         self.width = width
         self.height = height

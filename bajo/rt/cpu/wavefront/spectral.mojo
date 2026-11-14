@@ -60,10 +60,10 @@ struct SpectralSampleState:
     var eta_scale: List[Float32]
 
     def __init__(out self):
-        self.wavelengths = List[SampledWavelengths[1]]()
-        self.throughput = List[SampledSpectrum[1]]()
-        self.radiance = List[SampledSpectrum[1]]()
-        self.eta_scale = List[Float32]()
+        self.wavelengths = {}
+        self.throughput = {}
+        self.radiance = {}
+        self.eta_scale = {}
 
     def initialize(mut self, count: Int, base: Int, sampling: SamplingConfig):
         self.wavelengths.clear()

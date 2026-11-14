@@ -62,9 +62,7 @@ def enqueue_render_gpu[
         kind, sphere_format, triangle_format, tlas_format, blas_format
     ],
     settings: RenderSettings,
-    sample_offset: Optional[Pointer[UInt32, ImmUntrackedOrigin]] = Optional[
-        Pointer[UInt32, ImmUntrackedOrigin]
-    ](),
+    sample_offset: Optional[Pointer[UInt32, ImmUntrackedOrigin]] = {},
 ) raises:
     """Submit RGB transport without compiling the spectral scheduler."""
     _validate_rgb_settings(settings)

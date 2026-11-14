@@ -171,9 +171,7 @@ def enqueue_render_gpu[
         kind, sphere_format, triangle_format, tlas_format, blas_format
     ],
     settings: RenderSettings,
-    sample_offset: Optional[Pointer[UInt32, ImmUntrackedOrigin]] = Optional[
-        Pointer[UInt32, ImmUntrackedOrigin]
-    ](),
+    sample_offset: Optional[Pointer[UInt32, ImmUntrackedOrigin]] = {},
 ) raises:
     """Submit any prepared scene through one compile-time-specialized path."""
     comptime Formats = _gpu_rt_kernel_formats[
@@ -286,9 +284,7 @@ def _enqueue_render_gpu_rgb[
         kind, sphere_format, triangle_format, tlas_format, blas_format
     ],
     settings: RenderSettings,
-    sample_offset: Optional[Pointer[UInt32, ImmUntrackedOrigin]] = Optional[
-        Pointer[UInt32, ImmUntrackedOrigin]
-    ](),
+    sample_offset: Optional[Pointer[UInt32, ImmUntrackedOrigin]] = {},
 ) raises:
     """Shared RGB scheduler; mode-aware entry points also use this path."""
     enqueue_gpu_wavefront[

@@ -16,7 +16,7 @@ struct CpuSpectralResources:
 
     def __init__(out self, surfaces: SurfaceStore) raises:
         self.rgb = RgbSpectrumTable.read_default()
-        self.lighting = Optional[SpectralLightDistribution]()
+        self.lighting = {}
         self.curves = PiecewiseSpectrumTable(surfaces.optical_spectra)
         self.sources = PackedSpectrumSources(surfaces.spectrum_sources)
         self.sources.prepare_photometric(self.curves.view())
@@ -26,7 +26,7 @@ struct CpuSpectralResources:
         self.lighting.value().prepare(self.view())
 
     def prepare(mut self, surfaces: SurfaceStore) raises:
-        self.lighting = Optional[SpectralLightDistribution]()
+        self.lighting = {}
         self.curves = PiecewiseSpectrumTable(surfaces.optical_spectra)
         self.sources = PackedSpectrumSources(surfaces.spectrum_sources)
         self.sources.prepare_photometric(self.curves.view())

@@ -168,12 +168,12 @@ struct GpuRtPreparedRenderer[
     ) raises:
         comptime if Self._rgb_only:
             _validate_rgb_settings(settings)
-        self._readback = Optional[_GpuRtReadback]()
-        self._preview = Optional[GpuRtPreviewAccumulator]()
+        self._readback = {}
+        self._preview = {}
         self._preview_color_mode = .RGB
-        self._render_graph = Optional[DeviceGraph]()
-        self._graph_arguments = Optional[_RenderGraphArguments]()
-        self.ctx = DeviceContext()
+        self._render_graph = {}
+        self._graph_arguments = {}
+        self.ctx = {}
         self.scene = prepare_gpu_scene[
             Self.kind,
             Self.sphere_format,
@@ -193,8 +193,8 @@ struct GpuRtPreparedRenderer[
 
     def invalidate_graph(mut self):
         """Release the retained graph; the next frame uses direct submission."""
-        self._render_graph = Optional[DeviceGraph]()
-        self._graph_arguments = Optional[_RenderGraphArguments]()
+        self._render_graph = {}
+        self._graph_arguments = {}
 
     def enqueue[
         integrator: Integrator
@@ -324,8 +324,8 @@ struct GpuRtPreparedRenderer[
         ):
             self.invalidate_graph()
             if resized:
-                self._readback = Optional[_GpuRtReadback]()
-                self._preview = Optional[GpuRtPreviewAccumulator]()
+                self._readback = {}
+                self._preview = {}
             self.target = self.scene.make_render_target(
                 self.ctx, settings, camera
             )
@@ -378,7 +378,7 @@ struct GpuRtPreparedRenderer[
         var total_t0 = perf_counter_ns()
         self._prepare_frame(settings, camera)
         if self._preview_color_mode != settings.color_mode:
-            self._preview = Optional[GpuRtPreviewAccumulator]()
+            self._preview = {}
         self._preview_color_mode = settings.color_mode
         if not self._preview:
             self._preview = GpuRtPreviewAccumulator(

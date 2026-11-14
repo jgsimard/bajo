@@ -56,7 +56,7 @@ struct _ObjChunk(Copyable):
         self.normal_offset = 0
         self.face_offset = 0
         self.index_offset = 0
-        self.events = List[_MetadataEvent]()
+        self.events = {}
 
 
 @always_inline

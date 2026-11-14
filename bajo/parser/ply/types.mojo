@@ -15,10 +15,10 @@ struct PlyMesh:
     var _source_face_count: Int
 
     def __init__(out self):
-        self.positions = List[Float32]()
-        self.normals = List[Float32]()
-        self.texcoords = List[Float32]()
-        self.indices = List[UInt32]()
+        self.positions = {}
+        self.normals = {}
+        self.texcoords = {}
+        self.indices = {}
         self._source_face_count = 0
 
     def vertex_count(self) -> Int:

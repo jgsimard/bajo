@@ -29,6 +29,7 @@ from bajo.core import (
     Rayf32,
 )
 from bajo.core.random import Rng, Sampler, _sobol_bits, _sz_bits
+from bajo.rt.cpu.rgb import render_wavefront, render_wavefront_configured
 from bajo.rt import (
     Color,
     CpuSchedulerMode,
@@ -51,12 +52,10 @@ from bajo.rt import (
     SurfaceStore,
     CpuScene,
     evaluate_bsdf,
-    render_wavefront,
     sample_bsdf,
 )
 from examples.cornell_box import make_cornell_scene
 from bajo.rt.cpu import reflect, fresnel_schlick, CpuWavefrontWorkspace
-from bajo.rt.cpu.wavefront import render_wavefront_configured
 from bajo.rt.cpu.wavefront.primary import _initialize_path_packets_range
 from bajo.rt.wavefront_queue import PacketPathQueue
 from bajo.core.random import random_in_unit_disk

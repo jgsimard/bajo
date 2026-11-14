@@ -15,7 +15,8 @@ from bajo.rt.material_types import ImageTexture, NO_TEXTURE
 from bajo.rt.shading_types import ShadingPoint
 from bajo.rt.cpu.lighting import _sample_direct_light_candidate
 from bajo.core.random import Rng
-from bajo.rt import Color, render_wavefront
+from bajo.rt.cpu.rgb import render_wavefront
+from bajo.rt import Color
 from bajo.rt.opacity import Opacity, opacity_accepts, opacity_point_sample
 from bajo.rt.lighting import _sample_triangle_light_surface, light_sample_uv
 from test.parser.png.test_png import _encode

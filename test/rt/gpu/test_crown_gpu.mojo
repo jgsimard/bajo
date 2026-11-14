@@ -8,7 +8,8 @@ from bajo.parser.pbrt import parse_pbrt
 from bajo.parser import AssetLoader
 from bajo.parser.pbrt import read_pbrt
 from bajo.parser.ply import PlyMesh, parse_ply
-from bajo.rt import CpuScene, render_wavefront
+from bajo.rt.cpu.rgb import render_wavefront
+from bajo.rt import CpuScene
 from bajo.rt.gpu.rgb import (
     enqueue_render_gpu,
 )

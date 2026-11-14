@@ -9,7 +9,8 @@ from std.testing import (
     assert_raises,
 )
 from bajo.rt.filter import ReconstructionFilter, FilterSampler
-from bajo.rt import CpuScene, render_wavefront
+from bajo.rt.cpu.rgb import render_wavefront
+from bajo.rt import CpuScene
 from bajo.rt.material_types import Integrator
 from bajo.rt.film import FilmResponse
 from bajo.rt.render_types import RenderSettings, SamplingConfig

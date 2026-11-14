@@ -12,7 +12,8 @@ from std.testing import (
 from bajo.core import Point3f32, Vec3f32, Affine3f32
 from bajo.core.camera import Camera
 from bajo.core.color import Color
-from bajo.rt import CpuScene, SceneBuilder, render_wavefront
+from bajo.rt.cpu.rgb import render_wavefront
+from bajo.rt import CpuScene, SceneBuilder
 from bajo.rt.film import FilmResponse
 from bajo.rt.render_types import RenderSettings
 from bajo.rt.material_types import Environment, ImageTexture, Integrator

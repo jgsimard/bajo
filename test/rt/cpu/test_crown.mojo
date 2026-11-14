@@ -10,7 +10,8 @@ from std.testing import (
 )
 from bajo.core.camera import Camera
 from bajo.core import Point3f32, Vec3f32, dot
-from bajo.rt import CpuScene, render_wavefront
+from bajo.rt.cpu.rgb import render_wavefront
+from bajo.rt import CpuScene
 from bajo.core.color import Color
 from bajo.rt.render_types import RenderSettings
 from bajo.rt.scene_data import SceneBuilder

@@ -15,7 +15,8 @@ from bajo.core import Vec3f32, Point3f32, Rayf32
 
 from bajo.core.random import Rng
 from bajo.parser.pbrt import parse_pbrt
-from bajo.rt import CpuScene, SurfaceStore, Color, render_wavefront
+from bajo.rt.cpu.rgb import render_wavefront
+from bajo.rt import CpuScene, SurfaceStore, Color
 from bajo.rt.cpu.bsdf import evaluate_bsdf, sample_bsdf
 from bajo.rt.shading_types import ShadingPoint
 from bajo.core.optics import fresnel_conductor, fresnel_dielectric

@@ -3,7 +3,8 @@
 from max.gpu.host import DeviceContext
 from std.testing import TestSuite, assert_almost_equal
 from bajo.core.color import Color
-from bajo.rt import CpuScene, render_wavefront
+from bajo.rt.cpu.rgb import render_wavefront
+from bajo.rt import CpuScene
 from bajo.rt.film import FilmResponse
 from bajo.rt.render_types import RenderSettings
 from bajo.rt.material_types import Integrator

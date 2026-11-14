@@ -119,6 +119,7 @@ struct CpuWavefrontWorkspace[length: SIMDLength, integrator: Integrator]:
 
 
 def _trace_packet_range[
+    _rgb_only: Bool,
     length: SIMDLength,
     integrator: Integrator,
     world_bvh_width: SIMDLength,
@@ -148,7 +149,7 @@ def _trace_packet_range[
         queues.weights,
     )
     var count = path_end - path_begin
-    comptime if Integrator.is_path_tracing[integrator]:
+    comptime if not _rgb_only and Integrator.is_path_tracing[integrator]:
         if spectra:
             trace_spectral_packets[
                 length,
@@ -270,6 +271,38 @@ def render_wavefront_configured[
     world: CpuScene[world_bvh_width, instance_bvh_width],
     mut workspace: CpuWavefrontWorkspace[length, integrator],
 ) raises -> RenderResult:
+    """Render RGB or spectral transport with retained worker queues."""
+    return _render_wavefront_configured[
+        False,
+        traversal_mode,
+        integrator,
+        length,
+        CHUNK_PATHS,
+        PARALLEL,
+        scheduler_mode,
+        world_bvh_width,
+        instance_bvh_width,
+        *adaptive_packet_sizes,
+    ](settings, camera, world, workspace)
+
+
+def _render_wavefront_configured[
+    _rgb_only: Bool,
+    traversal_mode: CpuTraversalMode,
+    integrator: Integrator = .PATH,
+    length: SIMDLength = 16,
+    CHUNK_PATHS: Int = CPU_WAVEFRONT_PARALLEL_CHUNK_PATHS,
+    PARALLEL: Bool = True,
+    scheduler_mode: CpuSchedulerMode = .TASK_PARTITIONS,
+    world_bvh_width: SIMDLength = 16,
+    instance_bvh_width: SIMDLength = 16,
+    *adaptive_packet_sizes: SIMDLength,
+](
+    settings: RenderSettings,
+    camera: Camera,
+    world: CpuScene[world_bvh_width, instance_bvh_width],
+    mut workspace: CpuWavefrontWorkspace[length, integrator],
+) raises -> RenderResult:
     """Render with compile-time packet, chunk, and CPU scheduling choices."""
     comptime assert CHUNK_PATHS > 0, "wavefront chunk size must be positive"
     comptime assert (
@@ -279,6 +312,9 @@ def render_wavefront_configured[
     )
 
     settings.validate()
+    comptime if _rgb_only:
+        if settings.color_mode != .RGB:
+            raise Error("CPU RGB entry points require RGB settings")
     var sampling = SamplingConfig.from_settings(settings)
     var filter_sampler = FilterSampler(settings.filter)
     sampling.filter = filter_sampler.view()
@@ -293,7 +329,7 @@ def render_wavefront_configured[
     var spectra = Optional[SpectrumSourcesView]()
     var lighting = Optional[SpectralLightDistributionView]()
     var film = settings.film.copy()
-    comptime if Integrator.is_path_tracing[integrator]:
+    comptime if not _rgb_only and Integrator.is_path_tracing[integrator]:
         if settings.color_mode == .SPECTRAL:
             var scene_identity = world.snapshot_identity()
             var same_scene = False
@@ -350,6 +386,7 @@ def render_wavefront_configured[
                 var path_begin = chunk_idx * paths_per_chunk
                 var path_end = min(path_begin + paths_per_chunk, path_count)
                 _trace_packet_range[
+                    _rgb_only,
                     length,
                     integrator,
                     world_bvh_width,
@@ -387,6 +424,7 @@ def render_wavefront_configured[
         while path_begin < path_count:
             var path_end = min(path_begin + paths_per_chunk, path_count)
             _trace_packet_range[
+                _rgb_only,
                 length,
                 integrator,
                 world_bvh_width,

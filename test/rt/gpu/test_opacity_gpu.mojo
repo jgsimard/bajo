@@ -12,7 +12,8 @@ from bajo.core import Point3f32, Vec3f32, Rayf32
 from bajo.bvh.types import Hit
 from bajo.parser.pbrt import parse_pbrt, read_pbrt
 from bajo.parser import MemoryAssetLoader
-from bajo.rt import Color, CpuScene, render_wavefront
+from bajo.rt.cpu.rgb import render_wavefront
+from bajo.rt import Color, CpuScene
 from bajo.rt.gpu.rgb import (
     enqueue_render_gpu,
 )

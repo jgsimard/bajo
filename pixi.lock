@@ -185,7 +185,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pixman-0.46.4-h54a6638_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/polars-runtime-32-2.1.0-py311hb519a9e_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pthread-stubs-0.4-h7cc23a3_1004.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/pyside6-6.11.3-py315h598d7a1_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/pyside6-6.11.3-py315h598d7a1_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/python-3.15.2-h6e52b48_100_cp315.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/qhull-2020.2-haf43d43_6.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/qt6-main-6.11.3-pl5321hb5a8836_1.conda
@@ -1640,30 +1640,29 @@ packages:
   run_exports: {}
   size: 9630
   timestamp: 1788381877753
-- conda: https://conda.anaconda.org/conda-forge/linux-64/pyside6-6.11.3-py315h598d7a1_0.conda
-  sha256: 829094a5f3c1b9576a14a65040862ffbbcac3f60a22370d399f5fd21eb747913
-  md5: 40aa26f1c369405af5e441dd177fc0a9
+- conda: https://conda.anaconda.org/conda-forge/linux-64/pyside6-6.11.3-py315h598d7a1_1.conda
+  sha256: a862f82b83fa52d90859cb787e9e97f2e785b4f01be6048133b45b681bc43001
+  md5: e7872530733b3234b4c4d438f3f767fe
   depends:
   - python
   - qt6-main 6.11.3.*
+  - __glibc >=2.17,<3.0.a0
   - libstdcxx >=15
   - libgcc >=15
-  - __glibc >=2.17,<3.0.a0
+  - libxslt >=1.1.45,<2.0a0
+  - qt6-main >=6.11.3,<7.0a0
   - libegl >=1.7.0,<2.0a0
   - libopengl >=1.7.0,<2.0a0
-  - libclang13 >=23.1.4
+  - python_abi 3.15.* *_cp315
   - libgl >=1.7.0,<2.0a0
-  - qt6-main >=6.11.3,<7.0a0
+  - libclang13 >=23.1.5
   - libxml2
   - libxml2-16 >=2.15.4
-  - libxslt >=1.1.45,<2.0a0
   - libvulkan-loader >=1.4.357.0,<2.0a0
-  - python_abi 3.15.* *_cp315
   license: LGPL-3.0-only
-  license_family: LGPL
   run_exports: {}
-  size: 13953427
-  timestamp: 1793476648795
+  size: 13954337
+  timestamp: 1794663345547
 - conda: https://conda.anaconda.org/conda-forge/linux-64/python-3.15.2-h6e52b48_100_cp315.conda
   build_number: 100
   sha256: dd6fdef748df5636029673a834ca3632ce44c86d71e4986d70bcdb2ae5607a25
@@ -1795,6 +1794,7 @@ packages:
   constrains:
   - qt ==6.11.3
   license: LGPL-3.0-only
+  license_family: LGPL
   run_exports:
     weak:
     - qt6-main >=6.11.3,<7.0a0

@@ -838,7 +838,7 @@ struct CpuScene[
         """Use scalar traversal and the same SIMD hit assembly at width one."""
         var hits: Hit[.WORLD]
         comptime if kind == .SPHERE:
-            if not self.sphere_bvh:
+            __guard case .Some(ref sphere_bvh) = self.sphere_bvh else:
                 return _WorldHit.miss(ray.t_max)
             if len(self._scene.opacity().records):
                 hits = trace_opacity_spheres[.CLOSEST_HIT](self._scene, ray)
@@ -848,24 +848,26 @@ struct CpuScene[
                     Self.world_bvh_width,
                     .CLOSEST_HIT,
                     .WORLD,
-                ](self.sphere_bvh.value(), UInt32(0), ray)
+                ](sphere_bvh, UInt32(0), ray)
         elif kind == .TRIANGLE:
-            if not self.triangle_bvh:
+            __guard case .Some(ref triangle_bvh) = self.triangle_bvh else:
                 return _WorldHit.miss(ray.t_max)
             if len(self._scene.opacity().records):
                 hits = trace_opacity_triangles[
                     Self.world_bvh_width, Self.world_bvh_width, .CLOSEST_HIT
-                ](self._scene, self.triangle_bvh.value(), ray)
+                ](self._scene, triangle_bvh, ray)
             else:
                 hits = trace_blas_set[
                     Self.world_bvh_width,
                     Self.world_bvh_width,
                     .CLOSEST_HIT,
                     .WORLD,
-                ](self.triangle_bvh.value(), UInt32(0), ray)
+                ](triangle_bvh, UInt32(0), ray)
         else:
             comptime assert kind == .TRIANGLE_INSTANCE
-            if not self.triangle_tlas or not self.triangle_mesh_blases:
+            __guard case .Some(ref tlas) = self.triangle_tlas else:
+                return _WorldHit.miss(ray.t_max)
+            __guard case .Some(ref blases) = self.triangle_mesh_blases else:
                 return _WorldHit.miss(ray.t_max)
             if len(self._scene.opacity().records):
                 hits = trace_opacity_instances[
@@ -874,16 +876,16 @@ struct CpuScene[
                     .CLOSEST_HIT,
                 ](
                     self._scene,
-                    self.triangle_tlas.value(),
-                    self.triangle_mesh_blases.value(),
+                    tlas,
+                    blases,
                     ray,
                 )
             else:
-                hits = self.triangle_tlas.value().trace_blases[
+                hits = tlas.trace_blases[
                     Self.instance_bvh_width,
                     Self.instance_bvh_width,
                     .CLOSEST_HIT,
-                ](ray, self.triangle_mesh_blases.value())
+                ](ray, blases)
         var surface = self._surface_from_hit[kind](ray, hits)
         if not surface.hit:
             return _WorldHit.miss(ray.t_max)

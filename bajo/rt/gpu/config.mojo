@@ -77,3 +77,39 @@ comptime GPU_RT_BVH_WIDE4 = GpuRtBvhFormat(4, 4, .WIDE)
 comptime GPU_RT_BVH_WIDE2_LEAF4 = GpuRtBvhFormat(2, 4, .WIDE)
 comptime GPU_RT_BVH_CWBVH8 = GpuRtBvhFormat(8, 4, .CWBVH8)
 comptime GPU_RT_BVH_TLAS4 = GpuRtBvhFormat(4, 1, .WIDE)
+
+
+trait _GpuRtKernelFormats:
+    """Compile-time BVH layouts consumed by a device kernel."""
+
+    comptime sphere: GpuRtBvhFormat
+    comptime triangle: GpuRtBvhFormat
+    comptime tlas: GpuRtBvhFormat
+    comptime blas: GpuRtBvhFormat
+
+
+struct _GpuRtFormatKey[
+    sphere_format: GpuRtBvhFormat,
+    triangle_format: GpuRtBvhFormat,
+    tlas_format: GpuRtBvhFormat,
+    blas_format: GpuRtBvhFormat,
+](_GpuRtKernelFormats):
+    comptime sphere = Self.sphere_format
+    comptime triangle = Self.triangle_format
+    comptime tlas = Self.tlas_format
+    comptime blas = Self.blas_format
+
+
+# Normalize before constructing the type: unused layouts cannot affect identity.
+comptime _gpu_rt_kernel_formats[
+    kind: GpuRtSceneKind,
+    sphere_format: GpuRtBvhFormat = GPU_RT_BVH_WIDE4,
+    triangle_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
+    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS4,
+    blas_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
+] = _GpuRtFormatKey[
+    sphere_format if kind.has_spheres() else GPU_RT_BVH_WIDE4,
+    triangle_format if kind.has_triangles() else GPU_RT_BVH_CWBVH8,
+    tlas_format if kind.has_instances() else GPU_RT_BVH_TLAS4,
+    blas_format if kind.has_instances() else GPU_RT_BVH_CWBVH8,
+]

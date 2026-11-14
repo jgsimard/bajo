@@ -1,4 +1,5 @@
 """Group secondary rays by position and direction for every geometry mix."""
+
 from std.math import max, clamp
 from max.gpu.host import DeviceContext
 from bajo.rt.gpu.queue_layout import gpu_rt_path_tile
@@ -13,7 +14,11 @@ from bajo.rt.gpu.queue_order import (
     enqueue_gpu_rt_queue_order,
 )
 from bajo.rt.gpu.views import GpuRtTraceQueueView, GpuRtSceneView
-from bajo.rt.gpu.config import GpuRtSceneKind, GpuRtBvhFormat
+from bajo.rt.gpu.config import (
+    _GpuRtKernelFormats,
+    _gpu_rt_kernel_formats,
+    GpuRtSceneKind,
+)
 from bajo.rt.gpu.order_bounds import gpu_rt_order_bounds
 from bajo.core.morton import expand_bits_3d
 
@@ -24,9 +29,7 @@ def gpu_rt_spatial_order_enabled(capacity: Int, bounce: UInt32) -> Bool:
 
 def gpu_rt_spatial_order_rays_kernel[
     kind: GpuRtSceneKind,
-    sphere_format: GpuRtBvhFormat,
-    triangle_format: GpuRtBvhFormat,
-    tlas_format: GpuRtBvhFormat,
+    Formats: _GpuRtKernelFormats,
     scatter: Bool,
 ](queues: GpuRtTraceQueueView, scene: GpuRtSceneView):
     var capacity = Int(queues.capacity)
@@ -35,9 +38,7 @@ def gpu_rt_spatial_order_rays_kernel[
         return
     var paths = gpu_rt_path_tile(queues.src_path_fields, capacity)
     var scratch = GpuRtQueueOrderScratch.from_queues(queues)
-    var low, high = gpu_rt_order_bounds[
-        kind, sphere_format, triangle_format, tlas_format
-    ](scene)
+    var low, high = gpu_rt_order_bounds[kind, Formats](scene)
     var inv_x = 4.0 / max(high.x - low.x, Float32(1e-10))
     var inv_y = 4.0 / max(high.y - low.y, Float32(1e-10))
     var inv_z = 4.0 / max(high.z - low.z, Float32(1e-10))
@@ -67,9 +68,7 @@ def gpu_rt_spatial_order_rays_kernel[
 
 def enqueue_gpu_rt_spatial_order[
     kind: GpuRtSceneKind,
-    sphere_format: GpuRtBvhFormat,
-    triangle_format: GpuRtBvhFormat,
-    tlas_format: GpuRtBvhFormat,
+    Formats: _GpuRtKernelFormats,
 ](
     ctx: DeviceContext,
     scene: GpuRtSceneView,
@@ -78,13 +77,16 @@ def enqueue_gpu_rt_spatial_order[
 ) raises:
     if not gpu_rt_spatial_order_enabled(Int(queues.capacity), bounce):
         return
+    comptime OrderFormats = _gpu_rt_kernel_formats[
+        kind, Formats.sphere, Formats.triangle, Formats.tlas
+    ]
     enqueue_gpu_rt_queue_order[
         bin_count=512,
         counter=WAVE_COUNTER.ACTIVE,
         count_kernel=gpu_rt_spatial_order_rays_kernel[
-            kind, sphere_format, triangle_format, tlas_format, False
+            kind, OrderFormats, False
         ],
         scatter_kernel=gpu_rt_spatial_order_rays_kernel[
-            kind, sphere_format, triangle_format, tlas_format, True
+            kind, OrderFormats, True
         ],
     ](ctx, queues, scene)

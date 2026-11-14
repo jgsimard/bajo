@@ -19,6 +19,7 @@ from bajo.rt.gpu.bounce import (
 )
 from bajo.rt.gpu.common_kernels import GPU_RT_MAX_BLOCKS
 from bajo.rt.gpu.config import (
+    _gpu_rt_kernel_formats,
     GpuRtBvhFormat,
     GpuRtSceneKind,
     GPU_RT_BVH_CWBVH8,
@@ -75,13 +76,13 @@ def _enqueue_scene_bounce[
     bounce: UInt32,
     allow_scattering: Bool,
 ) raises:
+    comptime Formats = _gpu_rt_kernel_formats[
+        kind, sphere_format, triangle_format, tlas_format, blas_format
+    ]
     enqueue_gpu_rt_bounce[
         integrator,
         kind,
-        sphere_format,
-        triangle_format,
-        tlas_format,
-        blas_format,
+        Formats,
         MAX_BLOCKS,
         SHADOW_MAX_BLOCKS,
     ](
@@ -126,13 +127,13 @@ def _enqueue_scene_primary_bounce[
     samples_per_pixel: Int,
     sampling: GpuRtSamplingConfig,
 ) raises:
+    comptime Formats = _gpu_rt_kernel_formats[
+        kind, sphere_format, triangle_format, tlas_format, blas_format
+    ]
     enqueue_gpu_rt_primary_bounce[
         integrator,
         kind,
-        sphere_format,
-        triangle_format,
-        tlas_format,
-        blas_format,
+        Formats,
         MAX_BLOCKS,
         SHADOW_MAX_BLOCKS,
     ](
@@ -175,6 +176,9 @@ def enqueue_render_gpu[
     ](),
 ) raises:
     """Submit any prepared scene through one compile-time-specialized path."""
+    comptime Formats = _gpu_rt_kernel_formats[
+        kind, sphere_format, triangle_format, tlas_format, blas_format
+    ]
     comptime if Integrator.is_path_tracing[integrator]:
         if settings.color_mode == .SPECTRAL:
             target.validate_compatible(settings)
@@ -226,10 +230,7 @@ def enqueue_render_gpu[
                         spectral_bounce_kernel[
                             integrator,
                             kind,
-                            sphere_format,
-                            triangle_format,
-                            tlas_format,
-                            blas_format,
+                            Formats,
                         ]
                     ](
                         world.view(),

@@ -6,7 +6,10 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.bvh.constants import PrimitiveKind
 from bajo.rt.gpu.sampling import GpuRtSamplingConfig
 from bajo.rt.material_types import Integrator
-from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
+from bajo.rt.gpu.config import (
+    _GpuRtKernelFormats,
+    GpuRtSceneKind,
+)
 from bajo.rt.gpu.common_kernels import (
     GPU_RT_BLOCK_SIZE,
     GPU_RT_MAX_BLOCKS,
@@ -38,10 +41,7 @@ comptime GPU_RT_DIRECT_LARGE_TRACE_BLOCK_SIZE = 32
 def _enqueue_primary_trace[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
-    sphere_format: GpuRtBvhFormat,
-    triangle_format: GpuRtBvhFormat,
-    tlas_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
+    Formats: _GpuRtKernelFormats,
     store_source_path: Bool,
     light_kind: PrimitiveKind,
 ](
@@ -61,10 +61,7 @@ def _enqueue_primary_trace[
         gpu_rt_primary_scene_trace_kernel[
             integrator,
             scene_kind,
-            sphere_format,
-            triangle_format,
-            tlas_format,
-            blas_format,
+            Formats,
             store_source_path,
             light_kind,
         ]
@@ -86,10 +83,7 @@ def _enqueue_primary_trace[
 def _enqueue_primary_trace_by_light_kind[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
-    sphere_format: GpuRtBvhFormat,
-    triangle_format: GpuRtBvhFormat,
-    tlas_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
+    Formats: _GpuRtKernelFormats,
     store_source_path: Bool,
 ](
     ctx: DeviceContext,
@@ -105,7 +99,8 @@ def _enqueue_primary_trace_by_light_kind[
     sampling: GpuRtSamplingConfig,
     blocks: Int,
 ) raises:
-    comptime if Integrator.uses_direct_lighting[integrator]:
+    # MIS keeps light-type specialization; NEE uses runtime sampling.
+    comptime if integrator == .MIS:
         comptime for light_kind in [
             PrimitiveKind.SPHERE,
             PrimitiveKind.TRIANGLE,
@@ -114,10 +109,7 @@ def _enqueue_primary_trace_by_light_kind[
                 _enqueue_primary_trace[
                     integrator,
                     scene_kind,
-                    sphere_format,
-                    triangle_format,
-                    tlas_format,
-                    blas_format,
+                    Formats,
                     store_source_path,
                     light_kind,
                 ](
@@ -137,10 +129,7 @@ def _enqueue_primary_trace_by_light_kind[
     _enqueue_primary_trace[
         integrator,
         scene_kind,
-        sphere_format,
-        triangle_format,
-        tlas_format,
-        blas_format,
+        Formats,
         store_source_path,
         PrimitiveKind.UNKNOWN,
     ](
@@ -161,10 +150,7 @@ def _enqueue_primary_trace_by_light_kind[
 def enqueue_gpu_rt_primary_bounce[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
-    sphere_format: GpuRtBvhFormat,
-    triangle_format: GpuRtBvhFormat,
-    tlas_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
+    Formats: _GpuRtKernelFormats,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
 ](
@@ -200,10 +186,7 @@ def enqueue_gpu_rt_primary_bounce[
         _enqueue_primary_trace_by_light_kind[
             integrator,
             scene_kind,
-            sphere_format,
-            triangle_format,
-            tlas_format,
-            blas_format,
+            Formats,
             store_source_path,
         ](
             ctx,
@@ -250,10 +233,7 @@ def enqueue_gpu_rt_primary_bounce[
     enqueue_gpu_shadows[
         integrator,
         scene_kind,
-        sphere_format,
-        triangle_format,
-        tlas_format,
-        blas_format,
+        Formats,
         SHADOW_MAX_BLOCKS,
     ](ctx, scene, queues, arena.capacity)
 
@@ -261,10 +241,7 @@ def enqueue_gpu_rt_primary_bounce[
 def enqueue_gpu_rt_bounce[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
-    sphere_format: GpuRtBvhFormat,
-    triangle_format: GpuRtBvhFormat,
-    tlas_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
+    Formats: _GpuRtKernelFormats,
     MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
     SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
 ](
@@ -307,7 +284,7 @@ def enqueue_gpu_rt_bounce[
     )
 
     def enqueue_trace() raises {imm}:
-        comptime if Integrator.uses_direct_lighting[integrator]:
+        comptime if integrator == .MIS:
             comptime for light_kind in [
                 PrimitiveKind.SPHERE,
                 PrimitiveKind.TRIANGLE,
@@ -317,10 +294,7 @@ def enqueue_gpu_rt_bounce[
                         gpu_rt_scene_trace_kernel[
                             integrator,
                             scene_kind,
-                            sphere_format,
-                            triangle_format,
-                            tlas_format,
-                            blas_format,
+                            Formats,
                             light_kind,
                         ]
                     ](
@@ -337,10 +311,7 @@ def enqueue_gpu_rt_bounce[
             gpu_rt_scene_trace_kernel[
                 integrator,
                 scene_kind,
-                sphere_format,
-                triangle_format,
-                tlas_format,
-                blas_format,
+                Formats,
                 PrimitiveKind.UNKNOWN,
             ]
         ](
@@ -354,9 +325,9 @@ def enqueue_gpu_rt_bounce[
         )
 
     comptime if Integrator.uses_direct_lighting[integrator]:
-        enqueue_gpu_rt_spatial_order[
-            scene_kind, sphere_format, triangle_format, tlas_format
-        ](ctx, scene, queues, bounce)
+        enqueue_gpu_rt_spatial_order[scene_kind, Formats](
+            ctx, scene, queues, bounce
+        )
     enqueue_trace()
     if not allow_scattering:
         return
@@ -383,9 +354,6 @@ def enqueue_gpu_rt_bounce[
     enqueue_gpu_shadows[
         integrator,
         scene_kind,
-        sphere_format,
-        triangle_format,
-        tlas_format,
-        blas_format,
+        Formats,
         SHADOW_MAX_BLOCKS,
     ](ctx, scene, queues, arena.capacity, bounce)

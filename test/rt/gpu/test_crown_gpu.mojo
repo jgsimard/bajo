@@ -9,10 +9,12 @@ from bajo.parser import AssetLoader
 from bajo.parser.pbrt import read_pbrt
 from bajo.parser.ply import PlyMesh, parse_ply
 from bajo.rt import CpuScene, render_wavefront
+from bajo.rt.gpu.rgb import (
+    enqueue_render_gpu,
+)
 from bajo.rt.gpu import (
     prepare_gpu_scene,
     GpuRtRenderTarget,
-    enqueue_render_gpu,
     download_gpu_pixels,
 )
 from bajo.rt.material_types import ImageTexture

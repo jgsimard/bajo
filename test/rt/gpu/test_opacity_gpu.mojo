@@ -13,10 +13,12 @@ from bajo.bvh.types import Hit
 from bajo.parser.pbrt import parse_pbrt, read_pbrt
 from bajo.parser import MemoryAssetLoader
 from bajo.rt import Color, CpuScene, render_wavefront
+from bajo.rt.gpu.rgb import (
+    enqueue_render_gpu,
+)
 from bajo.rt.gpu import (
     prepare_gpu_scene,
     GpuRtRenderTarget,
-    enqueue_render_gpu,
     download_gpu_pixels,
 )
 from test.rt.helpers import assert_pixels_close

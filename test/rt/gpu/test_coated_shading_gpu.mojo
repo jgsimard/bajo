@@ -9,10 +9,12 @@ from bajo.core import Vec3f32
 from bajo.rt.material_parameters import CoatedParameters
 from bajo.rt.coated_diffuse import _sample_coated_diffuse
 from bajo.rt.shading_types import BsdfSample
+from bajo.rt.gpu.rgb import (
+    enqueue_render_gpu,
+)
 from bajo.rt.gpu import (
     GpuRtRenderTarget,
     download_gpu_pixels,
-    enqueue_render_gpu,
     prepare_gpu_scene,
 )
 from bajo.rt.render_types import RenderSettings

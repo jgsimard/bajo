@@ -4,6 +4,9 @@ from test.rt.helpers import assert_pixels_equal
 from std.testing import TestSuite, assert_equal, assert_true
 from std.memory import bitcast
 from max.gpu.host import DeviceContext
+from bajo.rt.gpu.rgb import (
+    enqueue_render_gpu,
+)
 from bajo.rt.gpu.wavefront_contract import (
     GpuWavefrontArena,
     enqueue_wavefront_begin,
@@ -29,7 +32,6 @@ from bajo.rt.render_types import RenderSettings
 from bajo.rt.gpu import (
     GpuRtRenderTarget,
     prepare_gpu_scene,
-    enqueue_render_gpu,
     download_gpu_pixels,
     GPU_RT_BVH_WIDE4,
     GPU_RT_BVH_CWBVH8,

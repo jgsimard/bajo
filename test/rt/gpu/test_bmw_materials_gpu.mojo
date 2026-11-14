@@ -8,10 +8,12 @@ from bajo.parser.pbrt import read_pbrt
 from bajo.rt import Color, CpuScene, render_wavefront
 from bajo.rt.material_types import Integrator
 from bajo.core.random import Sampler
+from bajo.rt.gpu.rgb import (
+    enqueue_render_gpu,
+)
 from bajo.rt.gpu import (
     GpuRtRenderTarget,
     download_gpu_pixels,
-    enqueue_render_gpu,
     prepare_gpu_scene,
 )
 from test.parser.pbrt.test_pbrt import _triangle_ply

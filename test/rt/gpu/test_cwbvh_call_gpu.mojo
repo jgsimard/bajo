@@ -5,8 +5,10 @@ from std.testing import TestSuite, assert_true
 from max.gpu.host import DeviceContext
 from bajo.core.aabb import compute_bounds
 from bajo.rt import Camera, Color, RenderSettings, SceneBuilder
+from bajo.rt.gpu.rgb import (
+    enqueue_render_gpu,
+)
 from bajo.rt.gpu.scene import prepare_gpu_scene
-from bajo.rt.gpu.render import enqueue_render_gpu
 from bajo.rt.gpu.resources import download_gpu_pixels
 from bajo.core import Vec3f32
 from test.bvh.fixtures import _make_small_scene

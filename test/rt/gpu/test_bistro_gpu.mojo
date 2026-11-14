@@ -6,10 +6,12 @@ from bajo.parser.pbrt import parse_pbrt, read_pbrt
 from test.parser.pbrt.test_bistro import _NormalMapLoader
 from bajo.rt import CpuScene, render_wavefront
 from bajo.rt.material_types import Integrator
+from bajo.rt.gpu.rgb import (
+    enqueue_render_gpu,
+)
 from bajo.rt.gpu import (
     prepare_gpu_scene,
     GpuRtRenderTarget,
-    enqueue_render_gpu,
     download_gpu_pixels,
 )
 from test.rt.helpers import assert_pixels_close

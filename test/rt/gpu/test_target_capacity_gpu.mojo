@@ -2,8 +2,20 @@
 
 from test.rt.helpers import assert_pixels_equal
 from std.memory import bitcast
-from std.testing import TestSuite, assert_equal, assert_true, assert_false
+from std.testing import (
+    TestSuite,
+    assert_equal,
+    assert_true,
+    assert_false,
+    assert_raises,
+)
 from max.gpu.host import DeviceContext
+from bajo.rt.gpu.rgb import (
+    GpuRtPreparedRenderer,
+    enqueue_render_gpu,
+    render_gpu,
+    render_gpu_configured,
+)
 from bajo.rt.gpu.preview import GpuRtPreviewAccumulator
 from bajo.rt.gpu.resources import GpuRtRenderTarget
 from bajo.rt.wavefront_contract import WAVE_COUNTER, WAVE_STATUS
@@ -15,17 +27,19 @@ from bajo.rt.film import FilmResponse
 
 from bajo.core import Point3f32, Vec3f32
 from bajo.rt.gpu.resources import download_gpu_pixels, update_gpu_camera
-from bajo.rt.gpu.render import enqueue_render_gpu
+from bajo.rt.gpu.render import (
+    enqueue_render_gpu as enqueue_render_gpu_auto,
+    render_gpu_configured as render_gpu_configured_auto,
+)
+from bajo.rt.gpu.prepared_renderer import (
+    GpuRtPreparedRenderer as ModeAwareRenderer,
+)
 from test.rt.gpu.test_gpu import _textured_instance_world
 from bajo.rt import Camera, Color, RenderSettings, SceneBuilder
 from bajo.rt.filter import ReconstructionFilter
 from bajo.rt.wavefront_contract import WavePathFloatAbi, WaveShadowFloatAbi
 from bajo.rt.gpu.queue_layout import GPU_SHADE_PLANES
-from bajo.rt.gpu import (
-    GpuRtPreparedRenderer,
-    prepare_gpu_scene,
-    render_gpu_configured,
-)
+from bajo.rt.gpu import prepare_gpu_scene
 
 
 def _camera() -> Camera:
@@ -35,6 +49,72 @@ def _camera() -> Camera:
         Vec3f32[.WORLD](0.0, 1.0, 0.0),
         45.0,
     )
+
+
+def test_gpu_rgb_entry_points_reject_spectral_settings_before_mutation() raises:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    builder.add_sphere(Point3f32[.WORLD](0), 1, matte)
+    var data = builder^.finish()
+    var settings = RenderSettings(3, 2, 2, UInt64(2026), 2)
+    var camera = _camera()
+    var spectral = settings.copy()
+    spectral.color_mode = .SPECTRAL
+    # Invalid mode must be rejected before target resizing or graph changes.
+    spectral.image_width = 9
+    with assert_raises(contains="RGB-only GPU rendering"):
+        _ = GpuRtPreparedRenderer[.SPHERES](spectral, camera, data)
+    with assert_raises(contains="RGB-only GPU rendering"):
+        _ = render_gpu_configured[.SPHERES, .MIS](spectral, camera, data)
+    with assert_raises(contains="RGB-only GPU rendering"):
+        _ = render_gpu[.MIS](spectral, camera, data)
+
+    var renderer = GpuRtPreparedRenderer[.SPHERES](settings, camera, data)
+    _ = renderer.render[.MIS](settings, camera)
+    _ = renderer.render[.MIS](settings, camera)
+    assert_true(Bool(renderer._render_graph))
+    with assert_raises(contains="RGB-only GPU rendering"):
+        enqueue_render_gpu[.MIS](
+            renderer.ctx, renderer.target, renderer.scene, spectral
+        )
+    with assert_raises(contains="RGB-only GPU rendering"):
+        renderer.enqueue[.MIS](spectral)
+    with assert_raises(contains="RGB-only GPU rendering"):
+        _ = renderer.render[.MIS](spectral, camera)
+    with assert_raises(contains="RGB-only GPU rendering"):
+        _ = renderer.preview[.MIS](spectral, camera, 0)
+    assert_equal(renderer.target.image_width, settings.image_width)
+    assert_true(Bool(renderer._render_graph))
+    assert_false(Bool(renderer.target.spectral))
+
+
+def test_gpu_rgb_entry_points_match_mode_aware_rendering_and_replay() raises:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    builder.add_sphere(Point3f32[.WORLD](0), 1, matte)
+    var data = builder^.finish()
+    var settings = RenderSettings(3, 2, 2, UInt64(2026), 2)
+    var camera = _camera()
+    var expected = render_gpu_configured_auto[.SPHERES, .MIS](
+        settings, camera, data
+    )
+    var explicit_rgb = render_gpu_configured[.SPHERES, .MIS](
+        settings, camera, data
+    )
+    assert_pixels_equal(explicit_rgb.pixels, expected.pixels)
+
+    var rgb = GpuRtPreparedRenderer[.SPHERES](settings, camera, data)
+    var auto = ModeAwareRenderer[.SPHERES](settings, camera, data)
+    # Direct submission, graph creation, then replay in each interface.
+    for _ in range(3):
+        var actual = rgb.render[.MIS](settings, camera)
+        var reference = auto.render[.MIS](settings, camera)
+        assert_pixels_equal(actual.pixels, reference.pixels)
+    enqueue_render_gpu_auto[.MIS](rgb.ctx, rgb.target, rgb.scene, settings)
+    var general = download_gpu_pixels(rgb.ctx, rgb.target)
+    assert_pixels_equal(general, expected.pixels)
+    assert_true(Bool(rgb._render_graph))
+    assert_true(Bool(auto._render_graph))
 
 
 def test_gpu_scene_target_bounds_and_alignment() raises:

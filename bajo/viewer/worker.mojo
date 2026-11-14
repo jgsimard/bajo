@@ -247,7 +247,7 @@ def _render_cpu[
     ](settings, camera, world, workspace)
 
 
-struct WorkerState:
+struct _WorkerState[gpu_enabled: Bool]:
     var cpu_path: CpuWavefrontWorkspace[16, .PATH]
     var cpu_nee: CpuWavefrontWorkspace[16, .NEE]
     var cpu_mis: CpuWavefrontWorkspace[16, .MIS]
@@ -306,7 +306,9 @@ struct WorkerState:
         integrator: Integrator
     ](mut self) raises -> RenderResult:
         if self.backend == 1:
-            comptime if has_accelerator():
+            comptime if not Self.gpu_enabled:
+                raise Error("GPU tracing is disabled for this CPU-only worker")
+            elif has_accelerator():
                 return self.gpu.render[integrator](
                     self.scene,
                     self.settings,
@@ -397,9 +399,8 @@ struct WorkerState:
             )
 
 
-@export
-def _bajo_viewer_render_thread(address: UInt) abi("C") -> UInt:
-    var state = Pointer[WorkerState, MutUntrackedOrigin](
+def _run_render_thread[gpu_enabled: Bool](address: UInt) -> UInt:
+    var state = Pointer[_WorkerState[gpu_enabled], MutUntrackedOrigin](
         unsafe_from_address=Int(address)
     )
     while not Atomic.load[ordering=Ordering.ACQUIRE](Pointer(to=state[].stop)):
@@ -419,8 +420,18 @@ def _bajo_viewer_render_thread(address: UInt) abi("C") -> UInt:
     return 0
 
 
-struct RenderWorker:
-    var state: Pointer[WorkerState, MutUntrackedOrigin]
+# C ABI is sufficient for pthread_create. Exporting these callbacks would force
+# both rendering paths to compile even when only CpuRenderWorker is used.
+def _bajo_viewer_render_thread(address: UInt) abi("C") -> UInt:
+    return _run_render_thread[True](address)
+
+
+def _bajo_viewer_cpu_render_thread(address: UInt) abi("C") -> UInt:
+    return _run_render_thread[False](address)
+
+
+struct _RenderWorker[gpu_enabled: Bool]:
+    var state: Pointer[_WorkerState[Self.gpu_enabled], MutUntrackedOrigin]
     var thread: UInt
 
     def __init__(
@@ -429,16 +440,27 @@ struct RenderWorker:
         build_method: Int = 0,
         traversal: Int = 0,
     ) raises:
-        var state = unsafe_alloc[WorkerState](1)
-        state.unsafe_write(WorkerState(scene^, build_method, traversal))
+        var state = unsafe_alloc[_WorkerState[Self.gpu_enabled]](1)
+        state.unsafe_write(
+            _WorkerState[Self.gpu_enabled](scene^, build_method, traversal)
+        )
         state[].notification = create_notification()
         var thread = UInt(0)
-        var code = external_call["pthread_create", c_int](
-            Pointer(to=thread),
-            UInt(0),
-            _bajo_viewer_render_thread,
-            UInt(Int(state)),
-        )
+        var code: c_int
+        comptime if Self.gpu_enabled:
+            code = external_call["pthread_create", c_int](
+                Pointer(to=thread),
+                UInt(0),
+                _bajo_viewer_render_thread,
+                UInt(Int(state)),
+            )
+        else:
+            code = external_call["pthread_create", c_int](
+                Pointer(to=thread),
+                UInt(0),
+                _bajo_viewer_cpu_render_thread,
+                UInt(Int(state)),
+            )
         if code:
             if state[].notification >= 0:
                 _ = external_call["close", c_int](state[].notification)
@@ -505,3 +527,10 @@ struct RenderWorker:
             _ = external_call["close", c_int](self.state[].notification)
         self.state.unsafe_deinit_pointee()
         self.state.unsafe_free()
+
+
+# Preserve the default worker interface and GPU support. CPU-only clients use
+# the same native thread/queues without instantiating the GPU render dispatch.
+comptime WorkerState = _WorkerState[True]
+comptime RenderWorker = _RenderWorker[True]
+comptime CpuRenderWorker = _RenderWorker[False]

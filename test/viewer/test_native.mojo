@@ -19,7 +19,7 @@ from bajo.viewer.raster import (
 )
 from bajo.viewer.native import rotate_camera
 from bajo.viewer.debug import object_boxes
-from bajo.viewer.worker import RenderWorker
+from bajo.viewer.worker import CpuRenderWorker as RenderWorker
 from bajo.rt.cpu import render_wavefront
 from std.memory import bitcast
 
@@ -235,6 +235,34 @@ def test_worker_notification_and_retained_queues_across_batches() raises:
         var another = RenderWorker(ViewerScene(load_viewer_scene(1)))
         if pending:
             another.submit(camera, settings, 0, 0, 0, True, False)
+
+
+def test_cpu_only_worker_reports_gpu_request_and_accepts_next_cpu_frame() raises:
+    var scene = ViewerScene(load_viewer_scene(1))
+    var camera = scene.state.camera
+    var settings = scene.state.settings.copy()
+    settings.image_width = 8
+    settings.image_height = 6
+    settings.samples_per_pixel = 1
+    settings.sample_sequence_length = 1
+    settings.max_depth = 2
+    var worker = RenderWorker(scene^)
+    worker.submit(camera, settings, 1, 3, 1, True, False)
+    _wait(worker)
+    assert_equal(
+        worker.state[].error,
+        String("GPU tracing is disabled for this CPU-only worker"),
+    )
+    assert_true(not worker.state[].result)
+    worker.acknowledge()
+
+    worker.submit(camera, settings, 2, 3, 0, True, False)
+    _wait(worker)
+    assert_equal(worker.state[].error, String(""))
+    var frame = worker.state[].result.take()
+    assert_equal(frame.generation, UInt64(2))
+    assert_equal(len(frame.pixels), 48)
+    worker.acknowledge()
 
 
 def run_tests[_discovery: Bool = True]() raises:

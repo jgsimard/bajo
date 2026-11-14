@@ -78,7 +78,7 @@ from bajo.rt.gpu.common_kernels import (
     make_gpu_rt_primary_path,
     gpu_rt_bounce_block_limit,
 )
-from bajo.rt.gpu.lighting import _sample_direct_light_candidate
+from bajo.rt.gpu.lighting import _sample_direct_light_by_kind
 from bajo.rt.gpu.textures import (
     _GpuImageTextureView,
     _gpu_normal_map,
@@ -141,7 +141,6 @@ def _gpu_rt_scene_trace_path[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
     Formats: _GpuRtKernelFormats,
-    light_kind: PrimitiveKind = .UNKNOWN,
 ](
     idx: Int,
     var path: DeviceWavePath,
@@ -149,6 +148,7 @@ def _gpu_rt_scene_trace_path[
     queues: GpuRtTraceQueueView,
     sampling: SamplingConfig,
     bounce: UInt32,
+    uniform_sampling_kind: UInt32,
     allow_scattering: Bool = True,
 ):
     comptime assert (
@@ -665,7 +665,7 @@ def _gpu_rt_scene_trace_path[
         return
 
     comptime if Integrator.uses_direct_lighting[integrator]:
-        var direct = _sample_direct_light_candidate[integrator, light_kind](
+        var direct = _sample_direct_light_by_kind[integrator](
             path,
             ray,
             closest_t,
@@ -676,6 +676,7 @@ def _gpu_rt_scene_trace_path[
             scene,
             sampling,
             bounce,
+            uniform_sampling_kind,
             front_face=geometric.front_face,
         )
         _append_direct_light_shadow(
@@ -722,7 +723,6 @@ def _gpu_rt_scene_trace_one[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
     Formats: _GpuRtKernelFormats,
-    light_kind: PrimitiveKind = .UNKNOWN,
 ](
     idx: Int,
     scene: GpuRtSceneView,
@@ -730,6 +730,7 @@ def _gpu_rt_scene_trace_one[
     sampling: SamplingConfig,
     bounce: UInt32,
     allow_scattering: Bool,
+    uniform_sampling_kind: UInt32,
 ):
     var src_path_ids = queues.src_path_ids.unsafe_origin_cast[ImmutAnyOrigin]()
     var src_path_fields = queues.src_path_fields.unsafe_origin_cast[
@@ -742,8 +743,16 @@ def _gpu_rt_scene_trace_one[
         integrator,
         scene_kind,
         Formats,
-        light_kind,
-    ](idx, path, scene, queues, sampling, bounce, allow_scattering)
+    ](
+        idx,
+        path,
+        scene,
+        queues,
+        sampling,
+        bounce,
+        uniform_sampling_kind,
+        allow_scattering,
+    )
 
 
 def gpu_rt_primary_scene_trace_kernel[
@@ -751,7 +760,6 @@ def gpu_rt_primary_scene_trace_kernel[
     scene_kind: GpuRtSceneKind,
     Formats: _GpuRtKernelFormats,
     store_source_path: Bool,
-    light_kind: PrimitiveKind = .UNKNOWN,
 ](
     camera_params: Pointer[Float32, ImmutAnyOrigin],
     source_path_ids: Pointer[UInt32, MutAnyOrigin],
@@ -762,6 +770,7 @@ def gpu_rt_primary_scene_trace_kernel[
     height_i32: Int32,
     samples_per_pixel_i32: Int32,
     sampling_arg: GpuRtSamplingConfig,
+    uniform_sampling_kind: UInt32,
 ):
     var sampling = sampling_arg.load()
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
@@ -798,21 +807,20 @@ def gpu_rt_primary_scene_trace_kernel[
         integrator,
         scene_kind,
         Formats,
-        light_kind,
-    ](idx, path, scene, queues, sampling, UInt32(0))
+    ](idx, path, scene, queues, sampling, UInt32(0), uniform_sampling_kind)
 
 
 def gpu_rt_scene_trace_kernel[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
     Formats: _GpuRtKernelFormats,
-    light_kind: PrimitiveKind = .UNKNOWN,
 ](
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
     sampling_arg: GpuRtSamplingConfig,
     bounce: UInt32,
     allow_scattering: UInt32,
+    uniform_sampling_kind: UInt32,
 ):
     var sampling = sampling_arg.load()
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
@@ -832,8 +840,15 @@ def gpu_rt_scene_trace_kernel[
             integrator,
             scene_kind,
             Formats,
-            light_kind,
-        ](path_idx, scene, queues, sampling, bounce, allow_scattering != 0)
+        ](
+            path_idx,
+            scene,
+            queues,
+            sampling,
+            bounce,
+            allow_scattering != 0,
+            uniform_sampling_kind,
+        )
         idx += stride
 
 

@@ -35,7 +35,7 @@ def _media[width: SIMDLength]() raises:
                 expected = medium_transmittance(
                     media.absorption[Int(ids[lane])], distances[lane]
                 )
-            comptime for axis in range(3):
+            for axis in range(3):
                 assert_almost_equal(
                     actual[axis][lane], expected[axis][0], atol=2e-6
                 )

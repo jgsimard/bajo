@@ -72,7 +72,7 @@ def check_packets[length: SIMDLength](data: SceneData) raises:
         var v = SIMD[.float32, length](0.3)
         var normal = Vec3[.float32, .WORLD, length](0.0, 0.0, 1.0)
         var active = SIMD[.bool, length](fill=True)
-        comptime for lane in range(length):
+        for lane in range(length):
             active[lane] = (
                 pattern != 4
                 and (pattern != 2 or lane % 3 == 1)
@@ -92,7 +92,7 @@ def check_packets[length: SIMDLength](data: SceneData) raises:
         var actual = _triangle_instance_shading(
             data, instances, triangles, u, v, normal, active
         )
-        comptime for lane in range(length):
+        for lane in range(length):
             if not active[lane]:
                 assert_equal(actual[0].x[lane], normal.x[lane])
                 assert_equal(actual[0].y[lane], normal.y[lane])
@@ -110,7 +110,7 @@ def check_packets[length: SIMDLength](data: SceneData) raises:
                     normal.x[lane], normal.y[lane], normal.z[lane]
                 ),
             )
-            comptime for axis in range(3):
+            for axis in range(3):
                 assert_almost_equal(
                     actual[0][axis][lane], expected[0][axis], atol=1e-6
                 )
@@ -130,7 +130,7 @@ def check_surface_packets[length: SIMDLength](world: CpuScene[16, 16]) raises:
         Vec3[.float32, .WORLD, length](0.0, 0.0, -1.0),
     )
     var valid = SIMD[.bool, length](fill=True)
-    comptime for lane in range(length):
+    for lane in range(length):
         ref instance = world.scene_data().triangle_instances()[lane % 5]
         var target = instance.transform.point(Point3f32[.LOCAL](0.2, 0.3, 0.0))
         rays.o.x[lane] = target.x
@@ -138,7 +138,7 @@ def check_surface_packets[length: SIMDLength](world: CpuScene[16, 16]) raises:
         rays.o.z[lane] = target.z + 3.0
         valid[lane] = lane % 3 != 0
     var actual = world.trace_surface(rays, valid)
-    comptime for lane in range(length):
+    for lane in range(length):
         if not valid[lane]:
             assert_equal(actual.hit[lane], False)
             continue
@@ -156,7 +156,7 @@ def check_surface_packets[length: SIMDLength](world: CpuScene[16, 16]) raises:
         assert_almost_equal(actual.t[lane], expected.t, atol=1e-6)
         assert_almost_equal(actual.uv_u[lane], expected.uv_u, atol=1e-6)
         assert_almost_equal(actual.uv_v[lane], expected.uv_v, atol=1e-6)
-        comptime for axis in range(3):
+        for axis in range(3):
             assert_almost_equal(
                 actual.normal[axis][lane], expected.normal[axis], atol=1e-6
             )

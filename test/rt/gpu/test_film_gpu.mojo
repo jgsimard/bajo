@@ -49,7 +49,7 @@ def test_gpu_clamps_complete_path_after_emission_and_environment_accumulation() 
                     var gpu = download_gpu_pixels(ctx, target)
                     assert_pixels_close(gpu, cpu.pixels, atol=1e-5)
                     for pixel in gpu:
-                        comptime for channel in range(3):
+                        for channel in range(3):
                             assert_almost_equal(
                                 pixel[channel], expected[channel], atol=1e-5
                             )

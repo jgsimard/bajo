@@ -45,7 +45,7 @@ def _precision_kernel[
         return
     var box, ray, radius, cutoff = _case(data, lane)
     var inverse = Vec3[.float64, .WORLD](0.0)
-    comptime for axis in range(3):
+    for axis in range(3):
         if ray.d[axis] != 0.0:
             inverse[axis] = 1.0 / Float64(ray.d[axis])
     output[lane * 2] = UInt32(

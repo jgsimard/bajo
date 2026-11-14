@@ -41,7 +41,7 @@ def check_bits(
                 var right = Int(tree.nodes[(node + 1) * 2])
                 assert_true(node + 1 < right and right < escape)
                 assert_equal(Int(tree.nodes[right * 2]), escape)
-            comptime for axis in range(3):
+            for axis in range(3):
                 var lower = UInt32(0x7F7FFFFF)
                 var upper = UInt32(0xFF7FFFFF)
                 for descendant in range(node, escape):

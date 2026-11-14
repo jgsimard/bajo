@@ -955,7 +955,7 @@ Shape "plymesh" "string filename" "first.ply"
                 ref old = expected.data.triangle_instances()[i]
                 ref new = actual.data.triangle_instances()[i]
                 assert_equal(new.blas_idx, old.blas_idx)
-                comptime for axis in range(3):
+                for axis in range(3):
                     assert_equal(new.bounds._min[axis], old.bounds._min[axis])
                     assert_equal(new.bounds._max[axis], old.bounds._max[axis])
             for i in range(3):
@@ -963,7 +963,7 @@ Shape "plymesh" "string filename" "first.ply"
                 ref new = actual.data.triangle_meshes()[i]
                 assert_equal(len(new), len(old))
                 for vertex in range(len(old)):
-                    comptime for axis in range(3):
+                    for axis in range(3):
                         assert_equal(new[vertex][axis], old[vertex][axis])
                 assert_equal(
                     actual.data.triangle_mesh_normals()[i],

@@ -70,7 +70,7 @@ def test_velocity_publication_rejection_alias_and_clear() raises:
                         assert_equal(actual[component], Float32(0.0))
             with gpu.points.map_to_host() as actual:
                 for vertex in range(count):
-                    comptime for axis in range(3):
+                    for axis in range(3):
                         assert_equal(
                             actual[vertex * 3 + axis], points[vertex][axis]
                         )

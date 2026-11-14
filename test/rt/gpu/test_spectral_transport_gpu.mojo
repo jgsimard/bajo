@@ -41,7 +41,7 @@ def _canon_kernel[
     var value = film.apply_spectral_sample(
         SampledSpectrum[1](2, 3, 5, 7), wavelengths
     )
-    comptime for channel in range(3):
+    for channel in range(3):
         output[unsafe_offset=channel] = value[channel]
 
 
@@ -63,7 +63,7 @@ def test_gpu_canon_measured_response_and_complete_sample_clamp() raises:
             film, output, grid_dim=1, block_dim=1
         )
         with output.map_to_host() as actual:
-            comptime for channel in range(3):
+            for channel in range(3):
                 assert_almost_equal(
                     actual[channel], expected[channel], atol=2e-5
                 )
@@ -102,7 +102,7 @@ def test_gpu_spectral_primary_tail_chunking_graph_and_mode_changes() raises:
     ](settings, camera, world, workspace)
     settings.sample_offset = 0
     for pixel in range(len(first.pixels)):
-        comptime for channel in range(3):
+        for channel in range(3):
             assert_almost_equal(
                 first.pixels[pixel][channel],
                 expected.pixels[pixel][channel],
@@ -121,7 +121,7 @@ def test_gpu_spectral_primary_tail_chunking_graph_and_mode_changes() raises:
     settings.color_mode = .SPECTRAL
     var returned = renderer.render[.MIS](settings, camera)
     assert_true(rgb.pixels[0].is_finite()[0])
-    comptime for channel in range(3):
+    for channel in range(3):
         assert_equal(first.pixels[0][channel], returned.pixels[0][channel])
     var preview = renderer.preview[.MIS](settings, camera, 1)
     settings.color_mode = .RGB
@@ -164,7 +164,7 @@ def test_gpu_programmatic_environment_product_matches_cpu() raises:
     ](settings, camera, world, workspace)
     for pixel in range(len(actual.pixels)):
         assert_true(actual.pixels[pixel].y > 0)
-        comptime for channel in range(3):
+        for channel in range(3):
             assert_almost_equal(
                 actual.pixels[pixel][channel],
                 expected.pixels[pixel][channel],
@@ -236,7 +236,7 @@ def test_gpu_spectral_all_current_bsdfs_absorption_and_cpu_region_agreement() ra
         gpu_total += b
     cpu_total = cpu_total / 8
     gpu_total = gpu_total / 8
-    comptime for channel in range(3):
+    for channel in range(3):
         var variance = Float32(0)
         for seed in range(8):
             var a = cpu_means[seed][channel] - cpu_total[channel]

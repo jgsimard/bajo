@@ -37,7 +37,7 @@ def _decode_kernel[
         var bilinear = view.sample_bilinear(u, v)
         var environment = view.sample_environment(u, v)
         var base = (image * 289 + index) * 12
-        comptime for channel in range(3):
+        for channel in range(3):
             output[unsafe_offset=base + channel] = bitcast[.uint32](
                 texel[channel]
             )
@@ -77,7 +77,7 @@ def test_device_palette_and_raw_fallback_recover_texels_and_sample_domains() rai
                     var nearest = source.sample(u, v)
                     var bilinear = source.sample_bilinear(u, v)
                     var environment = source.sample_environment(u, v)
-                    comptime for channel in range(3):
+                    for channel in range(3):
                         assert_equal(
                             values[base + channel],
                             bitcast[.uint32](

@@ -87,7 +87,7 @@ def nearest_kernel[
     output[lane * 8 + 2] = Float64(hit.u)
     output[lane * 8 + 3] = Float64(hit.v)
     output[lane * 8 + 4] = hit.distance
-    comptime for axis in range(3):
+    for axis in range(3):
         output[lane * 8 + 5 + axis] = Float64(hit.point[axis])
 
 
@@ -198,7 +198,7 @@ def test_nearest_groups_ties_cutoffs_and_extreme_scales() raises:
                     assert_almost_equal(
                         actual[lane * 8 + 4], hit.distance, atol=0.0, rtol=1e-14
                     )
-                    comptime for axis in range(3):
+                    for axis in range(3):
                         assert_equal(
                             actual[lane * 8 + 5 + axis],
                             Float64(hit.point[axis]),
@@ -319,7 +319,7 @@ def test_nearest_mixed_magnitudes_preserve_canonical_projection() raises:
                     atol=0.0,
                     rtol=1e-14,
                 )
-                comptime for axis in range(3):
+                for axis in range(3):
                     assert_equal(
                         actual[lane * 8 + 5 + axis],
                         Float64(expected.point[axis]),

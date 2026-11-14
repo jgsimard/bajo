@@ -55,7 +55,7 @@ def _geometry_kernel[
     output[lane * 8 + 6] = Float64(ray_t)
     output[lane * 8 + 7] = Float64(ray_error)
     var normal = triangle_normal_f32(a, b, c)
-    comptime for axis in range(3):
+    for axis in range(3):
         output[lane * 8 + 3 + axis] = Float64(normal[axis])
 
 
@@ -104,9 +104,9 @@ def test_gpu_geometry_filters_regions_skinny_faces_and_scales() raises:
             if i % 17 == 0:
                 direction = e1
             for vertex in List[Point3f32[.WORLD]]([origin, b, c, p]):
-                comptime for axis in range(3):
+                for axis in range(3):
                     data.append(vertex[(axis + i % 3) % 3])
-            comptime for axis in range(3):
+            for axis in range(3):
                 data.append(direction[(axis + i % 3) % 3])
             data.append(0.0)
             data.append(8.0)
@@ -126,7 +126,7 @@ def test_gpu_geometry_filters_regions_skinny_faces_and_scales() raises:
             for lane in range(1280):
                 var a, b, c, ray = _case(data, lane)
                 var normal = triangle_normal(a, b, c)
-                comptime for axis in range(3):
+                for axis in range(3):
                     assert_equal(
                         values[lane * 8 + 3 + axis],
                         Float64(Float32(normal[axis])),

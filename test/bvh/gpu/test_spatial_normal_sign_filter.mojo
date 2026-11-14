@@ -47,7 +47,7 @@ def test_normal_sign_certifications_match_float64_across_extremes() raises:
     var state = UInt32(0xA73B2195)
     for i in range(CASES):
         var coords = Array[Float32, 15](fill=0.0)
-        comptime for j in range(15):
+        for j in range(15):
             state = state * UInt32(1664525) + UInt32(1013904223)
             var word = (state & UInt32(0x807FFFFF)) | (
                 ((state >> 23) % 255) << 23
@@ -100,7 +100,7 @@ def test_normal_sign_certifications_match_float64_across_extremes() raises:
             coords[8] = 2
         elif i % 8 == 6:
             # Mixed subnormal/large inputs exercise the FTZ allowance.
-            comptime for j in range(15):
+            for j in range(15):
                 coords[j] = bitcast[.float32](
                     UInt32(j + 1) | ((UInt32(i) & 1) << 31)
                 )
@@ -128,13 +128,13 @@ def test_normal_sign_certifications_match_float64_across_extremes() raises:
             )
             coords[11] = 1.0 + offset * Float32(1 if i % 16 == 7 else -1)
         if i % 31 == 0:
-            comptime for axis in range(3):
+            for axis in range(3):
                 coords[3 + axis] = coords[axis]
         if i % 37 == 0:
-            comptime for axis in range(3):
+            for axis in range(3):
                 coords[6 + axis] = coords[axis]
         if i % 43 == 0:
-            comptime for axis in range(3):
+            for axis in range(3):
                 coords[9 + axis] = coords[12 + axis]
         for value in coords:
             data.append(value)

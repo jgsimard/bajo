@@ -53,7 +53,7 @@ def test_gpu_emissive_diffuse_continues_reflection_and_matches_path_and_mis() ra
                         if two_sided or not back:
                             expected += Color(0.1, 0.2, 0.3)
                         for pixel in gpu:
-                            comptime for channel in range(3):
+                            for channel in range(3):
                                 assert_almost_equal(
                                     pixel[channel], expected[channel], atol=1e-6
                                 )
@@ -153,7 +153,7 @@ AttributeEnd
             var target = GpuRtRenderTarget(ctx, settings, camera, 4)
             enqueue_render_gpu[.PATH](ctx, target, scene, settings)
             var gpu = download_gpu_pixels(ctx, target)
-            comptime for channel in range(3):
+            for channel in range(3):
                 var expected = Float32(
                     index + 1
                 ) if channel == index else Float32(0.0)
@@ -194,7 +194,7 @@ def test_gpu_depth_limits_preserve_terminal_emission_without_scattering() raises
                             gpu, cpu.pixels, atol=1e-6, rtol=1e-6
                         )
                         for pixel in gpu:
-                            comptime for channel in range(3):
+                            for channel in range(3):
                                 assert_almost_equal(
                                     pixel[channel], expected[channel], atol=1e-6
                                 )

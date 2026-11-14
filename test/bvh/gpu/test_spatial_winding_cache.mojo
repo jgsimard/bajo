@@ -77,7 +77,7 @@ def test_device_winding_updates_graphs_open_faces_and_orientation() raises:
                 cpu.refit(points)
                 with input.map_to_host() as data:
                     for vertex in range(len(points)):
-                        comptime for axis in range(3):
+                        for axis in range(3):
                             data[vertex * 3 + axis] = points[vertex][axis]
                 if phase == 1:
                     gpu.refit_device(ctx, input)
@@ -165,7 +165,7 @@ def check_parallel_winding_refit[
             cpu.refit(points)
             with input.map_to_host() as data:
                 for vertex in range(len(points)):
-                    comptime for axis in range(3):
+                    for axis in range(3):
                         data[vertex * 3 + axis] = points[vertex][axis]
             if phase == 2:
                 gpu.enqueue_update[rebuild, block_size](ctx, input)
@@ -224,7 +224,7 @@ def check_parallel_winding_refit[
                 assert_equal(data[i], cpu.bvh.bounds[i])
         with gpu.points.map_to_host() as data:
             for vertex in range(len(points)):
-                comptime for axis in range(3):
+                for axis in range(3):
                     assert_equal(data[vertex * 3 + axis], points[vertex][axis])
 
 
@@ -415,7 +415,7 @@ def check_component_hybrid_graph_and_failed_update[side: Int]() raises:
             host.refit(points)
             with input.map_to_host() as mapped:
                 for i in range(len(points)):
-                    comptime for axis in range(3):
+                    for axis in range(3):
                         mapped[3 * i + axis] = points[i][axis]
             if phase == 0:
                 gpu.refit_device(ctx, input)
@@ -424,7 +424,7 @@ def check_component_hybrid_graph_and_failed_update[side: Int]() raises:
                 gpu.check_update(ctx)
             with gpu.winding.value().tree.update_items.map_to_host() as actual:
                 for component in range(2):
-                    comptime for axis in range(3):
+                    for axis in range(3):
                         assert_equal(
                             bitcast[.uint32](actual[6 * component + axis]),
                             bitcast[.uint32](
@@ -452,7 +452,7 @@ def check_component_hybrid_graph_and_failed_update[side: Int]() raises:
         assert_true(rejected)
         with gpu.winding.value().tree.update_items.map_to_host() as actual:
             for component in range(2):
-                comptime for axis in range(3):
+                for axis in range(3):
                     assert_equal(
                         actual[6 * component + axis],
                         host.winding.bvh.item_bounds[component]._min[axis],

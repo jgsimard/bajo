@@ -13,7 +13,7 @@ def assert_pixels_close(
 ) raises:
     assert_equal(len(actual), len(expected))
     for i in range(len(expected)):
-        comptime for axis in range(3):
+        for axis in range(3):
             if rtol:
                 assert_almost_equal(
                     actual[i][axis],
@@ -34,7 +34,7 @@ def assert_pixels_close(
 def assert_pixels_equal(actual: List[Color], expected: List[Color]) raises:
     assert_equal(len(actual), len(expected))
     for i in range(len(expected)):
-        comptime for axis in range(3):
+        for axis in range(3):
             assert_equal(
                 actual[i][axis],
                 expected[i][axis],

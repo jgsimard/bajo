@@ -29,7 +29,7 @@ def test_instance_derives_inverse_from_transform() raises:
     var round_trip = instance.inv_transform.point(
         instance.transform.point(local_point)
     )
-    comptime for axis in range(3):
+    for axis in range(3):
         assert_almost_equal(round_trip[axis], local_point[axis])
 
 
@@ -191,7 +191,7 @@ def test_tlas_triangle_packet_matches_scalar() raises:
             assert_true(packet_hit.inst[lane] == scalar_hit.inst)
             assert_true(packet_hit.prim[lane] == scalar_hit.prim)
             assert_almost_equal(packet_hit.t[lane], scalar_hit.t)
-            comptime for axis in range(3):
+            for axis in range(3):
                 assert_almost_equal(
                     packet_hit.normal[axis][lane], scalar_hit.normal[axis]
                 )
@@ -428,7 +428,7 @@ def test_parallel_tlas_refit_matches_serial() raises:
                 == expected.hot_instances[i].translation_only
             )
         for i in range(len(actual.tree.nodes)):
-            comptime for lane in range(width):
+            for lane in range(width):
                 assert_almost_equal(
                     actual.tree.nodes[i].aabb._min.x[lane],
                     expected.tree.nodes[i].aabb._min.x[lane],

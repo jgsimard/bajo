@@ -129,7 +129,7 @@ def test_retained_wavefront_workspace_matches_fresh_after_capacity_changes() rai
             4,
         ](settings, camera, world, workspace)
         for i in range(len(expected.pixels)):
-            comptime for channel in range(3):
+            for channel in range(3):
                 assert_equal(
                     bitcast[.uint32](actual.pixels[i][channel]),
                     bitcast[.uint32](expected.pixels[i][channel]),
@@ -1385,7 +1385,7 @@ def _check_world_occlusion_packets[
             )
             var valid = SIMD[.bool, length](fill=True)
             var expected = SIMD[.bool, length](fill=False)
-            comptime for lane in range(length):
+            for lane in range(length):
                 var scenario = (first + lane) % (3 if pattern == 2 else len(xs))
                 rays.o.x[lane] = xs[scenario]
                 rays.t_max[lane] = ends[scenario]
@@ -1395,7 +1395,7 @@ def _check_world_occlusion_packets[
                     visible_geometry and valid[lane] and scenario < 3
                 )
             var actual = world.occluded(rays, valid)
-            comptime for lane in range(length):
+            for lane in range(length):
                 assert_equal(actual[lane], expected[lane])
                 if valid[lane]:
                     var scalar = world.occluded(
@@ -2053,7 +2053,7 @@ def test_film_response_simd_rgb_and_tails() raises:
             # Offset views exercise unaligned loads; sentinels catch tail writes.
             film.apply_to[width](pixels[1 : count + 1], 0.25)
             for i in range(count + 2):
-                comptime for channel in range(3):
+                for channel in range(3):
                     assert_equal(
                         bitcast[.uint32](pixels[i][channel]),
                         bitcast[.uint32](expected[i][channel]),

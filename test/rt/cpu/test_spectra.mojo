@@ -71,7 +71,7 @@ def test_visible_and_uniform_wavelengths_match_independent_reference() raises:
             var uniform = SampledWavelengths[width].uniform(
                 SIMD[.float32, width](0.9)
             )
-            comptime for i in range(4):
+            for i in range(4):
                 var expected = Float32(783) + Float32(117.5) * Float32(i)
                 if expected > 830:
                     expected -= 470
@@ -85,7 +85,7 @@ def test_visible_and_uniform_wavelengths_match_independent_reference() raises:
         var cyclic = SampledWavelengths[width].visible(
             SIMD[.float32, width](0.9)
         )
-        comptime for i in range(4):
+        for i in range(4):
             var u = Float32(0.9) + Float32(i) * 0.25
             if u > 1:
                 u -= 1
@@ -106,7 +106,7 @@ def test_spectral_arithmetic_and_lane_specific_secondary_termination() raises:
     var a = SampledSpectrum[4](SIMD[.float32, 4](1, 2, 3, 4))
     var b = SampledSpectrum[4](2, 4, 6, 8)
     var result = ((a + b) * b - b).safe_divide(b)
-    comptime for i in range(4):
+    for i in range(4):
         for lane in range(4):
             assert_equal(
                 result[i][lane], Float32(lane + 1) + Float32(2 * (i + 1)) - 1
@@ -120,7 +120,7 @@ def test_spectral_arithmetic_and_lane_specific_secondary_termination() raises:
     wavelengths.terminate_secondary(active)
     var once = wavelengths
     wavelengths.terminate_secondary(active)
-    comptime for i in range(4):
+    for i in range(4):
         for lane in range(4):
             assert_equal(wavelengths.pdf[i][lane], once.pdf[i][lane])
             var expected = Float32(1.0 / 470)
@@ -140,7 +140,7 @@ def test_dense_cie_lookup_and_pdf_weighted_sensor_use_original_samples() raises:
     ref observer = global_constant[CIE_XYZ]()
     for nm in [360, 460, 551, 830]:
         var xyz = cie_xyz(SIMD[.float32, 1](Float32(nm)))
-        comptime for c in range(3):
+        for c in range(3):
             assert_equal(xyz[c], observer[nm - 360][c])
     assert_equal(cie_xyz(SIMD[.float32, 1](550.49)).y, observer[190].y)
     assert_equal(cie_xyz(SIMD[.float32, 1](550.5)).y, observer[191].y)
@@ -158,7 +158,7 @@ def test_dense_cie_lookup_and_pdf_weighted_sensor_use_original_samples() raises:
         var sensor = sampled_sensor_xyz(radiance, wavelengths)
         var normalized = spectral_to_xyz(radiance, wavelengths)
         for lane in range(width):
-            comptime for channel in range(3):
+            for channel in range(3):
                 assert_almost_equal(
                     sensor[channel][lane], REFERENCE_SENSOR[channel], atol=1e-6
                 )
@@ -184,7 +184,7 @@ def test_original_rgb_table_coefficients_and_spectra_match_independent_cpp() rai
             var actual = table.sample(
                 rgbs[index], reference_wavelengths(), UInt32(kind)
             )
-            comptime for i in range(4):
+            for i in range(4):
                 assert_almost_equal(
                     actual[i], expected[index][3 + kind * 4 + i], atol=2e-6
                 )
@@ -199,7 +199,7 @@ def test_original_rgb_table_coefficients_and_spectra_match_independent_cpp() rai
             var actual = table.sample(
                 rgb, reference_wavelengths[width](), UInt32(kind)
             )
-            comptime for i in range(4):
+            for i in range(4):
                 for lane in range(width):
                     assert_almost_equal(
                         actual[i][lane],
@@ -213,7 +213,7 @@ def test_d65_normalization_and_spectral_rgb_round_trip() raises:
     var owner = RgbSpectrumTable.read("bajo/core/data/srgb_spectra.bin")
     var table = owner.view()
     var wavelengths = reference_wavelengths()
-    comptime for i in range(4):
+    for i in range(4):
         assert_almost_equal(
             table.illuminant(wavelengths.lambda_nm[i]),
             REFERENCE_D65[i],
@@ -238,7 +238,7 @@ def test_d65_normalization_and_spectral_rgb_round_trip() raises:
                 rgbs[index], sample, RgbSpectrumView.ILLUMINANT
             )
             var observer = cie_xyz(SIMD[.float32, 1](Float32(nm)))
-            comptime for c in range(3):
+            for c in range(3):
                 xyz[c] += (
                     Float64(observer[c])
                     * Float64(s.s0)
@@ -255,7 +255,7 @@ def test_d65_normalization_and_spectral_rgb_round_trip() raises:
             + Float32(xyz.y) * film.xyz_blue.y
             + Float32(xyz.z) * film.xyz_blue.z,
         )
-        comptime for c in range(3):
+        for c in range(3):
             # The original PBRT reconstruction is itself a fitted model.
             assert_almost_equal(rgb[c], rgbs[index][c], atol=0.003)
     _ = owner^
@@ -281,7 +281,7 @@ def test_spectral_film_clamps_integrated_sensor_before_output_conversion() raise
             + rgb.z * film.sensor_blue.z,
         )
         for lane in range(width):
-            comptime for c in range(3):
+            for c in range(3):
                 assert_almost_equal(
                     sensor[c][lane],
                     REFERENCE_SENSOR[c] * (Float32(2) / REFERENCE_SENSOR.z),
@@ -345,7 +345,7 @@ def test_packed_optical_curves_preserve_original_samples_and_mixed_lane_ids() ra
     assert_almost_equal(values.s0[0], Float32(0.516), atol=1e-7)
     assert_almost_equal(values.s0[1], Float32(2.8125), atol=1e-7)
     assert_almost_equal(values.s0[2], Float32(1.575), atol=1e-7)
-    comptime for i in range(4):
+    for i in range(4):
         assert_equal(values[i][3], Float32(1.4))
     assert_equal(values.s3[2], Float32(0))
     assert_equal(values.s3[1], Float32(5.575))

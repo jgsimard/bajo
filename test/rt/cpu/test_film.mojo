@@ -123,7 +123,7 @@ def test_film_parser_retains_sensor_limit_and_rejects_invalid_limits() raises:
         film.sensor_blue,
     ]
     for row in range(3):
-        comptime for channel in range(3):
+        for channel in range(3):
             assert_almost_equal(
                 actual[row][channel], expected[row][channel], atol=1e-7
             )
@@ -160,7 +160,7 @@ def test_film_sensor_clamp_preserves_channel_ratios_and_exposure_order() raises:
         var packet = film.apply_sample(color)
         var scalar = film.apply_sample(Color(30, 10, 5))
         for lane in range(width):
-            comptime for channel in range(3):
+            for channel in range(3):
                 assert_almost_equal(
                     packet[channel][lane], scalar[channel], atol=1e-6
                 )
@@ -199,7 +199,7 @@ def test_complete_path_is_clamped_after_all_emission_and_environment_contributio
                 settings, camera, world
             )
             for pixel in result.pixels:
-                comptime for channel in range(3):
+                for channel in range(3):
                     assert_almost_equal(
                         pixel[channel], expected[channel], atol=5e-6
                     )

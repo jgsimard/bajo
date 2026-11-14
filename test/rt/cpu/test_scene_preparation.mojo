@@ -70,7 +70,7 @@ def _check_bounds(vertices: ImmSpan[Point3f32[.LOCAL], _]) raises:
         new_error = String(error)
     assert_equal(old_error, new_error)
     if old_error == "":
-        comptime for axis in range(3):
+        for axis in range(3):
             assert_equal(
                 bitcast[.uint32](old._min[axis]),
                 bitcast[.uint32](new._min[axis]),
@@ -92,7 +92,7 @@ def test_mesh_validation_rejects_bad_lanes_and_preserves_error_priority() raises
     for bad in range(len(vertices)):
         var saved = vertices[bad]
         for bits in [UInt32(0x7FC00000), 0x7F800000, 0xFF800000, 0x7F7FFFFF]:
-            comptime for axis in range(3):
+            for axis in range(3):
                 vertices[bad] = saved
                 vertices[bad][axis] = bitcast[.float32](bits)
                 _check_bounds(vertices)
@@ -196,7 +196,7 @@ def _check_lights(
         assert_equal(a.primitive.value, b.primitive.value)
         assert_equal(a.surface.value, b.surface.value)
         assert_equal(bitcast[.uint32](a.weight), bitcast[.uint32](b.weight))
-        comptime for axis in range(3):
+        for axis in range(3):
             assert_equal(
                 bitcast[.uint32](a.p0[axis]), bitcast[.uint32](b.p0[axis])
             )
@@ -305,7 +305,7 @@ def test_instance_light_preparation_retains_uvs_emission_and_opacity_on_both_pat
                     assert_almost_equal(
                         record.weight, expected_weight, atol=1e-5
                     )
-                    comptime for axis in range(3):
+                    for axis in range(3):
                         assert_equal(record.radiance[axis], radiance[axis])
                         assert_equal(record.p0[axis], p0[axis])
                         assert_equal(record.p1[axis], p1[axis])

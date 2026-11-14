@@ -95,7 +95,7 @@ def test_palette_and_raw_fallback_preserve_every_float32_bit() raises:
         ref source = surfaces.image_textures[image]
         for pixel in range(source.width * source.height):
             var actual = view.texel(pixel)
-            comptime for channel in range(3):
+            for channel in range(3):
                 assert_equal(
                     bitcast[.uint32](actual[channel]),
                     bitcast[.uint32](source.pixels[3 * pixel + channel]),
@@ -127,7 +127,7 @@ def test_paletted_nearest_bilinear_and_environment_addressing_match_source() rai
             var expected_bilinear = source.sample_bilinear(u, v)
             var environment = view.sample_environment(u, v)
             var expected_environment = source.sample_environment(u, v)
-            comptime for channel in range(3):
+            for channel in range(3):
                 assert_equal(
                     bitcast[.uint32](nearest[channel]),
                     bitcast[.uint32](expected_nearest[channel]),

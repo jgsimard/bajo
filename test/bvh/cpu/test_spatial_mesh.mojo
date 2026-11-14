@@ -541,7 +541,7 @@ def test_mesh_vector_validation_batches_tails_and_atomicity() raises:
         mesh.refit(points)
         mesh.set_velocities(velocities)
         for i in range(count):
-            comptime for axis in range(3):
+            for axis in range(3):
                 assert_equal(
                     bitcast[.uint32](mesh.points[i * 3 + axis]),
                     bitcast[.uint32](points[i][axis][0]),
@@ -551,7 +551,7 @@ def test_mesh_vector_validation_batches_tails_and_atomicity() raises:
                     bitcast[.uint32](velocities[i][axis][0]),
                 )
         for i in range(count):
-            comptime for axis in range(3):
+            for axis in range(3):
                 for bad in [
                     UInt32(0x7F800000),
                     UInt32(0xFF800000),

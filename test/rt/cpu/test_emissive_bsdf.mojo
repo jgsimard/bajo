@@ -73,7 +73,7 @@ def test_emissive_diffuse_retains_bsdf_and_reflects_the_environment() raises:
             if two_sided or not back:
                 expected += Color(0.1, 0.2, 0.3)
             for pixel in image.pixels:
-                comptime for channel in range(3):
+                for channel in range(3):
                     assert_almost_equal(
                         pixel[channel], expected[channel], atol=1e-6
                     )
@@ -204,7 +204,7 @@ AttributeEnd
         for lane in range(4):
             assert_equal(hits.hit[lane], lane < 3)
             var scalar = hits.get(lane)
-            comptime for channel in range(3):
+            for channel in range(3):
                 var expected = Float32(
                     lane + 1
                 ) if lane == channel else Float32(0.0)
@@ -271,7 +271,7 @@ def test_depth_limits_preserve_terminal_emission_without_scattering() raises:
                         settings, camera, world
                     )
                     for pixel in result.pixels:
-                        comptime for channel in range(3):
+                        for channel in range(3):
                             assert_almost_equal(
                                 pixel[channel], expected[channel], atol=1e-6
                             )

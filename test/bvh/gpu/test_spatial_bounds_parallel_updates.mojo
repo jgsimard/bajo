@@ -63,7 +63,7 @@ def _check[
                 if i == count // 2:
                     boxes[i]._min.x = 2.0e38
                     boxes[i]._max.x = 3.0e38
-                comptime for axis in range(3):
+                for axis in range(3):
                     flat[i * 6 + axis] = boxes[i]._min[axis]
                     flat[i * 6 + axis + 3] = boxes[i]._max[axis]
             with input.map_to_host() as data:

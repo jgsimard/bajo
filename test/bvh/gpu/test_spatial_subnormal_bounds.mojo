@@ -36,9 +36,9 @@ def test_gpu_subnormal_bounds_publication_refit_and_graph() raises:
             var z = bitcast[.float32](UInt32(17) | (UInt32((i + 1) % 2) << 31))
             boxes[i]._min.z = z
             boxes[i]._max.z = z
-            comptime for axis in range(3):
+            for axis in range(3):
                 flat.append(boxes[i]._min[axis])
-            comptime for axis in range(3):
+            for axis in range(3):
                 flat.append(boxes[i]._max[axis])
         var input = upload_list(ctx, flat)
         var graph = gpu.create_update_graph[False](ctx, input)

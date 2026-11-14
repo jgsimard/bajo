@@ -43,7 +43,7 @@ def check_forest(
                 assert_equal(Int(tree.nodes[right * 2]), escape)
             # Independently scan every descendant primitive rather than
             # reproducing either builder's range scan or child-bound merge.
-            comptime for axis in range(3):
+            for axis in range(3):
                 var lo = Float32(f32_max)
                 var hi = -lo
                 var found = False

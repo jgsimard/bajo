@@ -103,7 +103,7 @@ def test_distance2_scalar_and_packets_at_extreme_scales() raises:
         )
         var nearest = boxes.distance2(p) / scale2
         var furthest = boxes.distance2[True](p) / scale2
-        comptime for lane in range(2):
+        for lane in range(2):
             assert_almost_equal(nearest[lane], Float64(2.0), atol=1e-12)
             assert_almost_equal(furthest[lane], Float64(8.25), atol=1e-12)
 

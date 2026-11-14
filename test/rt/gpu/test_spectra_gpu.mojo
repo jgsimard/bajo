@@ -63,7 +63,7 @@ def _spectra_kernel[
         var index = base + lane
         if index >= 257:
             continue
-        comptime for i in range(4):
+        for i in range(4):
             output[unsafe_offset=index * 32 + i] = wavelengths.lambda_nm[i][
                 lane
             ]
@@ -74,7 +74,7 @@ def _spectra_kernel[
             output[unsafe_offset=index * 32 + 26 + i] = table.illuminant(
                 wavelengths.lambda_nm[i]
             )[lane]
-        comptime for c in range(3):
+        for c in range(3):
             output[unsafe_offset=index * 32 + 20 + c] = xyz[c][lane]
             output[unsafe_offset=index * 32 + 23 + c] = pixel[c][lane]
         output[unsafe_offset=index * 32 + 30] = uniform.pdf.s0[lane]
@@ -92,7 +92,7 @@ def _reference_kernel[
         var values = table.sample(
             colors[index], reference_wavelengths(), UInt32(kind)
         )
-        comptime for i in range(4):
+        for i in range(4):
             output[unsafe_offset=index * 12 + kind * 4 + i] = values[i]
 
 
@@ -169,7 +169,7 @@ def test_gpu_wavelengths_spectral_arithmetic_and_cie_film_match_scalar_cpu() rai
                     var pixel = film.apply_spectral_sample(
                         illuminant, wavelengths
                     )
-                    comptime for i in range(4):
+                    for i in range(4):
                         assert_almost_equal(
                             values[index * 32 + i],
                             wavelengths.lambda_nm[i],
@@ -200,7 +200,7 @@ def test_gpu_wavelengths_spectral_arithmetic_and_cie_film_match_scalar_cpu() rai
                             host.illuminant(wavelengths.lambda_nm[i]),
                             atol=3e-7,
                         )
-                    comptime for c in range(3):
+                    for c in range(3):
                         assert_almost_equal(
                             values[index * 32 + 20 + c],
                             xyz[c],

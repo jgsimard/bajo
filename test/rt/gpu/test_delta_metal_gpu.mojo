@@ -14,7 +14,6 @@ from bajo.rt.gpu import (
     download_gpu_pixels,
     prepare_gpu_scene,
 )
-from bajo.rt.gpu.config import GPU_RT_BVH_WIDE4
 
 
 def test_gpu_delta_metal_direct_lighting_preserves_reflected_emission() raises:
@@ -57,9 +56,7 @@ def test_gpu_delta_metal_direct_lighting_preserves_reflected_emission() raises:
                     light,
                 )
                 var world = builder^.finish()
-                var scene = prepare_gpu_scene[
-                    kind=.TRIANGLES, triangle_format=GPU_RT_BVH_WIDE4
-                ](ctx, world)
+                var scene = prepare_gpu_scene[kind=.TRIANGLES](ctx, world)
                 comptime for integrator_index in range(2):
                     comptime integrator = Integrator.NEE if integrator_index == 0 else Integrator.MIS
                     for capacity in [8 * 6 * 3, 7 * 3]:

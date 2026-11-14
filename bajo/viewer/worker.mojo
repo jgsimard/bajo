@@ -56,20 +56,14 @@ struct GpuBackend:
     var all: Optional[GpuRtPreparedRenderer[.ALL]]
 
     def __init__(out self):
-        self.preview_result = Optional[GpuRtPreviewResult]()
-        self.spheres = Optional[GpuRtPreparedRenderer[.SPHERES]]()
-        self.triangles = Optional[GpuRtPreparedRenderer[.TRIANGLES]]()
-        self.spheres_triangles = Optional[
-            GpuRtPreparedRenderer[.SPHERES_TRIANGLES]
-        ]()
-        self.instances = Optional[GpuRtPreparedRenderer[.INSTANCES]]()
-        self.spheres_instances = Optional[
-            GpuRtPreparedRenderer[.SPHERES_INSTANCES]
-        ]()
-        self.triangles_instances = Optional[
-            GpuRtPreparedRenderer[.TRIANGLES_INSTANCES]
-        ]()
-        self.all = Optional[GpuRtPreparedRenderer[.ALL]]()
+        self.preview_result = {}
+        self.spheres = {}
+        self.triangles = {}
+        self.spheres_triangles = {}
+        self.instances = {}
+        self.spheres_instances = {}
+        self.triangles_instances = {}
+        self.all = {}
 
     def render[
         integrator: Integrator
@@ -81,7 +75,7 @@ struct GpuBackend:
         preview: Bool = False,
         generation: UInt64 = 0,
     ) raises -> RenderResult:
-        self.preview_result = Optional[GpuRtPreviewResult]()
+        self.preview_result = {}
         ref data = scene.scene_data()
         var mask = (
             Int(len(data.spheres()) > 0)
@@ -197,7 +191,7 @@ struct CompletedFrame:
         generation: UInt64,
         settings: RenderSettings,
     ):
-        self.rgba = List[UInt8]()
+        self.rgba = {}
         self.preview_samples = 0
         self.preview_batches = 0
         self.render_ms = Float64(result.timings.render_ns) / 1_000_000
@@ -274,32 +268,32 @@ struct _WorkerState[gpu_enabled: Bool]:
     def __init__(
         out self, var scene: ViewerScene[], build_method: Int, traversal: Int
     ):
-        self.cpu_path = CpuWavefrontWorkspace[16, .PATH]()
-        self.cpu_nee = CpuWavefrontWorkspace[16, .NEE]()
-        self.cpu_mis = CpuWavefrontWorkspace[16, .MIS]()
-        self.cpu_normals = CpuWavefrontWorkspace[16, .NORMALS]()
-        self.cpu_ao = CpuWavefrontWorkspace[16, .AO]()
+        self.cpu_path = {}
+        self.cpu_nee = {}
+        self.cpu_mis = {}
+        self.cpu_normals = {}
+        self.cpu_ao = {}
         self.build_method = build_method
         self.traversal = traversal
         self.camera = scene.state.camera
         self.settings = scene.state.settings.copy()
         self.scene = scene^
-        self.gpu = GpuBackend()
+        self.gpu = {}
         self.integrator = 0
         self.backend = 0
         self.generation = 0
         self.status = 0
         self.stop = 0
         self.notification = -1
-        self.result = Optional[CompletedFrame]()
+        self.result = {}
         self.error = ""
         self.debug_requested = False
         self.trace_requested = True
-        self.boxes = List[DebugBox]()
+        self.boxes = {}
 
     def take_boxes(mut self) -> List[DebugBox]:
         var boxes = self.boxes^
-        self.boxes = List[DebugBox]()
+        self.boxes = {}
         return boxes^
 
     def render_integrator[

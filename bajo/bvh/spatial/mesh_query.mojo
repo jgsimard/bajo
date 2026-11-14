@@ -221,17 +221,13 @@ struct MeshQueryView[
         indices: ImmSpan[UInt32, Self.origin],
         velocities: ImmSpan[Float32, Self.origin],
         var bvh: BoundsQueryView[Self.origin, Self.frame],
-        packed_triangles: ImmSpan[Float32, Self.origin] = ImmSpan[
-            Float32, Self.origin
-        ](),
-        var winding: WindingView[Self.origin, Self.frame] = WindingView[
-            Self.origin, Self.frame
-        ](),
+        packed_triangles: ImmSpan[Float32, Self.origin] = {},
+        var winding: WindingView[Self.origin, Self.frame] = {},
         var device_winding: DeviceWindingView[
             Self.origin, Self.frame
         ] = DeviceWindingView[Self.origin, Self.frame](),
     ):
-        self.adjacency = ImmSpan[UInt32, Self.origin]()
+        self.adjacency = {}
         self.points = points
         self.indices = indices
         self.velocities = velocities

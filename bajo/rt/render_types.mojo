@@ -39,8 +39,8 @@ struct RenderSettings(Copyable, Writable):
         sampler: Sampler = .INDEPENDENT,
         sample_offset: Int = 0,
         sample_sequence_length: Int = 0,
-        film: FilmResponse = FilmResponse(),
-        filter: ReconstructionFilter = ReconstructionFilter(),
+        film: FilmResponse = {},
+        filter: ReconstructionFilter = {},
         color_mode: RenderColorMode = .RGB,
     ):
         debug_assert["safe", _use_compiler_assume=True](
@@ -144,7 +144,7 @@ struct SamplingConfig(Copyable, DevicePassable, ImplicitlyCopyable, Writable):
         sample_offset: UInt32,
         sequence_length: UInt32,
         image_width: UInt32,
-        filter: FilterView = FilterView(),
+        filter: FilterView = {},
         image_height: UInt32 = 1,
     ):
         self.seed = seed

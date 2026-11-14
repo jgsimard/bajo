@@ -585,8 +585,8 @@ struct _TriangleBuild[
         method: CpuBvhBuildMethod = .MEDIAN
     ](out self, vertices: ImmSpan[Point3f32[Self.frame], _]):
         self.tri_count = len(vertices) / 3
-        self.packed_leaf_blocks = List[Float32]()
-        self.packed_leaf_counts = List[UInt32]()
+        self.packed_leaf_blocks = {}
+        self.packed_leaf_counts = {}
         var tri_count = self.tri_count
 
         var items: List[BoundsItem[Self.frame]]
@@ -822,5 +822,5 @@ struct _TriangleBuild[
 
     def take_packed_leaf_blocks(mut self) -> List[Float32]:
         var packed = self.packed_leaf_blocks^
-        self.packed_leaf_blocks = List[Float32]()
+        self.packed_leaf_blocks = {}
         return packed^

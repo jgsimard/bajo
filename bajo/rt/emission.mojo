@@ -31,7 +31,7 @@ struct SceneEmission:
     var records: Dict[UInt32, AreaEmitter]
 
     def __init__(out self):
-        self.records = Dict[UInt32, AreaEmitter]()
+        self.records = {}
 
     def validate(self, spheres: Int, triangles: Int, instances: Int) raises:
         for entry in self.records.items():

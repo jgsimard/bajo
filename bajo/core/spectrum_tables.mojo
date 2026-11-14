@@ -59,8 +59,8 @@ struct PiecewiseSpectrumTable:
     var count: UInt32
 
     def __init__(out self, spectra: ImmSpan[PiecewiseLinearSpectrum, _]) raises:
-        self.samples = List[Float32]()
-        self.ranges = List[UInt32]()
+        self.samples = {}
+        self.ranges = {}
         if len(spectra) > 0xFFFFFFFF:
             raise Error("too many optical spectra")
         self.count = UInt32(len(spectra))

@@ -59,7 +59,7 @@ struct WindingView[origin: ImmOrigin, frame: Frame](Copyable):
         var bvh: BoundsQueryView[Self.origin, Self.frame] = BoundsQueryView[
             Self.origin, Self.frame
         ](ImmSpan[Float32, Self.origin](), ImmSpan[UInt32, Self.origin]()),
-        offsets: ImmSpan[Int, Self.origin] = ImmSpan[Int, Self.origin](),
+        offsets: ImmSpan[Int, Self.origin] = {},
     ):
         self.bvh = bvh^
         self.offsets = offsets
@@ -75,8 +75,8 @@ struct DeviceWindingView[origin: ImmOrigin, frame: Frame](Copyable):
         var bvh: BoundsQueryView[Self.origin, Self.frame] = BoundsQueryView[
             Self.origin, Self.frame
         ](ImmSpan[Float32, Self.origin](), ImmSpan[UInt32, Self.origin]()),
-        offsets: ImmSpan[UInt32, Self.origin] = ImmSpan[UInt32, Self.origin](),
-        faces: ImmSpan[UInt32, Self.origin] = ImmSpan[UInt32, Self.origin](),
+        offsets: ImmSpan[UInt32, Self.origin] = {},
+        faces: ImmSpan[UInt32, Self.origin] = {},
     ):
         self.bvh = bvh^
         self.offsets = offsets
@@ -189,7 +189,7 @@ struct WindingLayout[frame: Frame, width: SIMDLength](Copyable):
                 )
             else:
                 open_count += 1
-        self.offsets = List[Int]()
+        self.offsets = {}
         self.offsets.append(0)
         for n in component_counts:
             self.offsets.append(

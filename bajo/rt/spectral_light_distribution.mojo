@@ -162,11 +162,11 @@ struct SpectralLightDistribution:
         self.environment_factors = List[Float32](
             length=ENVIRONMENT_SPECTRAL_BINS, fill=0
         )
-        self.rgb = Optional[RgbSpectrumView]()
-        self.light_sources = List[UInt32]()
-        self.light_rgb = List[Color]()
-        self.light_measure = List[Float32]()
-        self.environment_texels = List[Color]()
+        self.rgb = {}
+        self.light_sources = {}
+        self.light_rgb = {}
+        self.light_measure = {}
+        self.environment_texels = {}
         self.environment_kind = data.environment().kind
         self.environment_scale = data.environment().scale
         self.environment_source = data.environment().spectrum
@@ -176,11 +176,11 @@ struct SpectralLightDistribution:
         self.source_power = List[Float32](
             length=max(1, Int(sources.count)), fill=0
         )
-        self.weights = List[Float32]()
-        self.probabilities = List[Float32]()
-        self.aliases = List[UInt32]()
-        self.environment_probabilities = List[Float32]()
-        self.environment_aliases = List[UInt32]()
+        self.weights = {}
+        self.probabilities = {}
+        self.aliases = {}
+        self.environment_probabilities = {}
+        self.environment_aliases = {}
         self.environment_count = 0
         self.environment_weight = 0
         self.environment_floor = 0

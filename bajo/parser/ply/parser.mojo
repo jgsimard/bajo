@@ -72,8 +72,8 @@ struct _Header:
     def __init__(out self):
         self.vertex_count = -1
         self.face_count = -1
-        self.vertex_properties = List[_Property]()
-        self.face_properties = List[_Property]()
+        self.vertex_properties = {}
+        self.face_properties = {}
         self.data_offset = 0
         self.has_normals = False
         self.has_texcoords = False
@@ -741,9 +741,9 @@ def _triangle_face_chunks(
     if not _triangle_layout(header) or (
         header.face_count > 0 and header.vertex_count < 3
     ):
-        return Optional[List[_FaceChunk]]()
+        return {}
     if header.face_count > (len(bytes) - begin) // 13:
-        return Optional[List[_FaceChunk]]()
+        return {}
     # Exact-size triangle payloads can validate count bytes in the decoder.
     # Variable-length polygons and trailing data retain the structural scan.
     var counts_validated = (
@@ -763,11 +763,11 @@ def _triangle_face_chunks(
                 .unsafe_load[width=width, alignment=1]()
             )
             if UInt64(pack_bits(block.eq(UInt8(3)))) & mask != mask:
-                return Optional[List[_FaceChunk]]()
+                return {}
             pos += 13 * faces_per_block
         while pos < end:
             if bytes.unsafe_get(pos) != UInt8(3):
-                return Optional[List[_FaceChunk]]()
+                return {}
             pos += 13
     var chunks = List[_FaceChunk](capacity=ceildiv(header.face_count, 4096))
     for face in range(0, header.face_count, 4096):

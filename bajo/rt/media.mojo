@@ -27,9 +27,9 @@ struct SceneMedia:
     def __init__(out self):
         self.absorption = [Color(0.0)]
         self.spectra = [NO_SPECTRUM]
-        self.spheres = List[UInt32]()
-        self.triangles = List[UInt32]()
-        self.instances = List[UInt32]()
+        self.spheres = {}
+        self.triangles = {}
+        self.instances = {}
 
     def transmittance[
         length: SIMDLength

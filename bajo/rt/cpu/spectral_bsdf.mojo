@@ -37,10 +37,10 @@ struct SpectralMaterialParameters[width: SIMDLength]:
     var coated: SpectralCoatedParameters[Self.width]
 
     def __init__(out self):
-        self.albedo = SampledSpectrum[Self.width]()
+        self.albedo = {}
         self.parameter = 1
         self.roughness = 0
-        self.coated = SpectralCoatedParameters[Self.width]()
+        self.coated = {}
 
     def load[
         kind: MaterialKind

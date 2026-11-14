@@ -119,19 +119,19 @@ struct ObjMesh:
         self.positions = [0.0, 0.0, 0.0]
         self.texcoords = [0.0, 0.0]
         self.normals = [0.0, 0.0, 1.0]
-        self.colors = List[Float32]()
+        self.colors = {}
 
-        self.face_vertices = List[Int]()
-        self.face_materials = List[Int]()
-        self.face_lines = List[UInt8]()
-        self.indices = List[ObjIndex]()
+        self.face_vertices = {}
+        self.face_materials = {}
+        self.face_lines = {}
+        self.indices = {}
 
-        self.materials = List[ObjMaterial]()
-        self.material_names = Dict[String, Int]()
+        self.materials = {}
+        self.material_names = {}
         self.textures = [ObjTexture("", "")]
-        self.texture_names = Dict[String, Int]()
-        self.objects = List[ObjGroup]()
-        self.groups = List[ObjGroup]()
+        self.texture_names = {}
+        self.objects = {}
+        self.groups = {}
 
     def position_count(self, include_dummy: Bool = True) -> Int:
         var n = len(self.positions) / 3

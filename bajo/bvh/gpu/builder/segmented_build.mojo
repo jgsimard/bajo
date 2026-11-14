@@ -84,9 +84,7 @@ struct GpuSegmentedWideBuildTicket[
     def finalize_layout(
         mut self,
         mut ctx: DeviceContext,
-        encoded_counts: Optional[DeviceBuffer[.uint32]] = Optional[
-            DeviceBuffer[.uint32]
-        ](),
+        encoded_counts: Optional[DeviceBuffer[.uint32]] = None,
     ) raises -> GpuCompactWideLayout:
         """Validate and prefix completed counts with one small readback."""
         var hploc_status = Optional[DeviceBuffer[.uint32]]()

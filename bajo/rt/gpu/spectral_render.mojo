@@ -99,7 +99,7 @@ def _environment(
     var descs = scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin]()
     var pixels = scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin]()
     if scene.environment_kind == .BLACK:
-        return SampledSpectrum[1]()
+        return {}
     var result: SampledSpectrum[1]
     if spectral.environment == NO_SPECTRUM:
         var rgb = _gpu_environment_radiance(scene, descs, pixels, direction)

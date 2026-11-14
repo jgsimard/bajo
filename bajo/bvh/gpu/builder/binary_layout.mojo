@@ -324,16 +324,8 @@ struct GpuBinaryBuildWorkspace:
         self.bounds_scratch_b = ctx.enqueue_create_buffer[.float32](
             max(partial_segments.item_count(), 1) * REDUCED_BOUNDS_STRIDE
         )
-        self.sort = Optional[
-            OneSweepWorkspace[
-                .uint64, .uint32, BLOCK_SIZE=512, KEYS_PER_THREAD=9
-            ]
-        ]()
-        self.sort32 = Optional[
-            OneSweepWorkspace[
-                .uint32, .uint32, BLOCK_SIZE=512, KEYS_PER_THREAD=15
-            ]
-        ]()
+        self.sort = {}
+        self.sort32 = {}
         if segments.segment_count() == 1:
             self.sort32 = Optional(
                 OneSweepWorkspace[
@@ -346,7 +338,7 @@ struct GpuBinaryBuildWorkspace:
                     .uint64, .uint32, BLOCK_SIZE=512, KEYS_PER_THREAD=9
                 ](ctx, leaf_capacity)
             )
-        self.topology = Optional[GpuBinaryTopologyWorkspace]()
+        self.topology = {}
 
     def ensure_topology(mut self, mut ctx: DeviceContext) raises:
         if not self.topology:

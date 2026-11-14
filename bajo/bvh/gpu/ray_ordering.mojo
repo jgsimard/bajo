@@ -87,7 +87,7 @@ struct GpuRayOrderWorkspace:
         self._capacity = capacity
         self._keys = ctx.enqueue_create_buffer[.uint32](capacity)
         self._indices = ctx.enqueue_create_buffer[.uint32](capacity)
-        self._alias_rays = Optional[DeviceBuffer[.float32]]()
+        self._alias_rays = {}
         self._sort = OneSweepWorkspace[
             .uint32, .uint32, BLOCK_SIZE=512, KEYS_PER_THREAD=15
         ](ctx, capacity)

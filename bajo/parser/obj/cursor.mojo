@@ -275,7 +275,7 @@ struct ObjLineCursor[origin: ImmOrigin]:
     def _metadata_name_span(mut self) -> StringSpan[Self.origin]:
         self.skip_ws()
         if self.pos >= len(self.bytes):
-            return StringSpan[Self.origin]()
+            return {}
         var start = self.pos
         var logical_end = len(self.bytes)
         var p = start
@@ -294,7 +294,7 @@ struct ObjLineCursor[origin: ImmOrigin]:
     def next_word(mut self) -> StringSpan[Self.origin]:
         self.skip_ws()
         if self.pos >= len(self.bytes):
-            return StringSpan[Self.origin]()
+            return {}
         var start = self.pos
         while self.pos < len(self.bytes):
             var b = self.bytes.unsafe_get(self.pos)

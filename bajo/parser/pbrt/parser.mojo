@@ -261,8 +261,8 @@ struct _Parameters[origin: ImmOrigin]:
     var tokens: List[StringSpan[Self.origin]]
 
     def __init__(out self):
-        self.entries = List[_Parameter[Self.origin]]()
-        self.tokens = List[StringSpan[Self.origin]]()
+        self.entries = {}
+        self.tokens = {}
 
     def has(self, declaration: StringSpan) -> Bool:
         for entry in self.entries:
@@ -276,7 +276,7 @@ struct _Parameters[origin: ImmOrigin]:
         for entry in self.entries:
             if entry.declaration == declaration and entry.count > 0:
                 return self.tokens[entry.begin]
-        return Optional[StringSpan[Self.origin]]()
+        return {}
 
     def string_or_empty(
         self, declaration: StringSpan
@@ -325,7 +325,7 @@ struct _Parameters[origin: ImmOrigin]:
                     .unsafe_origin_cast[origin_of(self)](),
                     length=entry.count,
                 )
-        return ImmSpan[StringSpan[Self.origin], origin_of(self)]()
+        return {}
 
 
 struct _CameraOptions(Copyable):
@@ -485,17 +485,17 @@ struct _Builder(
     var has_environment: Bool
 
     def __init__(out self):
-        self.scene = SceneBuilder()
-        self.named_materials = Dict[String, SurfaceId[1]]()
-        self.named_media = Dict[String, UInt32]()
-        self.color_textures = Dict[String, _ColorTexture]()
-        self.scalar_textures = Dict[String, _FloatTexture]()
-        self.image_paths = List[String]()
-        self.image_data_encoding = List[Bool]()
-        self.image_indices = Dict[String, UInt32]()
-        self.ply_assets = Dict[String, _PlyAsset]()
-        self.ply_paths = List[String]()
-        self.optical_indices = Dict[String, UInt32]()
+        self.scene = {}
+        self.named_materials = {}
+        self.named_media = {}
+        self.color_textures = {}
+        self.scalar_textures = {}
+        self.image_paths = {}
+        self.image_data_encoding = {}
+        self.image_indices = {}
+        self.ply_assets = {}
+        self.ply_paths = {}
+        self.optical_indices = {}
         var default_surface = self.scene.surfaces.add_lambertian(Color(0.5))
         self.state = _GraphicsState(
             _Transform.identity(),
@@ -507,9 +507,9 @@ struct _Builder(
             False,
             UInt32(0),
         )
-        self.attribute_stack = List[_GraphicsState]()
-        self.transform_stack = List[_Transform]()
-        self.camera_options = _CameraOptions()
+        self.attribute_stack = {}
+        self.transform_stack = {}
+        self.camera_options = {}
         self.image_width = 640
         self.image_height = 480
         self.samples_per_pixel = 16
@@ -520,7 +520,7 @@ struct _Builder(
         # has no participating media, so its default uses this surface path.
         self.integrator = .MIS
         self.environment = Environment.black()
-        self.film = FilmResponse()
+        self.film = {}
         self.film_uses_cie1931 = True
         self.filter = ReconstructionFilter.gaussian()
         self.has_environment = False

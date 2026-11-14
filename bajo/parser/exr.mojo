@@ -108,7 +108,7 @@ struct _Header:
     var data_offset: Int
 
     def __init__(out self):
-        self.channels = List[_Channel]()
+        self.channels = {}
         self.compression = UInt8(255)
         self.min_x = 0
         self.min_y = 0

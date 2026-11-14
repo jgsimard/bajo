@@ -322,14 +322,10 @@ struct CpuScene[
         self._coated_materials = pack_coated_materials[True](
             self._scene.surfaces()
         )
-        self.sphere_bvh = Optional[CpuBlasSet[.SPHERE, Self.world_bvh_width]]()
-        self.triangle_bvh = Optional[
-            CpuBlasSet[.TRIANGLE, Self.world_bvh_width]
-        ]()
-        self.triangle_tlas = Optional[CpuTlas[Self.instance_bvh_width, 1]]()
-        self.triangle_mesh_blases = Optional[
-            CpuBlasSet[.TRIANGLE, Self.instance_bvh_width]
-        ]()
+        self.sphere_bvh = {}
+        self.triangle_bvh = {}
+        self.triangle_tlas = {}
+        self.triangle_mesh_blases = {}
         self._build_acceleration[build_method]()
 
     def scene_data(self) -> ref[self._scene] SceneData:

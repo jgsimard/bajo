@@ -192,7 +192,8 @@ def test_device_mesh_refit_rebuild_velocities_and_atomicity() raises:
             assert_equal(Int(gpu.points.unsafe_ptr()), pp)
             assert_equal(Int(gpu.bounds.unsafe_ptr()), bp)
             assert_equal(Int(gpu.nodes.unsafe_ptr()), np)
-            ctx.enqueue_function[_mesh_kernel[1]](
+            ctx.enqueue_function[_mesh_kernel[True]](
+                Int32(1),
                 _device_span[mut=False](gpu.points),
                 _device_span[mut=False](gpu.indices),
                 _device_span[mut=False](gpu.velocities),

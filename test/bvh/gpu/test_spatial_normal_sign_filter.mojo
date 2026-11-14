@@ -35,7 +35,7 @@ def outcome(data: ImmSpan[Float32, _], i: Int) -> UInt32:
 
 
 def check_kernel[
-    count: Int
+    _device: Bool = True
 ](data: ImmSpan[Float32, ImmutAnyOrigin], flags: MutSpan[UInt32, MutAnyOrigin]):
     var i = Int(global_idx.x)
     if i < len(flags):
@@ -150,7 +150,7 @@ def test_normal_sign_certifications_match_float64_across_extremes() raises:
     with DeviceContext() as ctx:
         var input = upload_list(ctx, data)
         var output = ctx.enqueue_create_buffer[.uint32](CASES)
-        ctx.enqueue_function[check_kernel[CASES]](
+        ctx.enqueue_function[check_kernel[True]](
             _device_span[mut=False](input),
             _device_span[mut=True](output),
             grid_dim=256,

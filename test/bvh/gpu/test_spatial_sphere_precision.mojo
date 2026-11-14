@@ -13,8 +13,10 @@ from bajo.bvh.gpu.utils import upload_list, _device_span
 
 
 def sphere_kernel[
-    count: Int, faces: Int
+    _device: Bool = True
 ](
+    count_arg: Int32,
+    faces_arg: Int32,
     points: ImmSpan[Float32, ImmutAnyOrigin],
     indices: ImmSpan[UInt32, ImmutAnyOrigin],
     velocities: ImmSpan[Float32, ImmutAnyOrigin],
@@ -24,6 +26,8 @@ def sphere_kernel[
     roots: ImmSpan[UInt32, ImmutAnyOrigin],
     output: MutSpan[UInt32, MutAnyOrigin],
 ):
+    var count = Int(count_arg)
+    var faces = Int(faces_arg)
     var lane = Int(global_idx.x)
     if lane >= count:
         return
@@ -156,7 +160,9 @@ def test_sphere_exact_sets_groups_tangencies_and_extreme_scales() raises:
             var dp = upload_list(ctx, params)
             var dr = upload_list(ctx, roots)
             var output = ctx.enqueue_create_buffer[.uint32](count * (faces + 1))
-            ctx.enqueue_function[sphere_kernel[count, faces]](
+            ctx.enqueue_function[sphere_kernel[True]](
+                Int32(count),
+                Int32(faces),
                 _device_span[mut=False](gpu.points),
                 _device_span[mut=False](gpu.indices),
                 _device_span[mut=False](gpu.velocities),
@@ -220,7 +226,9 @@ def test_sphere_canonical_vertex_cancellation_and_cutoff_neighbors() raises:
         var dp = upload_list(ctx, params)
         var dr = upload_list(ctx, roots)
         var output = ctx.enqueue_create_buffer[.uint32](12)
-        ctx.enqueue_function[sphere_kernel[4, 2]](
+        ctx.enqueue_function[sphere_kernel[True]](
+            Int32(4),
+            Int32(2),
             _device_span[mut=False](gpu.points),
             _device_span[mut=False](gpu.indices),
             _device_span[mut=False](gpu.velocities),

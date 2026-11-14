@@ -19,8 +19,9 @@ from test.bvh.gpu.test_spatial_block import _block_kernel
 
 
 def _mesh_kernel[
-    count: Int
+    _device: Bool = True
 ](
+    count_arg: Int32,
     points: ImmSpan[Float32, ImmutAnyOrigin],
     indices: ImmSpan[UInt32, ImmutAnyOrigin],
     velocities: ImmSpan[Float32, ImmutAnyOrigin],
@@ -30,6 +31,7 @@ def _mesh_kernel[
     root: UInt32,
     adjacency: ImmSpan[UInt32, ImmutAnyOrigin],
 ):
+    var count = Int(count_arg)
     var lane = global_idx.x
     if lane >= count:
         return
@@ -125,7 +127,8 @@ def test_gpu_mesh_queries_groups_and_updates_match_cpu() raises:
                 cpu.group_root(999),
             ]
             for root in roots:
-                ctx.enqueue_function[_mesh_kernel[105]](
+                ctx.enqueue_function[_mesh_kernel[True]](
+                    Int32(105),
                     _device_span[mut=False](gpu.points),
                     _device_span[mut=False](gpu.indices),
                     _device_span[mut=False](gpu.velocities),
@@ -212,7 +215,8 @@ def test_gpu_empty_mesh_and_failed_update_atomicity() raises:
             ctx, SpatialMesh[.WORLD](List[Point3f32[.WORLD]](), List[UInt32]())
         )
         var output = ctx.enqueue_create_buffer[.float64](17)
-        ctx.enqueue_function[_mesh_kernel[1]](
+        ctx.enqueue_function[_mesh_kernel[True]](
+            Int32(1),
             _device_span[mut=False](empty.points),
             _device_span[mut=False](empty.indices),
             _device_span[mut=False](empty.velocities),
@@ -378,7 +382,7 @@ def test_mesh_aabb_cooperative_original_faces_groups_and_updates() raises:
 
 
 def _adjacent_normal_kernel[
-    count: Int
+    _device: Bool = True
 ](
     view: MeshQueryView[ImmutAnyOrigin, .WORLD],
     output: MutSpan[Float32, MutAnyOrigin],
@@ -431,7 +435,7 @@ def test_gpu_adjacency_view_survives_parallel_device_rebuild_and_graph() raises:
                 gpu.check_update(ctx)
             assert_equal(Int(gpu.adjacency.unsafe_ptr()), address)
             for root in [UInt32(0), cpu.group_root(0), cpu.group_root(2)]:
-                ctx.enqueue_function[_adjacent_normal_kernel[17]](
+                ctx.enqueue_function[_adjacent_normal_kernel[True]](
                     gpu.view(),
                     _device_span[mut=True](output),
                     root,

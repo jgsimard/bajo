@@ -52,8 +52,9 @@ def exhaustive(
 
 
 def furthest_kernel[
-    count: Int
+    _device: Bool = True
 ](
+    count_arg: Int32,
     points: ImmSpan[Float32, ImmutAnyOrigin],
     indices: ImmSpan[UInt32, ImmutAnyOrigin],
     velocities: ImmSpan[Float32, ImmutAnyOrigin],
@@ -63,6 +64,7 @@ def furthest_kernel[
     roots: ImmSpan[UInt32, ImmutAnyOrigin],
     output: MutSpan[Float64, MutAnyOrigin],
 ):
+    var count = Int(count_arg)
     var lane = Int(global_idx.x)
     if lane >= count:
         return
@@ -161,7 +163,8 @@ def test_furthest_groups_ties_cutoffs_and_extreme_scales() raises:
             var dp = upload_list(ctx, params)
             var dr = upload_list(ctx, roots)
             var output = ctx.enqueue_create_buffer[.float64](count * 8)
-            ctx.enqueue_function[furthest_kernel[count]](
+            ctx.enqueue_function[furthest_kernel[True]](
+                Int32(count),
                 _device_span[mut=False](gpu.points),
                 _device_span[mut=False](gpu.indices),
                 _device_span[mut=False](gpu.velocities),
@@ -222,7 +225,8 @@ def test_furthest_inclusive_unit_cutoff_and_equal_vertex_ties() raises:
         var dp = upload_list(ctx, params)
         var dr = upload_list(ctx, List[UInt32](length=4, fill=0))
         var output = ctx.enqueue_create_buffer[.float64](32)
-        ctx.enqueue_function[furthest_kernel[4]](
+        ctx.enqueue_function[furthest_kernel[True]](
+            Int32(4),
             _device_span[mut=False](gpu.points),
             _device_span[mut=False](gpu.indices),
             _device_span[mut=False](gpu.velocities),

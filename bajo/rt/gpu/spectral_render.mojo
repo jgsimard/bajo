@@ -50,7 +50,10 @@ from bajo.rt.gpu.views import (
     GpuRtTraceQueueView,
     gpu_rt_trace_queue_view,
 )
-from bajo.rt.gpu.config import GpuRtSceneKind, GpuRtBvhFormat
+from bajo.rt.gpu.config import (
+    _GpuRtKernelFormats,
+    GpuRtSceneKind,
+)
 from bajo.rt.gpu.spectral_state import GpuSpectralStateView
 from bajo.rt.gpu.spectral_trace import spectral_trace_surface
 from bajo.rt.gpu.spectral_bsdf import load_spectral_material
@@ -160,10 +163,7 @@ def _shade[
     kind: MaterialKind,
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
-    sphere_format: GpuRtBvhFormat,
-    triangle_format: GpuRtBvhFormat,
-    tlas_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
+    Formats: _GpuRtKernelFormats,
 ](
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
@@ -204,10 +204,7 @@ def _shade[
             )
             if not _trace_scene_any[
                 scene_kind,
-                sphere_format,
-                triangle_format,
-                tlas_format,
-                blas_format,
+                Formats,
             ](scene, shadow, False):
                 var emission: SampledSpectrum[1]
                 if light.primitive == UInt32.MAX:
@@ -344,10 +341,7 @@ def spectral_initialize_kernel(
 def spectral_bounce_kernel[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
-    sphere_format: GpuRtBvhFormat,
-    triangle_format: GpuRtBvhFormat,
-    tlas_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
+    Formats: _GpuRtKernelFormats,
 ](
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
@@ -377,10 +371,7 @@ def spectral_bounce_kernel[
         var hit, primitive = spectral_trace_surface[
             integrator,
             scene_kind,
-            sphere_format,
-            triangle_format,
-            tlas_format,
-            blas_format,
+            Formats,
         ](scene, ray, sampling, path.path_id, bounce, Int(state.capacity))
         var beta = state.load(8, index) * _absorption(
             scene, path.medium_id, hit.t * length(ray.d), wavelengths
@@ -451,10 +442,7 @@ def spectral_bounce_kernel[
                             .LAMBERTIAN,
                             integrator,
                             scene_kind,
-                            sphere_format,
-                            triangle_format,
-                            tlas_format,
-                            blas_format,
+                            Formats,
                         ](
                             scene,
                             queues,
@@ -472,10 +460,7 @@ def spectral_bounce_kernel[
                             .METAL,
                             integrator,
                             scene_kind,
-                            sphere_format,
-                            triangle_format,
-                            tlas_format,
-                            blas_format,
+                            Formats,
                         ](
                             scene,
                             queues,
@@ -493,10 +478,7 @@ def spectral_bounce_kernel[
                             .DIELECTRIC,
                             integrator,
                             scene_kind,
-                            sphere_format,
-                            triangle_format,
-                            tlas_format,
-                            blas_format,
+                            Formats,
                         ](
                             scene,
                             queues,
@@ -514,10 +496,7 @@ def spectral_bounce_kernel[
                             .COATED_DIFFUSE,
                             integrator,
                             scene_kind,
-                            sphere_format,
-                            triangle_format,
-                            tlas_format,
-                            blas_format,
+                            Formats,
                         ](
                             scene,
                             queues,

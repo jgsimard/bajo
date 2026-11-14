@@ -33,10 +33,12 @@ from bajo.rt.gpu import (
     GpuRtRenderTarget,
     prepare_gpu_scene,
     download_gpu_pixels,
-    GPU_RT_BVH_WIDE4,
-    GPU_RT_BVH_CWBVH8,
     GPU_RT_BVH_TLAS4,
 )
+from bajo.rt.gpu.config import _gpu_rt_kernel_formats
+
+comptime _INSTANCE_ORDER_FORMATS = _gpu_rt_kernel_formats[.INSTANCES]
+
 from test.rt.gpu.test_gpu import _camera, _textured_instance_world
 
 
@@ -160,9 +162,7 @@ def _assert_queue_order[
                     ctx.enqueue_function[
                         gpu_rt_spatial_order_rays_kernel[
                             .INSTANCES,
-                            GPU_RT_BVH_WIDE4,
-                            GPU_RT_BVH_CWBVH8,
-                            GPU_RT_BVH_TLAS4,
+                            _INSTANCE_ORDER_FORMATS,
                             scatter,
                         ]
                     ](queues, scene_view, grid_dim=1, block_dim=256)

@@ -57,7 +57,10 @@ from bajo.rt.opacity import (
     opacity_sphere_uv,
 )
 
-from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind
+from bajo.rt.gpu.config import (
+    _GpuRtKernelFormats,
+    GpuRtSceneKind,
+)
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
     DeviceWaveShadow,
@@ -105,10 +108,7 @@ from bajo.rt.gpu.scene_trace import GPU_RT_LARGE_QUEUE_MIN_CAPACITY
 def spectral_trace_surface[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
-    sphere_format: GpuRtBvhFormat,
-    triangle_format: GpuRtBvhFormat,
-    tlas_format: GpuRtBvhFormat,
-    blas_format: GpuRtBvhFormat,
+    Formats: _GpuRtKernelFormats,
 ](
     scene: GpuRtSceneView,
     ray: Rayf32[.WORLD],
@@ -154,18 +154,18 @@ def spectral_trace_surface[
         ]()
         var sphere_hit: Hit[.WORLD]
         if scene.opacity.count > 0:
-            sphere_hit = trace_gpu_opacity_spheres[sphere_format, .CLOSEST_HIT](
-                scene, ray
-            )
+            sphere_hit = trace_gpu_opacity_spheres[
+                Formats.sphere, .CLOSEST_HIT
+            ](scene, ray)
         else:
             sphere_hit = trace_bounds_bvh[
                 .WORLD,
-                sphere_format.node_width,
+                Formats.sphere.node_width,
                 .CLOSEST_HIT,
                 _intersect_sphere_leaf[
-                    .WORLD, sphere_format.leaf_width, .CLOSEST_HIT
+                    .WORLD, Formats.sphere.leaf_width, .CLOSEST_HIT
                 ],
-                sphere_format.node_width == 2,
+                Formats.sphere.node_width == 2,
             ](sphere_nodes, leaf_spheres, sphere_root, ray)
         if sphere_hit.is_hit():
             found = True
@@ -205,22 +205,22 @@ def spectral_trace_surface[
         var triangle_hit: Hit[.WORLD]
         if scene.opacity.count > 0:
             triangle_hit = trace_gpu_opacity_triangles[
-                triangle_format, .CLOSEST_HIT
+                Formats.triangle, .CLOSEST_HIT
             ](scene, triangle_ray)
         else:
             triangle_hit = trace_gpu_blas[
                 .WORLD,
-                triangle_format.node_width,
+                Formats.triangle.node_width,
                 .CLOSEST_HIT,
                 _intersect_triangle_leaf[
                     .WORLD,
-                    triangle_format.leaf_width,
+                    Formats.triangle.leaf_width,
                     .CLOSEST_HIT,
-                    triangle_format.leaf_width > triangle_format.node_width
-                    or triangle_format.leaf_width == 8,
+                    Formats.triangle.leaf_width > Formats.triangle.node_width
+                    or Formats.triangle.leaf_width == 8,
                 ],
-                triangle_format.layout,
-                triangle_format.node_width == 4,
+                Formats.triangle.layout,
+                Formats.triangle.node_width == 4,
             ](
                 triangle_nodes,
                 leaf_vertices,
@@ -293,23 +293,23 @@ def spectral_trace_surface[
         var instance_hit: Hit[.WORLD]
         if scene.opacity.count > 0:
             instance_hit = trace_gpu_opacity_instances[
-                tlas_format, blas_format, .CLOSEST_HIT
+                Formats.tlas, Formats.blas, .CLOSEST_HIT
             ](scene, instance_ray)
         else:
             instance_hit = _trace_tlas_ray[
-                tlas_format.node_width,
-                tlas_format.leaf_width,
-                blas_format.node_width,
-                blas_format.leaf_width,
+                Formats.tlas.node_width,
+                Formats.tlas.leaf_width,
+                Formats.blas.node_width,
+                Formats.blas.leaf_width,
                 .CLOSEST_HIT,
                 _intersect_triangle_leaf[
                     .LOCAL,
-                    blas_format.leaf_width,
+                    Formats.blas.leaf_width,
                     .CLOSEST_HIT,
-                    blas_format.leaf_width > blas_format.node_width
-                    or blas_format.leaf_width == 8,
+                    Formats.blas.leaf_width > Formats.blas.node_width
+                    or Formats.blas.leaf_width == 8,
                 ],
-                blas_format.layout,
+                Formats.blas.layout,
             ](
                 tlas_nodes,
                 tlas_leaf_instances,

@@ -5,6 +5,7 @@ from std.testing import TestSuite, assert_equal, assert_raises, assert_true
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext
 
+from bajo.rt.gpu.config import _gpu_rt_kernel_formats
 from bajo.rt.gpu.scene_trace import _trace_scene_any
 from bajo.rt.gpu.views import GpuRtSceneView
 from bajo.core import Rayf32
@@ -20,8 +21,6 @@ from bajo.rt.gpu.rgb import (
 )
 from bajo.rt.gpu import (
     GPU_RT_BVH_WIDE4,
-    GPU_RT_BVH_CWBVH8,
-    GPU_RT_BVH_TLAS4,
     GpuRtBvhFormat,
     GpuRtSceneKind,
     GpuRtRenderTarget,
@@ -723,16 +722,14 @@ def _visibility_ray(index: Int) -> Rayf32[.WORLD]:
 def _geometry_visibility_kernel[
     kind: GpuRtSceneKind
 ](scene: GpuRtSceneView, output: Pointer[UInt32, MutAnyOrigin]):
+    comptime Formats = _gpu_rt_kernel_formats[kind]
     var index = global_idx.x
     if index >= 24:
         return
     output[unsafe_offset=index] = UInt32(
         _trace_scene_any[
             kind,
-            GPU_RT_BVH_WIDE4,
-            GPU_RT_BVH_CWBVH8,
-            GPU_RT_BVH_TLAS4,
-            GPU_RT_BVH_CWBVH8,
+            Formats,
         ](scene, _visibility_ray(index), index >= 12)
     )
 

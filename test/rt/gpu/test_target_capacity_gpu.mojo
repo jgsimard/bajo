@@ -34,7 +34,21 @@ from bajo.rt.gpu.render import (
 from bajo.rt.gpu.prepared_renderer import (
     GpuRtPreparedRenderer as ModeAwareRenderer,
 )
-from test.rt.gpu.test_gpu import _textured_instance_world
+from test.rt.gpu.test_gpu import (
+    _textured_instance_world,
+    _sphere_scene_data,
+    _triangle_scene_data,
+)
+from bajo.rt.gpu.config import (
+    _gpu_rt_kernel_formats,
+    GPU_RT_BVH_WIDE2_LEAF4,
+    GpuRtSceneKind,
+    GpuRtBvhFormat,
+    GPU_RT_BVH_WIDE4,
+    GPU_RT_BVH_CWBVH8,
+    GPU_RT_BVH_TLAS4,
+)
+from bajo.rt.scene_data import SceneData
 from bajo.rt import Camera, Color, RenderSettings, SceneBuilder
 from bajo.rt.filter import ReconstructionFilter
 from bajo.rt.wavefront_contract import WavePathFloatAbi, WaveShadowFloatAbi
@@ -408,6 +422,51 @@ def test_gpu_sample_film_matches_across_sample_chunks() raises:
                         bitcast[.uint32](actual[i][axis]),
                         bitcast[.uint32](expected[i][axis]),
                     )
+
+
+def _assert_unused_geometry_formats[
+    kind: GpuRtSceneKind
+](data: SceneData) raises:
+    var settings = RenderSettings(5, 4, 2, UInt64(2026), 2)
+    var camera = _camera()
+    var expected = render_gpu_configured[kind, .NORMALS](settings, camera, data)
+    # Change only layouts for geometry that is absent. Present geometry keeps
+    # its actual format and both owners must submit the same tracing behavior.
+    var actual = render_gpu_configured[
+        kind,
+        .NORMALS,
+        sphere_format=GPU_RT_BVH_WIDE4 if kind.has_spheres() else GpuRtBvhFormat(
+            8, 4, .WIDE
+        ),
+        triangle_format=GPU_RT_BVH_CWBVH8 if kind.has_triangles() else GPU_RT_BVH_WIDE4,
+        tlas_format=GPU_RT_BVH_TLAS4 if kind.has_instances() else GPU_RT_BVH_WIDE4,
+        blas_format=GPU_RT_BVH_CWBVH8 if kind.has_instances() else GPU_RT_BVH_WIDE4,
+    ](settings, camera, data)
+    assert_equal(len(actual.pixels), 20)
+    assert_pixels_equal(actual.pixels, expected.pixels)
+
+
+def test_gpu_canonical_format_key_identity() raises:
+    comptime Default = _gpu_rt_kernel_formats[.SPHERES]
+    comptime ChangedUnused = _gpu_rt_kernel_formats[
+        .SPHERES,
+        GPU_RT_BVH_WIDE4,
+        GPU_RT_BVH_WIDE4,
+        GPU_RT_BVH_WIDE4,
+        GPU_RT_BVH_WIDE4,
+    ]
+    comptime ChangedPresent = _gpu_rt_kernel_formats[
+        .SPHERES, GPU_RT_BVH_WIDE2_LEAF4
+    ]
+    comptime assert Default == ChangedUnused
+    comptime assert Default != ChangedPresent
+
+
+def test_gpu_unused_geometry_formats_preserve_pixels() raises:
+    _assert_unused_geometry_formats[.SPHERES](_sphere_scene_data())
+    _assert_unused_geometry_formats[.TRIANGLES](_triangle_scene_data())
+    var instances = _textured_instance_world()
+    _assert_unused_geometry_formats[.INSTANCES](instances.scene_data())
 
 
 def run_tests[_discovery: Bool = True]() raises:

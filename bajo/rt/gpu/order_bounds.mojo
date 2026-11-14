@@ -7,7 +7,10 @@ from std.memory import bitcast
 from bajo.bvh.constants import EMPTY_LANE
 from bajo.bvh.gpu.compressed_bounds_bvh import _scale_from_exponent
 from bajo.core import Point3f32
-from bajo.rt.gpu.config import GpuRtSceneKind, GpuRtBvhFormat
+from bajo.rt.gpu.config import (
+    _GpuRtKernelFormats,
+    GpuRtSceneKind,
+)
 from bajo.rt.gpu.views import GpuRtSceneView
 
 
@@ -59,9 +62,7 @@ def _compressed_order_bounds(
 
 def gpu_rt_order_bounds[
     kind: GpuRtSceneKind,
-    sphere_format: GpuRtBvhFormat,
-    triangle_format: GpuRtBvhFormat,
-    tlas_format: GpuRtBvhFormat,
+    Formats: _GpuRtKernelFormats,
 ](scene: GpuRtSceneView) -> Tuple[Point3f32[.WORLD], Point3f32[.WORLD]]:
     var low = Point3f32[.WORLD](
         max_finite[.float32](), max_finite[.float32](), max_finite[.float32]()
@@ -82,22 +83,24 @@ def gpu_rt_order_bounds[
 
     comptime if kind.has_spheres():
         var s = scene.spheres.unsafe_value()
-        var a, b = _wide_order_bounds[sphere_format.node_width](s.nodes, s.root)
+        var a, b = _wide_order_bounds[Formats.sphere.node_width](
+            s.nodes, s.root
+        )
         include(a, b)
     comptime if kind.has_triangles():
         var t = scene.triangles.unsafe_value()
         var a: Point3f32[.WORLD]
         var b: Point3f32[.WORLD]
-        comptime if triangle_format.layout == .CWBVH8:
+        comptime if Formats.triangle.layout == .CWBVH8:
             a, b = _compressed_order_bounds(t.nodes, t.root)
         else:
-            a, b = _wide_order_bounds[triangle_format.node_width](
+            a, b = _wide_order_bounds[Formats.triangle.node_width](
                 t.nodes, t.root
             )
         include(a, b)
     comptime if kind.has_instances():
         var i = scene.instances.unsafe_value()
-        var a, b = _wide_order_bounds[tlas_format.node_width](
+        var a, b = _wide_order_bounds[Formats.tlas.node_width](
             i.tlas_nodes, i.tlas_root
         )
         include(a, b)

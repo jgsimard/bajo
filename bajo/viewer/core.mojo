@@ -90,10 +90,10 @@ struct ViewerScene[
 
     def cpu_scene(
         self,
-    ) raises -> ref[self._cpu.value()] CpuScene[
+    ) raises -> ref[self._cpu] CpuScene[
         Self.world_bvh_width, Self.instance_bvh_width
     ]:
         """Borrow prepared acceleration without transferring ownership."""
-        if not self._cpu:
+        __guard case .Some(ref scene) = self._cpu else:
             raise Error("CPU scene has not been prepared")
-        return self._cpu.value()
+        return scene

@@ -213,9 +213,8 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
     def device_winding_view(
         self,
     ) -> DeviceWindingView[ImmutAnyOrigin, Self.frame]:
-        if not self.winding:
-            return DeviceWindingView[ImmutAnyOrigin, Self.frame]()
-        ref cache = self.winding.value()
+        __guard case .Some(ref cache) = self.winding else:
+            return {}
         return DeviceWindingView[ImmutAnyOrigin, Self.frame](
             BoundsQueryView[ImmutAnyOrigin, Self.frame](
                 _device_span[mut=False](cache.tree.bounds),

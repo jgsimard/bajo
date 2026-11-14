@@ -21,7 +21,6 @@ from bajo.rt.gpu.rgb import (
 )
 from bajo.rt.gpu import (
     GPU_RT_BVH_WIDE4,
-    GpuRtBvhFormat,
     GpuRtSceneKind,
     GpuRtRenderTarget,
     download_gpu_pixels,
@@ -556,35 +555,20 @@ def test_gpu_coated_diffuse_and_bump_match_cpu() raises:
 
 
 def test_gpu_triangle_path_matches_cpu_wavefront() raises:
-    var settings = RenderSettings(5, 3, 2, UInt64(211))
     var world = _triangle_world()
     var camera = _camera()
-    var cpu = render_wavefront[.PATH, 1, PARALLEL=False](
-        settings, camera, world
-    )
-    var gpu = render_gpu_configured[
-        kind=.TRIANGLES,
-        integrator=.PATH,
-        triangle_format=GPU_RT_BVH_WIDE4,
-        triangle_build_method=.LBVH,
-    ](settings, camera, world.scene_data())
-
-    assert_pixels_close(gpu.pixels, cpu.pixels)
-
-
-def test_gpu_triangle_default_hploc_cwbvh8_matches_cpu_wavefront() raises:
-    var settings = RenderSettings(5, 3, 2, UInt64(227))
-    var world = _triangle_world()
-    var camera = _camera()
-    var cpu = render_wavefront[.PATH, 1, PARALLEL=False](
-        settings, camera, world
-    )
-    var gpu = render_gpu_configured[
-        kind=.TRIANGLES,
-        integrator=.PATH,
-    ](settings, camera, world.scene_data())
-
-    assert_pixels_close(gpu.pixels, cpu.pixels)
+    # Keep both reference seeds on the default layout. Wide-layout traversal
+    # has dedicated BVH coverage instead of another full transport kernel.
+    for seed in [UInt64(211), UInt64(227)]:
+        var settings = RenderSettings(5, 3, 2, seed)
+        var cpu = render_wavefront[.PATH, 1, PARALLEL=False](
+            settings, camera, world
+        )
+        var gpu = render_gpu_configured[
+            kind=.TRIANGLES,
+            integrator=.PATH,
+        ](settings, camera, world.scene_data())
+        assert_pixels_close(gpu.pixels, cpu.pixels)
 
 
 def test_gpu_chunked_triangle_nee_matches_full_capacity() raises:
@@ -801,8 +785,8 @@ def test_gpu_combined_instances_path_matches_cpu_wavefront() raises:
     var settings = RenderSettings(7, 4, 2, UInt64(457))
     var world = _combined_instance_world()
     var camera = _camera()
-    # Integrator behavior is covered by the sphere/triangle tests. This scene
-    # checks combined closest-hit transport and the alternate TLAS builder.
+    # Check combined closest-hit transport on the default layout. Alternate
+    # TLAS layouts and builders are covered directly by the BVH tests.
     var cpu = render_wavefront[.PATH, 1, PARALLEL=False](
         settings, camera, world
     )
@@ -810,13 +794,6 @@ def test_gpu_combined_instances_path_matches_cpu_wavefront() raises:
         settings, camera, world.scene_data()
     )
     assert_pixels_close(gpu.pixels, cpu.pixels)
-    var gpu_hploc_tlas = render_gpu_configured[
-        kind=.ALL,
-        integrator=.PATH,
-        tlas_format=GpuRtBvhFormat(2, 2, .WIDE),
-        tlas_build_method=.HPLOC,
-    ](settings, camera, world.scene_data())
-    assert_pixels_close(gpu_hploc_tlas.pixels, cpu.pixels)
 
 
 def test_gpu_ao_matches_cpu_for_unoccluded_hits_and_environment_misses() raises:

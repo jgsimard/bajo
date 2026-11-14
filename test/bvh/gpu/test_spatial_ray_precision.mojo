@@ -83,8 +83,9 @@ def exhaustive_parity(
 
 
 def ray_kernel[
-    count: Int
+    _device: Bool = True
 ](
+    count_arg: Int32,
     points: ImmSpan[Float32, ImmutAnyOrigin],
     indices: ImmSpan[UInt32, ImmutAnyOrigin],
     velocities: ImmSpan[Float32, ImmutAnyOrigin],
@@ -94,6 +95,7 @@ def ray_kernel[
     roots: ImmSpan[UInt32, ImmutAnyOrigin],
     output: MutSpan[Float64, MutAnyOrigin],
 ):
+    var count = Int(count_arg)
     var lane = Int(global_idx.x)
     if lane >= count:
         return
@@ -266,7 +268,8 @@ def test_ray_groups_ties_slabs_cutoffs_and_extreme_scales() raises:
             var dp = upload_list(ctx, params)
             var dr = upload_list(ctx, roots)
             var output = ctx.enqueue_create_buffer[.float64](count * 13)
-            ctx.enqueue_function[ray_kernel[count]](
+            ctx.enqueue_function[ray_kernel[True]](
+                Int32(count),
                 _device_span[mut=False](gpu.points),
                 _device_span[mut=False](gpu.indices),
                 _device_span[mut=False](gpu.velocities),
@@ -351,7 +354,8 @@ def test_ray_subnormal_slabs_with_normal_direction() raises:
             var dp = upload_list(ctx, params)
             var dr = upload_list(ctx, roots)
             var output = ctx.enqueue_create_buffer[.float64](13)
-            ctx.enqueue_function[ray_kernel[1]](
+            ctx.enqueue_function[ray_kernel[True]](
+                Int32(1),
                 _device_span[mut=False](gpu.points),
                 _device_span[mut=False](gpu.indices),
                 _device_span[mut=False](gpu.velocities),
@@ -451,7 +455,8 @@ def test_ray_provisional_winners_near_coincident_planes_and_cutoffs() raises:
             var dp = upload_list(ctx, params)
             var dr = upload_list(ctx, roots)
             var output = ctx.enqueue_create_buffer[.float64](count * 13)
-            ctx.enqueue_function[ray_kernel[count]](
+            ctx.enqueue_function[ray_kernel[True]](
+                Int32(count),
                 _device_span[mut=False](gpu.points),
                 _device_span[mut=False](gpu.indices),
                 _device_span[mut=False](gpu.velocities),

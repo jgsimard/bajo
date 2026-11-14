@@ -232,7 +232,7 @@ def test_gpu_cwbvh_max_leaf_size_single_and_segmented_builds() raises:
     _assert_cwbvh_max_leaf_size[3]()
 
 
-def test_gpu_triangle_tlas_cwbvh8_camera_matches_expected_hit() raises:
+def test_gpu_triangle_tlas_hploc_cwbvh8_camera_matches_expected_hit() raises:
     var near_verts = _make_triangle_at_z(2.0)
     var far_verts = _make_triangle_at_z(6.0)
     var near_bounds = compute_bounds(near_verts)
@@ -249,7 +249,7 @@ def test_gpu_triangle_tlas_cwbvh8_camera_matches_expected_hit() raises:
             _triangle_instance(1, right, far_bounds),
         ]
         var tlas = build_gpu_tlas[
-            .TRIANGLE, 2, 8, 2, 4, .LBVH, GpuBvhLayout.CWBVH8
+            .TRIANGLE, 2, 8, 2, 4, .HPLOC, GpuBvhLayout.CWBVH8
         ](ctx, instances)
         var camera = _make_camera_ray(
             right,

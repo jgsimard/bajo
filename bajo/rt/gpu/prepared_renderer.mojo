@@ -22,7 +22,11 @@ from bajo.rt.gpu.config import (
     GPU_RT_BVH_TLAS4,
     GPU_RT_BVH_WIDE4,
 )
-from bajo.rt.gpu.render import enqueue_render_gpu
+from bajo.rt.gpu.render import (
+    enqueue_render_gpu,
+    _enqueue_render_gpu_rgb,
+    _validate_rgb_settings,
+)
 from bajo.rt.gpu.resources import (
     GpuRtRenderTarget,
     _GpuRtReadback,
@@ -128,6 +132,7 @@ struct GpuRtPreparedRenderer[
     triangle_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
     tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS4,
     blas_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
+    _rgb_only: Bool = False,
 ]:
     """Own a device context, prepared scene, and reusable render target."""
 
@@ -161,6 +166,8 @@ struct GpuRtPreparedRenderer[
         camera: Camera,
         data: SceneData,
     ) raises:
+        comptime if Self._rgb_only:
+            _validate_rgb_settings(settings)
         self._readback = Optional[_GpuRtReadback]()
         self._preview = Optional[GpuRtPreviewAccumulator]()
         self._preview_color_mode = .RGB
@@ -198,8 +205,12 @@ struct GpuRtPreparedRenderer[
         context/target. The sample offset is uploaded separately; other sampling and film
         values remain part of the graph configuration.
         """
+        comptime if Self._rgb_only:
+            _validate_rgb_settings(settings)
         self.target.validate_compatible(settings)
-        comptime if Integrator.is_path_tracing[integrator]:
+        comptime if not Self._rgb_only and Integrator.is_path_tracing[
+            integrator
+        ]:
             if settings.color_mode == .SPECTRAL:
                 self.scene.enable_spectral(self.ctx)
                 self.target.ensure_spectral(self.ctx)
@@ -247,13 +258,22 @@ struct GpuRtPreparedRenderer[
             # Structural settings and buffer changes still submit directly;
             # changing only the sample offset reuses the recorded sequence.
             self.invalidate_graph()
-            enqueue_render_gpu[integrator](
-                self.ctx,
-                self.target,
-                self.scene,
-                captured_settings,
-                Optional(offset),
-            )
+            comptime if Self._rgb_only:
+                _enqueue_render_gpu_rgb[integrator](
+                    self.ctx,
+                    self.target,
+                    self.scene,
+                    captured_settings,
+                    Optional(offset),
+                )
+            else:
+                enqueue_render_gpu[integrator](
+                    self.ctx,
+                    self.target,
+                    self.scene,
+                    captured_settings,
+                    Optional(offset),
+                )
             self._graph_arguments = arguments^
             return
         if not self._render_graph:
@@ -267,13 +287,22 @@ struct GpuRtPreparedRenderer[
                 mut builder: DeviceGraphBuilder,
             ) raises {mut target, imm scene, captured_settings, offset}:
                 var recording = builder.recording_context()
-                enqueue_render_gpu[integrator](
-                    recording,
-                    target,
-                    scene,
-                    captured_settings,
-                    Optional(offset),
-                )
+                comptime if Self._rgb_only:
+                    _enqueue_render_gpu_rgb[integrator](
+                        recording,
+                        target,
+                        scene,
+                        captured_settings,
+                        Optional(offset),
+                    )
+                else:
+                    enqueue_render_gpu[integrator](
+                        recording,
+                        target,
+                        scene,
+                        captured_settings,
+                        Optional(offset),
+                    )
 
             self._render_graph = DeviceGraph.create(ctx, record)
         self._render_graph.value().replay()
@@ -281,6 +310,8 @@ struct GpuRtPreparedRenderer[
     def _prepare_frame(
         mut self, settings: RenderSettings, camera: Camera
     ) raises:
+        comptime if Self._rgb_only:
+            _validate_rgb_settings(settings)
         settings.validate()
         var resized = (
             settings.image_width != self.target.image_width

@@ -7,10 +7,12 @@ from max.gpu.host import DeviceContext
 from bajo.bvh.gpu.utils import upload_list
 from bajo.core import Point3f32, Vec3f32
 from bajo.rt import Camera, Color, Integrator, RenderSettings, SceneBuilder
+from bajo.rt.gpu.rgb import (
+    enqueue_render_gpu,
+)
 from bajo.rt.gpu import (
     GpuRtRenderTarget,
     download_gpu_pixels,
-    enqueue_render_gpu,
     prepare_gpu_scene,
 )
 from bajo.rt.gpu.config import GPU_RT_BVH_WIDE4

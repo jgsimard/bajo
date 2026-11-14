@@ -47,6 +47,11 @@ from bajo.rt.material_types import Integrator
 from bajo.rt.scene_data import SceneData
 
 
+def _validate_rgb_settings(settings: RenderSettings) raises:
+    if settings.color_mode != .RGB:
+        raise Error("RGB-only GPU rendering requires RGB color mode")
+
+
 def _enqueue_scene_bounce[
     integrator: Integrator,
     kind: GpuRtSceneKind,
@@ -252,6 +257,39 @@ def enqueue_render_gpu[
                     block_dim=128,
                 )
             return
+    _enqueue_render_gpu_rgb[
+        integrator,
+        kind,
+        sphere_format,
+        triangle_format,
+        tlas_format,
+        blas_format,
+        MAX_BLOCKS,
+        SHADOW_MAX_BLOCKS,
+    ](ctx, target, world, settings, sample_offset)
+
+
+def _enqueue_render_gpu_rgb[
+    integrator: Integrator = .PATH,
+    kind: GpuRtSceneKind = .ALL,
+    sphere_format: GpuRtBvhFormat = GPU_RT_BVH_WIDE4,
+    triangle_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
+    tlas_format: GpuRtBvhFormat = GPU_RT_BVH_TLAS4,
+    blas_format: GpuRtBvhFormat = GPU_RT_BVH_CWBVH8,
+    MAX_BLOCKS: Int = GPU_RT_MAX_BLOCKS,
+    SHADOW_MAX_BLOCKS: Int = MAX_BLOCKS,
+](
+    ctx: DeviceContext,
+    mut target: GpuRtRenderTarget,
+    world: GpuRtScene[
+        kind, sphere_format, triangle_format, tlas_format, blas_format
+    ],
+    settings: RenderSettings,
+    sample_offset: Optional[Pointer[UInt32, ImmUntrackedOrigin]] = Optional[
+        Pointer[UInt32, ImmUntrackedOrigin]
+    ](),
+) raises:
+    """Shared RGB scheduler; mode-aware entry points also use this path."""
     enqueue_gpu_wavefront[
         integrator,
         _enqueue_scene_primary_bounce[
@@ -287,12 +325,15 @@ def render_gpu_configured[
     triangle_build_method: GpuBvhBuildMethod = .HPLOC,
     tlas_build_method: GpuBvhBuildMethod = .HPLOC,
     blas_build_method: GpuBvhBuildMethod = .HPLOC,
+    _rgb_only: Bool = False,
 ](
     settings: RenderSettings,
     camera: Camera,
     world: SceneData,
 ) raises -> RenderResult:
     """Render one explicitly selected scene shape, format, and builder set."""
+    comptime if _rgb_only:
+        _validate_rgb_settings(settings)
     var total_t0 = perf_counter_ns()
     var pixel_count = settings.image_width * settings.image_height
     var sample_count = pixel_count * settings.samples_per_pixel
@@ -312,14 +353,19 @@ def render_gpu_configured[
             tlas_build_method,
             blas_build_method,
         ](ctx, world)
-        comptime if Integrator.is_path_tracing[integrator]:
+        comptime if not _rgb_only and Integrator.is_path_tracing[integrator]:
             if settings.color_mode == .SPECTRAL:
                 gpu_world.enable_spectral(ctx)
         var target = gpu_world.make_render_target(ctx, settings, camera)
         init_ns = Int(perf_counter_ns() - init_t0)
 
         var render_t0 = perf_counter_ns()
-        enqueue_render_gpu[integrator](ctx, target, gpu_world, settings)
+        comptime if _rgb_only:
+            _enqueue_render_gpu_rgb[integrator](
+                ctx, target, gpu_world, settings
+            )
+        else:
+            enqueue_render_gpu[integrator](ctx, target, gpu_world, settings)
         pixels = download_gpu_pixels(ctx, target)
         render_ns = Int(perf_counter_ns() - render_t0)
 
@@ -338,37 +384,40 @@ def render_gpu_configured[
 
 def render_gpu[
     integrator: Integrator = .PATH,
+    _rgb_only: Bool = False,
 ](
     settings: RenderSettings,
     camera: Camera,
     world: SceneData,
 ) raises -> RenderResult:
     """Select geometry with WIDE4 spheres, CWBVH8 triangles/BLASes and TLAS4."""
+    comptime if _rgb_only:
+        _validate_rgb_settings(settings)
     if len(world.triangle_instances()) > 0:
         if len(world.spheres()) > 0:
             if len(world.triangle_vertices()) > 0:
-                return render_gpu_configured[.ALL, integrator](
-                    settings, camera, world
-                )
-            return render_gpu_configured[.SPHERES_INSTANCES, integrator](
-                settings, camera, world
-            )
+                return render_gpu_configured[
+                    .ALL, integrator, _rgb_only=_rgb_only
+                ](settings, camera, world)
+            return render_gpu_configured[
+                .SPHERES_INSTANCES, integrator, _rgb_only=_rgb_only
+            ](settings, camera, world)
         if len(world.triangle_vertices()) > 0:
-            return render_gpu_configured[.TRIANGLES_INSTANCES, integrator](
-                settings, camera, world
-            )
-        return render_gpu_configured[.INSTANCES, integrator](
-            settings, camera, world
-        )
+            return render_gpu_configured[
+                .TRIANGLES_INSTANCES, integrator, _rgb_only=_rgb_only
+            ](settings, camera, world)
+        return render_gpu_configured[
+            .INSTANCES, integrator, _rgb_only=_rgb_only
+        ](settings, camera, world)
 
     if len(world.spheres()) > 0:
         if len(world.triangle_vertices()) > 0:
-            return render_gpu_configured[.SPHERES_TRIANGLES, integrator](
-                settings, camera, world
-            )
-        return render_gpu_configured[.SPHERES, integrator](
+            return render_gpu_configured[
+                .SPHERES_TRIANGLES, integrator, _rgb_only=_rgb_only
+            ](settings, camera, world)
+        return render_gpu_configured[.SPHERES, integrator, _rgb_only=_rgb_only](
             settings, camera, world
         )
-    return render_gpu_configured[.TRIANGLES, integrator](
+    return render_gpu_configured[.TRIANGLES, integrator, _rgb_only=_rgb_only](
         settings, camera, world
     )

@@ -31,7 +31,7 @@ Shape "sphere"
     )
     var settings = parsed.settings.copy()
     var camera = parsed.camera
-    var world = CpuScene[4, 4](parsed^.take_data())
+    var world = CpuScene[16, 16](parsed^.take_data())
     with DeviceContext() as ctx:
         var scene = prepare_gpu_scene[kind=.SPHERES](ctx, world.scene_data())
         comptime for integrator in [
@@ -65,7 +65,7 @@ Shape "trianglemesh"
     )
     var settings = parsed.settings.copy()
     var camera = parsed.camera
-    var world = CpuScene[4, 4](parsed^.take_data())
+    var world = CpuScene[16, 16](parsed^.take_data())
     var cpu = render_wavefront[.NORMALS, 4](settings, camera, world)
     with DeviceContext() as ctx:
         var scene = prepare_gpu_scene[kind=.INSTANCES](ctx, world.scene_data())
@@ -100,7 +100,7 @@ Sampler "halton" "integer pixelsamples" 4
     var parsed = read_pbrt("scene/main.pbrt", loader)
     var settings = parsed.settings.copy()
     var camera = parsed.camera
-    var world = CpuScene[4, 4](parsed^.take_data())
+    var world = CpuScene[16, 16](parsed^.take_data())
     var cpu = render_wavefront[.NORMALS, 4](settings, camera, world)
     with DeviceContext() as ctx:
         var scene = prepare_gpu_scene[kind=.INSTANCES](ctx, world.scene_data())
@@ -134,7 +134,7 @@ def test_coated_conductor_reflectance_cpu_gpu_path_nee_and_mis() raises:
         var parsed = make_reflectance_scene(eta)
         var settings = parsed.settings.copy()
         var camera = parsed.camera
-        var world = CpuScene[4, 4](parsed^.take_data())
+        var world = CpuScene[16, 16](parsed^.take_data())
         with DeviceContext() as ctx:
             var scene = prepare_gpu_scene[kind=.INSTANCES](
                 ctx, world.scene_data()

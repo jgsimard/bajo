@@ -209,8 +209,10 @@ Shape "sphere"
     )
     var settings = scene.settings.copy()
     var camera = scene.camera
-    var world = CpuScene[4, 4](scene^.take_data())
-    var scalar = render_wavefront[.MIS, 1, 8192, False](settings, camera, world)
+    var world = CpuScene[16, 16](scene^.take_data())
+    var scalar = render_wavefront[.MIS, 1, PARALLEL=False](
+        settings, camera, world
+    )
     var packet = render_wavefront[.MIS, 4](settings, camera, world)
     var energy = Float32(0.0)
     for i in range(len(scalar.pixels)):

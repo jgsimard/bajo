@@ -25,7 +25,7 @@ def test_gpu_clamps_complete_path_after_emission_and_environment_accumulation() 
     var parsed = make_film_path()
     var settings = parsed.settings.copy()
     var camera = parsed.camera
-    var world = CpuScene[4, 4](parsed^.take_data())
+    var world = CpuScene[16, 16](parsed^.take_data())
     var expected = settings.film.apply_sample(Color(36, 12, 12))
     with DeviceContext() as ctx:
         var scene = prepare_gpu_scene[kind=.INSTANCES](ctx, world.scene_data())

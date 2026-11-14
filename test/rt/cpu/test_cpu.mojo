@@ -1556,7 +1556,7 @@ def test_normal_and_ao_integrators_match_unoccluded_plane() raises:
             1
         )
         var parallel = render_wavefront[integrator](settings, camera, world)
-        var scalar = render_wavefront[integrator, 1, 16, False](
+        var scalar = render_wavefront[integrator, 1, PARALLEL=False](
             settings, camera, world
         )
         assert_equal(len(parallel.pixels), 15)
@@ -1639,16 +1639,19 @@ def test_packet_widths_match_width1_for_mixed_bsdfs() raises:
         52.0,
     )
 
-    var packet1 = render_wavefront[.PATH, 1, 10, False](settings, camera, world)
+    var packet1 = render_wavefront[.PATH, 1, PARALLEL=False](
+        settings, camera, world
+    )
     comptime for width in [4, 16]:
-        var packet = render_wavefront[.PATH, width, 10, False](
+        var packet = render_wavefront[.PATH, width, PARALLEL=False](
             settings, camera, world
         )
         assert_pixels_close(packet.pixels, packet1.pixels)
 
 
 def test_direct_light_integrators_render_cornell() raises:
-    var settings = RenderSettings(8, 8, 2, UInt64(2026))
+    # Leave a partial final packet at both widths without a unique chunk size.
+    var settings = RenderSettings(9, 7, 2, UInt64(2026))
     var world = CpuScene[16, 16](make_cornell_scene())
     var camera = Camera.from_vfov(
         Point3f32[.WORLD](0.0, 1.0, 3.2),
@@ -1664,7 +1667,7 @@ def test_direct_light_integrators_render_cornell() raises:
         assert_true(light.weight > 0.0)
     comptime for integrator in [Integrator.NEE, Integrator.MIS]:
         var result = render_wavefront[integrator](settings, camera, world)
-        var packet1 = render_wavefront[integrator, 1, 14, False](
+        var packet1 = render_wavefront[integrator, 1, PARALLEL=False](
             settings, camera, world
         )
         var total = Float32(0.0)
@@ -1674,7 +1677,7 @@ def test_direct_light_integrators_render_cornell() raises:
             assert_vec_equal(packet1.pixels[i], pixel)
         assert_true(total > 0.0)
         comptime for width in [4, 16]:
-            var packet = render_wavefront[integrator, width, 14, False](
+            var packet = render_wavefront[integrator, width, PARALLEL=False](
                 settings, camera, world
             )
             assert_pixels_close(packet.pixels, packet1.pixels)

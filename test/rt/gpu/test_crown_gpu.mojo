@@ -142,7 +142,7 @@ Shape "plymesh" "string filename" "mesh.ply"
     var parsed = read_pbrt("scene/main.pbrt", loader)
     var settings = parsed.settings.copy()
     var camera = parsed.camera
-    var world = CpuScene[4, 4](parsed^.take_data())
+    var world = CpuScene[16, 16](parsed^.take_data())
     var cpu = render_wavefront[.MIS, 4](settings, camera, world)
     with DeviceContext() as ctx:
         var scene = prepare_gpu_scene[kind=.INSTANCES](ctx, world.scene_data())
@@ -171,7 +171,7 @@ Shape "sphere"
     )
     var settings = parsed.settings.copy()
     var camera = parsed.camera
-    var world = CpuScene[4, 4](parsed^.take_data())
+    var world = CpuScene[16, 16](parsed^.take_data())
     var cpu = render_wavefront[.MIS, 4](settings, camera, world)
     with DeviceContext() as ctx:
         var scene = prepare_gpu_scene[kind=.SPHERES](ctx, world.scene_data())
@@ -202,7 +202,7 @@ Shape "plymesh" "string filename" "cube.ply"
     var parsed = read_pbrt("scene/main.pbrt", loader)
     var settings = parsed.settings.copy()
     var camera = parsed.camera
-    var world = CpuScene[4, 4](parsed^.take_data())
+    var world = CpuScene[16, 16](parsed^.take_data())
     var cpu = render_wavefront[.MIS, 4](settings, camera, world)
     with DeviceContext() as ctx:
         var scene = prepare_gpu_scene[kind=.INSTANCES](ctx, world.scene_data())

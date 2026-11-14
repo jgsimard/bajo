@@ -70,7 +70,7 @@ def test_absorbing_sphere_packet_compaction_and_scalar() raises:
     builder.media.absorption.append(Color(0.01, 0.2, 0.5))
     var medium = UInt32(1)
     SceneMedia.set_boundary(builder.media.spheres, 0, medium)
-    var world = CpuScene[4, 4](builder^.finish())
+    var world = CpuScene[16, 16](builder^.finish())
     var camera = Camera.from_vfov(
         Point3f32[.WORLD](0, 0, 3),
         Point3f32[.WORLD](0),
@@ -78,7 +78,7 @@ def test_absorbing_sphere_packet_compaction_and_scalar() raises:
         0.01,
     )
     var settings = RenderSettings(3, 2, 17, 2026, 8, .HALTON)
-    var scalar = render_wavefront[.PATH, 1, 8192, False](
+    var scalar = render_wavefront[.PATH, 1, PARALLEL=False](
         settings, camera, world
     )
     var packet = render_wavefront[.PATH, 4](settings, camera, world)
@@ -106,7 +106,7 @@ def test_reflective_absorbing_sphere_energy() raises:
     builder.media.absorption.append(Color(0.5))
     var medium = UInt32(1)
     SceneMedia.set_boundary(builder.media.spheres, 0, medium)
-    var world = CpuScene[4, 4](builder^.finish())
+    var world = CpuScene[16, 16](builder^.finish())
     var camera = Camera.from_vfov(
         Point3f32[.WORLD](0, 0, 3),
         Point3f32[.WORLD](0),

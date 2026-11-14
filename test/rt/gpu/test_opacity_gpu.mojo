@@ -190,7 +190,7 @@ def test_png_masked_emitters_match_cpu_and_do_not_emit_through_holes() raises:
             var parsed = read_pbrt("main.pbrt", loader)
             var settings = parsed.settings.copy()
             var camera = parsed.camera
-            var world = CpuScene[4, 4](parsed^.take_data())
+            var world = CpuScene[16, 16](parsed^.take_data())
             var cpu = render_wavefront[.MIS, 4](settings, camera, world)
             with DeviceContext() as ctx:
                 var scene = prepare_gpu_scene[kind=.INSTANCES](
@@ -235,7 +235,7 @@ Shape "trianglemesh" "point3 P" [-1 -1 2 0 1 2 1 -1 2]
         var parsed = parse_pbrt(source)
         var settings = parsed.settings.copy()
         var camera = parsed.camera
-        var world = CpuScene[4, 4](parsed^.take_data())
+        var world = CpuScene[16, 16](parsed^.take_data())
         var cpu = render_wavefront[.MIS, 4](settings, camera, world)
         with DeviceContext() as ctx:
             var scene = prepare_gpu_scene[kind=.INSTANCES](

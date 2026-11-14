@@ -348,12 +348,12 @@ def test_robust_triangle_scale_and_interval_policy() raises:
 
 def check_vector64_width[width: SIMDLength]() raises:
     var p = Point3[.float32, .WORLD, width](0.0)
-    comptime for lane in range(width):
+    for lane in range(width):
         p.x[lane] = Float32(lane) * 0.125
         p.y[lane] = -Float32(lane + 1) * 1e-30
         p.z[lane] = Float32(lane + 1) * 1e30
     var converted = vector64(p)
-    comptime for lane in range(width):
+    for lane in range(width):
         assert_equal(converted.x[lane], Float64(p.x[lane]))
         assert_equal(converted.y[lane], Float64(p.y[lane]))
         assert_equal(converted.z[lane], Float64(p.z[lane]))

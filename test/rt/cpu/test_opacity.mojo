@@ -101,7 +101,7 @@ def test_transparent_only_instance_is_invisible_to_primary_and_shadow_packets() 
     var valid = SIMD[.bool, 4](True, False, True, False)
     var hit = world.trace_surface(rays, valid)
     var blocked = world.occluded(rays, valid)
-    comptime for lane in range(4):
+    for lane in range(4):
         assert_equal(hit.hit[lane], False)
         assert_equal(blocked[lane], False)
 

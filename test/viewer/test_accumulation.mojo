@@ -55,7 +55,7 @@ def _check_batch(
     assert_equal(len(actual.rgba), 4 * len(expected))
     for index in range(len(expected)):
         var color = expected[index] / Float32(samples)
-        comptime for channel in range(3):
+        for channel in range(3):
             assert_equal(
                 bitcast[.uint32](actual.linear[index][channel]),
                 bitcast[.uint32](expected[index][channel]),
@@ -110,7 +110,7 @@ def test_reset_rejects_stale_frames_without_changing_accumulation() raises:
     for index in range(len(rgba)):
         assert_equal(actual.rgba[index], rgba[index])
     for index in range(len(linear)):
-        comptime for channel in range(3):
+        for channel in range(3):
             assert_equal(
                 bitcast[.uint32](actual.linear[index][channel]),
                 bitcast[.uint32](linear[index][channel]),

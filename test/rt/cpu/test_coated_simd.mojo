@@ -94,7 +94,7 @@ def _check[width: SIMDLength]() raises:
                 bitangent,
                 normal,
             )
-            comptime for axis in range(3):
+            for axis in range(3):
                 rays[axis][lane] = ray[axis]
                 normals[axis][lane] = normal[axis]
                 directions[axis][lane] = out_direction[axis]
@@ -131,7 +131,7 @@ def _check[width: SIMDLength]() raises:
                 assert_false(sampled.delta[lane])
                 assert_equal(sampled.pdf[lane], Float32(0.0))
                 assert_equal(evaluated.pdf[lane], Float32(0.0))
-                comptime for axis in range(3):
+                for axis in range(3):
                     assert_equal(sampled.weight[axis][lane], Float32(0.0))
                     assert_equal(evaluated.value[axis][lane], Float32(0.0))
                     assert_equal(
@@ -174,7 +174,7 @@ def _check[width: SIMDLength]() raises:
             assert_almost_equal(
                 evaluated.pdf[lane], scalar_eval.pdf[0], atol=1e-6, rtol=2e-5
             )
-            comptime for axis in range(3):
+            for axis in range(3):
                 assert_almost_equal(
                     sampled.direction[axis][lane],
                     scalar.direction[axis][0],

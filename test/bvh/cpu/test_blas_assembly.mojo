@@ -299,7 +299,7 @@ def _segment_packet_rays() -> Ray[.float32, .LOCAL, 4]:
 def _assert_packet_segment_hits(
     idx: Int, hits: Hit[.LOCAL, 4], occluded: SIMD[.bool, 4], distance: Float32
 ) raises:
-    comptime for lane in range(4):
+    for lane in range(4):
         var expected = (idx == 0 and lane == 0) or (
             idx == 2 and (lane == 1 or lane == 2)
         )

@@ -320,7 +320,7 @@ def test_gpu_preview_weights_reset_tails_and_failed_work() raises:
                     assert_equal(rgba[i], cpu.rgba[i])
                 with gpu.sums.map_to_host() as actual:
                     for i in range(count):
-                        comptime for axis in range(3):
+                        for axis in range(3):
                             assert_equal(
                                 bitcast[.uint32](actual[i * 3 + axis]),
                                 bitcast[.uint32](cpu.linear[i][axis]),
@@ -337,7 +337,7 @@ def test_gpu_preview_weights_reset_tails_and_failed_work() raises:
             assert_equal(gpu.samples, cpu.samples)
             with gpu.sums.map_to_host() as actual:
                 for i in range(count):
-                    comptime for axis in range(3):
+                    for axis in range(3):
                         assert_equal(
                             bitcast[.uint32](actual[i * 3 + axis]),
                             bitcast[.uint32](cpu.linear[i][axis]),
@@ -403,7 +403,7 @@ def test_gpu_sample_film_matches_across_sample_chunks() raises:
             var expected = download_gpu_pixels(ctx, reference)
             var actual = download_gpu_pixels(ctx, candidate)
             for i in range(len(expected)):
-                comptime for axis in range(3):
+                for axis in range(3):
                     assert_equal(
                         bitcast[.uint32](actual[i][axis]),
                         bitcast[.uint32](expected[i][axis]),

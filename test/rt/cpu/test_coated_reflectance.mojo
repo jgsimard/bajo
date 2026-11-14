@@ -26,7 +26,7 @@ def test_reflectance_conductor_normal_incidence_and_white_limit() raises:
     var r = Color(0.0, 0.25, 0.75)
     var k = conductor_k_from_reflectance(r)
     var recovered = fresnel_conductor(Float32(1.0), Color(1.0), k)
-    comptime for channel in range(3):
+    for channel in range(3):
         assert_almost_equal(recovered[channel], r[channel], atol=1e-6)
     k = conductor_k_from_reflectance(Color(1.0))
     assert_true(k.is_finite()[0])
@@ -57,7 +57,7 @@ def test_coated_conductor_defaults_retain_original_copper_spectra() raises:
     assert_true(material.conductor_k_spectrum != NO_TEXTURE)
     var eta = _named_optical_constant("metal-Cu-eta") / 1.5
     var k = _named_optical_constant("metal-Cu-k") / 1.5
-    comptime for channel in range(3):
+    for channel in range(3):
         assert_almost_equal(
             material.conductor_eta[channel], eta[channel], atol=1e-6
         )
@@ -118,7 +118,7 @@ def _check_material_packet[length: SIMDLength]() raises:
             else:
                 expected_eta = Color(0.2, 0.3, 0.4) / 1.4
                 expected_k = Color(2.0, 3.0, 4.0) / 1.4
-            comptime for channel in range(3):
+            for channel in range(3):
                 assert_almost_equal(
                     parameters.coated.conductor_eta[channel][lane],
                     expected_eta[channel],
@@ -196,7 +196,7 @@ def test_matching_interface_ignores_roughness_in_layered_value_and_pdf() raises:
         var actual = _evaluate_coated_diffuse(
             -wo, wo, Color(1.0), p, wi, estimator_seed=UInt32(seed)
         )
-        comptime for channel in range(3):
+        for channel in range(3):
             assert_almost_equal(
                 actual.value[channel], reference.value[channel], atol=1e-6
             )

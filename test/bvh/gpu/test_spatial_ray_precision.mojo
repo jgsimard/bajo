@@ -119,7 +119,7 @@ def ray_kernel[
     output[lane * 13 + 2] = hit.t
     output[lane * 13 + 3] = Float64(hit.u)
     output[lane * 13 + 4] = Float64(hit.v)
-    comptime for axis in range(3):
+    for axis in range(3):
         output[lane * 13 + 5 + axis] = Float64(hit.normal[axis])
     output[lane * 13 + 8] = Float64(hit.front_face)
     output[lane * 13 + 9] = Float64(
@@ -289,7 +289,7 @@ def test_ray_groups_ties_slabs_cutoffs_and_extreme_scales() raises:
                     )
                     assert_equal(actual[lane * 13 + 3], Float64(hit.u))
                     assert_equal(actual[lane * 13 + 4], Float64(hit.v))
-                    comptime for axis in range(3):
+                    for axis in range(3):
                         assert_equal(
                             actual[lane * 13 + 5 + axis],
                             Float64(hit.normal[axis]),
@@ -370,7 +370,7 @@ def test_ray_subnormal_slabs_with_normal_direction() raises:
                 assert_almost_equal(actual[2], hit.t, atol=0.0, rtol=1e-14)
                 assert_equal(actual[3], Float64(hit.u))
                 assert_equal(actual[4], Float64(hit.v))
-                comptime for component in range(3):
+                for component in range(3):
                     assert_equal(
                         actual[5 + component], Float64(hit.normal[component])
                     )
@@ -475,7 +475,7 @@ def test_ray_provisional_winners_near_coincident_planes_and_cutoffs() raises:
                         )
                         assert_equal(actual[lane * 13 + 3], Float64(hit.u))
                         assert_equal(actual[lane * 13 + 4], Float64(hit.v))
-                        comptime for axis in range(3):
+                        for axis in range(3):
                             assert_equal(
                                 actual[lane * 13 + 5 + axis],
                                 Float64(hit.normal[axis]),

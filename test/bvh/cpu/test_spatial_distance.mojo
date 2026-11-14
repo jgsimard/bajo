@@ -250,11 +250,11 @@ def check_vector_angles[width: SIMDLength]() raises:
     for q in range(1000):
         var x = SIMD[.float64, width](0.0)
         var y = SIMD[.float64, width](0.0)
-        comptime for lane in range(width):
+        for lane in range(width):
             x[lane] = Float64((q * 17 + Int(lane) * 11) % 127 - 63)
             y[lane] = Float64((q * 23 + Int(lane) * 7) % 131 - 65)
         var actual = angle_atan2(y, x)
-        comptime for lane in range(width):
+        for lane in range(width):
             assert_almost_equal(
                 actual[lane], atan2(y[lane], x[lane]), atol=1e-15, rtol=1e-15
             )
@@ -540,7 +540,7 @@ def check_build_reduction[width: SIMDLength]() raises:
                     expected, items[Int(order[i])].bounds
                 )
             var actual = tree._range_bounds[width](items, order, first, count)
-            comptime for axis in range(3):
+            for axis in range(3):
                 assert_equal(actual._min[axis], expected._min[axis])
                 assert_equal(actual._max[axis], expected._max[axis])
 

@@ -92,7 +92,7 @@ def test_spectral_conductor_fresnel_matches_independent_complex_reference() rais
             SampledSpectrum[width](0.18, 0.35, 1.4, 1.8),
             SampledSpectrum[width](3.4, 2.8, 1.1, 0.5),
         )
-        comptime for channel in range(4):
+        for channel in range(4):
             for lane in range(width):
                 assert_almost_equal(
                     fresnel[channel][lane],
@@ -122,7 +122,7 @@ def test_measured_canon_sensor_and_calibration_match_original_source_references(
             SampledSpectrum[width](2, 3, 5, 7), wavelengths
         )
         for lane in range(width):
-            comptime for channel in range(3):
+            for channel in range(3):
                 assert_almost_equal(
                     response[channel][lane],
                     CANON_REFERENCE_SAMPLE[channel],
@@ -154,7 +154,7 @@ def test_complete_sample_uses_final_hero_pdf_before_sensor_clamping() raises:
         dot(film.xyz_green, sensor),
         dot(film.xyz_blue, sensor),
     )
-    comptime for channel in range(3):
+    for channel in range(3):
         assert_almost_equal(rgb[channel], expected[channel], atol=2e-6)
 
 
@@ -182,7 +182,7 @@ def test_authored_spectral_products_and_blackbodies_are_retained() raises:
     var rgb = resources.rgb.view().sample(
         Color(0.2, 0.4, 0.8), wavelengths, RgbSpectrumView.ALBEDO
     )
-    comptime for channel in range(4):
+    for channel in range(4):
         var curve = 0.1 + 0.8 * (wavelengths.lambda_nm[channel] - 360) / 470
         assert_almost_equal(value[channel], rgb[channel] * curve, atol=1e-6)
     var peak = Float32(2.8977721e6 / 6500)
@@ -242,7 +242,7 @@ def test_reused_workspace_refreshes_bindings_for_replaced_scene() raises:
         var fresh = render_wavefront[.MIS, 4, PARALLEL=False](
             settings, camera, world
         )
-        comptime for channel in range(3):
+        for channel in range(3):
             assert_almost_equal(
                 reused.pixels[0][channel], fresh.pixels[0][channel], atol=1e-6
             )
@@ -278,7 +278,7 @@ def test_reused_workspace_refreshes_bindings_for_replaced_scene() raises:
             8,
             4,
         ](settings, camera, world, workspace)
-        comptime for channel in range(3):
+        for channel in range(3):
             assert_almost_equal(
                 recovered.pixels[0][channel],
                 fresh.pixels[0][channel],
@@ -306,7 +306,7 @@ def test_spectral_cpu_width_chunk_batch_and_mode_invariance() raises:
     )
     for pixel in range(len(scalar.pixels)):
         assert_true(wide.pixels[pixel].is_finite()[0])
-        comptime for channel in range(3):
+        for channel in range(3):
             assert_almost_equal(
                 scalar.pixels[pixel][channel],
                 wide.pixels[pixel][channel],
@@ -319,7 +319,7 @@ def test_spectral_cpu_width_chunk_batch_and_mode_invariance() raises:
     var a = render_wavefront[.MIS, 4, PARALLEL=False](first, camera, world)
     var b = render_wavefront[.MIS, 4, PARALLEL=False](second, camera, world)
     for pixel in range(len(wide.pixels)):
-        comptime for channel in range(3):
+        for channel in range(3):
             assert_almost_equal(
                 wide.pixels[pixel][channel],
                 (a.pixels[pixel][channel] + b.pixels[pixel][channel]) * 0.5,
@@ -431,7 +431,7 @@ def test_dispersive_absorbing_sphere_matches_independent_analytic_series() raise
             settings, camera, world
         )
         total += image.pixels[0] / 8
-    comptime for channel in range(3):
+    for channel in range(3):
         assert_almost_equal(
             total[channel], ANALYTICAL_DISPERSIVE_ABSORPTION[channel], atol=0.01
         )

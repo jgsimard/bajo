@@ -46,7 +46,7 @@ def _check[
                     Float32(vertex % 11) * -0.125,
                     Float32(phase) + Float32(vertex % 7),
                 )
-                comptime for axis in range(3):
+                for axis in range(3):
                     flat[vertex * 3 + axis] = points[vertex][axis]
             with input.map_to_host() as data:
                 for i in range(len(flat)):

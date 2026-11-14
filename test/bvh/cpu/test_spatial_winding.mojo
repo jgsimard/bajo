@@ -413,7 +413,7 @@ def test_large_closed_refit_matches_serial_bounds_and_packing_bits() raises:
     for pattern in range(3):
         if pattern:
             for index in range(len(points)):
-                comptime for axis in range(3):
+                for axis in range(3):
                     points[index][axis] = bitcast[.float32](
                         UInt32(0x80000000 if (index + axis) % 2 else 0)
                         | UInt32((index + axis) % 13 if pattern == 2 else 0)

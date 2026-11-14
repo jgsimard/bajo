@@ -181,7 +181,7 @@ def test_bilinear_normal_texture_centers_edges_and_wrapping() raises:
     var us = SIMD[.float32, 4](0.25, 0.75, 0.5, -0.5)
     var vs = SIMD[.float32, 4](0.75, 0.25, 0.5, 2.5)
     var packet = image.sample_bilinear(us, vs)
-    comptime for lane in range(4):
+    for lane in range(4):
         assert_almost_equal(
             packet.x[lane], image.sample_bilinear(us[lane], vs[lane]).x[0]
         )

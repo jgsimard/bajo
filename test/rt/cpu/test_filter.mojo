@@ -187,7 +187,7 @@ def test_filter_weight_is_applied_after_sample_clamping() raises:
     ]:
         var result = render_wavefront[integrator, 4](settings, camera, world)
         for pixel in result.pixels:
-            comptime for channel in range(3):
+            for channel in range(3):
                 assert_almost_equal(
                     pixel[channel], expected[channel], atol=1e-5
                 )

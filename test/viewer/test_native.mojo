@@ -215,7 +215,7 @@ def test_worker_notification_and_retained_queues_across_batches() raises:
         )
         assert_equal(len(result.pixels), len(expected.pixels))
         for i in range(len(expected.pixels)):
-            comptime for channel in range(3):
+            for channel in range(3):
                 assert_equal(
                     bitcast[.uint32](result.pixels[i][channel]),
                     bitcast[.uint32](expected.pixels[i][channel]),

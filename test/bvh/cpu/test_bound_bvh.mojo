@@ -192,7 +192,7 @@ def test_hit_load_store_span_with_nonzero_index() raises:
 def _test_extract_lane[width: SIMDLength]() raises:
     var u32_values = SIMD[.uint32, width](0)
     var f32_values = SIMD[.float32, width](0.0)
-    comptime for lane in range(width):
+    for lane in range(width):
         u32_values[lane] = UInt32(100 + lane)
         f32_values[lane] = Float32(lane) + 0.25
 
@@ -911,7 +911,7 @@ def test_large_lbvh_radix_scratch_matches_known_rays() raises:
 def _assert_packet_hits_equal[
     length: SIMDLength
 ](actual: Hit[.WORLD, length], expected: Hit[.WORLD, length],) raises:
-    comptime for lane in range(length):
+    for lane in range(length):
         assert_true(actual.prim[lane] == expected.prim[lane])
         assert_true(actual.inst[lane] == expected.inst[lane])
         assert_true(actual.t[lane] == expected.t[lane])
@@ -929,7 +929,7 @@ def _test_triangle_packet_paths_match[length: SIMDLength]() raises:
     )
     var ox = SIMD[.float32, length](0.0)
     var oy = SIMD[.float32, length](0.0)
-    comptime for lane in range(length):
+    for lane in range(length):
         if lane % 4 == 0:
             ox[lane] = 1000.0 + Float32(lane)
             oy[lane] = 1000.0
@@ -964,7 +964,7 @@ def _test_triangle_packet_any_hit_matches_scalar[length: SIMDLength]() raises:
     )
     var ox = SIMD[.float32, length](0.0)
     var oy = SIMD[.float32, length](0.0)
-    comptime for lane in range(length):
+    for lane in range(length):
         if lane % 4 == 0:
             ox[lane] = 1000.0 + Float32(lane)
             oy[lane] = 1000.0
@@ -986,7 +986,7 @@ def _test_triangle_packet_any_hit_matches_scalar[length: SIMDLength]() raises:
         16, 16, length, True, .WORLD
     ](blases, UInt32(0), packet, valid)
 
-    comptime for lane in range(length):
+    for lane in range(length):
         var scalar_occluded = False
         if valid[lane]:
             scalar_occluded = trace_blas_set[16, 16, .ANY_HIT, .WORLD](
@@ -1018,7 +1018,7 @@ struct _AdaptiveStreamTestSink(AdaptiveStreamHitSink):
         length: SIMDLength,
         frame: Frame,
     ](mut self, base: Int, hit: Hit[frame, length]):
-        comptime for lane in range(length):
+        for lane in range(length):
             self.prims[base + lane] = hit.prim[lane]
             self.distances[base + lane] = hit.t[lane]
 
@@ -1076,7 +1076,7 @@ def _check_packed_triangle_packet[
 ](host: CpuBlasSet[.TRIANGLE, 16]) raises:
     var ox = SIMD[.float32, length](0.0)
     var oy = SIMD[.float32, length](0.0)
-    comptime for lane in range(length):
+    for lane in range(length):
         if lane % 4 == 0:
             ox[lane] = 1000.0
             oy[lane] = 1000.0
@@ -1115,7 +1115,7 @@ def _check_packed_triangle_packet[
     _assert_packet_hits_equal(adaptive_168, packet)
     _assert_packet_hits_equal(adaptive_1684, packet)
     _assert_packet_hits_equal(adaptive_84, packet)
-    comptime for lane in range(length):
+    for lane in range(length):
         if valid[lane]:
             var scalar = trace_blas_set[16, 16, .CLOSEST_HIT, .WORLD](
                 host,
@@ -1145,7 +1145,7 @@ def _check_packed_sphere_packet[
     length: SIMDLength
 ](host: CpuBlasSet[.SPHERE, 16]) raises:
     var ox = SIMD[.float32, length](0.0)
-    comptime for lane in range(length):
+    for lane in range(length):
         if lane % 3 == 0:
             ox[lane] = 100.0
     var rays = Ray[.float32, .WORLD, length](
@@ -1157,7 +1157,7 @@ def _check_packed_sphere_packet[
     var packet = trace_blas_set_packet[16, 16, length, Frame.WORLD](
         host, UInt32(0), rays, valid
     )
-    comptime for lane in range(length):
+    for lane in range(length):
         if valid[lane]:
             var scalar = trace_blas_set[16, 16, .CLOSEST_HIT, .WORLD](
                 host,
@@ -1202,7 +1202,7 @@ def _test_coherent_packet_frustum_is_conservative[
     var dx = SIMD[.float32, length](0.0)
     var dy = SIMD[.float32, length](0.0)
     var dz = SIMD[.float32, length](0.0)
-    comptime for lane in range(length):
+    for lane in range(length):
         ox[lane] = -0.7 + 0.2 * Float32(lane)
         oy[lane] = 0.5 - 0.15 * Float32(lane)
         oz[lane] = -0.3 + 0.1 * Float32(lane)
@@ -1223,7 +1223,7 @@ def _test_coherent_packet_frustum_is_conservative[
 
     var bounds_min = Point3[.float32, .WORLD, length](0.0)
     var bounds_max = Point3[.float32, .WORLD, length](0.0)
-    comptime for child in range(length):
+    for child in range(length):
         var distance = 2.0 + Float32(child)
         var center_x = sign_x * distance * 0.4
         var center_y = sign_y * distance * 0.3
@@ -1241,7 +1241,7 @@ def _test_coherent_packet_frustum_is_conservative[
         .WORLD, length, positive_x, positive_y, positive_z
     ](bounds_min, bounds_max, frustum, Float32(f32_max))
     var exact_child_hits = 0
-    comptime for child in range(length):
+    for child in range(length):
         var exact = intersect_ray_aabb_rcp(
             rays.o,
             reciprocal_direction,

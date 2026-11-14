@@ -183,7 +183,7 @@ def test_brass_original_spectra_and_wavelength_interpolation() raises:
     assert_equal(eta.evaluate(891.0)[0], Float32(0.0))
     var wavelengths = SIMD[.float32, 4](450.0, 555.0, 610.0, 890.0)
     var packet = eta.evaluate(wavelengths)
-    comptime for lane in range(4):
+    for lane in range(4):
         assert_almost_equal(packet[lane], eta.evaluate(wavelengths[lane])[0])
 
 

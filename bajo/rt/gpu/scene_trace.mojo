@@ -34,7 +34,6 @@ from bajo.core.geometry import (
 )
 from bajo.core.tensor_layout import record_tile
 from bajo.rt.lighting import (
-    _emissive_hit_weight_from_pdf,
     _emissive_hit_light_pdf,
 )
 from bajo.rt.gpu.emission import gpu_emitter
@@ -63,6 +62,8 @@ from bajo.rt.gpu.config import (
 )
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
+    load_device_wave_path,
+    WavePathFloatAbi,
     DeviceWaveShadow,
     WAVE_COUNTER,
     wavefront_rng_material_stage,
@@ -78,7 +79,11 @@ from bajo.rt.gpu.common_kernels import (
     make_gpu_rt_primary_path,
     gpu_rt_bounce_block_limit,
 )
-from bajo.rt.gpu.lighting import _sample_direct_light_by_kind
+from bajo.rt.gpu.lighting import (
+    _sample_direct_light_by_kind,
+    _gpu_emissive_hit_weight,
+)
+from bajo.rt.gpu.queue_layout import gpu_rt_path_tile
 from bajo.rt.gpu.textures import (
     _GpuImageTextureView,
     _gpu_normal_map,
@@ -149,6 +154,7 @@ def _gpu_rt_scene_trace_path[
     sampling: SamplingConfig,
     bounce: UInt32,
     uniform_sampling_kind: UInt32,
+    use_mis: Bool,
     allow_scattering: Bool = True,
 ):
     comptime assert (
@@ -300,7 +306,8 @@ def _gpu_rt_scene_trace_path[
                 triangle_root,
                 triangle_ray,
                 scene_kind == .TRIANGLES
-                and integrator == .MIS
+                and Integrator.uses_direct_lighting[integrator]
+                and use_mis
                 and capacity >= GPU_RT_LARGE_QUEUE_MIN_CAPACITY,
             )
         if triangle_hit.is_hit() and triangle_hit.t < closest_t:
@@ -505,8 +512,8 @@ def _gpu_rt_scene_trace_path[
                 scene, texture_descs, texture_pixels, ray.d
             )
             var environment_light_pdf = Float32(0.0)
-            comptime if integrator == .MIS:
-                if bounce > 0 and not path.delta:
+            comptime if Integrator.uses_direct_lighting[integrator]:
+                if use_mis and bounce > 0 and not path.delta:
                     match scene.environment_kind:
                         case .IMAGE:
                             environment_light_pdf = (
@@ -520,13 +527,12 @@ def _gpu_rt_scene_trace_path[
                                     scene.environment_weight
                                     / (4.0 * pi * scene.total_light_weight)
                                 )
-            var environment_mis_weight = _emissive_hit_weight_from_pdf[
-                integrator
-            ](
+            var environment_mis_weight = _gpu_emissive_hit_weight[integrator](
                 bounce,
                 path.delta,
                 path.bsdf_pdf,
                 environment_light_pdf,
+                use_mis,
             )
             _accumulate_sample(
                 sample_radiance,
@@ -640,8 +646,8 @@ def _gpu_rt_scene_trace_path[
             )
         ):
             var light_pdf = Float32(0.0)
-            comptime if integrator == .MIS:
-                if bounce > 0 and not path.delta:
+            comptime if Integrator.uses_direct_lighting[integrator]:
+                if use_mis and bounce > 0 and not path.delta:
                     light_pdf = _emissive_hit_light_pdf(
                         ray.d,
                         closest_t,
@@ -650,8 +656,8 @@ def _gpu_rt_scene_trace_path[
                         scene.total_light_weight,
                         emitter.two_sided,
                     )
-            var weight = _emissive_hit_weight_from_pdf[integrator](
-                bounce, path.delta, path.bsdf_pdf, light_pdf
+            var weight = _gpu_emissive_hit_weight[integrator](
+                bounce, path.delta, path.bsdf_pdf, light_pdf, use_mis
             )
             _accumulate_sample(
                 sample_radiance,
@@ -678,6 +684,7 @@ def _gpu_rt_scene_trace_path[
             bounce,
             uniform_sampling_kind,
             front_face=geometric.front_face,
+            use_mis=use_mis,
         )
         _append_direct_light_shadow(
             direct, path, ray.at(closest_t), scene, queues
@@ -731,14 +738,26 @@ def _gpu_rt_scene_trace_one[
     bounce: UInt32,
     allow_scattering: Bool,
     uniform_sampling_kind: UInt32,
+    use_mis: Bool,
 ):
     var src_path_ids = queues.src_path_ids.unsafe_origin_cast[ImmutAnyOrigin]()
     var src_path_fields = queues.src_path_fields.unsafe_origin_cast[
         ImmutAnyOrigin
     ]()
-    var path = load_gpu_rt_path[integrator](
-        src_path_ids, src_path_fields, Int(queues.capacity), idx
-    )
+    var path: DeviceWavePath
+    comptime if Integrator.uses_direct_lighting[integrator]:
+        # NEE does not initialize or consume the previous-BSDF PDF plane.
+        path = load_device_wave_path[False, True, False, True, True](
+            src_path_ids, src_path_fields, Int(queues.capacity), idx
+        )
+        if use_mis:
+            path.bsdf_pdf = gpu_rt_path_tile(
+                src_path_fields, Int(queues.capacity)
+            )[(WavePathFloatAbi.BSDF_PDF, idx)]
+    else:
+        path = load_gpu_rt_path[integrator](
+            src_path_ids, src_path_fields, Int(queues.capacity), idx
+        )
     _gpu_rt_scene_trace_path[
         integrator,
         scene_kind,
@@ -751,6 +770,7 @@ def _gpu_rt_scene_trace_one[
         sampling,
         bounce,
         uniform_sampling_kind,
+        use_mis,
         allow_scattering,
     )
 
@@ -771,6 +791,7 @@ def gpu_rt_primary_scene_trace_kernel[
     samples_per_pixel_i32: Int32,
     sampling_arg: GpuRtSamplingConfig,
     uniform_sampling_kind: UInt32,
+    use_mis_arg: UInt32,
 ):
     var sampling = sampling_arg.load()
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
@@ -807,7 +828,16 @@ def gpu_rt_primary_scene_trace_kernel[
         integrator,
         scene_kind,
         Formats,
-    ](idx, path, scene, queues, sampling, UInt32(0), uniform_sampling_kind)
+    ](
+        idx,
+        path,
+        scene,
+        queues,
+        sampling,
+        UInt32(0),
+        uniform_sampling_kind,
+        use_mis_arg != 0,
+    )
 
 
 def gpu_rt_scene_trace_kernel[
@@ -821,6 +851,7 @@ def gpu_rt_scene_trace_kernel[
     bounce: UInt32,
     allow_scattering: UInt32,
     uniform_sampling_kind: UInt32,
+    use_mis_arg: UInt32,
 ):
     var sampling = sampling_arg.load()
     var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
@@ -848,6 +879,7 @@ def gpu_rt_scene_trace_kernel[
             bounce,
             allow_scattering != 0,
             uniform_sampling_kind,
+            use_mis_arg != 0,
         )
         idx += stride
 

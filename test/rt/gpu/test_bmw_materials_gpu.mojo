@@ -5,7 +5,8 @@ from std.testing import TestSuite, assert_true
 from max.gpu.host import DeviceContext
 from bajo.parser import MemoryAssetLoader
 from bajo.parser.pbrt import read_pbrt
-from bajo.rt import Color, CpuScene, render_wavefront
+from bajo.rt.cpu.rgb import render_wavefront
+from bajo.rt import Color, CpuScene
 from bajo.rt.material_types import Integrator
 from bajo.core.random import Sampler
 from bajo.rt.gpu.rgb import (

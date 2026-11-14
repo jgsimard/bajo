@@ -4,7 +4,8 @@ from max.gpu.host import DeviceContext
 from std.testing import TestSuite, assert_true, assert_almost_equal
 from bajo.parser.pbrt import parse_pbrt, read_pbrt
 from test.parser.pbrt.test_bistro import _NormalMapLoader
-from bajo.rt import CpuScene, render_wavefront
+from bajo.rt.cpu.rgb import render_wavefront
+from bajo.rt import CpuScene
 from bajo.rt.material_types import Integrator
 from bajo.rt.gpu.rgb import (
     enqueue_render_gpu,

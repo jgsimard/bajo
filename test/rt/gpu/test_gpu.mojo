@@ -13,7 +13,8 @@ from bajo.core.camera import Camera
 from bajo.core.aabb import compute_bounds
 from bajo.core import Affine3f32, Point3f32, Point3W, Vec3f32, Vec3W
 from bajo.core.random import Sampler
-from bajo.rt.cpu import CpuScene, render_wavefront
+from bajo.rt.cpu.rgb import render_wavefront
+from bajo.rt.cpu import CpuScene
 from bajo.rt.gpu.rgb import (
     enqueue_render_gpu,
     render_gpu,

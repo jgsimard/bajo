@@ -20,7 +20,8 @@ from bajo.parser.asset_loader import AssetLoader
 from bajo.parser.ply import PlyMesh
 
 from bajo.core import Point3f32, Rayf32, Vec3f32
-from bajo.rt import CpuScene, EnvironmentKind, ImageTexture, render_wavefront
+from bajo.rt.cpu.rgb import render_wavefront
+from bajo.rt import CpuScene, EnvironmentKind, ImageTexture
 from bajo.rt.material_types import PrimitiveId
 
 

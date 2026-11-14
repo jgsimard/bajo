@@ -13,7 +13,8 @@ from bajo.core import Point3f32, Vec3f32, Rayf32, Point3, Vec3, Ray
 from bajo.core.color import Color
 from bajo.core.random import Rng
 from bajo.parser.pbrt import parse_pbrt
-from bajo.rt import CpuScene, SceneBuilder, render_wavefront
+from bajo.rt.cpu.rgb import render_wavefront
+from bajo.rt import CpuScene, SceneBuilder
 from bajo.rt.scene_description import SceneDescription
 from bajo.rt.emission import AreaEmitter
 from bajo.rt.material_types import MaterialKind, PrimitiveId, Integrator

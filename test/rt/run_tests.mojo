@@ -6,6 +6,7 @@ import test.rt.cpu.test_bmw_materials as cpu_test_bmw_materials
 import test.rt.cpu.test_coated_diffuse as cpu_test_coated_diffuse
 import test.rt.cpu.test_coated_simd as cpu_test_coated_simd
 import test.rt.cpu.test_cpu as cpu_test_cpu
+import test.rt.cpu.test_rgb as cpu_test_rgb
 import test.rt.cpu.test_dielectric as cpu_test_dielectric
 import test.rt.cpu.test_opacity as cpu_test_opacity
 import test.rt.cpu.test_texture_storage as cpu_test_texture_storage
@@ -48,6 +49,8 @@ import test.rt.gpu.test_wavefront_contract_gpu as gpu_test_wavefront_contract_gp
 
 def main() raises:
     var tests = TestRunner()
+    comptime if module_selected["cpu_test_rgb"]():
+        tests.run("test/rt/cpu/test_rgb.mojo", cpu_test_rgb.run_tests[True])
     comptime if module_selected["gpu_test_zsobol_gpu"]():
         tests.run(
             "test/rt/gpu/test_zsobol_gpu.mojo",

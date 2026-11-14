@@ -238,7 +238,7 @@ def _lbvh_find_split(
     return split
 
 
-@always_inline
+@inline(.always)
 def _has_refinable_morton_run(pairs: ImmSpan[MortonItem, _]) -> Bool:
     """Sorted endpoints identify eight equal codes without per-tile scheduling.
     """
@@ -426,7 +426,7 @@ def _build_lbvh[
         ](builder, Span(pairs), 0, 0, item_count)
 
 
-@always_inline
+@inline(.always)
 def _build_lbvh_leaf[
     frame: Frame,
     leaf_size: Int,

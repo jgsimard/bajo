@@ -34,7 +34,7 @@ comptime CPU_BLAS_OUTER_PARALLEL_MIN_PRIMITIVES = 4096
 comptime EXACT_MULTI_BLAS_MIN_PRIMITIVES = 4096
 
 
-@always_inline
+@inline(.always)
 def _store_wide_blas_node[
     frame: Frame, width: SIMDLength
 ](

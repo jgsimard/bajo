@@ -12,7 +12,7 @@ struct _ObjLines[origin: ImmOrigin]:
     var block: Int
     var newlines: UInt64
 
-    @always_inline
+    @inline(.always)
     def __init__(
         out self, bytes: ImmSpan[UInt8, Self.origin], begin: Int, end: Int
     ):
@@ -22,7 +22,7 @@ struct _ObjLines[origin: ImmOrigin]:
         self.block = begin
         self.newlines = 0
 
-    @always_inline
+    @inline(.always)
     def next_end(mut self) -> Int:
         comptime width = min(64, simd_width_of[UInt8]())
         while self.newlines == 0:

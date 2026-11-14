@@ -20,7 +20,7 @@ from bajo.parser.obj import read_obj
 from bajo.rt.material_types import ImageTexture, NO_TEXTURE
 
 
-@always_inline
+@inline(.always)
 def _hash(mut digest: UInt64, word: UInt32):
     digest = (digest ^ UInt64(word)) * UInt64(1099511628211)
 

@@ -50,7 +50,7 @@ struct Ray[dtype: DType, frame: Frame, length: SIMDLength = 1](
         )
         self.t_max = rays.unsafe_get(base + Ray.T_MAX)
 
-    @always_inline
+    @inline(.always)
     def at(
         self, t: SIMD[Self.dtype, Self.length]
     ) -> Point3[Self.dtype, Self.frame, Self.length]:

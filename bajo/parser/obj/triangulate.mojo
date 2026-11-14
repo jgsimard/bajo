@@ -21,7 +21,7 @@ struct _TriangleChunk(Copyable):
     var output_offset: Int
 
 
-@always_inline
+@inline(.always)
 def _triangle_counts(mesh: ObjMesh, begin: Int, end: Int) -> Tuple[Int, Int]:
     var input_count = 0
     var output_count = 0

@@ -55,7 +55,7 @@ struct SampledSpectrum[width: SIMDLength = 1](
     def get_type_name() -> String:
         return "SampledSpectrum"
 
-    @always_inline
+    @inline(.always)
     def __getitem__(self, index: Int) -> SIMD[.float32, Self.width]:
         debug_assert["safe"](
             index >= 0 and index < 4, "spectral index out of range"
@@ -68,7 +68,7 @@ struct SampledSpectrum[width: SIMDLength = 1](
             return self.s2
         return self.s3
 
-    @always_inline
+    @inline(.always)
     def __setitem__(mut self, index: Int, value: SIMD[.float32, Self.width]):
         debug_assert["safe"](
             index >= 0 and index < 4, "spectral index out of range"
@@ -82,20 +82,20 @@ struct SampledSpectrum[width: SIMDLength = 1](
         else:
             self.s3 = value
 
-    @always_inline
+    @inline(.always)
     def get(self, lane: Int) -> SampledSpectrum[1]:
         return SampledSpectrum[1](
             self.s0[lane], self.s1[lane], self.s2[lane], self.s3[lane]
         )
 
-    @always_inline
+    @inline(.always)
     def set(mut self, lane: Int, value: SampledSpectrum[1]):
         self.s0[lane] = value.s0
         self.s1[lane] = value.s1
         self.s2[lane] = value.s2
         self.s3[lane] = value.s3
 
-    @always_inline
+    @inline(.always)
     def __add__(self, other: Self) -> Self:
         return Self(
             self.s0 + other.s0,
@@ -104,7 +104,7 @@ struct SampledSpectrum[width: SIMDLength = 1](
             self.s3 + other.s3,
         )
 
-    @always_inline
+    @inline(.always)
     def __sub__(self, other: Self) -> Self:
         return Self(
             self.s0 - other.s0,
@@ -113,11 +113,11 @@ struct SampledSpectrum[width: SIMDLength = 1](
             self.s3 - other.s3,
         )
 
-    @always_inline
+    @inline(.always)
     def __neg__(self) -> Self:
         return Self(-self.s0, -self.s1, -self.s2, -self.s3)
 
-    @always_inline
+    @inline(.always)
     def __mul__(self, other: Self) -> Self:
         return Self(
             self.s0 * other.s0,
@@ -126,19 +126,19 @@ struct SampledSpectrum[width: SIMDLength = 1](
             self.s3 * other.s3,
         )
 
-    @always_inline
+    @inline(.always)
     def __mul__(self, scale: SIMD[.float32, Self.width]) -> Self:
         return Self(
             self.s0 * scale, self.s1 * scale, self.s2 * scale, self.s3 * scale
         )
 
-    @always_inline
+    @inline(.always)
     def __truediv__(self, scale: SIMD[.float32, Self.width]) -> Self:
         return Self(
             self.s0 / scale, self.s1 / scale, self.s2 / scale, self.s3 / scale
         )
 
-    @always_inline
+    @inline(.always)
     def __truediv__(self, other: Self) -> Self:
         return Self(
             self.s0 / other.s0,
@@ -147,27 +147,27 @@ struct SampledSpectrum[width: SIMDLength = 1](
             self.s3 / other.s3,
         )
 
-    @always_inline
+    @inline(.always)
     def __iadd__(mut self, other: Self):
         self = self + other
 
-    @always_inline
+    @inline(.always)
     def __isub__(mut self, other: Self):
         self = self - other
 
-    @always_inline
+    @inline(.always)
     def __imul__(mut self, other: Self):
         self = self * other
 
-    @always_inline
+    @inline(.always)
     def __imul__(mut self, scale: SIMD[.float32, Self.width]):
         self = self * scale
 
-    @always_inline
+    @inline(.always)
     def __itruediv__(mut self, scale: SIMD[.float32, Self.width]):
         self = self / scale
 
-    @always_inline
+    @inline(.always)
     def safe_divide(self, other: Self) -> Self:
         var result = Self()
         comptime for i in range(4):
@@ -175,15 +175,15 @@ struct SampledSpectrum[width: SIMDLength = 1](
             result[i] = valid.select(self[i] / valid.select(other[i], 1), 0)
         return result
 
-    @always_inline
+    @inline(.always)
     def average(self) -> SIMD[.float32, Self.width]:
         return (self.s0 + self.s1 + self.s2 + self.s3) * 0.25
 
-    @always_inline
+    @inline(.always)
     def max_component(self) -> SIMD[.float32, Self.width]:
         return max(max(self.s0, self.s1), max(self.s2, self.s3))
 
-    @always_inline
+    @inline(.always)
     def clamp(self, low: Float32, high: Float32) -> Self:
         return Self(
             self.s0.clamp(low, high),
@@ -192,16 +192,16 @@ struct SampledSpectrum[width: SIMDLength = 1](
             self.s3.clamp(low, high),
         )
 
-    @always_inline
+    @inline(.always)
     def sqrt(self) -> Self:
         return Self(sqrt(self.s0), sqrt(self.s1), sqrt(self.s2), sqrt(self.s3))
 
-    @always_inline
+    @inline(.always)
     def exp(self) -> Self:
         return Self(exp(self.s0), exp(self.s1), exp(self.s2), exp(self.s3))
 
     @staticmethod
-    @always_inline
+    @inline(.always)
     def select(mask: SIMD[.bool, Self.width], yes: Self, no: Self) -> Self:
         return Self(
             mask.select(yes.s0, no.s0),
@@ -211,7 +211,7 @@ struct SampledSpectrum[width: SIMDLength = 1](
         )
 
 
-@always_inline
+@inline(.always)
 def visible_wavelength_pdf[
     width: SIMDLength
 ](wavelength: SIMD[.float32, width]) -> SIMD[.float32, width]:
@@ -246,13 +246,13 @@ struct SampledWavelengths[width: SIMDLength = 1](
     def get_type_name() -> String:
         return "SampledWavelengths"
 
-    @always_inline
+    @inline(.always)
     def get(self, lane: Int) -> SampledWavelengths[1]:
         return SampledWavelengths[1](
             self.lambda_nm.get(lane), self.pdf.get(lane)
         )
 
-    @always_inline
+    @inline(.always)
     def set(mut self, lane: Int, value: SampledWavelengths[1]):
         self.lambda_nm.set(lane, value.lambda_nm)
         self.pdf.set(lane, value.pdf)
@@ -286,7 +286,7 @@ struct SampledWavelengths[width: SIMDLength = 1](
             SampledSpectrum[Self.width](Float32(1) / (LAMBDA_MAX - LAMBDA_MIN)),
         )
 
-    @always_inline
+    @inline(.always)
     def terminate_secondary(mut self, active: SIMD[.bool, Self.width]):
         var terminated = (
             self.pdf.s1.eq(0) & self.pdf.s2.eq(0) & self.pdf.s3.eq(0)
@@ -298,7 +298,7 @@ struct SampledWavelengths[width: SIMDLength = 1](
         self.pdf.s3 = change.select(Float32(0), self.pdf.s3)
 
 
-@always_inline
+@inline(.always)
 def cie_xyz[
     width: SIMDLength
 ](wavelength: SIMD[.float32, width]) -> Vec3[.float32, .WORLD, width]:
@@ -316,7 +316,7 @@ def cie_xyz[
     return result
 
 
-@always_inline
+@inline(.always)
 def sampled_sensor_xyz[
     width: SIMDLength
 ](
@@ -331,7 +331,7 @@ def sampled_sensor_xyz[
     return result * Float32(0.25)
 
 
-@always_inline
+@inline(.always)
 def spectral_to_xyz[
     width: SIMDLength
 ](

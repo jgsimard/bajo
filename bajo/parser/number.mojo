@@ -12,7 +12,7 @@ comptime _UPPER_E = UInt8(69)
 comptime _MAX_DECIMAL_EXPONENT = 308
 
 
-@always_inline
+@inline(.always)
 def _is_digit(value: UInt8) -> Bool:
     return value >= _ZERO and value <= _NINE
 
@@ -23,7 +23,7 @@ struct F32ParseResult(TrivialRegisterPassable):
     var pos: Int
 
 
-@always_inline
+@inline(.always)
 def parse_f32_at(bytes: ImmSpan[UInt8, _], pos: Int) raises -> F32ParseResult:
     debug_assert["safe", _use_compiler_assume=True](
         pos >= 0 and pos <= len(bytes),
@@ -75,7 +75,7 @@ def parse_f32_at(bytes: ImmSpan[UInt8, _], pos: Int) raises -> F32ParseResult:
     return F32ParseResult(Float32(sign * num), p)
 
 
-@always_inline
+@inline(.always)
 def _decimal_prefix8(word: UInt64, digits: Int) -> UInt64:
     # The first 1..8 bytes are digits. Drop the suffix and zero-pad the start.
     var lower = word - UInt64(0x3030303030303030)
@@ -87,7 +87,7 @@ def _decimal_prefix8(word: UInt64, digits: Int) -> UInt64:
     return (groups * 10000 + (groups >> 32)) & UInt64(0xFFFFFFFF)
 
 
-@always_inline
+@inline(.always)
 def parse_f32_fast_at(
     bytes: ImmSpan[UInt8, _], pos: Int
 ) raises -> F32ParseResult:
@@ -238,7 +238,7 @@ def parse_int_f32(text: StringSpan, context: StringSpan = "") raises -> Int:
     return converted
 
 
-@always_inline
+@inline(.always)
 def _finish_exponent(
     bytes: ImmSpan[UInt8, _], var p: Int, var num: Float64, sign: Float64
 ) raises -> F32ParseResult:

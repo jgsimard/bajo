@@ -73,7 +73,7 @@ struct _HplocBoundsPacket[width: SIMDLength](TrivialRegisterPassable):
     var max_y: SIMD[.float32, Self.width]
     var max_z: SIMD[.float32, Self.width]
 
-    @always_inline
+    @inline(.always)
     def merged_area(self, rhs: Self) -> SIMD[.float32, Self.width]:
         var dx = fmax(self.max_x, rhs.max_x) - fmin(self.min_x, rhs.min_x)
         var dy = fmax(self.max_y, rhs.max_y) - fmin(self.min_y, rhs.min_y)
@@ -154,7 +154,7 @@ struct _HplocClusterBounds(Copyable):
             .unsafe_load[width=width](),
         )
 
-    @always_inline
+    @inline(.always)
     def load_neighbors[
         width: SIMDLength, padded: Bool
     ](self, first: Int, active: SIMD[.bool, width]) -> _HplocBoundsPacket[

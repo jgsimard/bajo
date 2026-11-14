@@ -10,7 +10,7 @@ from bajo.parser.deflate import inflate_zlib
 from bajo.rt.material_types import ImageTexture
 
 
-@always_inline
+@inline(.always)
 def _u32(bytes: ImmSpan[UInt8, _], offset: Int) -> UInt32:
     return (
         (UInt32(bytes[offset]) << 24)
@@ -20,7 +20,7 @@ def _u32(bytes: ImmSpan[UInt8, _], offset: Int) -> UInt32:
     )
 
 
-@always_inline
+@inline(.always)
 def _u16(bytes: ImmSpan[UInt8, _], offset: Int) -> Int:
     return Int(bytes[offset]) * 256 + Int(bytes[offset + 1])
 

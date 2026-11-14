@@ -13,7 +13,7 @@ struct SquareUV[length: SIMDLength = 1](
     var v: SIMD[.float32, Self.length]
 
 
-@always_inline
+@inline(.always)
 def equal_area_square_to_sphere[
     frame: Frame, length: SIMDLength
 ](u01: SIMD[.float32, length], v01: SIMD[.float32, length]) -> Vec3[
@@ -40,7 +40,7 @@ def equal_area_square_to_sphere[
     return Vec3[.float32, frame, length](cos_phi * radial, sin_phi * radial, z)
 
 
-@always_inline
+@inline(.always)
 def equal_area_sphere_to_square[
     frame: Frame, length: SIMDLength
 ](direction: Vec3[.float32, frame, length]) -> SquareUV[length]:

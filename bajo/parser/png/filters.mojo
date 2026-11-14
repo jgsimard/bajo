@@ -80,7 +80,7 @@ def _undo_predictive[
         upper_left = up
 
 
-@always_inline
+@inline(.always)
 def _average_diagonal[
     steady: Bool
 ](
@@ -140,7 +140,7 @@ def _undo_average_four(raw: MutSpan[UInt8, _], first_row: Int, width: Int):
         _average_diagonal[False](raw, first_row, width, diagonal, left)
 
 
-@always_inline
+@inline(.always)
 def _paeth_diagonal[
     steady: Bool
 ](

@@ -25,7 +25,7 @@ from bajo.core.image import (
 )
 
 
-@always_inline
+@inline(.always)
 def _png_u32(bytes: ImmSpan[UInt8, _], offset: Int) -> UInt32:
     return (
         (UInt32(bytes[offset]) << 24)

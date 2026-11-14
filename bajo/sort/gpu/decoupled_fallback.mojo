@@ -40,7 +40,7 @@ comptime SPLIT_VALUE_MASK = UInt32(0xFFFF)
 comptime FALLBACK_SPIN_LIMIT = 4
 
 
-@always_inline
+@inline(.always)
 def publish_split_histogram[
     BLOCK_SIZE: Int, STATE: UInt32
 ](
@@ -74,7 +74,7 @@ def publish_split_histogram[
             Atomic.store[ordering=Ordering.RELAXED](destination, encoded)
 
 
-@always_inline
+@inline(.always)
 def fallback_lookback[
     keys_dtype: DType,
     BLOCK_SIZE: Int,

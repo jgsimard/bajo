@@ -57,7 +57,7 @@ def linearize_srgb_u8[
     return pixels^
 
 
-@always_inline
+@inline(.always)
 def image_pixel_index[
     length: SIMDLength = 1
 ](
@@ -80,7 +80,7 @@ def image_pixel_index[
     return y * SIMD[.int64, length](width) + x
 
 
-@always_inline
+@inline(.always)
 def sample_image_texture[
     length: SIMDLength,
 ](
@@ -93,7 +93,7 @@ def sample_image_texture[
     return gather_record_vec3(pixels, image_pixel_index(width, height, u, v))
 
 
-@always_inline
+@inline(.always)
 def load_environment_texel[
     length: SIMDLength,
 ](
@@ -108,7 +108,7 @@ def load_environment_texel[
     )
 
 
-@always_inline
+@inline(.always)
 def sample_environment_texture[
     length: SIMDLength,
 ](
@@ -132,7 +132,7 @@ def sample_environment_texture[
     return load_environment_texel(pixels, y * SIMD[.int64, length](width) + x)
 
 
-@always_inline
+@inline(.always)
 def sample_image_texture_bilinear[
     length: SIMDLength,
 ](
@@ -167,7 +167,7 @@ def sample_image_texture_bilinear[
     return top * (1.0 - dy) + bottom * dy
 
 
-@always_inline
+@inline(.always)
 def sample_scalar_texture_bilinear[
     length: SIMDLength,
 ](
@@ -228,7 +228,7 @@ struct ImageTexture:
                 self.has_scalar_alpha = True
                 break
 
-    @always_inline
+    @inline(.always)
     def sample[
         length: SIMDLength = 1
     ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> Vec3[
@@ -244,7 +244,7 @@ struct ImageTexture:
             v,
         )
 
-    @always_inline
+    @inline(.always)
     def sample_luminance[
         length: SIMDLength = 1
     ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> SIMD[
@@ -252,7 +252,7 @@ struct ImageTexture:
     ]:
         return luminance(self.sample(u, v))
 
-    @always_inline
+    @inline(.always)
     def sample_bilinear[
         length: SIMDLength = 1
     ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> Vec3[
@@ -268,7 +268,7 @@ struct ImageTexture:
             v,
         )
 
-    @always_inline
+    @inline(.always)
     def sample_scalar_bilinear[
         length: SIMDLength = 1
     ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> SIMD[
@@ -288,7 +288,7 @@ struct ImageTexture:
         var rgb = self.sample_bilinear(u, v)
         return (rgb.x + rgb.y + rgb.z) / 3.0
 
-    @always_inline
+    @inline(.always)
     def sample_environment[
         length: SIMDLength = 1
     ](self, u: SIMD[.float32, length], v: SIMD[.float32, length]) -> Vec3[

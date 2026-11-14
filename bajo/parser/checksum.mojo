@@ -9,7 +9,7 @@ from std.sys.info import CompilationTarget
 from std.sys.intrinsics import llvm_intrinsic
 
 
-@always_inline
+@inline(.always)
 def _adler_sum[
     width: Int
 ](values: SIMD[.uint8, width]) -> SIMD[.uint32, width // 4]:
@@ -31,7 +31,7 @@ def _adler_sum[
         )
 
 
-@always_inline
+@inline(.always)
 def _adler_dot[
     width: Int
 ](
@@ -199,7 +199,7 @@ def _crc32_portable(bytes: ImmSpan[UInt8, _], initial: UInt32 = 0) -> UInt32:
     return ~crc
 
 
-@always_inline
+@inline(.always)
 def _clmul[
     select: Int, lanes: SIMDLength
 ](a: SIMD[.uint64, lanes], b: SIMD[.uint64, lanes]) -> SIMD[.uint64, lanes]:
@@ -221,7 +221,7 @@ def _clmul[
         ](a, b, Int8(select))
 
 
-@always_inline
+@inline(.always)
 def _fold_crc[
     lanes: SIMDLength
 ](

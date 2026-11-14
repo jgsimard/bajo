@@ -97,7 +97,7 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
 
         return m^
 
-    @always_inline
+    @inline(.always)
     def is_finite(
         self,
     ) -> SIMD[.bool, Self.width] where Self.dtype.is_floating_point():
@@ -117,7 +117,7 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
             & abs(self.tz).le(limit)
         )
 
-    @always_inline
+    @inline(.always)
     def reverses_orientation(self) -> SIMD[.bool, Self.width]:
         """Return whether the linear part has negative determinant."""
         var determinant = (
@@ -127,7 +127,7 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
         )
         return determinant.lt(0.0)
 
-    @always_inline
+    @inline(.always)
     def mixes_axes(self) -> SIMD[.bool, Self.width]:
         """Whether any output coordinate depends on more than one input axis."""
         return (

@@ -137,7 +137,7 @@ struct MeshSphereQuery[origin: ImmOrigin, frame: Frame](Copyable):
     var center: Point3f32[Self.frame]
     var radius: Float32
 
-    @always_inline
+    @inline(.always)
     def next(mut self, mut face: UInt32) -> Bool:
         var candidate = UInt32(0)
         while self.candidates.next(candidate):
@@ -296,7 +296,7 @@ struct MeshQueryView[
         )
         return Vec3f32[Self.frame](Float32(n.x), Float32(n.y), Float32(n.z))
 
-    @always_inline
+    @inline(.always)
     def query_aabb(
         self, box: AABB[Self.frame], root: UInt32 = 0
     ) -> BoundsQuery[Self.origin, Self.frame]:
@@ -534,11 +534,11 @@ struct MeshQueryView[
         var best_error = Float64(0.0)
         var best_upper = ray.t_max + abs(ray.t_max) * 0.000004 + Float32(1e-30)
 
-        @always_inline
+        @inline(.always)
         def accepts(value: Float32, cutoff: Float32) {imm} -> Bool:
             return value != miss and value <= cutoff
 
-        @always_inline
+        @inline(.always)
         def child_bounds(
             left: UInt32, right: UInt32
         ) {imm} -> Tuple[Float32, Float32]:
@@ -549,7 +549,7 @@ struct MeshQueryView[
             var rd = distances[1]
             return (ld, rd)
 
-        @always_inline
+        @inline(.always)
         def visit_face(
             face: UInt32,
         ) {
@@ -714,11 +714,11 @@ struct MeshQueryView[
             inverse[axis] = 1.0 / direction if direction != 0.0 else 0.0
         var best = Float64(ray.t_max)
 
-        @always_inline
+        @inline(.always)
         def accepts(value: Float64, cutoff: Float64) {imm} -> Bool:
             return value <= cutoff
 
-        @always_inline
+        @inline(.always)
         def evaluate_nodes(
             nodes: SIMD[.uint32, width]
         ) {imm} -> SIMD[.float64, width]:
@@ -726,13 +726,13 @@ struct MeshQueryView[
                 ray, inverse, nodes
             )
 
-        @always_inline
+        @inline(.always)
         def child_bounds(
             left: UInt32, right: UInt32
         ) {imm} -> Tuple[Float64, Float64]:
             return evaluate_child_pair[width](left, right, evaluate_nodes)
 
-        @always_inline
+        @inline(.always)
         def visit_face(face: UInt32) {imm, mut result, mut best} -> Float64:
             var triangle = _load_mesh_triangle[Self.frame](
                 self.points, self.indices, face
@@ -909,7 +909,7 @@ struct MeshQueryView[
                     hits += 1
         return (hits, False)
 
-    @always_inline
+    @inline(.always)
     def _query_ray_hits[
         width: SIMDLength, anyhit: Bool, parity: Bool = False
     ](self, ray: Rayf32[Self.frame], root: UInt32) -> Tuple[UInt32, Bool]:
@@ -1057,11 +1057,11 @@ struct MeshQueryView[
         var best2 = Float64(cutoff) * Float64(cutoff)
         var lower = Float32(best2) * Float32(0.999998)
 
-        @always_inline
+        @inline(.always)
         def accepts(value: Float32, cutoff: Float32) {imm} -> Bool:
             return value >= cutoff
 
-        @always_inline
+        @inline(.always)
         def child_bounds(
             left: UInt32, right: UInt32
         ) {imm} -> Tuple[Float32, Float32]:
@@ -1069,7 +1069,7 @@ struct MeshQueryView[
             var rd = self._furthest_node_upper_f32(point, right)
             return (ld, rd)
 
-        @always_inline
+        @inline(.always)
         def visit_face(
             face: UInt32,
         ) {
@@ -1181,11 +1181,11 @@ struct MeshQueryView[
         var best_error = Float64(0.0)
         var upper = Float32(best2) * Float32(1.000002) + Float32(1e-30)
 
-        @always_inline
+        @inline(.always)
         def accepts(value: Float32, cutoff: Float32) {imm} -> Bool:
             return value <= cutoff
 
-        @always_inline
+        @inline(.always)
         def child_bounds(
             left: UInt32, right: UInt32
         ) {imm} -> Tuple[Float32, Float32]:
@@ -1193,7 +1193,7 @@ struct MeshQueryView[
             var rd = self._nearest_node_lower_f32(point, right)
             return (ld, rd)
 
-        @always_inline
+        @inline(.always)
         def visit_face(
             face: UInt32,
         ) {imm, mut best_face, mut best2, mut best_error, mut upper} -> Float32:
@@ -1307,23 +1307,23 @@ struct MeshQueryView[
 
         # Balanced trees have depth <= 32 for UInt32 node indices. Device rebuild
         # retains that skeleton. One pending far child per level fits here.
-        @always_inline
+        @inline(.always)
         def accepts(value: Float64, cutoff: Float64) {imm} -> Bool:
             return value >= cutoff if furthest else value <= cutoff
 
-        @always_inline
+        @inline(.always)
         def evaluate_nodes(
             nodes: SIMD[.uint32, width]
         ) {imm} -> SIMD[.float64, width]:
             return self._point_node_distances2[width, furthest](point, nodes)
 
-        @always_inline
+        @inline(.always)
         def child_bounds(
             left: UInt32, right: UInt32
         ) {imm} -> Tuple[Float64, Float64]:
             return evaluate_child_pair[width](left, right, evaluate_nodes)
 
-        @always_inline
+        @inline(.always)
         def visit_face(
             face: UInt32,
         ) {imm, mut result, mut best2, mut best_error} -> Float64:
@@ -1488,7 +1488,7 @@ struct MeshQueryView[
         comptime target_width = 1 if is_gpu() else width
         return self._winding_number[target_width](point, root)
 
-    @always_inline
+    @inline(.always)
     def _accumulate_packed_angles[
         width: SIMDLength
     ](

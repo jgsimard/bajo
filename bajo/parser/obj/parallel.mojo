@@ -59,7 +59,7 @@ struct _ObjChunk(Copyable):
         self.events = {}
 
 
-@always_inline
+@inline(.always)
 def _record_kind(mut cur: ObjLineCursor) -> Int:
     # 1=v, 2=vt, 3=vn, 4=f, 5=l; 6=o, 7=g, 8=usemtl, 9=mtllib.
     cur.skip_ws()
@@ -102,7 +102,7 @@ def _record_kind(mut cur: ObjLineCursor) -> Int:
     return 0
 
 
-@always_inline
+@inline(.always)
 def _word_count(bytes: ImmSpan[UInt8, _], begin: Int, end: Int) -> Int:
     # Loads may extend past this line, but never past the complete input span.
     # Masking the extra lanes lets short OBJ records use SIMD as well.
@@ -190,7 +190,7 @@ def _count_chunk(text: StringSpan, begin: Int, end: Int) -> _ObjChunk:
     return chunk^
 
 
-@always_inline
+@inline(.always)
 def _next_corner[
     shape: Int
 ](

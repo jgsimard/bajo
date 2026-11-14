@@ -474,7 +474,7 @@ def _route_surface_hit[
                 shade_tile[(GPU_SHADE_TZ, slot)] = path.tz
 
 
-@always_inline
+@inline(.always)
 def _gpu_rt_shade_one[
     integrator: Integrator,
     MATERIAL_KIND: MaterialKind,

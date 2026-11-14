@@ -29,7 +29,7 @@ struct SigmoidPolynomial[width: SIMDLength = 1](TrivialRegisterPassable):
     var b: SIMD[.float32, Self.width]
     var c: SIMD[.float32, Self.width]
 
-    @always_inline
+    @inline(.always)
     def evaluate(
         self, wavelength: SIMD[.float32, Self.width]
     ) -> SIMD[.float32, Self.width]:
@@ -60,7 +60,7 @@ struct RgbSpectrumView(Copyable, DevicePassable, TrivialRegisterPassable):
     def get_type_name() -> String:
         return "RgbSpectrumView"
 
-    @always_inline
+    @inline(.always)
     def _coefficient(
         self, axis: Int, x: Int, y: Int, z: Int, channel: Int
     ) -> Float32:
@@ -70,7 +70,7 @@ struct RgbSpectrumView(Copyable, DevicePassable, TrivialRegisterPassable):
             + channel
         ]
 
-    @always_inline
+    @inline(.always)
     def coefficients[
         width: SIMDLength
     ](self, rgb: Vec3[.float32, .WORLD, width]) -> SigmoidPolynomial[width]:
@@ -134,7 +134,7 @@ struct RgbSpectrumView(Copyable, DevicePassable, TrivialRegisterPassable):
             result.c[lane] = c[2]
         return result
 
-    @always_inline
+    @inline(.always)
     def illuminant[
         width: SIMDLength
     ](self, wavelength: SIMD[.float32, width]) -> SIMD[.float32, width]:
@@ -147,7 +147,7 @@ struct RgbSpectrumView(Copyable, DevicePassable, TrivialRegisterPassable):
                 ]
         return result
 
-    @always_inline
+    @inline(.always)
     def sample[
         width: SIMDLength
     ](

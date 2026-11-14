@@ -109,7 +109,7 @@ def _is_translation_only(
     )
 
 
-@always_inline
+@inline(.always)
 def _transform_world_ray_packet[
     length: SIMDLength,
 ](
@@ -166,7 +166,7 @@ def _transform_world_ray_packet[
     )
 
 
-@always_inline
+@inline(.always)
 def _translate_world_ray_packet[
     length: SIMDLength,
 ](
@@ -249,7 +249,7 @@ def _tree[
     return tree^
 
 
-@always_inline
+@inline(.always)
 def _trace_tlas_tree[
     bounds_width: SIMDLength,
     leaf_width: SIMDLength,
@@ -284,7 +284,7 @@ def _trace_tlas_tree[
     ](tree, ray, leaf_fn)
 
 
-@always_inline
+@inline(.always)
 def _packet_scalar_rays[
     length: SIMDLength
 ](
@@ -663,7 +663,7 @@ struct CpuTlas[
             trace_blas_set[blas_node_width, blas_leaf_width, mode, .LOCAL],
         ](ray, blases)
 
-    @always_inline
+    @inline(.always)
     def _trace_single_triangle_blas_packet[
         blas_node_width: SIMDLength,
         blas_leaf_width: SIMDLength,
@@ -700,7 +700,7 @@ struct CpuTlas[
         var hit = Hit[.WORLD, length].miss(rays.t_max)
         var reciprocal_direction = rays.reciprocal_direction()
 
-        @always_inline
+        @inline(.always)
         def leaf_fn(
             active: SIMD[.bool, length],
             leaf_block_idx: UInt32,
@@ -767,7 +767,7 @@ struct CpuTlas[
         )
         return hit
 
-    @always_inline
+    @inline(.always)
     def _collect_packet_candidates[
         length: SIMDLength, any_hit: Bool
     ](
@@ -896,7 +896,7 @@ struct CpuTlas[
         var result_ny = hit.normal.y.to_array()
         var result_nz = hit.normal.z.to_array()
 
-        @always_inline
+        @inline(.always)
         def consume_candidates() {
             self,
             blases,
@@ -1222,7 +1222,7 @@ struct CpuTlas[
         var any_scalar_rays = _packet_scalar_rays(rays, reciprocal_direction)
         var any_scalar_rays_ptr = any_scalar_rays.unsafe_ptr()
 
-        @no_inline
+        @inline(.never)
         def consume_any_candidates() {
             self,
             blases,

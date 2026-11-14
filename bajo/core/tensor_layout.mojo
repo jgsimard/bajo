@@ -25,7 +25,7 @@ comptime FieldTile[
 ] = TileTensor[dtype, FieldLayout[fields, Extent], origin]
 
 
-@always_inline
+@inline(.always)
 def field_tile[
     mut: Bool,
     origin: Origin[mut=mut],
@@ -52,7 +52,7 @@ comptime RecordTile[
 ] = TileTensor[dtype, RecordLayout[stride, column_major], origin]
 
 
-@always_inline
+@inline(.always)
 def record_tile[
     mut: Bool,
     origin: Origin[mut=mut],
@@ -74,7 +74,7 @@ def record_tile[
         )
 
 
-@always_inline
+@inline(.always)
 def gather_record_field[
     Layout: TensorLayout,
     //,
@@ -103,7 +103,7 @@ def gather_record_field[
         return records.ptr.unsafe_gather(ids.cast[.int]() * stride + offset)
 
 
-@always_inline
+@inline(.always)
 def gather_record_vec3[
     Layout: TensorLayout,
     dtype: DType,

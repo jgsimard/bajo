@@ -70,7 +70,7 @@ def _debug_check_blas_index(blas_idx: UInt32, blas_count: Int):
     )
 
 
-@always_inline
+@inline(.always)
 def _load_packed_triangle_leaf[
     frame: Frame,
     leaf_width: SIMDLength,
@@ -98,7 +98,7 @@ def _load_packed_triangle_leaf[
     return block^
 
 
-@always_inline
+@inline(.always)
 def _trace_packed_triangle_leaf[
     frame: Frame, leaf_width: SIMDLength, mode: TraceMode
 ](

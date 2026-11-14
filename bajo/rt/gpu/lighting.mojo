@@ -179,7 +179,7 @@ struct GpuDirectLightSample(TrivialRegisterPassable):
         return Self(False, Vec3f32[.WORLD](0.0), Color(0.0), 0.0, UInt32(0))
 
 
-@always_inline
+@inline(.always)
 def _sample_direct_light_candidate[
     integrator: Integrator,
     light_kind: PrimitiveKind = .UNKNOWN,

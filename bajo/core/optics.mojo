@@ -6,7 +6,7 @@ from .frame import Frame
 from .vec import Vec3, dot, length2
 
 
-@always_inline
+@inline(.always)
 def conductor_k_from_reflectance[
     length: SIMDLength = 1
 ](reflectance: Vec3[.float32, .WORLD, length]) -> Vec3[
@@ -56,7 +56,7 @@ def fresnel_schlick[
     return fma(1.0 - r2, x5, r2)
 
 
-@always_inline
+@inline(.always)
 def fresnel_dielectric[
     length: SIMDLength = 1
 ](cosine_in: SIMD[.float32, length], eta: SIMD[.float32, length]) -> SIMD[
@@ -81,7 +81,7 @@ def fresnel_dielectric[
     )
 
 
-@always_inline
+@inline(.always)
 def fresnel_conductor[
     length: SIMDLength = 1
 ](
@@ -111,7 +111,7 @@ def fresnel_conductor[
     return result
 
 
-@always_inline
+@inline(.always)
 def fresnel_conductor[
     length: SIMDLength = 1
 ](
@@ -141,7 +141,7 @@ def fresnel_conductor[
     return result
 
 
-@always_inline
+@inline(.always)
 def medium_transmittance[
     length: SIMDLength = 1
 ](

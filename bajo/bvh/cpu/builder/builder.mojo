@@ -519,7 +519,7 @@ struct BinaryBoundsBvh[
             frontier_nodes = next_frontier_nodes^
             frontier_centroid_bounds = next_frontier_centroid_bounds^
 
-    @always_inline
+    @inline(.always)
     def _split_node(
         mut self,
         node_idx: UInt32,

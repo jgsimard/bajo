@@ -61,7 +61,7 @@ struct GpuTlasLeafState(TrivialRegisterPassable):
     var blas_count: Int
 
 
-@always_inline
+@inline(.always)
 def _intersect_tlas_instance_block[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,
@@ -149,7 +149,7 @@ def _intersect_tlas_instance_block[
     return hit_any
 
 
-@always_inline
+@inline(.always)
 def _intersect_tlas_leaf_state[
     tlas_leaf_width: SIMDLength,
     blas_node_width: SIMDLength,

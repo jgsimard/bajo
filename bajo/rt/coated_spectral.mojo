@@ -185,7 +185,7 @@ def _sample_substrate[
     return result^
 
 
-@no_inline
+@inline(.never)
 def _layered_pdf[
     length: SIMDLength
 ](
@@ -251,7 +251,7 @@ def _layered_pdf[
     return valid.select(0.1 * _INV_4_PI + 0.9 * sum / denominator, 0.0)
 
 
-@no_inline
+@inline(.never)
 def _evaluate_layered[
     length: SIMDLength
 ](
@@ -585,7 +585,7 @@ def _evaluate_coated_diffuse[
     return result^
 
 
-@no_inline
+@inline(.never)
 def _sample_coated_diffuse[
     length: SIMDLength
 ](

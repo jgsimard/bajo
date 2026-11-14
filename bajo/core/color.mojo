@@ -60,7 +60,7 @@ comptime _CIE1931_XYZ: Array[Color, 48] = [
 ]
 
 
-@always_inline
+@inline(.always)
 def luminance[
     length: SIMDLength = 1
 ](color: Vec3[.float32, .WORLD, length]) -> SIMD[.float32, length]:
@@ -101,7 +101,7 @@ def blackbody_xyz(temperature: Float32, peak_normalization: Float32) -> Color:
     return xyz
 
 
-@always_inline
+@inline(.always)
 def srgb_to_linear(value: Float32) -> Float32:
     if value <= 0.04045:
         return value / 12.92
@@ -133,14 +133,14 @@ def blackbody_rgb(temperature: Float32) raises -> Color:
     )
 
 
-@always_inline
+@inline(.always)
 def linear_to_gamma[
     length: SIMDLength = 1
 ](x: SIMD[.float32, length]) -> SIMD[.float32, length]:
     return sqrt(x.le(0.0).select(Float32(0.0), x))
 
 
-@always_inline
+@inline(.always)
 def color_to_byte[
     length: SIMDLength = 1,
     *,

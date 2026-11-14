@@ -5,7 +5,7 @@ from std.sys import align_of, size_of
 from bajo.core import Frame, Point3f32
 
 
-@always_inline
+@inline(.always)
 def _packed_point3_span[
     frame: Frame, origin: ImmOrigin
 ](points: ImmSpan[Point3f32[frame], origin]) -> ImmSpan[Float32, origin]:

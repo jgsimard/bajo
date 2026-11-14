@@ -114,7 +114,7 @@ struct _Lexer[origin: ImmOrigin]:
         return True
 
     @staticmethod
-    @always_inline
+    @inline(.always)
     def _prefix_mask(count: Int) -> UInt64:
         return ~UInt64(0) >> UInt64(64 - count) if count else UInt64(0)
 
@@ -139,7 +139,7 @@ struct _Lexer[origin: ImmOrigin]:
                     self.line += 1
                     return
 
-    @always_inline
+    @inline(.always)
     def _scan_token_end(mut self, quoted: Bool):
         while self.pos < len(self.bytes):
             if self.pos < self._block_end or self._refill():
@@ -179,7 +179,7 @@ struct _Lexer[origin: ImmOrigin]:
                     return
                 self.pos += 1
 
-    @always_inline
+    @inline(.always)
     def _skip_space(mut self):
         # Whitespace runs between numeric tokens are usually one byte. Keep
         # that short path cheap; comments and token bodies use the SIMD masks.
@@ -206,7 +206,7 @@ struct _Lexer[origin: ImmOrigin]:
             self.pos
         ) == UInt8(34)
 
-    @always_inline
+    @inline(.always)
     def next(mut self) raises -> _Token[Self.origin]:
         self._skip_space()
         if self.pos >= len(self.bytes):
@@ -1574,7 +1574,7 @@ def _shape[
             )
             var transform = builder.state.transform.copy()
 
-            @always_inline
+            @inline(.always)
             def decode_vertex(index: Int) raises {imm} -> _PointW:
                 var base = 3 * index
                 return transform.point(
@@ -1585,7 +1585,7 @@ def _shape[
                     )
                 )
 
-            @always_inline
+            @inline(.always)
             def vertex(index: Int) raises {imm, mut vertices} -> _PointW:
                 if not indexed:
                     return decode_vertex(index)

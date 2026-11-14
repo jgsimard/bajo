@@ -8,7 +8,7 @@ from .vec import Point3, Vec3, cross, dot, length2, normalize, orthonormal_basis
 from .tensor_layout import RecordTile, gather_record_field
 
 
-@always_inline
+@inline(.always)
 def triangle_uv_tangent[
     frame: Frame
 ](
@@ -64,7 +64,7 @@ def sphere_bounds[
     return bounds
 
 
-@always_inline
+@inline(.always)
 def interpolate_triangle_attribute[
     components: Int,
     component: Int,
@@ -96,7 +96,7 @@ struct OrientedSurfaceNormal[frame: Frame, length: SIMDLength = 1](
     var front_face: SIMD[.bool, Self.length]
 
 
-@always_inline
+@inline(.always)
 def orient_surface_normal[
     frame: Frame, length: SIMDLength
 ](
@@ -110,7 +110,7 @@ def orient_surface_normal[
     )
 
 
-@always_inline
+@inline(.always)
 def triangle_is_valid[
     frame: Frame
 ](
@@ -124,7 +124,7 @@ def triangle_is_valid[
     return isfinite(twice_area_squared) and twice_area_squared > 0.0
 
 
-@always_inline
+@inline(.always)
 def triangle_area[
     frame: Frame
 ](
@@ -135,7 +135,7 @@ def triangle_area[
     return 0.5 * sqrt(length2(cross(v1 - v0, v2 - v0)))
 
 
-@always_inline
+@inline(.always)
 def normal_from_slopes[
     dtype: DType, frame: Frame, length: SIMDLength = 1
 ](
@@ -159,7 +159,7 @@ struct SurfaceSample[frame: Frame, length: SIMDLength = 1](
     var normal: Vec3[.float32, Self.frame, Self.length]
 
 
-@always_inline
+@inline(.always)
 def sample_triangle_surface[
     frame: Frame, length: SIMDLength = 1
 ](
@@ -189,7 +189,7 @@ def sample_triangle_surface[
     )
 
 
-@always_inline
+@inline(.always)
 def sample_sphere_surface[
     frame: Frame, length: SIMDLength = 1
 ](

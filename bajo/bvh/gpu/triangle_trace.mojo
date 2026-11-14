@@ -351,7 +351,7 @@ def _intersect_cwbvh_indexed_triangle[
     return True
 
 
-@always_inline
+@inline(.always)
 def _trace_cwbvh8_filtered_impl[
     frame: Frame,
     mode: TraceMode,

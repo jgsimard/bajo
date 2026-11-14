@@ -14,12 +14,12 @@ from std.bit import count_leading_zeros
 from std.builtin.globals import global_constant
 
 
-@always_inline
+@inline(.always)
 def zsobol_log2_samples(count: UInt32) -> Int:
     return 32 - Int(count_leading_zeros(max(count, UInt32(1)) - UInt32(1)))
 
 
-@always_inline
+@inline(.always)
 def _mix_bits[
     length: SIMDLength
 ](value: SIMD[.uint64, length]) -> SIMD[.uint64, length]:
@@ -31,7 +31,7 @@ def _mix_bits[
     return bits ^ (bits >> UInt64(33))
 
 
-@always_inline
+@inline(.always)
 def _spread_bits[
     length: SIMDLength
 ](value: SIMD[.uint32, length]) -> SIMD[.uint64, length]:
@@ -43,7 +43,7 @@ def _spread_bits[
     return (bits ^ (bits << UInt64(1))) & UInt64(0x5555555555555555)
 
 
-@always_inline
+@inline(.always)
 def zsobol_morton_index[
     length: SIMDLength
 ](
@@ -88,7 +88,7 @@ comptime _PERMUTATIONS: Array[UInt32, 24] = [
 ]
 
 
-@always_inline
+@inline(.always)
 def zsobol_sample_index[
     length: SIMDLength
 ](
@@ -118,7 +118,7 @@ def zsobol_sample_index[
     return result
 
 
-@always_inline
+@inline(.always)
 def zsobol_scramble(dimension: UInt32, seed: UInt32) -> UInt64:
     """PBRT Hash(dimension, seed): MurmurHash64A of two little-endian Int32s."""
     var multiplier = UInt64(0xC6A4A7935BD1E995)

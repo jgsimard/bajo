@@ -96,7 +96,7 @@ def _push_color(mut mesh: ObjMesh, r: Float32, g: Float32, b: Float32):
     mesh.colors.extend([r, g, b])
 
 
-@always_inline
+@inline(.always)
 def _word_ends_here(bytes: ImmSpan[UInt8, _], p: Int) -> Bool:
     if p >= len(bytes):
         return True

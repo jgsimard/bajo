@@ -49,7 +49,7 @@ struct AliasDraw[length: SIMDLength = 1](TrivialRegisterPassable):
     var fraction: SIMD[.float32, Self.length]
 
 
-@always_inline
+@inline(.always)
 def draw_alias_column[
     length: SIMDLength = 1
 ](random_u: SIMD[.float32, length], count: Int) -> AliasDraw[length]:
@@ -58,7 +58,7 @@ def draw_alias_column[
     return AliasDraw[length](column, scaled - column.cast[.float32]())
 
 
-@always_inline
+@inline(.always)
 def resolve_alias_draw[
     length: SIMDLength = 1
 ](
@@ -72,7 +72,7 @@ def resolve_alias_draw[
     )
 
 
-@always_inline
+@inline(.always)
 def power_heuristic[
     length: SIMDLength = 1
 ](

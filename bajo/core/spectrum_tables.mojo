@@ -26,7 +26,7 @@ struct PiecewiseSpectrumView(Copyable, DevicePassable, TrivialRegisterPassable):
     def get_type_name() -> String:
         return "PiecewiseSpectrumView"
 
-    @always_inline
+    @inline(.always)
     def sample[
         width: SIMDLength
     ](

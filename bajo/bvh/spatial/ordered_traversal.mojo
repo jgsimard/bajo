@@ -3,7 +3,7 @@ from std.memory import stack_allocation
 from bajo.bvh.constants import EMPTY_LANE
 
 
-@always_inline
+@inline(.always)
 def evaluate_child_pair[
     width: SIMDLength,
     EvaluateFn: def(SIMD[.uint32, width]) -> SIMD[.float64, width],
@@ -23,7 +23,7 @@ def evaluate_child_pair[
         return (values[0], values[1])
 
 
-@always_inline
+@inline(.always)
 def traverse_ordered[
     dtype: DType,
     furthest: Bool,

@@ -51,7 +51,7 @@ def _visit_set_lanes[VisitFn: def(Int)](bits: UInt32, ref visit: VisitFn):
         visit(lane)
 
 
-@always_inline
+@inline(.always)
 def _visit_set_lanes_until[
     VisitFn: def(Int) -> Bool,
     reverse: Bool = False,
@@ -418,7 +418,7 @@ def _trace_bounds_bvh_impl[
             var has_next = False
             var next_idx = UInt32(0)
 
-            @always_inline
+            @inline(.always)
             def visit_any_child(
                 child_ref: UInt32,
             ) {
@@ -462,7 +462,7 @@ def _trace_bounds_bvh_impl[
             comptime if bounds_width == 16:
                 var bits = UInt32(pack_bits(mask))
 
-                @always_inline
+                @inline(.always)
                 def visit_any_bvh16_lane(lane: Int) {imm} -> Bool:
                     return visit_any_child(
                         _cpu_traversal_ref[packed_meta](

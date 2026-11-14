@@ -62,7 +62,7 @@ struct ObjIndex(TrivialRegisterPassable):
     var t: Int32
     var n: Int32
 
-    @always_inline
+    @inline(.always)
     def __init__(out self, p: Int, t: Int, n: Int):
         debug_assert["safe", _use_compiler_assume=True](
             p >= 0
@@ -78,7 +78,7 @@ struct ObjIndex(TrivialRegisterPassable):
         self.n = Int32(n)
 
     @staticmethod
-    @always_inline
+    @inline(.always)
     def _from_validated(p: Int, t: Int, n: Int) -> Self:
         """Narrow indices already range-checked by the token decoder."""
         var index = Self(0, 0, 0)

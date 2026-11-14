@@ -11,7 +11,6 @@ from bajo.bvh.gpu.utils import upload_list, _device_span
 comptime CASES = 65536
 
 
-@always_inline
 def outcome(data: ImmSpan[Float32, _], i: Int) -> UInt32:
     var a = Point3f32[.WORLD](data[i * 15], data[i * 15 + 1], data[i * 15 + 2])
     var b = Point3f32[.WORLD](

@@ -40,13 +40,13 @@ struct AxisAlignedBoundingBox[
     def point(p: Point3[Self.dtype, Self.frame, Self.width]) -> Self:
         return Self(p, p)
 
-    @always_inline
+    @inline(.always)
     def is_finite(
         self,
     ) -> SIMD[.bool, Self.width] where Self.dtype.is_floating_point():
         return self._min.is_finite() & self._max.is_finite()
 
-    @always_inline
+    @inline(.always)
     def is_valid(
         self,
     ) -> SIMD[.bool, Self.width] where Self.dtype.is_floating_point():
@@ -91,7 +91,7 @@ struct AxisAlignedBoundingBox[
     def extent(self) -> Vec3[Self.dtype, Self.frame, Self.width]:
         return self._max - self._min
 
-    @always_inline
+    @inline(.always)
     def distance2[
         furthest: Bool = False
     ](self, point: Point3[Self.dtype, Self.frame]) -> SIMD[
@@ -179,7 +179,7 @@ struct AxisAlignedBoundingBox[
         return Self.load6(data.unsafe_ptr(), base)
 
     @staticmethod
-    @always_inline
+    @inline(.always)
     def load6[
         address_space: AddressSpace
     ](
@@ -265,7 +265,7 @@ def transform_bounds_conservative[
     return result
 
 
-@always_inline
+@inline(.always)
 def finite_box_properties[
     frame: Frame
 ](box: AxisAlignedBoundingBox[.float32, frame]) -> Tuple[Bool, Bool]:
@@ -311,7 +311,7 @@ def finite_box_properties[
     return (valid, subnormal)
 
 
-@always_inline
+@inline(.always)
 def bounds_have_subnormal[
     frame: Frame
 ](boxes: ImmSpan[AxisAlignedBoundingBox[.float32, frame], _]) -> Bool:

@@ -10,7 +10,7 @@ from bajo.core import Frame, Point3f32, Rayf32
 from bajo.core.intersect import intersect_ray_aabb_rcp
 
 
-@no_inline
+@inline(.never)
 def _trace_compressed_blas_separate[
     frame: Frame,
     mode: TraceMode,

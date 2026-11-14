@@ -12,7 +12,6 @@ from bajo.core.intersect import (
 )
 
 
-@always_inline
 def _case(
     data: ImmSpan[Float32, _], lane: Int
 ) -> Tuple[AABB[.WORLD], Rayf32[.WORLD], Float32, Float32]:

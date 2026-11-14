@@ -80,7 +80,7 @@ __enum Sampler(
         return "Sampler"
 
 
-@always_inline
+@inline(.always)
 def _mix32[
     length: SIMDLength = 1
 ](value: SIMD[.uint32, length]) -> SIMD[.uint32, length]:
@@ -93,7 +93,7 @@ def _mix32[
     return bits
 
 
-@always_inline
+@inline(.always)
 def _owen_scramble[
     length: SIMDLength = 1
 ](value: SIMD[.uint32, length], seed: SIMD[.uint32, length]) -> SIMD[
@@ -109,7 +109,7 @@ def _owen_scramble[
     return bit_reverse(bits)
 
 
-@always_inline
+@inline(.always)
 def _u32_to_unit_float[
     length: SIMDLength = 1
 ](value: SIMD[.uint32, length]) -> SIMD[.float32, length]:
@@ -117,7 +117,7 @@ def _u32_to_unit_float[
     return (value >> UInt32(8)).cast[.float32]() * Float32(5.960464477539063e-8)
 
 
-@always_inline
+@inline(.always)
 def _sobol_bits[
     length: SIMDLength = 1
 ](index: SIMD[.uint32, length], dimension: Int) -> SIMD[.uint32, length]:
@@ -180,7 +180,7 @@ def _sobol_bits[
     return result
 
 
-@always_inline
+@inline(.always)
 def _gf4_multiply[
     length: SIMDLength = 1
 ](a: SIMD[.uint32, length], b: SIMD[.uint32, length]) -> SIMD[.uint32, length]:
@@ -195,7 +195,7 @@ def _gf4_multiply[
     return c0 | (c1 << UInt32(1))
 
 
-@always_inline
+@inline(.always)
 def _sz_bits[
     length: SIMDLength = 1
 ](index: SIMD[.uint32, length], dimension: Int) -> SIMD[.uint32, length]:
@@ -222,7 +222,7 @@ def _sz_bits[
     return result
 
 
-@always_inline
+@inline(.always)
 def _stbn[
     length: SIMDLength = 1
 ](
@@ -263,7 +263,7 @@ def _stbn[
     return value - floor(value)
 
 
-@always_inline
+@inline(.always)
 def _radical_inverse[
     length: SIMDLength = 1
 ](index: SIMD[.uint64, length], base: UInt64) -> SIMD[.float32, length]:
@@ -377,7 +377,7 @@ comptime _HALTON_PRIMES: Array[UInt32, 1024] = [
 # fmt: on
 
 
-@always_inline
+@inline(.always)
 def _halton[
     length: SIMDLength = 1
 ](index: SIMD[.uint64, length], dimension: Int) -> SIMD[.float32, length]:
@@ -385,7 +385,7 @@ def _halton[
     return _radical_inverse(index + UInt64(1), UInt64(primes[dimension % 1024]))
 
 
-@always_inline
+@inline(.always)
 def _r2[
     length: SIMDLength = 1
 ](index: SIMD[.uint64, length], dimension: Int) -> SIMD[.float32, length]:
@@ -475,7 +475,7 @@ struct Rng[length: SIMDLength = 1]:
             )
         self._buffer = self._step_uniform()
 
-    @always_inline
+    @inline(.always)
     def _step_uniform(mut self) -> Array[SIMD[.float32, Self.length], 4]:
         var words = self._counter.copy()
         var key = self._key
@@ -501,7 +501,7 @@ struct Rng[length: SIMDLength = 1]:
             ]() * Float32(4.6566127342e-10)
         return result^
 
-    @always_inline
+    @inline(.always)
     def f32(
         mut self, lower_bound: Float32 = 0, upper_bound: Float32 = 1
     ) -> SIMD[.float32, Self.length]:
@@ -611,7 +611,7 @@ def random_unit_vector[
     return unit_vector_from_samples[frame, length](u, v)
 
 
-@always_inline
+@inline(.always)
 def unit_vector_from_samples[
     frame: Frame, length: SIMDLength = 1
 ](u: SIMD[.float32, length], v: SIMD[.float32, length]) -> Vec3[

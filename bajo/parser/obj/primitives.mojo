@@ -1,27 +1,27 @@
 from .constants import SPACE, TAB, CR, HASH, ZERO, NINE
 
 
-@always_inline
+@inline(.always)
 def _is_ws(b: UInt8) -> Bool:
     return b == SPACE or b == TAB or b == CR
 
 
-@always_inline
+@inline(.always)
 def _is_line_cut(b: UInt8) -> Bool:
     return b == CR or b == HASH
 
 
-@always_inline
+@inline(.always)
 def _is_ws_or_line_cut(b: UInt8) -> Bool:
     return _is_ws(b) or b == HASH
 
 
-@always_inline
+@inline(.always)
 def _is_digit(b: UInt8) -> Bool:
     return b >= ZERO and b <= NINE
 
 
-@always_inline
+@inline(.always)
 def _fix_index(raw: Int, count_with_dummy: Int) raises -> Int:
     var resolved = 0
     if raw > 0:

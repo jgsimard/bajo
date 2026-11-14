@@ -219,7 +219,7 @@ def intersect_ray_aabb_rcp[
     return RayDistanceHit(mask, tmin)
 
 
-@always_inline
+@inline(.always)
 def intersect_ray_aabb_octant_fma[
     dtype: DType,
     frame: Frame,
@@ -1062,7 +1062,7 @@ def triangle_normal[
     return Vec3[.float64, frame](0.0)
 
 
-@always_inline
+@inline(.always)
 def angle_atan2[
     width: SIMDLength = 1
 ](y: SIMD[.float64, width], x: SIMD[.float64, width]) -> SIMD[.float64, width]:
@@ -1105,7 +1105,7 @@ def angle_atan2[
     return y.lt(0.0).select(-angle, angle)
 
 
-@always_inline
+@inline(.always)
 def solid_angle[
     frame: Frame, width: SIMDLength = 1
 ](
@@ -1135,7 +1135,7 @@ def solid_angle[
     )
 
 
-@always_inline
+@inline(.always)
 def ray_triangle_filter[
     frame: Frame
 ](
@@ -1148,7 +1148,7 @@ def ray_triangle_filter[
     return ray_triangle_interval(ray, a, b, c)[0]
 
 
-@always_inline
+@inline(.always)
 def ray_triangle_interval[
     frame: Frame
 ](
@@ -1214,7 +1214,7 @@ def ray_triangle_interval[
     return (-1, 0.0, 0.0)
 
 
-@always_inline
+@inline(.always)
 def project_triangle_filtered[
     frame: Frame
 ](
@@ -1227,7 +1227,7 @@ def project_triangle_filtered[
     return (hit, error)
 
 
-@always_inline
+@inline(.always)
 def project_triangle_filtered_with_exactness[
     frame: Frame
 ](
@@ -1330,7 +1330,7 @@ def project_triangle_filtered_with_exactness[
     )
 
 
-@always_inline
+@inline(.always)
 def triangle_normal_f32[
     frame: Frame
 ](
@@ -1377,7 +1377,7 @@ def triangle_normal_f32[
     return Vec3[.float32, frame](0.0)
 
 
-@always_inline
+@inline(.always)
 def normal_sign_filter[
     frame: Frame
 ](
@@ -1427,7 +1427,7 @@ def normal_sign_filter[
     return 0
 
 
-@always_inline
+@inline(.always)
 def ray_overlaps_bounds[
     frame: Frame
 ](
@@ -1459,7 +1459,7 @@ def ray_overlaps_bounds[
     return True
 
 
-@always_inline
+@inline(.always)
 def _gpu_ray_bounds_interval[
     frame: Frame
 ](
@@ -1515,7 +1515,7 @@ def _gpu_ray_bounds_interval[
     return (-1, 0.0)
 
 
-@always_inline
+@inline(.always)
 def _ray_overlaps_bounds_cached_impl[
     frame: Frame, width: SIMDLength = 1
 ](
@@ -1588,7 +1588,7 @@ def _ray_overlaps_bounds_cached_impl[
     return result
 
 
-@no_inline
+@inline(.never)
 def _ray_overlaps_bounds_cached_exact[
     frame: Frame, width: SIMDLength = 1
 ](
@@ -1606,7 +1606,7 @@ def _ray_overlaps_bounds_cached_exact[
     )
 
 
-@always_inline
+@inline(.always)
 def ray_overlaps_bounds_cached[
     frame: Frame, width: SIMDLength = 1
 ](
@@ -1643,7 +1643,7 @@ def ray_overlaps_bounds_cached[
     )
 
 
-@no_inline
+@inline(.never)
 def _sphere_overlaps_exact[
     frame: Frame, width: SIMDLength
 ](
@@ -1656,7 +1656,7 @@ def _sphere_overlaps_exact[
     return bounds.distance2(center).le(Float64(radius) * Float64(radius))
 
 
-@always_inline
+@inline(.always)
 def sphere_overlaps_bounds[
     frame: Frame, width: SIMDLength = 1
 ](
@@ -1686,7 +1686,7 @@ def sphere_overlaps_bounds[
     return bounds.distance2(center).le(Float64(radius) * Float64(radius))
 
 
-@no_inline
+@inline(.never)
 def furthest_triangle_vertex_distance2[
     frame: Frame
 ](
@@ -1708,7 +1708,7 @@ def furthest_triangle_vertex_distance2[
     return selected_distance, (2 if second else (1 if first else 0))
 
 
-@always_inline
+@inline(.always)
 def intersect_ray_tri_edges_any[
     frame: Frame,
 ](

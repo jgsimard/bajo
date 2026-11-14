@@ -49,7 +49,7 @@ def _pack_range[
     var write = 0
     var offset = index_offset
 
-    @always_inline
+    @inline(.always)
     def point(index: Int) {mesh} -> Point3f32[frame]:
         var base = 3 * Int(mesh.indices[index].p)
         return Point3f32[frame].load(mesh.positions, base)

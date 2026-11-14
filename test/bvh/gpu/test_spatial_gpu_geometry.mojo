@@ -17,7 +17,6 @@ from bajo.core.intersect import (
 from bajo.bvh.gpu.utils import _device_span, upload_list
 
 
-@always_inline
 def _case(
     data: ImmSpan[Float32, _], lane: Int
 ) -> Tuple[

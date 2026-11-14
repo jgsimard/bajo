@@ -168,7 +168,7 @@ def _dielectric_geometry[
     return wm, etap, reflection, valid
 
 
-@always_inline
+@inline(.always)
 def _dielectric_f[
     length: SIMDLength
 ](
@@ -218,7 +218,7 @@ def _dielectric_f[
     return result
 
 
-@always_inline
+@inline(.always)
 def _dielectric_pdf[
     length: SIMDLength
 ](
@@ -373,7 +373,7 @@ def _is_diffuse[
     ) & p.conductor_k.max_component().eq(0.0)
 
 
-@always_inline
+@inline(.always)
 def _substrate_f[
     length: SIMDLength
 ](
@@ -580,7 +580,7 @@ def _from_local[
     return tangent * v.x + bitangent * v.y + normal * v.z
 
 
-@no_inline
+@inline(.never)
 def _layered_pdf[
     length: SIMDLength
 ](
@@ -646,7 +646,7 @@ def _layered_pdf[
     return valid.select(0.1 * _INV_4_PI + 0.9 * sum / denominator, 0.0)
 
 
-@no_inline
+@inline(.never)
 def _evaluate_layered[
     length: SIMDLength
 ](
@@ -982,7 +982,7 @@ def _evaluate_coated_diffuse[
     return result^
 
 
-@no_inline
+@inline(.never)
 def _sample_coated_diffuse[
     length: SIMDLength
 ](

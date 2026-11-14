@@ -342,7 +342,7 @@ def _assert_wide_leaf_ranges_at_most_width[
 ](builder: BinaryBoundsBvh[frame, width, method]) raises:
     var leaf_ranges = List[WideLeafRange]()
 
-    @always_inline
+    @inline(.always)
     def pack_leaf_range(
         first_item: UInt32, item_count: UInt32
     ) {imm, mut leaf_ranges} -> UInt32:

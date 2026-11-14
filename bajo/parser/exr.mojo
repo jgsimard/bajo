@@ -292,7 +292,7 @@ def _decompress_zip(
     return _undo_zip_interleave(predicted)
 
 
-@always_inline
+@inline(.always)
 def _half_to_float(bits: UInt16) -> Float32:
     return bitcast[.float16](bits).cast[.float32]()
 

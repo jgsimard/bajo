@@ -17,7 +17,7 @@ def _remove_degenerate_triangles(mut mesh: PlyMesh) raises:
     if len(mesh.indices) % 3:
         raise Error("PLY triangles require complete index triples")
 
-    @always_inline
+    @inline(.always)
     def point(index: UInt32) raises {mesh} -> Point3f32[.LOCAL]:
         if index >= UInt32(mesh.vertex_count()):
             raise Error("PLY face index is out of range")

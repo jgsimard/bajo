@@ -113,7 +113,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         self.y = SIMD[Self.dtype, Self.width](x)
         self.z = SIMD[Self.dtype, Self.width](x)
 
-    @always_inline
+    @inline(.always)
     def __init__[
         address_space: AddressSpace
     ](
@@ -137,7 +137,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
         self.y = y
         self.z = z
 
-    @always_inline
+    @inline(.always)
     def broadcast[
         target_width: SIMDLength
     ](self) -> Geo3[Self.dtype, Self.kind, Self.frame, target_width] where (
@@ -378,11 +378,11 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
             case _:
                 comptime assert False, "Geo3 axis index must be in [0, 3)"
 
-    @always_inline
+    @inline(.always)
     def abs(self) -> Self:
         return {simd_abs(self.x), simd_abs(self.y), simd_abs(self.z)}
 
-    @always_inline
+    @inline(.always)
     def clamp(
         self,
         lower: SIMD[Self.dtype, Self.width],
@@ -394,7 +394,7 @@ struct Geo3[dtype: DType, kind: GeoKind, frame: Frame, width: SIMDLength = 1](
             self.z.clamp(lower, upper),
         }
 
-    @always_inline
+    @inline(.always)
     def max_component(self) -> SIMD[Self.dtype, Self.width]:
         return fmax(self.x, fmax(self.y, self.z))
 
@@ -584,7 +584,7 @@ def normalize[
     return v * inv_l
 
 
-@always_inline
+@inline(.always)
 def orthonormal_basis[
     dtype: DType, frame: Frame, width: SIMDLength
 ](normal: Vec3[dtype, frame, width]) -> Tuple[

@@ -48,7 +48,7 @@ struct BoundsQuery[origin: ImmOrigin, frame: Frame](Copyable):
     var valid: Bool
     var inverse_direction: Vec3[.float64, Self.frame]
 
-    @always_inline
+    @inline(.always)
     def __init__(
         out self,
         bounds: ImmSpan[Float32, Self.origin],
@@ -79,7 +79,7 @@ struct BoundsQuery[origin: ImmOrigin, frame: Frame](Copyable):
         if self.valid:
             self.end = nodes[Int(root) * 2]
 
-    @always_inline
+    @inline(.always)
     def _begin(mut self, max_dist: Float32) -> Bool:
         if not self.valid:
             return False
@@ -89,7 +89,7 @@ struct BoundsQuery[origin: ImmOrigin, frame: Frame](Copyable):
             self.cutoff = min(self.cutoff, max_dist)
         return True
 
-    @always_inline
+    @inline(.always)
     def _node_overlaps[
         width: SIMDLength, full: Bool = False
     ](self, current: Int) -> SIMD[.bool, width]:
@@ -125,7 +125,7 @@ struct BoundsQuery[origin: ImmOrigin, frame: Frame](Copyable):
             active,
         )
 
-    @always_inline
+    @inline(.always)
     def _advance_node(mut self) -> UInt32:
         var current = Int(self.cursor)
         if not self._node_overlaps[1, True](current)[0]:
@@ -134,7 +134,7 @@ struct BoundsQuery[origin: ImmOrigin, frame: Frame](Copyable):
         self.cursor += 1
         return self.nodes.unsafe_ptr().unsafe_load(current * 2 + 1)
 
-    @always_inline
+    @inline(.always)
     def next(mut self, mut index: UInt32, max_dist: Float32 = f32_max) -> Bool:
         if not self._begin(max_dist):
             return False
@@ -145,7 +145,7 @@ struct BoundsQuery[origin: ImmOrigin, frame: Frame](Copyable):
                 return True
         return False
 
-    @always_inline
+    @inline(.always)
     def next_batch[
         width: SIMDLength = BATCH_WIDTH
     ](mut self, output: MutSpan[UInt32, _], max_dist: Float32 = f32_max) -> Int:
@@ -193,7 +193,7 @@ struct BoundsQueryView[origin: ImmOrigin, frame: Frame](Copyable):
     var bounds: ImmSpan[Float32, Self.origin]
     var nodes: ImmSpan[UInt32, Self.origin]
 
-    @always_inline
+    @inline(.always)
     def query_aabb(
         self, box: AABB[Self.frame], root: UInt32 = 0
     ) -> BoundsQuery[Self.origin, Self.frame]:
@@ -210,7 +210,7 @@ struct BoundsQueryView[origin: ImmOrigin, frame: Frame](Copyable):
             box.is_valid()[0],
         )
 
-    @always_inline
+    @inline(.always)
     def query_ray(
         self, ray: Rayf32[Self.frame], root: UInt32 = 0
     ) -> BoundsQuery[Self.origin, Self.frame]:
@@ -232,7 +232,7 @@ struct BoundsQueryView[origin: ImmOrigin, frame: Frame](Copyable):
             valid,
         )
 
-    @always_inline
+    @inline(.always)
     def query_sphere(
         self, center: Point3f32[Self.frame], radius: Float32, root: UInt32 = 0
     ) -> BoundsQuery[Self.origin, Self.frame]:
@@ -247,7 +247,7 @@ struct BoundsQueryView[origin: ImmOrigin, frame: Frame](Copyable):
             center.is_finite()[0] and isfinite(radius) and radius >= 0.0,
         )
 
-    @always_inline
+    @inline(.always)
     def query_capsule(
         self,
         start: Point3f32[Self.frame],

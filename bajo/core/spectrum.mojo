@@ -24,14 +24,14 @@ struct PiecewiseLinearSpectrum(Copyable):
                 raise Error("spectrum wavelengths must strictly increase")
         self.samples = samples^
 
-    @always_inline
+    @inline(.always)
     def evaluate[
         length: SIMDLength = 1
     ](self, wavelength: SIMD[.float32, length]) -> SIMD[.float32, length]:
         return evaluate_piecewise_spectrum(self.samples, wavelength)
 
 
-@always_inline
+@inline(.always)
 def evaluate_piecewise_spectrum[
     length: SIMDLength = 1
 ](samples: ImmSpan[Float32, _], wavelength: SIMD[.float32, length]) -> SIMD[

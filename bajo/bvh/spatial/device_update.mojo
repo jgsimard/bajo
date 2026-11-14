@@ -24,7 +24,7 @@ from bajo.bvh.constants import EMPTY_LANE
 comptime UPDATE_BLOCK_SIZE = 256
 
 
-@no_inline
+@inline(.never)
 def refit_forest[
     block_size: Int
 ](
@@ -132,7 +132,7 @@ def _item_less[
     return ka < kb or (ka == kb and a < b)
 
 
-@no_inline
+@inline(.never)
 def reorder_forest[
     block_size: Int, cached_keys: Bool = False
 ](

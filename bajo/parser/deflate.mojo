@@ -47,14 +47,14 @@ comptime _PRECODE_ORDER = SIMD[.uint8, 32](
 # fmt: on
 
 
-@always_inline
+@inline(.always)
 def _shift_right(value: UInt64, count: UInt64) -> UInt64:
     # The modulo-64 mask matches x86 variable-shift semantics. LLVM removes it
     # when selecting SHRX; a funnel-shift intrinsic instead selected slower SHRD.
     return value >> (count & UInt64(63))
 
 
-@always_inline
+@inline(.always)
 def _extract_bits(value: UInt64, entry: UInt32) -> UInt64:
     comptime if CompilationTarget._has_feature["bmi2"]():
         # BZHI reads the low eight bits of the count: the combined codeword
@@ -78,7 +78,7 @@ struct _Bits[origin: ImmOrigin]:
         self.buffer = 0
         self.count = 0
 
-    @always_inline
+    @inline(.always)
     def refill(mut self):
         if self.count >= 56:
             return
@@ -101,14 +101,14 @@ struct _Bits[origin: ImmOrigin]:
                 self.offset += 1
                 self.count += 8
 
-    @always_inline
+    @inline(.always)
     def drop(mut self, count: Int) raises:
         if count > self.count:
             raise Error("truncated DEFLATE bitstream")
         self.buffer >>= UInt64(count)
         self.count -= count
 
-    @always_inline
+    @inline(.always)
     def read(mut self, count: Int) raises -> UInt32:
         self.refill()
         var value = UInt32(self.buffer & ((UInt64(1) << UInt64(count)) - 1))
@@ -116,7 +116,7 @@ struct _Bits[origin: ImmOrigin]:
         return value
 
 
-@always_inline
+@inline(.always)
 def _entry(symbol: Int, length: Int, alphabet: Int) -> UInt32:
     if alphabet == 0:
         if symbol < 256:
@@ -273,7 +273,7 @@ struct _Huffman:
                         | UInt32(0xC000 | (n << 8) | (n + m))
                     )
 
-    @always_inline
+    @inline(.always)
     def decode(self, mut bits: _Bits[_]) raises -> UInt32:
         bits.refill()
         var entry = self.entries[
@@ -300,7 +300,7 @@ struct _Huffman:
         bits.drop(count)
         return (value << 16) | (entry & 0xFFFF)
 
-    @always_inline
+    @inline(.always)
     def decode_bulk(
         self, mut buffer: UInt64, mut available: UInt32, var entry: UInt32
     ) -> Tuple[UInt32, UInt32]:
@@ -408,7 +408,7 @@ def _copy_match(
         ptr[unsafe_offset=offset + j] = ptr[unsafe_offset=offset + j - distance]
 
 
-@always_inline
+@inline(.always)
 def _refill_bulk(
     input: ImmSpan[UInt8, _],
     mut offset: Int,
@@ -426,7 +426,7 @@ def _refill_bulk(
     available |= UInt32(56)
 
 
-@always_inline
+@inline(.always)
 def _copy_match_bulk(
     output: MutSpan[UInt8, _], offset: Int, distance: Int, length: Int
 ):
@@ -471,7 +471,7 @@ def _copy_match_bulk(
             i += 16
 
 
-@always_inline
+@inline(.always)
 def _store_literals[
     paired: Bool
 ](output: MutSpan[UInt8, _], offset: Int, entry: UInt32) -> Int:
@@ -485,7 +485,7 @@ def _store_literals[
         return 1
 
 
-@no_inline
+@inline(.never)
 def _inflate_bulk[
     literal_bits: Int,
     distance_bits: Int,

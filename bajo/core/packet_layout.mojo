@@ -12,7 +12,7 @@ comptime PacketFloatTile[
 ] = FieldTile[.float32, fields, type_of(Idx[Int(length)]), origin]
 
 
-@always_inline
+@inline(.always)
 def packet_float_tile[
     mut: Bool, origin: Origin[mut=mut], //, fields: Int, length: SIMDLength
 ](storage: Pointer[SIMD[.float32, length], origin]) -> PacketFloatTile[
@@ -23,7 +23,7 @@ def packet_float_tile[
     )
 
 
-@always_inline
+@inline(.always)
 def packet_field_index[name: StaticString, *names: StaticString]() -> Int:
     """Resolve a named float row at compile time for either packet layout."""
     comptime for field in range(len(names)):
@@ -32,7 +32,7 @@ def packet_field_index[name: StaticString, *names: StaticString]() -> Int:
     return -1
 
 
-@always_inline
+@inline(.always)
 def packet_float_field[
     length: SIMDLength, fields: Int, name: StaticString, *names: StaticString
 ](ref rows: Array[SIMD[.float32, length], fields]) -> ref[rows] SIMD[
@@ -43,7 +43,7 @@ def packet_float_field[
     return rows[field]
 
 
-@always_inline
+@inline(.always)
 def copy_packet_float_lane[
     destination_origin: Origin[mut=True],
     //,
@@ -59,7 +59,7 @@ def copy_packet_float_lane[
         destination[field, destination_lane] = source[field, source_lane]
 
 
-@always_inline
+@inline(.always)
 def compact_packet_floats[
     destination_origin: Origin[mut=True],
     //,
@@ -115,7 +115,7 @@ trait TilePacket(Copyable):
         ...
 
 
-@always_inline
+@inline(.always)
 def select_packet_lanes[
     length: SIMDLength, CopyLaneFn: def(Int, Int)
 ](
@@ -134,7 +134,7 @@ def select_packet_lanes[
     return (selected, appended)
 
 
-@always_inline
+@inline(.always)
 def append_masked_tile[
     Packet: TilePacket
 ](
@@ -144,23 +144,23 @@ def append_masked_tile[
     mask: SIMD[.bool, Packet.WIDTH],
     lane_count: Int,
 ):
-    @always_inline
+    @inline(.always)
     def make_packet() {source} -> Packet:
         return source.copy()
 
-    @always_inline
+    @inline(.always)
     def copy_lane(
         mut destination: Packet, source_lane: Int, target_lane: Int
     ) {source}:
         destination.copy_lane(source, source_lane, target_lane)
 
-    @always_inline
+    @inline(.always)
     def copy_metadata(
         mut destination: Packet, source_lane: Int, target_lane: Int
     ) {source}:
         destination.copy_metadata_lane(source, source_lane, target_lane)
 
-    @always_inline
+    @inline(.always)
     def copy_floats(
         mut destination: Packet,
         selected: SIMD[.bool, Packet.WIDTH],
@@ -180,7 +180,7 @@ def append_masked_tile[
     )
 
 
-@always_inline
+@inline(.always)
 def append_masked_lanes[
     Packet: TilePacket,
     MakePacket: def() -> Packet,
@@ -233,7 +233,7 @@ def append_masked_lanes[
                 packets.append(Packet())
             ref destination = packets[count / Packet.WIDTH]
 
-            @always_inline
+            @inline(.always)
             def copy_selected_lane(
                 source_lane: Int, target_lane: Int
             ) {copy_metadata, mut destination}:

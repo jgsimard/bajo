@@ -64,14 +64,14 @@ def min_argmin[
         return (_min, index)
 
 
-@always_inline
+@inline(.always)
 def fmax[
     dtype: DType, width: SIMDLength
 ](a: SIMD[dtype, width], b: SIMD[dtype, width]) -> SIMD[dtype, width]:
     return a.gt(b).select(a, b)
 
 
-@always_inline
+@inline(.always)
 def fmin[
     dtype: DType, width: SIMDLength
 ](a: SIMD[dtype, width], b: SIMD[dtype, width]) -> SIMD[dtype, width]:

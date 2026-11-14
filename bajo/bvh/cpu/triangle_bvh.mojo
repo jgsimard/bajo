@@ -142,7 +142,7 @@ struct _TriangleBuildTuning[
     )
 
 
-@always_inline
+@inline(.always)
 def _make_triangle_bounds_item[
     frame: Frame
 ](vertices: ImmSpan[Point3f32[frame], _], i: Int) -> BoundsItem[frame]:
@@ -158,7 +158,7 @@ def _make_triangle_bounds_item[
     return BoundsItem(bounds, UInt32(i))
 
 
-@always_inline
+@inline(.always)
 def _trace_triangle_leaf_block[
     frame: Frame,
     width: SIMDLength,

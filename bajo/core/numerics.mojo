@@ -8,7 +8,7 @@ negative zero from positive zero.
 from std.memory import bitcast
 
 
-@always_inline
+@inline(.always)
 def finite_f32_key[
     width: SIMDLength
 ](bits: SIMD[.uint32, width]) -> SIMD[.uint32, width]:
@@ -16,7 +16,7 @@ def finite_f32_key[
     return (bits >> 31).ne(0).select(~bits, bits ^ UInt32(0x80000000))
 
 
-@always_inline
+@inline(.always)
 def finite_f32_min[
     width: SIMDLength
 ](a: SIMD[.float32, width], b: SIMD[.float32, width]) -> SIMD[.float32, width]:
@@ -27,7 +27,7 @@ def finite_f32_min[
     )
 
 
-@always_inline
+@inline(.always)
 def finite_f32_max[
     width: SIMDLength
 ](a: SIMD[.float32, width], b: SIMD[.float32, width]) -> SIMD[.float32, width]:

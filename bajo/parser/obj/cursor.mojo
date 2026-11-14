@@ -20,7 +20,7 @@ struct ObjIndexLimit(TrivialRegisterPassable):
     var count_with_dummy: Int
     var max_magnitude: Int
 
-    @always_inline
+    @inline(.always)
     def __init__(out self, count_with_dummy: Int) raises:
         if count_with_dummy < 1 or count_with_dummy - 1 > 0x7FFFFFFF:
             raise Error("OBJ element count exceeds signed 32-bit index storage")
@@ -34,12 +34,12 @@ struct ObjLineCursor[origin: ImmOrigin]:
     var bytes: ImmSpan[UInt8, Self.origin]
     var pos: Int
 
-    @always_inline
+    @inline(.always)
     def __init__(out self, bytes: ImmSpan[UInt8, Self.origin]):
         self.bytes = bytes
         self.pos = 0
 
-    @always_inline
+    @inline(.always)
     def skip_ws(mut self):
         while self.pos < len(self.bytes):
             var b = self.bytes.unsafe_get(self.pos)
@@ -54,7 +54,7 @@ struct ObjLineCursor[origin: ImmOrigin]:
         self.skip_ws()
         return self.pos < len(self.bytes)
 
-    @always_inline
+    @inline(.always)
     def _next_f32_at_pos(mut self) raises -> Float32:
         var parsed = parse_f32_fast_at(self.bytes, self.pos)
         self.pos = parsed.pos
@@ -100,7 +100,7 @@ struct ObjLineCursor[origin: ImmOrigin]:
                 raise String("invalid character in OBJ index")
         return sign * output
 
-    @always_inline
+    @inline(.always)
     def _parse_resolved_index(
         mut self, slash_terminates: Bool, limit: ObjIndexLimit
     ) -> Int:
@@ -133,7 +133,7 @@ struct ObjLineCursor[origin: ImmOrigin]:
                 return 0
         return limit.count_with_dummy - output if negative else output
 
-    @always_inline
+    @inline(.always)
     def next_index_p_only_at_token(
         mut self, position_limit: ObjIndexLimit
     ) raises -> ObjIndex:

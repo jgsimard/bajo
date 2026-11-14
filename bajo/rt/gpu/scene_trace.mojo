@@ -136,7 +136,7 @@ def _gpu_environment_radiance(
     ).sample_environment(uv.u, uv.v)
 
 
-@always_inline
+@inline(.always)
 def _gpu_rt_scene_trace_path[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
@@ -717,7 +717,7 @@ def _gpu_rt_scene_trace_path[
     )
 
 
-@always_inline
+@inline(.always)
 def _gpu_rt_scene_trace_one[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
@@ -837,7 +837,7 @@ def gpu_rt_scene_trace_kernel[
         idx += stride
 
 
-@always_inline
+@inline(.always)
 def _trace_scene_any[
     scene_kind: GpuRtSceneKind,
     Formats: _GpuRtKernelFormats,
@@ -938,7 +938,7 @@ def _trace_scene_any[
     return False
 
 
-@always_inline
+@inline(.always)
 def _gpu_rt_shadow_one[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,

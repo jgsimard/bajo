@@ -13,7 +13,7 @@ from .utils import DoubleBuffer
 comptime ordering = Ordering.RELAXED
 
 
-@always_inline
+@inline(.always)
 def init_radix_workspace[
     NUM_PASSES: Int, BLOCK_SIZE: Int, count_dtype: DType = .int32
 ](
@@ -103,7 +103,7 @@ def global_histogram[
             )
 
 
-@always_inline
+@inline(.always)
 def scan_local_histogram[
     BITS_PER_PASS: Int
 ](s_local_histogram: MutPointer[UInt32, _, address_space=AddressSpace.SHARED],):
@@ -127,7 +127,7 @@ def scan_local_histogram[
     barrier()
 
 
-@always_inline
+@inline(.always)
 def scatter_radix_tile[
     keys_dtype: DType,
     vals_dtype: DType,

@@ -6,7 +6,6 @@ from bajo.bvh.constants import EMPTY_LANE
 from bajo.bvh.spatial import SpatialBoundsBvh
 
 
-@always_inline
 def key(bits: UInt32) -> UInt32:
     if (bits & UInt32(0x7FFFFFFF)) == 0:
         return UInt32(0x80000000)

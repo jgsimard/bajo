@@ -211,7 +211,7 @@ struct AdaptiveBenchmarkSink(AdaptiveStreamHitSink):
         self.checksum = 0.0
         self.hits = 0
 
-    @always_inline
+    @inline(.always)
     def write[
         length: SIMDLength,
         frame: Frame,
@@ -268,7 +268,7 @@ def benchmark_adaptive[
     bvh: CpuBlasSet[.TRIANGLE, bounds_width, leaf_width],
     rays: List[Rayf32[.WORLD]],
 ) -> PacketTiming:
-    @always_inline
+    @inline(.always)
     def trace(mut sink: AdaptiveBenchmarkSink) {bvh, rays}:
         trace_blas_set_adaptive_stream[bounds_width, leaf_width, *packet_sizes](
             bvh, UInt32(0), rays, sink

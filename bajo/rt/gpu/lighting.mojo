@@ -567,3 +567,65 @@ def _sample_direct_light_candidate[
         geometry.shadow_t_max,
         light_id,
     )
+
+
+@inline(.always)
+def _sample_direct_light_by_kind[
+    integrator: Integrator,
+](
+    path: DeviceWavePath,
+    incoming_ray: Rayf32[.WORLD],
+    hit_t: Float32,
+    normal: Vec3f32[.WORLD],
+    uv_u: Float32,
+    uv_v: Float32,
+    surface_value: UInt32,
+    scene: GpuRtSceneView,
+    sampling: SamplingConfig,
+    bounce: UInt32,
+    uniform_sampling_kind: UInt32,
+    front_face: Bool = True,
+) -> GpuDirectLightSample:
+    """Keep MIS light specialization inside lighting, not traversal kernels."""
+    comptime if integrator == .MIS:
+        if uniform_sampling_kind == PrimitiveKind.SPHERE.value():
+            return _sample_direct_light_candidate[integrator, .SPHERE](
+                path,
+                incoming_ray,
+                hit_t,
+                normal,
+                uv_u,
+                uv_v,
+                surface_value,
+                scene,
+                sampling,
+                bounce,
+                front_face,
+            )
+        if uniform_sampling_kind == PrimitiveKind.TRIANGLE.value():
+            return _sample_direct_light_candidate[integrator, .TRIANGLE](
+                path,
+                incoming_ray,
+                hit_t,
+                normal,
+                uv_u,
+                uv_v,
+                surface_value,
+                scene,
+                sampling,
+                bounce,
+                front_face,
+            )
+    return _sample_direct_light_candidate[integrator](
+        path,
+        incoming_ray,
+        hit_t,
+        normal,
+        uv_u,
+        uv_v,
+        surface_value,
+        scene,
+        sampling,
+        bounce,
+        front_face,
+    )

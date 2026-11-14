@@ -43,48 +43,6 @@ def _enqueue_primary_trace[
     scene_kind: GpuRtSceneKind,
     Formats: _GpuRtKernelFormats,
     store_source_path: Bool,
-    light_kind: PrimitiveKind,
-](
-    ctx: DeviceContext,
-    camera: DeviceBuffer[.float32],
-    src_path_ids: DeviceBuffer[.uint32],
-    src_path_fields: DeviceBuffer[.float32],
-    scene: GpuRtSceneView,
-    queues: GpuRtTraceQueueView,
-    image_width: Int,
-    image_height: Int,
-    samples_per_pixel: Int,
-    sampling: GpuRtSamplingConfig,
-    blocks: Int,
-) raises:
-    ctx.enqueue_function[
-        gpu_rt_primary_scene_trace_kernel[
-            integrator,
-            scene_kind,
-            Formats,
-            store_source_path,
-            light_kind,
-        ]
-    ](
-        camera,
-        src_path_ids,
-        src_path_fields,
-        scene,
-        queues,
-        Int32(image_width),
-        Int32(image_height),
-        Int32(samples_per_pixel),
-        sampling,
-        grid_dim=blocks,
-        block_dim=GPU_RT_BLOCK_SIZE,
-    )
-
-
-def _enqueue_primary_trace_by_light_kind[
-    integrator: Integrator,
-    scene_kind: GpuRtSceneKind,
-    Formats: _GpuRtKernelFormats,
-    store_source_path: Bool,
 ](
     ctx: DeviceContext,
     camera: DeviceBuffer[.float32],
@@ -99,51 +57,23 @@ def _enqueue_primary_trace_by_light_kind[
     sampling: GpuRtSamplingConfig,
     blocks: Int,
 ) raises:
-    # MIS keeps light-type specialization; NEE uses runtime sampling.
-    comptime if integrator == .MIS:
-        comptime for light_kind in [
-            PrimitiveKind.SPHERE,
-            PrimitiveKind.TRIANGLE,
-        ]:
-            if uniform_sampling_kind == light_kind:
-                _enqueue_primary_trace[
-                    integrator,
-                    scene_kind,
-                    Formats,
-                    store_source_path,
-                    light_kind,
-                ](
-                    ctx,
-                    camera,
-                    src_path_ids,
-                    src_path_fields,
-                    scene,
-                    queues,
-                    image_width,
-                    image_height,
-                    samples_per_pixel,
-                    sampling,
-                    blocks,
-                )
-                return
-    _enqueue_primary_trace[
-        integrator,
-        scene_kind,
-        Formats,
-        store_source_path,
-        PrimitiveKind.UNKNOWN,
+    ctx.enqueue_function[
+        gpu_rt_primary_scene_trace_kernel[
+            integrator, scene_kind, Formats, store_source_path
+        ]
     ](
-        ctx,
         camera,
         src_path_ids,
         src_path_fields,
         scene,
         queues,
-        image_width,
-        image_height,
-        samples_per_pixel,
+        Int32(image_width),
+        Int32(image_height),
+        Int32(samples_per_pixel),
         sampling,
-        blocks,
+        uniform_sampling_kind.value(),
+        grid_dim=blocks,
+        block_dim=GPU_RT_BLOCK_SIZE,
     )
 
 
@@ -183,7 +113,7 @@ def enqueue_gpu_rt_primary_bounce[
     var blocks = ceildiv(active_count, GPU_RT_BLOCK_SIZE)
 
     def enqueue_primary[store_source_path: Bool]() raises {imm}:
-        _enqueue_primary_trace_by_light_kind[
+        _enqueue_primary_trace[
             integrator,
             scene_kind,
             Formats,
@@ -284,42 +214,15 @@ def enqueue_gpu_rt_bounce[
     )
 
     def enqueue_trace() raises {imm}:
-        comptime if integrator == .MIS:
-            comptime for light_kind in [
-                PrimitiveKind.SPHERE,
-                PrimitiveKind.TRIANGLE,
-            ]:
-                if uniform_sampling_kind == light_kind:
-                    ctx.enqueue_function[
-                        gpu_rt_scene_trace_kernel[
-                            integrator,
-                            scene_kind,
-                            Formats,
-                            light_kind,
-                        ]
-                    ](
-                        scene,
-                        queues,
-                        sampling,
-                        bounce,
-                        UInt32(1 if allow_scattering else 0),
-                        grid_dim=blocks,
-                        block_dim=trace_block_size,
-                    )
-                    return
         ctx.enqueue_function[
-            gpu_rt_scene_trace_kernel[
-                integrator,
-                scene_kind,
-                Formats,
-                PrimitiveKind.UNKNOWN,
-            ]
+            gpu_rt_scene_trace_kernel[integrator, scene_kind, Formats]
         ](
             scene,
             queues,
             sampling,
             bounce,
             UInt32(1 if allow_scattering else 0),
+            uniform_sampling_kind.value(),
             grid_dim=blocks,
             block_dim=trace_block_size,
         )

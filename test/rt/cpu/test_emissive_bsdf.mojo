@@ -67,7 +67,7 @@ def test_emissive_diffuse_retains_bsdf_and_reflects_the_environment() raises:
             )
             var settings = parsed.settings.copy()
             var camera = parsed.camera
-            var world = CpuScene[4, 4](parsed^.take_data())
+            var world = CpuScene[16, 16](parsed^.take_data())
             var image = render_wavefront[.PATH, 4](settings, camera, world)
             var expected = Color(0.1, 0.1, 0.075)
             if two_sided or not back:
@@ -257,7 +257,7 @@ def test_depth_limits_preserve_terminal_emission_without_scattering() raises:
         var parsed = make_depth_scene(diffuse, miss)
         var settings = parsed.settings.copy()
         var camera = parsed.camera
-        var world = CpuScene[4, 4](parsed^.take_data())
+        var world = CpuScene[16, 16](parsed^.take_data())
         for depth in range(3 if not diffuse else 1):
             settings.max_depth = depth
             var expected = depth_scene_expected(depth, diffuse, miss)

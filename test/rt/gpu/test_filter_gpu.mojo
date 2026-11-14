@@ -68,7 +68,7 @@ def test_gpu_gaussian_reconstructs_light_outside_the_nominal_pixel() raises:
     var parsed = make_filter_edge()
     var settings = parsed.settings.copy()
     var camera = parsed.camera
-    var world = CpuScene[4, 4](parsed^.take_data())
+    var world = CpuScene[16, 16](parsed^.take_data())
     with DeviceContext() as ctx:
         var scene = prepare_gpu_scene[kind=.TRIANGLES](ctx, world.scene_data())
         var target = GpuRtRenderTarget(ctx, settings, camera)

@@ -28,7 +28,7 @@ def test_gpu_emissive_diffuse_continues_reflection_and_matches_all_integrators()
             var parsed = make_emissive_plane(two_sided, back)
             var settings = parsed.settings.copy()
             var camera = parsed.camera
-            var world = CpuScene[4, 4](parsed^.take_data())
+            var world = CpuScene[16, 16](parsed^.take_data())
             with DeviceContext() as ctx:
                 var scene = prepare_gpu_scene[kind=.INSTANCES](
                     ctx, world.scene_data()
@@ -76,7 +76,7 @@ Shape "trianglemesh" "point3 P" [-1 -1 2 1 -1 2 0 1 2]
     var parsed = parse_pbrt(source)
     var settings = parsed.settings.copy()
     var camera = parsed.camera
-    var world = CpuScene[4, 4](parsed^.take_data())
+    var world = CpuScene[16, 16](parsed^.take_data())
     with DeviceContext() as ctx:
         var scene = prepare_gpu_scene[kind=.INSTANCES](ctx, world.scene_data())
         comptime for integrator in [Integrator.NEE, Integrator.MIS]:
@@ -94,7 +94,7 @@ def test_emissive_coated_and_dielectric_surfaces_continue_their_bsdfs() raises:
         var parsed = make_emissive_plane(model=model)
         var settings = parsed.settings.copy()
         var camera = parsed.camera
-        var world = CpuScene[4, 4](parsed^.take_data())
+        var world = CpuScene[16, 16](parsed^.take_data())
         with DeviceContext() as ctx:
             var scene = prepare_gpu_scene[kind=.INSTANCES](
                 ctx, world.scene_data()
@@ -167,7 +167,7 @@ def test_gpu_depth_limits_preserve_terminal_emission_without_scattering() raises
         var parsed = make_depth_scene(diffuse, miss)
         var settings = parsed.settings.copy()
         var camera = parsed.camera
-        var world = CpuScene[4, 4](parsed^.take_data())
+        var world = CpuScene[16, 16](parsed^.take_data())
         with DeviceContext() as ctx:
             var scene = prepare_gpu_scene[kind=.INSTANCES](
                 ctx, world.scene_data()

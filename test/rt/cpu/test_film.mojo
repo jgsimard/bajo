@@ -42,7 +42,7 @@ Shape "trianglemesh" "point3 P" [-20 -20 1 20 -20 1 0 20 1]
     )
 
 
-def make_varying_film_world() raises -> CpuScene[4, 4]:
+def make_varying_film_world() raises -> CpuScene[16, 16]:
     var builder = SceneBuilder()
     var black = builder.add_lambertian(Color(0))
     builder.add_sphere(Point3f32[.WORLD](1000, 0, 0), 1, black)
@@ -81,7 +81,7 @@ def make_varying_film_world() raises -> CpuScene[4, 4]:
             Affine3f32[.LOCAL, .WORLD].identity(),
         )
     )
-    return CpuScene[4, 4](builder^.finish())
+    return CpuScene[16, 16](builder^.finish())
 
 
 def film_camera() -> Camera:
@@ -170,7 +170,7 @@ def test_complete_path_is_clamped_after_all_emission_and_environment_contributio
     var parsed = make_film_path()
     var settings = parsed.settings.copy()
     var camera = parsed.camera
-    var world = CpuScene[4, 4](parsed^.take_data())
+    var world = CpuScene[16, 16](parsed^.take_data())
     var total = Color(36, 12, 12) * 2
     # Independent scalar sensor calculation for this known complete path.
     var x = (
@@ -195,7 +195,7 @@ def test_complete_path_is_clamped_after_all_emission_and_environment_contributio
         Integrator.MIS,
     ]:
         comptime for width in [1, 4, 16]:
-            var result = render_wavefront[integrator, width, 7](
+            var result = render_wavefront[integrator, width](
                 settings, camera, world
             )
             for pixel in result.pixels:

@@ -232,7 +232,7 @@ def test_png_masked_emitter_is_dark_and_opaque_half_still_illuminates() raises:
             var parsed = read_pbrt("main.pbrt", loader)
             var settings = parsed.settings.copy()
             var camera = parsed.camera
-            var world = CpuScene[4, 4](parsed^.take_data())
+            var world = CpuScene[16, 16](parsed^.take_data())
             var image = render_wavefront[.MIS, 4](settings, camera, world)
             var energy = Float32(0.0)
             for pixel in image.pixels:

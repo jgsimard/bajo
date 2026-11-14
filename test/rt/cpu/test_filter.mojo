@@ -153,7 +153,7 @@ def test_gaussian_reconstructs_light_outside_the_nominal_pixel() raises:
     var parsed = make_filter_edge()
     var settings = parsed.settings.copy()
     var camera = parsed.camera
-    var world = CpuScene[4, 4](parsed^.take_data())
+    var world = CpuScene[16, 16](parsed^.take_data())
     var box = settings.copy()
     box.filter = ReconstructionFilter()
     var unfiltered = render_wavefront[.PATH, 4](box, camera, world)
@@ -178,14 +178,14 @@ def test_filter_weight_is_applied_after_sample_clamping() raises:
     var parsed = make_film_path()
     var settings = parsed.settings.copy()
     var camera = parsed.camera
-    var world = CpuScene[4, 4](parsed^.take_data())
+    var world = CpuScene[16, 16](parsed^.take_data())
     var expected = settings.film.apply_sample(Color(36, 12, 12))
     comptime for integrator in [
         Integrator.PATH,
         Integrator.NEE,
         Integrator.MIS,
     ]:
-        var result = render_wavefront[integrator, 4, 7](settings, camera, world)
+        var result = render_wavefront[integrator, 4](settings, camera, world)
         for pixel in result.pixels:
             comptime for channel in range(3):
                 assert_almost_equal(

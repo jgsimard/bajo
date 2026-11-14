@@ -20,7 +20,6 @@ from .mesh_query import (
 )
 
 
-@always_inline
 def _shuffle64(value: Float64, lane: UInt32) -> Float64:
     var bits = bitcast[.uint64](value)
     var low = warp.shuffle_idx(UInt32(bits & UInt64(0xFFFFFFFF)), lane)
@@ -28,7 +27,6 @@ def _shuffle64(value: Float64, lane: UInt32) -> Float64:
     return bitcast[.float64](UInt64(low) | (UInt64(high) << 32))
 
 
-@always_inline
 def _reduce64[furthest: Bool](value: Float64) -> Float64:
     var result = value
     comptime for shift in range(5):
@@ -48,7 +46,6 @@ struct BlockMeshQueryView[
 ](Copyable):
     var view: MeshQueryView[Self.origin, Self.frame, Self.storage_width]
 
-    @always_inline
     def _root(self, root: UInt32) -> UInt32:
         if (
             block_dim.x != 32
@@ -78,7 +75,6 @@ struct BlockMeshQueryView[
             )
         return node
 
-    @always_inline
     def _point[
         furthest: Bool
     ](

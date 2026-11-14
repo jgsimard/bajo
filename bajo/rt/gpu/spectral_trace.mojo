@@ -102,7 +102,6 @@ from bajo.rt.shading_types import SurfaceHit
 from bajo.rt.gpu.scene_trace import GPU_RT_LARGE_QUEUE_MIN_CAPACITY
 
 
-@always_inline
 def spectral_trace_surface[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,

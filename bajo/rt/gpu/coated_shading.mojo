@@ -149,7 +149,6 @@ def gpu_rt_coated_shade_kernel[
         slot += stride
 
 
-@always_inline
 def enqueue_coated_shading[
     integrator: Integrator
 ](
@@ -170,7 +169,6 @@ def enqueue_coated_shading[
         blocks, gpu_rt_bounce_block_limit(bounce, GPU_RT_SHADE_BLOCK_SIZE)
     )
 
-    @always_inline
     def enqueue_shade[ordered: Bool]() raises {imm}:
         comptime if Integrator.uses_direct_lighting[integrator]:
             if gpu_rt_queue_order_enabled(Int(queues.capacity), bounce):

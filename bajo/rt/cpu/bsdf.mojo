@@ -42,7 +42,6 @@ struct _MaterialParameters[length: SIMDLength]:
         self.roughness = 0.0
         self.coated = CoatedParameters[Self.length]()
 
-    @always_inline
     def gather[
         kind: MaterialKind
     ](
@@ -80,7 +79,6 @@ struct _MaterialParameters[length: SIMDLength]:
                     0.0,
                 )
 
-    @always_inline
     def _gather_parameter(
         mut self,
         fields: ImmPointer[Float32, _],
@@ -91,7 +89,6 @@ struct _MaterialParameters[length: SIMDLength]:
         var offsets = active.select(indices, 0).cast[.int]() * stride
         self.parameter = active.select(fields.unsafe_gather(offsets), 1.0)
 
-    @always_inline
     def load[
         kind: MaterialKind, LOAD_ALBEDO: Bool = True
     ](
@@ -180,7 +177,6 @@ struct _MaterialParameters[length: SIMDLength]:
                     self.coated.conductor_k,
                 )
 
-    @always_inline
     def evaluate[
         kind: MaterialKind
     ](
@@ -215,7 +211,6 @@ struct _MaterialParameters[length: SIMDLength]:
                 front_face,
             )
 
-    @always_inline
     def sample[
         kind: MaterialKind
     ](
@@ -290,7 +285,6 @@ struct _MaterialParameters[length: SIMDLength]:
         return sampled^
 
 
-@always_inline
 def _evaluate_surface[
     kind: MaterialKind
 ](
@@ -315,7 +309,6 @@ def _evaluate_surface[
     )
 
 
-@always_inline
 def _sample_surface[
     kind: MaterialKind
 ](

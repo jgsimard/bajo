@@ -77,7 +77,6 @@ comptime GPU_RT_SHADE_MAX_BLOCKS = GPU_RT_MAX_BLOCKS
 comptime GPU_RT_SHADE_BLOCK_SIZE = 128
 
 
-@always_inline
 def _accumulate_sample(
     sample_radiance: Pointer[Float32, MutAnyOrigin],
     capacity: Int,
@@ -92,7 +91,6 @@ def _accumulate_sample(
     radiance[(WaveSampleFloatAbi.B, idx)] += value.z
 
 
-@always_inline
 def _append_shade(
     work: DeviceWaveShade,
     path_refs: Pointer[UInt32, MutAnyOrigin],
@@ -112,7 +110,6 @@ def _append_shade(
     return slot
 
 
-@always_inline
 def _append_shadow[
     STORE_CONTRIBUTION: Bool = True
 ](
@@ -132,7 +129,6 @@ def _append_shadow[
     return slot
 
 
-@always_inline
 def _append_direct_light_shadow(
     var direct: GpuDirectLightSample,
     path: DeviceWavePath,
@@ -175,7 +171,6 @@ def _append_direct_light_shadow(
         ] = direct.light_id
 
 
-@always_inline
 def _continue_gpu_path[
     integrator: Integrator,
 ](
@@ -219,7 +214,6 @@ def _continue_gpu_path[
     )
 
 
-@always_inline
 def _shade_lambertian_inline[
     integrator: Integrator,
 ](
@@ -278,7 +272,6 @@ def _shade_lambertian_inline[
     )
 
 
-@always_inline
 def _shade_coated_diffuse_inline[
     integrator: Integrator,
 ](
@@ -346,7 +339,6 @@ def _shade_coated_diffuse_inline[
     )
 
 
-@always_inline
 def _route_surface_hit[
     integrator: Integrator,
 ](

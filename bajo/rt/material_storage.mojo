@@ -75,7 +75,6 @@ struct TextureDescLayout:
     comptime PALETTE_RGB8 = UInt32(1)
 
 
-@always_inline
 def load_coated_parameters[
     Layout: TensorLayout,
     //,

@@ -28,7 +28,6 @@ comptime PARALLEL_SAH_PARTITION_MIN_ITEMS = UInt32(32768)
 comptime PARALLEL_TOP_DOWN_DONATE_MIN_ITEMS = UInt32(4096)
 
 
-@always_inline
 def _acquire_top_down_queue_lock(
     lock: MutPointer[UInt32, _],
 ):
@@ -40,7 +39,6 @@ def _acquire_top_down_queue_lock(
         expected = UInt32(0)
 
 
-@always_inline
 def _release_top_down_queue_lock(
     lock: MutPointer[UInt32, _],
 ):
@@ -672,7 +670,6 @@ struct BinaryBoundsBvh[
 
         return self._partition_node_by_median(node)
 
-    @always_inline
     def _partition_node_by_median(
         mut self, node: BoundsBvhNode[Self.frame]
     ) -> BoundsPartitionResult[Self.frame]:
@@ -710,7 +707,6 @@ struct BinaryBoundsBvh[
         return q
 
 
-@always_inline
 def _partition_items_by_median_center[
     frame: Frame, static_axis: Int = -1
 ](

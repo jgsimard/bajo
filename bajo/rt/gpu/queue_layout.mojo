@@ -46,28 +46,24 @@ comptime GpuRtRadianceTile[origin: Origin] = GpuRtFieldTile[
 ]
 
 
-@always_inline
 def gpu_rt_path_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtPathTile[origin]:
     return field_tile[.float32, WavePathFloatAbi.PLANES](fields, capacity)
 
 
-@always_inline
 def gpu_rt_shade_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtShadeTile[origin]:
     return field_tile[.float32, GPU_SHADE_PLANES](fields, capacity)
 
 
-@always_inline
 def gpu_rt_shadow_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtShadowTile[origin]:
     return field_tile[.float32, WaveShadowFloatAbi.PLANES](fields, capacity)
 
 
-@always_inline
 def gpu_rt_radiance_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtRadianceTile[origin]:

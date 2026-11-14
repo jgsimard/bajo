@@ -36,7 +36,6 @@ def trace_filtered_triangle_blas[
         return Hit[frame].miss(ray.t_max)
     var view = blases._view[frame](desc)
 
-    @always_inline
     def leaf_fn(
         local_ray: Rayf32[frame],
         O: Point3[.float32, frame, leaf_width],

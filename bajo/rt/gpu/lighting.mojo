@@ -175,7 +175,6 @@ struct GpuDirectLightSample(TrivialRegisterPassable):
     var light_id: UInt32
 
     @staticmethod
-    @always_inline
     def make_empty() -> Self:
         return Self(False, Vec3f32[.WORLD](0.0), Color(0.0), 0.0, UInt32(0))
 

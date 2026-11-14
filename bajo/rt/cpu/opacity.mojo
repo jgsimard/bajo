@@ -64,7 +64,6 @@ struct _CpuOpacityFilter[origin: ImmOrigin](Copyable, TriangleHitFilter):
     var mesh: UInt32
     var sample: Float32
 
-    @always_inline
     def accept(self, primitive: UInt32, u: Float32, v: Float32) -> Bool:
         ref data = self.data[unsafe_offset=0]
         var key = self.shape_key
@@ -111,7 +110,6 @@ def trace_opacity_instances[
 ) -> Hit[.WORLD]:
     var sample = opacity_ray_sample(ray)
 
-    @always_inline
     def leaf_fn(
         world_ray: Rayf32[.WORLD],
         O: Point3[.float32, .WORLD, 1],

@@ -22,7 +22,6 @@ from bajo.bvh.types import Hit, SphereLeafBlock
 from bajo.core.geometry import Sphere
 
 
-@always_inline
 def _trace_sphere_leaf_block[
     frame: Frame,
     width: SIMDLength,
@@ -74,7 +73,6 @@ def _trace_sphere_leaf_block[
     return True
 
 
-@always_inline
 def _trace_sphere_packet_primitive[
     frame: Frame,
     length: SIMDLength,
@@ -155,7 +153,6 @@ struct _SphereBuild[frame: Frame, width: SIMDLength](Copyable):
             capacity=(Int(builder.nodes_used) + 1) // 2
         )
 
-        @always_inline
         def pack_leaf(
             first_item: UInt32, item_count: UInt32
         ) {imm, mut leaf_blocks} -> UInt32:

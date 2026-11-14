@@ -15,7 +15,6 @@ struct ContinuationBatch[length: SIMDLength](TrivialRegisterPassable):
     var active: SIMD[.bool, Self.length]
 
 
-@always_inline
 def continuation_medium[
     length: SIMDLength
 ](
@@ -32,7 +31,6 @@ def continuation_medium[
     return crossing.select(transmitted, previous)
 
 
-@always_inline
 def finish_continuation[
     length: SIMDLength
 ](

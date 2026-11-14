@@ -26,7 +26,6 @@ from bajo.bvh.tagged_ref import decode_ref_index, encode_leaf_ref, is_leaf_ref
 from bajo.bvh.wide_meta import _wide_meta_count, _wide_meta_data
 
 
-@always_inline
 def _pack_pending_task(child_ref: UInt32, child_t: Float32) -> UInt64:
     # AABB entry distances are non-negative, so their Float32 bit patterns
     # preserve numeric ordering when placed in the high half of the task.
@@ -34,18 +33,15 @@ def _pack_pending_task(child_ref: UInt32, child_t: Float32) -> UInt64:
     return (UInt64(t_bits) << 32) | UInt64(child_ref)
 
 
-@always_inline
 def _pending_task_ref(task: UInt64) -> UInt32:
     return UInt32(task)
 
 
-@always_inline
 def _pending_task_t(task: UInt64) -> Float32:
     var bits = SIMD[.uint32, 1](UInt32(task >> 32))
     return bitcast[.float32, 1](bits)[0]
 
 
-@always_inline
 def _visit_set_lanes[VisitFn: def(Int)](bits: UInt32, ref visit: VisitFn):
     """Visit each active lane in a packed SIMD mask."""
     var remaining = bits
@@ -75,7 +71,6 @@ def _visit_set_lanes_until[
     return False
 
 
-@always_inline
 def _extract_u32_lane[
     width: SIMDLength
 ](values: SIMD[.uint32, width], lane: Int) -> UInt32:
@@ -113,7 +108,6 @@ def _extract_u32_lane[
         return values[lane]
 
 
-@always_inline
 def _extract_f32_lane[
     width: SIMDLength
 ](values: SIMD[.float32, width], lane: Int) -> Float32:
@@ -122,7 +116,6 @@ def _extract_f32_lane[
     return bitcast[.float32, 1](SIMD[.uint32, 1](extracted))[0]
 
 
-@always_inline
 def _cpu_traversal_ref[packed_meta: Bool](data: UInt32) -> UInt32:
     """Normalize one node lane to the CPU traversal's tagged task format."""
     comptime if packed_meta:
@@ -193,7 +186,6 @@ def _trace_bounds_bvh_impl[
             rcp_d.x[0], rcp_d.y[0], rcp_d.z[0]
         )
 
-    @always_inline
     def intersect_node(
         aabb: AxisAlignedBoundingBox[.float32, frame, bounds_width]
     ) {imm} -> RayDistanceHit[.float32, bounds_width]:
@@ -210,13 +202,11 @@ def _trace_bounds_bvh_impl[
         # overlapping scenes. Keep the common inline stack and spill lazily.
         var ordered_overflow = List[UInt64]()
 
-        @always_inline
         def pending_at(index: Int) {imm} -> UInt64:
             if ordered_overflow:
                 return ordered_overflow[index]
             return ordered_stack.unsafe_get(index)
 
-        @always_inline
         def push_pending(
             child_ref: UInt32, child_t: Float32
         ) {imm, mut stack_ptr, mut ordered_stack, mut ordered_overflow}:
@@ -313,7 +303,6 @@ def _trace_bounds_bvh_impl[
                         aabb_hit.t[i],
                     )
 
-                @always_inline
                 def visit_closest_bvh16_lane(lane: Int) {imm}:
                     visit_closest_child(
                         _cpu_traversal_ref[packed_meta](
@@ -540,7 +529,6 @@ def _trace_bounds_bvh_octant[
     initial_hit: Hit[frame],
     ref leaf_fn: LeafFn,
 ) -> Hit[frame]:
-    @always_inline
     def trace_octant[
         positive_x: Bool, positive_y: Bool, positive_z: Bool
     ]() {imm} -> Hit[frame]:

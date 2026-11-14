@@ -10,7 +10,6 @@ comptime HPLOC_WAVE_SIZE = WARP_SIZE
 comptime HPLOC_INVALID_LANE = WARP_SIZE
 
 
-@always_inline
 def hploc_wave_ballot(predicate: Bool) -> UInt64:
     """Return the subgroup vote as a backend-independent UInt64 mask."""
 
@@ -20,7 +19,6 @@ def hploc_wave_ballot(predicate: Bool) -> UInt64:
         return UInt64(warp.vote[.uint32](predicate))
 
 
-@always_inline
 def hploc_wave_rank(mask: UInt64, lane: Int) -> UInt32:
     """Count set lanes preceding this lane in a previously computed ballot."""
 
@@ -28,7 +26,6 @@ def hploc_wave_rank(mask: UInt64, lane: Int) -> UInt32:
     return UInt32(pop_count(mask & lane_mask_lt))
 
 
-@always_inline
 def hploc_wave_first_lane(mask: UInt64) -> Int:
     """Return the first set lane or HPLOC_INVALID_LANE for an empty mask."""
 
@@ -45,7 +42,6 @@ struct HplocWaveMinimum(TrivialRegisterPassable):
     var tie_key: UInt32
 
 
-@always_inline
 def hploc_wave_is_better(
     candidate: HplocWaveMinimum,
     current: HplocWaveMinimum,

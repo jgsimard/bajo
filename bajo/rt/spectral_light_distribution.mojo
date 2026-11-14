@@ -31,7 +31,6 @@ from bajo.rt.lighting_types import _light_importance
 comptime ENVIRONMENT_SPECTRAL_BINS = 32
 
 
-@always_inline
 def _environment_importance[
     width: SIMDLength
 ](
@@ -87,7 +86,6 @@ struct SpectralLightDistributionView(DevicePassable, TrivialRegisterPassable):
     def get_type_name() -> String:
         return "SpectralLightDistributionView"
 
-    @always_inline
     def importance[
         width: SIMDLength
     ](self, rgb: Vec3[.float32, .WORLD, width]) -> SIMD[.float32, width]:
@@ -98,14 +96,12 @@ struct SpectralLightDistributionView(DevicePassable, TrivialRegisterPassable):
             0,
         )
 
-    @always_inline
     def emission(self, source: UInt32, rgb: Color) -> Float32:
         return (
             self.importance(rgb) if source
             == NO_SPECTRUM else self.source_power[unsafe_offset=Int(source)]
         )
 
-    @always_inline
     def environment_pdf[
         width: SIMDLength
     ](

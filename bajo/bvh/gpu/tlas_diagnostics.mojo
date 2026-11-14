@@ -99,7 +99,6 @@ struct GpuTlasStatsSummary(Copyable, Writable):
     var winner_lanes_sharing_blas: UInt64
 
 
-@always_inline
 def _trace_cwbvh8_with_stats_in_frame[
     frame: Frame,
 ](
@@ -123,7 +122,6 @@ def _trace_cwbvh8_with_stats_in_frame[
     return GpuTraceResult[frame](hit, stats)
 
 
-@always_inline
 def _trace_tlas2_leaf1_cwbvh8_with_stats(
     tlas_nodes: ImmPointer[Float32, _],
     tlas_leaf_instances: ImmPointer[UInt32, _],

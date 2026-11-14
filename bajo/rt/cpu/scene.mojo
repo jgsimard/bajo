@@ -58,7 +58,6 @@ from bajo.rt.opacity import (
 )
 
 
-@always_inline
 def _triangle_instance_shading[
     length: SIMDLength = 1
 ](
@@ -176,7 +175,6 @@ def _triangle_instance_shading[
     return (outward_normal, texture_u, texture_v)
 
 
-@always_inline
 def _blas_occluded[
     kind: PrimitiveKind, width: SIMDLength, length: SIMDLength
 ](
@@ -236,7 +234,6 @@ struct _WorldHit(Copyable):
         )
 
 
-@always_inline
 def _merge_surface_hit[
     length: SIMDLength
 ](mut result: SurfaceHit[length], candidate: SurfaceHit[length]):
@@ -343,11 +340,9 @@ struct CpuScene[
         """A retained identity survives moves and prevents allocator reuse."""
         return self._identity.copy()
 
-    @always_inline
     def has_displacement(self) -> Bool:
         return self._has_displacement
 
-    @always_inline
     def has_shading_normals(self) -> Bool:
         return self._has_shading_normals
 
@@ -405,7 +400,6 @@ struct CpuScene[
                 )
             )
 
-    @always_inline
     def occluded[
         length: SIMDLength
     ](
@@ -450,7 +444,6 @@ struct CpuScene[
             result |= self._instances_occluded(rays, active)
         return result
 
-    @always_inline
     def _instances_occluded[
         length: SIMDLength
     ](
@@ -533,7 +526,6 @@ struct CpuScene[
             hit.surface.front_face,
         )
 
-    @always_inline
     def trace_surface[
         length: SIMDLength
     ](
@@ -568,7 +560,6 @@ struct CpuScene[
                 length, CpuTraversalMode.AUTO_COHERENT, 16, 8, 4
             ](rays, valid)
 
-    @always_inline
     def trace_surface_configured[
         length: SIMDLength,
         traversal_mode: CpuTraversalMode,
@@ -588,7 +579,6 @@ struct CpuScene[
                 length, traversal_mode, *adaptive_packet_sizes
             ](rays, valid)
 
-    @always_inline
     def _trace_world_triangle_packet[
         length: SIMDLength,
         traversal_mode: CpuTraversalMode,
@@ -618,7 +608,6 @@ struct CpuScene[
                     .WORLD,
                 ](self.triangle_bvh.value(), UInt32(0), rays, valid)
 
-    @always_inline
     def _surface_from_hit[
         kind: PrimitiveKind, length: SIMDLength
     ](

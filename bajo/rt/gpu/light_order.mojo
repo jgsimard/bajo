@@ -18,7 +18,6 @@ def gpu_rt_light_order_rays_kernel[scatter: Bool](queues: GpuRtTraceQueueView):
         return
     var scratch = GpuRtQueueOrderScratch.from_queues(queues)
 
-    @always_inline
     def key(idx: Int) {imm} -> UInt32:
         return scratch.light_ids[unsafe_offset=idx]
 

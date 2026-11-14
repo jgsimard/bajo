@@ -38,7 +38,6 @@ struct GpuPrimitiveLeafState(TrivialRegisterPassable):
     var leaves: Pointer[Float32, ImmUntrackedOrigin]
 
 
-@always_inline
 def _dispatch_primitive_leaf[
     frame: Frame,
     mode: TraceMode,
@@ -97,18 +96,15 @@ struct GpuTraceResult[frame: Frame](TrivialRegisterPassable):
     var stats: GpuTraversalStats
 
 
-@always_inline
 def _pack_gpu_pending_task(child_ref: UInt32, child_t: Float32) -> UInt64:
     var t_bits = bitcast[.uint32, 1](SIMD[.float32, 1](child_t))[0]
     return UInt64(child_ref) | (UInt64(t_bits) << UInt64(32))
 
 
-@always_inline
 def _gpu_pending_task_ref(task: UInt64) -> UInt32:
     return UInt32(task)
 
 
-@always_inline
 def _gpu_pending_task_t(task: UInt64) -> Float32:
     var bits = SIMD[.uint32, 1](UInt32(task >> UInt64(32)))
     return bitcast[.float32, 1](bits)[0]
@@ -247,7 +243,6 @@ def _trace_bounds_bvh_with_counters[
     return GpuTraceResult[frame](hit, stats)
 
 
-@always_inline
 def _trace_bounds_bvh_state_bvh2_any[
     frame: Frame,
     LeafState: AnyType,
@@ -315,7 +310,6 @@ def _trace_bounds_bvh_state_bvh2_any[
     return hit
 
 
-@always_inline
 def _trace_bounds_bvh_state_bvh2_closest[
     frame: Frame,
     LeafState: AnyType,
@@ -377,7 +371,6 @@ def _trace_bounds_bvh_state_bvh2_closest[
     return hit
 
 
-@always_inline
 def _trace_bounds_bvh_state_bvh2[
     frame: Frame,
     LeafState: AnyType,
@@ -481,7 +474,6 @@ def _trace_bounds_bvh_state_bvh2[
     return hit
 
 
-@always_inline
 def trace_ordered_bounds_bvh_state[
     frame: Frame,
     width: SIMDLength,

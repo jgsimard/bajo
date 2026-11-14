@@ -64,7 +64,6 @@ trait AdaptiveStreamHitSink:
         ...
 
 
-@always_inline
 def _debug_check_blas_index(blas_idx: UInt32, blas_count: Int):
     debug_assert["safe", _use_compiler_assume=True](
         UInt64(blas_idx) < UInt64(blas_count), "CPU BLAS index is out of range"
@@ -121,7 +120,6 @@ def _trace_packed_triangle_leaf[
     ](ray, O, D, block, block_ptr, hit)
 
 
-@always_inline
 def _trace_packed_triangle_from_ref[
     frame: Frame,
     node_width: SIMDLength,
@@ -135,7 +133,6 @@ def _trace_packed_triangle_from_ref[
 ) -> Hit[frame]:
     """Continue the proven scalar CPU traversal over one packed subtree."""
 
-    @always_inline
     def leaf_fn(
         ray: Rayf32[frame],
         O: Point3[.float32, frame, leaf_width],
@@ -182,7 +179,6 @@ def _trace_packed_triangle_any_from_ref[
 ) -> Bool:
     """Continue scalar any-hit traversal over one packed internal subtree."""
 
-    @always_inline
     def leaf_fn(
         ray: Rayf32[frame],
         O: Point3[.float32, frame, leaf_width],
@@ -238,7 +234,6 @@ def trace_blas_set[
             Hit[frame].miss(ray.t_max),
         )
 
-    @always_inline
     def leaf_fn(
         ray: Rayf32[frame],
         O: Point3[.float32, frame, leaf_width],
@@ -260,7 +255,6 @@ def trace_blas_set[
     ](nodes, ray, leaf_fn)
 
 
-@always_inline
 def _trace_blas_desc_precomputed_rcp[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
@@ -278,7 +272,6 @@ def _trace_blas_desc_precomputed_rcp[
     var nodes = view.nodes
     var leaves = view.leaves
 
-    @always_inline
     def leaf_fn(
         ray: Rayf32[frame],
         O: Point3[.float32, frame, leaf_width],
@@ -317,7 +310,6 @@ def _trace_blas_desc_precomputed_rcp[
     return hit
 
 
-@always_inline
 def _trace_blas_set_precomputed_rcp[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
@@ -365,7 +357,6 @@ def _trace_blas_set_packet_policy[
     var nodes = view.nodes
     var leaves = view.leaves
 
-    @always_inline
     def leaf_fn(
         active: SIMD[.bool, length],
         leaf_block_idx: UInt32,
@@ -437,7 +428,6 @@ def _trace_blas_set_packet_policy[
                             rays, active, prim_idx, v0, e1, e2, packet_hit
                         )
 
-    @always_inline
     def trace_lane(
         lane: Int,
         child_ref: UInt32,
@@ -504,7 +494,6 @@ def _trace_blas_set_packet_policy[
             bits &= bits - 1
             trace_lane(lane, child_ref, packet_hit)
 
-    @always_inline
     def prefetch_fn(child_ref: UInt32) {imm}:
         if is_leaf_ref(child_ref):
             var leaf_ptr = leaves.unsafe_offset(
@@ -616,7 +605,6 @@ def trace_blas_set[
     var nodes = view.nodes
     var leaves = view.leaves
 
-    @always_inline
     def leaf_fn(
         ray: Rayf32[frame],
         O: Point3[.float32, frame, leaf_width],
@@ -766,7 +754,6 @@ def trace_blas_set_packet_any_hit[
     return valid & hit.t.eq(0.0)
 
 
-@always_inline
 def _packet_range_has_common_octant[
     frame: Frame,
     length: SIMDLength,
@@ -794,7 +781,6 @@ def _packet_range_has_common_octant[
     return True
 
 
-@always_inline
 def _extract_ray_range[
     frame: Frame,
     length: SIMDLength,
@@ -828,7 +814,6 @@ def _extract_ray_range[
     )
 
 
-@always_inline
 def _store_hit_range[
     frame: Frame,
     length: SIMDLength,
@@ -850,7 +835,6 @@ def _store_hit_range[
         destination.t[lane] = source.t[offset]
 
 
-@always_inline
 def _trace_first_coherent_packet_range[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
@@ -1013,7 +997,6 @@ def trace_blas_set_packet_selected[
             ), "adaptive traversal uses the adaptive entry point"
 
 
-@always_inline
 def _stream_ray_octant[frame: Frame](ray: Rayf32[frame]) -> Int:
     return (
         Int(ray.d.x >= 0.0)
@@ -1022,7 +1005,6 @@ def _stream_ray_octant[frame: Frame](ray: Rayf32[frame]) -> Int:
     )
 
 
-@always_inline
 def _stream_range_has_common_octant[
     frame: Frame,
     range_length: SIMDLength,
@@ -1060,7 +1042,6 @@ def trace_blas_set_adaptive_stream[
             comptime assert packet_sizes[index - 1] > packet_sizes[index]
     var ray_count = len(rays)
 
-    @always_inline
     def trace_range[
         range_length: SIMDLength,
     ](base: Int) {imm, mut sink}:
@@ -1098,7 +1079,6 @@ def trace_blas_set_adaptive_stream[
         ](blases, blas_idx, packet)
         sink.write[range_length, frame](base, packet_hit)
 
-    @always_inline
     def trace_one(base: Int) {imm, mut sink}:
         var hit = trace_blas_set[
             node_width,

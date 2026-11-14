@@ -21,7 +21,6 @@ struct _LightSurfaceSample[length: SIMDLength = 1](TrivialRegisterPassable):
     var v: SIMD[.float32, Self.length]
 
 
-@always_inline
 def _sample_triangle_light_surface[
     length: SIMDLength = 1
 ](
@@ -40,7 +39,6 @@ def _sample_triangle_light_surface[
     )
 
 
-@always_inline
 def _sample_sphere_light_surface[
     length: SIMDLength = 1
 ](
@@ -59,7 +57,6 @@ def _sample_sphere_light_surface[
     )
 
 
-@always_inline
 def light_sample_uv[
     length: SIMDLength = 1
 ](
@@ -87,7 +84,6 @@ struct _DirectLightGeometrySample[length: SIMDLength = 1](
     var shadow_t_max: SIMD[.float32, Self.length]
 
 
-@always_inline
 def _empty_direct_light_geometry[
     length: SIMDLength = 1
 ]() -> _DirectLightGeometrySample[length]:
@@ -100,7 +96,6 @@ def _empty_direct_light_geometry[
     )
 
 
-@always_inline
 def _solid_angle_light_pdf[
     length: SIMDLength = 1
 ](
@@ -120,7 +115,6 @@ def _solid_angle_light_pdf[
     )
 
 
-@always_inline
 def _finish_direct_light_geometry[
     length: SIMDLength = 1
 ](
@@ -168,7 +162,6 @@ def _finish_direct_light_geometry[
     )
 
 
-@always_inline
 def _emissive_hit_light_pdf[
     length: SIMDLength = 1
 ](
@@ -190,7 +183,6 @@ def _emissive_hit_light_pdf[
     ) * two_sided.select(Float32(2.0), Float32(1.0))
 
 
-@always_inline
 def _emissive_hit_weight_from_pdf[
     integrator: Integrator,
     length: SIMDLength = 1,
@@ -214,7 +206,6 @@ def _emissive_hit_weight_from_pdf[
     return 1.0
 
 
-@always_inline
 def _direct_light_scale[
     integrator: Integrator, length: SIMDLength
 ](

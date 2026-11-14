@@ -85,7 +85,6 @@ struct PathPacket[length: SIMDLength](TilePacket):
         self.deltas = SIMD[.bool, Self.length](fill=True)
         self.medium_ids = 0
 
-    @always_inline
     def __init__(out self, values: PathContinuation[Self.length]):
         self.floats = Array[SIMD[.float32, Self.length], Self.FLOAT_FIELDS](
             uninitialized=True
@@ -95,7 +94,6 @@ struct PathPacket[length: SIMDLength](TilePacket):
         self.medium_ids = values.medium_ids
         store_path_values(self.tile(), values, 0)
 
-    @always_inline
     def tile(
         ref self,
     ) -> PacketFloatTile[
@@ -109,7 +107,6 @@ struct PathPacket[length: SIMDLength](TilePacket):
     def field_index[name: StaticString]() -> Int:
         return packet_field_index[name, *Self.FLOAT_NAMES]()
 
-    @always_inline
     def __getattr__[
         name: __mlir_type.`!kgen.string`
     ](ref self, attr: StringLiteral[name]) -> ref[self.floats] SIMD[
@@ -122,7 +119,6 @@ struct PathPacket[length: SIMDLength](TilePacket):
             *Self.FLOAT_NAMES,
         ](self.floats)
 
-    @always_inline
     def copy_metadata_lane(
         mut self, source: Self, source_lane: Int, destination_lane: Int
     ):
@@ -130,7 +126,6 @@ struct PathPacket[length: SIMDLength](TilePacket):
         self.medium_ids[destination_lane] = source.medium_ids[source_lane]
         self.deltas[destination_lane] = source.deltas[source_lane]
 
-    @always_inline
     def copy_lane(
         mut self, source: Self, source_lane: Int, destination_lane: Int
     ):
@@ -139,7 +134,6 @@ struct PathPacket[length: SIMDLength](TilePacket):
             source.tile(), self.tile(), source_lane, destination_lane
         )
 
-    @always_inline
     def copy_float_lanes(
         mut self,
         source: Self,
@@ -161,17 +155,14 @@ struct PacketPathQueue[length: SIMDLength](Sized):
         )
         self.count = 0
 
-    @always_inline
     def __len__(self) -> Int:
         return self.count
 
-    @always_inline
     def clear(mut self):
         """Reset the queue while retaining its packet storage capacity."""
         self.packets.clear()
         self.count = 0
 
-    @always_inline
     def _append_packet_lane(
         mut self,
         packet: PathPacket[Self.length],
@@ -184,7 +175,6 @@ struct PacketPathQueue[length: SIMDLength](Sized):
         destination.copy_lane(packet, source_lane, destination_lane)
         self.count += 1
 
-    @always_inline
     def append_packet(
         mut self, var packet: PathPacket[Self.length], lane_count: Int
     ):
@@ -200,7 +190,6 @@ struct PacketPathQueue[length: SIMDLength](Sized):
         for lane in range(lane_count):
             self._append_packet_lane(packet, lane)
 
-    @always_inline
     def append_packet_masked(
         mut self,
         var packet: PathPacket[Self.length],
@@ -209,18 +198,15 @@ struct PacketPathQueue[length: SIMDLength](Sized):
     ):
         append_masked_tile(self.packets, self.count, packet, mask, lane_count)
 
-    @always_inline
     def append_continuation(
         mut self,
         values: PathContinuation[Self.length],
         mask: SIMD[.bool, Self.length],
         lane_count: Int,
     ):
-        @always_inline
         def make_packet() {values} -> PathPacket[Self.length]:
             return PathPacket[Self.length](values)
 
-        @always_inline
         def copy_metadata(
             mut destination: PathPacket[Self.length],
             source_lane: Int,
@@ -230,7 +216,6 @@ struct PacketPathQueue[length: SIMDLength](Sized):
             destination.medium_ids[target_lane] = values.medium_ids[source_lane]
             destination.deltas[target_lane] = values.delta[source_lane]
 
-        @always_inline
         def copy_lane(
             mut destination: PathPacket[Self.length],
             source_lane: Int,
@@ -243,7 +228,6 @@ struct PacketPathQueue[length: SIMDLength](Sized):
                     source_lane
                 ]
 
-        @always_inline
         def copy_floats(
             mut destination: PathPacket[Self.length],
             selected: SIMD[.bool, Self.length],
@@ -313,7 +297,6 @@ struct ShadePacket[length: SIMDLength](TilePacket):
         self.medium_ids = 0
         self.medium_boundaries = 0
 
-    @always_inline
     def tile(
         ref self,
     ) -> PacketFloatTile[
@@ -327,7 +310,6 @@ struct ShadePacket[length: SIMDLength](TilePacket):
     def field_index[name: StaticString]() -> Int:
         return packet_field_index[name, *Self.FLOAT_NAMES]()
 
-    @always_inline
     def __getattr__[
         name: __mlir_type.`!kgen.string`
     ](ref self, attr: StringLiteral[name]) -> ref[self.floats] SIMD[
@@ -340,7 +322,6 @@ struct ShadePacket[length: SIMDLength](TilePacket):
             *Self.FLOAT_NAMES,
         ](self.floats)
 
-    @always_inline
     def set_paths(mut self, paths: PathPacket[Self.length]):
         """Copy shared ray/throughput rows with SIMD loads and stores."""
         self.path_ids = paths.path_ids
@@ -367,7 +348,6 @@ struct ShadePacket[length: SIMDLength](TilePacket):
                 source.load[width=Self.length]((source_field, 0)),
             )
 
-    @always_inline
     def set_hit(mut self, lane: Int, hit: SurfaceHit[1]):
         self.medium_boundaries[lane] = hit.medium_boundary
         self.gnx[lane] = hit.geometric_normal.x
@@ -382,7 +362,6 @@ struct ShadePacket[length: SIMDLength](TilePacket):
         self.surface_indices[lane] = hit.surface.index()
         self.front_faces[lane] = hit.front_face
 
-    @always_inline
     def set_hits(mut self, hits: SurfaceHit[Self.length]):
         self.medium_boundaries = hits.medium_boundary
         self.gnx = hits.geometric_normal.x
@@ -397,7 +376,6 @@ struct ShadePacket[length: SIMDLength](TilePacket):
         self.surface_indices = hits.surface.value & SURFACE_INDEX_MASK
         self.front_faces = hits.front_face
 
-    @always_inline
     def copy_metadata_lane(
         mut self, source: Self, source_lane: Int, destination_lane: Int
     ):
@@ -411,7 +389,6 @@ struct ShadePacket[length: SIMDLength](TilePacket):
         ]
         self.front_faces[destination_lane] = source.front_faces[source_lane]
 
-    @always_inline
     def copy_lane(
         mut self, source: Self, source_lane: Int, destination_lane: Int
     ):
@@ -420,7 +397,6 @@ struct ShadePacket[length: SIMDLength](TilePacket):
             source.tile(), self.tile(), source_lane, destination_lane
         )
 
-    @always_inline
     def copy_float_lanes(
         mut self,
         source: Self,
@@ -442,16 +418,13 @@ struct PacketShadeQueue[length: SIMDLength](Sized):
         )
         self.count = 0
 
-    @always_inline
     def __len__(self) -> Int:
         return self.count
 
-    @always_inline
     def clear(mut self):
         self.packets.clear()
         self.count = 0
 
-    @always_inline
     def append(
         mut self,
         path_packet: PathPacket[Self.length],
@@ -489,7 +462,6 @@ struct PacketShadeQueue[length: SIMDLength](Sized):
         shade.set_hit(shade_lane, hit)
         self.count += 1
 
-    @always_inline
     def append_packet_masked(
         mut self,
         packet: ShadePacket[Self.length],

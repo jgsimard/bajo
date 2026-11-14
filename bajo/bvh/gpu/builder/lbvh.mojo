@@ -184,7 +184,6 @@ def _enqueue_morton_refinement(
         )
 
 
-@always_inline
 def _lbvh_delta(
     sorted_morton_codes: ImmSpan[UInt32, _],
     boundary: Int,
@@ -203,7 +202,6 @@ def _lbvh_delta(
     )
 
 
-@always_inline
 def _lbvh_atomic_exchange(
     ptr: MutPointer[UInt32, _], desired: UInt32
 ) -> UInt32:
@@ -216,7 +214,6 @@ def _lbvh_atomic_exchange(
     return expected
 
 
-@always_inline
 def _lbvh_set_parent(
     encoded: UInt32,
     parent: UInt32,

@@ -57,19 +57,15 @@ struct PathContinuation[length: SIMDLength](
     var delta: SIMD[.bool, Self.length]
     var medium_ids: SIMD[.uint32, Self.length]
 
-    @always_inline
     def ids(self) -> SIMD[.uint32, Self.WIDTH]:
         return self.path_ids
 
-    @always_inline
     def media(self) -> SIMD[.uint32, Self.WIDTH]:
         return self.medium_ids
 
-    @always_inline
     def delta_events(self) -> SIMD[.bool, Self.WIDTH]:
         return self.delta
 
-    @always_inline
     def float_field[field: Int](self) -> SIMD[.float32, Self.WIDTH]:
         comptime match field:
             case PathFloatField.OX:

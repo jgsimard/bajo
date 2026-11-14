@@ -4,7 +4,6 @@ from bajo.bvh.types import Hit
 from bajo.core import Affine3f32, Frame
 
 
-@always_inline
 def promote_tlas_local_hit[
     local_frame: Frame
 ](
@@ -27,7 +26,6 @@ def promote_tlas_local_hit[
     return True
 
 
-@always_inline
 def finalize_tlas_hit_normal(
     mut hit: Hit[.WORLD],
     inverse: Affine3f32[.WORLD, .LOCAL],

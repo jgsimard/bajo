@@ -10,7 +10,6 @@ from .query import BoundsQuery
 from bajo.core import Frame
 
 
-@always_inline
 def update_adjacency_leaf(
     nodes: ImmSpan[UInt32, _], data: MutSpan[UInt32, _], node: Int
 ):

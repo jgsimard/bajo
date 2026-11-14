@@ -10,7 +10,6 @@ from bajo.rt.spectral_shading_types import (
 )
 
 
-@always_inline
 def sample_spectral_material[
     kind: MaterialKind, width: SIMDLength
 ](
@@ -45,7 +44,6 @@ def sample_spectral_material[
     )
 
 
-@always_inline
 def evaluate_spectral_material[
     kind: MaterialKind, width: SIMDLength
 ](

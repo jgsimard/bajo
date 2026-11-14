@@ -267,7 +267,6 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         copy_to_device(self.velocities, self.host.velocities)
         ctx.synchronize()
 
-    @always_inline
     def enqueue_update[
         rebuild: Bool, block_size: Int = UPDATE_BLOCK_SIZE
     ](self, ctx: DeviceContext, points: DeviceBuffer[.float32]) raises:

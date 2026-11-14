@@ -46,7 +46,6 @@ __enum WAVE_RNG_DOMAIN(Equatable, ImplicitlyCopyable, Writable):
 
     comptime SHIFT = UInt32(30)
 
-    @always_inline
     def stage(self, bounce: UInt32) -> UInt32:
         return (UInt32(self._get_enum_discriminant()) << Self.SHIFT) | (
             bounce + UInt32(1)
@@ -96,12 +95,10 @@ struct WaveShadowFloatAbi:
     comptime PLANES = 11
 
 
-@always_inline
 def wavefront_plane_index(plane: Int, capacity: Int, idx: Int) -> Int:
     return plane * capacity + idx
 
 
-@always_inline
 def wavefront_rng_subsequence[
     length: SIMDLength = 1
 ](path_id: SIMD[.uint32, length], rng_stage: UInt32) -> SIMD[.uint64, length]:
@@ -109,25 +106,21 @@ def wavefront_rng_subsequence[
     return (path_id.cast[.uint64]() << UInt64(32)) | UInt64(rng_stage)
 
 
-@always_inline
 def wavefront_rng_stage(bounce: UInt32) -> UInt32:
     """Map zero-based bounce to the existing shade RNG stage."""
     return WAVE_RNG_DOMAIN.BSDF.stage(bounce)
 
 
-@always_inline
 def wavefront_rng_roulette_stage(bounce: UInt32) -> UInt32:
     """Independent Philox domain for zero-based-bounce roulette decisions."""
     return WAVE_RNG_DOMAIN.ROULETTE.stage(bounce)
 
 
-@always_inline
 def wavefront_rng_light_stage(bounce: UInt32) -> UInt32:
     """Independent Philox domain for zero-based-bounce light sampling."""
     return WAVE_RNG_DOMAIN.LIGHT.stage(bounce)
 
 
-@always_inline
 def wavefront_rng_material_stage(bounce: UInt32) -> UInt32:
     """Independent material selection shared by CPU and GPU schedulers."""
     return WAVE_RNG_DOMAIN.MATERIAL.stage(bounce)
@@ -190,19 +183,15 @@ struct DeviceWavePath(
         self.delta = delta
         self.medium_id = medium_id
 
-    @always_inline
     def ids(self) -> SIMD[.uint32, Self.WIDTH]:
         return self.path_id
 
-    @always_inline
     def media(self) -> SIMD[.uint32, Self.WIDTH]:
         return self.medium_id
 
-    @always_inline
     def delta_events(self) -> SIMD[.bool, Self.WIDTH]:
         return self.delta
 
-    @always_inline
     def float_field[field: Int](self) -> SIMD[.float32, Self.WIDTH]:
         comptime match field:
             case WavePathFloatAbi.OX:
@@ -354,7 +343,6 @@ struct DeviceWaveShadow(DevicePassable, TrivialRegisterPassable, Writable):
         return "DeviceWaveShadow"
 
 
-@always_inline
 def load_device_wave_path[
     LOAD_BOUNDS: Bool = True,
     LOAD_THROUGHPUT: Bool = True,
@@ -411,7 +399,6 @@ def load_device_wave_path[
     )
 
 
-@always_inline
 def store_device_wave_path(
     path: DeviceWavePath,
     path_ids: MutPointer[UInt32, _],
@@ -427,7 +414,6 @@ def store_device_wave_path(
     tile[(WavePathFloatAbi.MEDIUM, idx)] = bitcast[.float32](path.medium_id)
 
 
-@always_inline
 def load_device_wave_shade(
     path_refs: ImmPointer[UInt32, _],
     surface_values: ImmPointer[UInt32, _],
@@ -448,7 +434,6 @@ def load_device_wave_shade(
     )
 
 
-@always_inline
 def store_device_wave_shade(
     work: DeviceWaveShade,
     path_refs: MutPointer[UInt32, _],

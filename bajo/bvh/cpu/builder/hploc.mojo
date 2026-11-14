@@ -111,7 +111,6 @@ struct _HplocClusterBounds(Copyable):
             uninitialized=True
         )
 
-    @always_inline
     def set[frame: Frame](mut self, pos: Int, bounds: AABB[frame]):
         var storage_pos = _HPLOC_BOUNDS_PAD + pos
         self.min_x[storage_pos] = bounds._min.x[0]
@@ -121,7 +120,6 @@ struct _HplocClusterBounds(Copyable):
         self.max_y[storage_pos] = bounds._max.y[0]
         self.max_z[storage_pos] = bounds._max.z[0]
 
-    @always_inline
     def copy(mut self, dst: Int, src: Int):
         var dst_pos = _HPLOC_BOUNDS_PAD + dst
         var src_pos = _HPLOC_BOUNDS_PAD + src
@@ -132,7 +130,6 @@ struct _HplocClusterBounds(Copyable):
         self.max_y[dst_pos] = self.max_y[src_pos]
         self.max_z[dst_pos] = self.max_z[src_pos]
 
-    @always_inline
     def load[
         width: SIMDLength
     ](self, storage_pos: Int) -> _HplocBoundsPacket[width]:
@@ -194,7 +191,6 @@ struct _HplocClusterBounds(Copyable):
         for pos in range(first, last):
             self._clear_storage(_HPLOC_BOUNDS_PAD + pos)
 
-    @always_inline
     def _clear_storage(mut self, storage_pos: Int):
         self.min_x[storage_pos] = 0.0
         self.min_y[storage_pos] = 0.0

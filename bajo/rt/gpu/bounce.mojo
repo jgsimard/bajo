@@ -35,7 +35,6 @@ comptime GPU_RT_DIRECT_LARGE_TRACE_MAX_BLOCKS = 8192
 comptime GPU_RT_DIRECT_LARGE_TRACE_BLOCK_SIZE = 32
 
 
-@always_inline
 def _enqueue_primary_trace[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
@@ -84,7 +83,6 @@ def _enqueue_primary_trace[
     )
 
 
-@always_inline
 def _enqueue_primary_trace_by_light_kind[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
@@ -160,7 +158,6 @@ def _enqueue_primary_trace_by_light_kind[
     )
 
 
-@always_inline
 def enqueue_gpu_rt_primary_bounce[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
@@ -199,7 +196,6 @@ def enqueue_gpu_rt_primary_bounce[
     # the grid-stride secondary, material, and shadow stages instead.
     var blocks = ceildiv(active_count, GPU_RT_BLOCK_SIZE)
 
-    @always_inline
     def enqueue_primary[store_source_path: Bool]() raises {imm}:
         _enqueue_primary_trace_by_light_kind[
             integrator,
@@ -262,7 +258,6 @@ def enqueue_gpu_rt_primary_bounce[
     ](ctx, scene, queues, arena.capacity)
 
 
-@always_inline
 def enqueue_gpu_rt_bounce[
     integrator: Integrator,
     scene_kind: GpuRtSceneKind,
@@ -311,7 +306,6 @@ def enqueue_gpu_rt_bounce[
         dst_path_fields,
     )
 
-    @always_inline
     def enqueue_trace() raises {imm}:
         comptime if Integrator.uses_direct_lighting[integrator]:
             comptime for light_kind in [

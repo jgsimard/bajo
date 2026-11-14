@@ -11,14 +11,12 @@ comptime HPLOC_STATUS_NO_PROGRESS = 1
 comptime HPLOC_STATUS_INVALID_RESULT = 2
 
 
-@always_inline
 def _hploc_load_bounds(
     node_bounds: ImmSpan[Float32, _], node_idx: UInt32
 ) -> AABB[.WORLD]:
     return AABB[.WORLD].load6(node_bounds, Int(node_idx) * AABB.STRIDE)
 
 
-@always_inline
 def _hploc_store_bounds(
     node_bounds: MutSpan[Float32, _],
     node_idx: UInt32,

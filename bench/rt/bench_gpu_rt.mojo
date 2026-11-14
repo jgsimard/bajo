@@ -1,4 +1,4 @@
-"""GPU RT workloads: triangles (default) or mixed spheres/triangles."""
+"""GPU RT workloads: triangles, mixed, instances, coated, or spectral."""
 
 from std.math import round
 from std.sys import has_accelerator
@@ -8,6 +8,7 @@ from max.gpu.host import DeviceContext
 
 from bajo.core import Point3f32, Vec3f32
 from bajo.core.utils import ns_to_ms
+from bajo.parser.number import parse_int_f32
 from bajo.rt import Camera, SceneData, Integrator, RenderSettings
 from bajo.rt.gpu.config import GpuRtBvhFormat, GpuRtSceneKind, GPU_RT_BVH_WIDE4
 from bajo.rt.gpu.scene import prepare_gpu_scene
@@ -22,6 +23,11 @@ from bajo.benchmark.gpu_harness import (
     gpu_rt_camera,
     make_many_light_scene,
     print_gpu_rt_result,
+)
+from bajo.benchmark.rt_fixtures import (
+    make_coated_scene,
+    make_mixed_triangle_world,
+    mixed_triangle_camera,
 )
 from examples.cornell_box import make_cornell_scene
 from examples.mis_showcase import make_mis_showcase_scene
@@ -39,9 +45,15 @@ def _benchmark[
         GpuRtBvhFormat(8, 4, .WIDE) if kind
         == .SPHERES_TRIANGLES else GPU_RT_BVH_WIDE4
     )
-    var sample_count = IMAGE_WIDTH * IMAGE_HEIGHT * SAMPLES_PER_PIXEL
+    var sample_count = (
+        settings.image_width
+        * settings.image_height
+        * settings.samples_per_pixel
+    )
     var scene_t0 = perf_counter_ns()
     var gpu_world = prepare_gpu_scene[kind, sphere_format](ctx, world)
+    if settings.color_mode == .SPECTRAL:
+        gpu_world.enable_spectral(ctx)
     ctx.synchronize()
     var scene_ns = Int(perf_counter_ns() - scene_t0)
     var target_t0 = perf_counter_ns()
@@ -64,6 +76,8 @@ def _benchmark[
         print_gpu_rt_result(cases[i][1], result, sample_count)
 
     comptime if kind == .TRIANGLES:
+        if settings.color_mode == .SPECTRAL:
+            return
         var many_light_world = make_many_light_scene()
         var many_scene_t0 = perf_counter_ns()
         var many_gpu_world = prepare_gpu_scene[.TRIANGLES](
@@ -83,22 +97,44 @@ def _benchmark[
 
 def main() raises:
     var args = argv()
-    var workload = String(args[1]) if len(args) == 2 else String("triangles")
-    if len(args) > 2 or (workload != "triangles" and workload != "mixed"):
-        raise Error("usage: bench_gpu_rt [triangles|mixed]")
+    var workload = String(args[1]) if len(args) > 1 else String("triangles")
+    if (len(args) != 1 and len(args) != 2 and len(args) != 5) or (
+        workload != "triangles"
+        and workload != "mixed"
+        and workload != "coated"
+        and workload != "spectral"
+        and workload != "instances"
+    ):
+        raise Error(
+            "usage: bench_gpu_rt [triangles|mixed|coated|spectral|instances"
+            " [width height spp]]"
+        )
     comptime if not has_accelerator():
         print("GPU RT benchmark skipped: no accelerator")
         return
     var settings = RenderSettings(
         IMAGE_WIDTH, IMAGE_HEIGHT, SAMPLES_PER_PIXEL, RNG_SEED, MAX_DEPTH
     )
+    if len(args) == 5:
+        settings.image_width = parse_int_f32(StringSpan(args[2]), "width")
+        settings.image_height = parse_int_f32(StringSpan(args[3]), "height")
+        settings.samples_per_pixel = parse_int_f32(StringSpan(args[4]), "spp")
+        settings.sample_sequence_length = settings.samples_per_pixel
+    if workload == "spectral":
+        settings.color_mode = .SPECTRAL
     print("GPU RT persistent wavefront benchmark:", workload)
     print(
-        t"{IMAGE_WIDTH}x{IMAGE_HEIGHT}, spp={SAMPLES_PER_PIXEL}, "
+        t"{settings.image_width}x{settings.image_height}, "
+        t"spp={settings.samples_per_pixel}, "
         t"max_depth={MAX_DEPTH}, median of {BENCH_REPEATS}"
     )
     with DeviceContext() as ctx:
-        if workload == "mixed":
+        if workload == "instances":
+            var cpu_world = make_mixed_triangle_world()
+            var camera = mixed_triangle_camera(cpu_world)
+            var world = cpu_world^.take_data()
+            _benchmark[.TRIANGLES_INSTANCES](ctx, world, camera, settings)
+        elif workload == "mixed":
             var camera = Camera.from_vfov(
                 Point3f32[.WORLD](0.0, 3.0, 6.2),
                 Point3f32[.WORLD](0.0, 0.85, -1.65),
@@ -109,5 +145,8 @@ def main() raises:
             var world = make_mis_showcase_scene()
             _benchmark[.SPHERES_TRIANGLES](ctx, world, camera, settings)
         else:
-            var world = make_cornell_scene()
+            var world = (
+                make_cornell_scene() if workload
+                == "triangles" else make_coated_scene()
+            )
             _benchmark[.TRIANGLES](ctx, world, gpu_rt_camera(), settings)

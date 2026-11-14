@@ -109,7 +109,6 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
         self.emission_two_sided = emission_two_sided
         self.emission_spectrum = emission_spectrum
 
-    @always_inline
     def get(self, lane: Int) -> SurfaceHit[1]:
         return SurfaceHit[1](
             Vec3f32[.WORLD](
@@ -142,7 +141,6 @@ struct SurfaceHit[length: SIMDLength = 1](Copyable, Writable):
             self.emission_spectrum[lane],
         )
 
-    @always_inline
     def set(mut self, lane: Int, value: SurfaceHit[1]):
         self.normal.x[lane] = value.normal.x
         self.normal.y[lane] = value.normal.y

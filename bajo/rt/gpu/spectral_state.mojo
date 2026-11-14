@@ -22,7 +22,6 @@ struct GpuSpectralStateView(DevicePassable, TrivialRegisterPassable):
     def get_type_name() -> String:
         return "GpuSpectralStateView"
 
-    @always_inline
     def load(self, field: Int, index: Int) -> SampledSpectrum[1]:
         return SampledSpectrum[1](
             self.fields[unsafe_offset=field * Int(self.capacity) + index],
@@ -31,18 +30,15 @@ struct GpuSpectralStateView(DevicePassable, TrivialRegisterPassable):
             self.fields[unsafe_offset=(field + 3) * Int(self.capacity) + index],
         )
 
-    @always_inline
     def store(self, field: Int, index: Int, value: SampledSpectrum[1]):
         comptime for channel in range(4):
             self.fields[
                 unsafe_offset=(field + channel) * Int(self.capacity) + index
             ] = value[channel]
 
-    @always_inline
     def wavelengths(self, index: Int) -> SampledWavelengths[1]:
         return SampledWavelengths[1](self.load(0, index), self.load(4, index))
 
-    @always_inline
     def accumulate(self, index: Int, value: SampledSpectrum[1]):
         self.store(12, index, self.load(12, index) + value)
 

@@ -8,6 +8,5 @@ trait TriangleHitFilter(Copyable, Deinitable):
 
 @fieldwise_init
 struct AcceptAllTriangles(TriangleHitFilter, TrivialRegisterPassable):
-    @always_inline
     def accept(self, primitive: UInt32, u: Float32, v: Float32) -> Bool:
         return True

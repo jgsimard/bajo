@@ -8,7 +8,6 @@ from bajo.rt.wavefront_contract import WAVE_COUNTER, WAVE_STATUS
 from bajo.rt.gpu.resources import GpuRtRenderTarget
 
 
-@always_inline
 def _preview_sum(prior: Float32, incoming: Float32, batch: Float32) -> Float32:
     return fma(incoming, batch, prior)
 

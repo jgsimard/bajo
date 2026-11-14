@@ -105,7 +105,6 @@ comptime GPU_RT_DIRECT_SHADOW_MAX_BLOCKS = 2048
 comptime GPU_RT_DIRECT_WIDE_SHADOW_MAX_BLOCKS = 8192
 
 
-@always_inline
 def _gpu_environment_radiance(
     scene: GpuRtSceneView,
     texture_descs: Pointer[UInt32, ImmutAnyOrigin],
@@ -1088,7 +1087,6 @@ def enqueue_gpu_shadows[
                         limit = GPU_RT_DIRECT_WIDE_SHADOW_MAX_BLOCKS
                 blocks = min(blocks, limit)
 
-        @always_inline
         def enqueue_shadow[ordered: Bool]() raises {imm}:
             ctx.enqueue_function[
                 gpu_rt_shadow_kernel[

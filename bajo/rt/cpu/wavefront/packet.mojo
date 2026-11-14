@@ -75,7 +75,6 @@ struct _DirectLightBatch[length: SIMDLength]:
         self.surface_indices = 0
 
 
-@always_inline
 def _accumulate_direct_light_packet[
     integrator: Integrator, length: SIMDLength
 ](
@@ -197,7 +196,6 @@ def _accumulate_direct_light_packet[
             pixels[pixel_idx] += Color(red[lane], green[lane], blue[lane])
 
 
-@always_inline
 def _sample_bsdf_values[
     MATERIAL_KIND: MaterialKind, length: SIMDLength
 ](
@@ -230,7 +228,6 @@ def _sample_bsdf_values[
     )
 
 
-@always_inline
 def _accumulate_environment_packet[
     length: SIMDLength,
     integrator: Integrator,
@@ -270,7 +267,6 @@ def _accumulate_environment_packet[
             pixels[pixel_idx] += Color(red[lane], green[lane], blue[lane])
 
 
-@always_inline
 def _shade_material_packets[
     MATERIAL_KIND: MaterialKind,
     length: SIMDLength,

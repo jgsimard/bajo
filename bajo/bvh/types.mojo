@@ -56,7 +56,6 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
     def is_hit(self) -> SIMD[.bool, Self.length]:
         return self.prim.ne(EMPTY_LANE) & self.t.lt(f32_max)
 
-    @always_inline
     def is_occluded(self) -> SIMD[.bool, Self.length]:
         return self.prim.eq(EMPTY_LANE) & self.t.eq(0.0)
 
@@ -118,7 +117,6 @@ struct SphereLeafBlock[frame: Frame, width: SIMDLength](Copyable):
         self.prim_indices = SIMD[.uint32, Self.width](EMPTY_LANE)
 
     @staticmethod
-    @always_inline
     def load[
         load_primitive_indices: Bool = True
     ](leaves: ImmPointer[Float32, _], block_idx: UInt32) -> Self:
@@ -141,7 +139,6 @@ struct SphereLeafBlock[frame: Frame, width: SIMDLength](Copyable):
             )
         return block^
 
-    @always_inline
     def store(self, leaves: MutPointer[Float32, _], block_idx: UInt32):
         var fields = field_tile[.float32, SPHERE_LEAF_PACKED_STRIDE](
             leaves.unsafe_offset(
@@ -253,7 +250,6 @@ struct BlasDesc(TrivialRegisterPassable):
             records[Int(blas_idx), BlasDescLayout.PRIM_COUNT],
         )
 
-    @always_inline
     def store(self, descs: MutPointer[UInt32, _], blas_idx: Int):
         var records = record_tile[.uint32, BlasDescLayout.STRIDE](
             descs, blas_idx + 1

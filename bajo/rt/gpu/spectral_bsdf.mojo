@@ -19,7 +19,6 @@ from bajo.rt.gpu.textures import (
 )
 
 
-@always_inline
 def load_spectral_material[
     kind: MaterialKind
 ](

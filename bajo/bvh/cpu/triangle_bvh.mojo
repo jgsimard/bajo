@@ -306,7 +306,6 @@ def _trace_triangle_leaf_block[
     return True
 
 
-@always_inline
 def _trace_triangle_packet_primitive[
     frame: Frame,
     length: SIMDLength,
@@ -367,7 +366,6 @@ def _trace_triangle_packet_primitive[
         )
 
 
-@always_inline
 def _trace_triangle_packet_policy[
     frame: Frame,
     bounds_width: SIMDLength,
@@ -398,14 +396,12 @@ def _trace_triangle_packet_policy[
     var hit = Hit[frame, length].miss(rays.t_max)
     var reciprocal_direction = rays.reciprocal_direction()
 
-    @always_inline
     def run_packet[
         use_octant_fma: Bool,
         positive_x: Bool = True,
         positive_y: Bool = True,
         positive_z: Bool = True,
     ]() {imm, mut hit}:
-        @always_inline
         def run_kernel[
             hybrid_threshold: Int,
             root_scalar_max_tasks: Int,
@@ -680,7 +676,6 @@ struct _TriangleBuild[
         var packed_leaves_ptr = packed_leaf_blocks.unsafe_ptr()
         var packed_counts_ptr = packed_leaf_counts.unsafe_ptr()
 
-        @always_inline
         def fill_packed_leaf(
             block_idx: Int,
             first_item: UInt32,
@@ -719,7 +714,6 @@ struct _TriangleBuild[
 
         var leaf_ranges = List[WideLeafRange]()
 
-        @always_inline
         def record_serial_leaf_range(
             first_item: UInt32, item_count: UInt32
         ) {imm, mut leaf_ranges} -> UInt32:
@@ -729,7 +723,6 @@ struct _TriangleBuild[
 
         var serial_leaf = UInt32(0)
 
-        @always_inline
         def pack_serial_leaf(
             first_item: UInt32, item_count: UInt32
         ) {imm, mut serial_leaf} -> UInt32:
@@ -760,7 +753,6 @@ struct _TriangleBuild[
                     )
                     var next_leaf = [UInt32(0)]
 
-                    @always_inline
                     def record_parallel_leaf_range(
                         first_item: UInt32, item_count: UInt32
                     ) {imm, mut leaf_ranges, mut next_leaf} -> UInt32:
@@ -822,11 +814,9 @@ struct _TriangleBuild[
         self.packed_leaf_blocks = packed_leaf_blocks^
         self.packed_leaf_counts = packed_leaf_counts^
 
-    @always_inline
     def leaf_block_count(self) -> Int:
         return len(self.packed_leaf_counts)
 
-    @always_inline
     def leaf_primitive_count(self, block_idx: Int) -> UInt32:
         return self.packed_leaf_counts[block_idx]
 

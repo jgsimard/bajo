@@ -1,6 +1,7 @@
 """CPU MIS rendering: scalar, SIMD and parallel SIMD on the same scene.
 
-Usage: bench_cpu_rt [cornell|weekend|mixed [width height spp repeats]].
+Usage: bench_cpu_rt [cornell|weekend|mixed|coated|spectral
+                     [width height spp repeats]].
 Each case warms up, then reports timed medians and an output checksum.
 Scene construction and checksum calculation are outside the timed region.
 """
@@ -12,6 +13,7 @@ from std.sys.arg import argv
 from bajo.benchmark.cpu_harness import benchmark_cpu_render
 from bajo.benchmark.rt_fixtures import (
     make_mixed_triangle_world,
+    make_coated_scene,
     mixed_triangle_camera,
     weekend_camera,
 )
@@ -56,7 +58,7 @@ def main() raises:
     var args = argv()
     if len(args) != 1 and len(args) != 2 and len(args) != 6:
         raise Error(
-            "usage: bench_cpu_rt [cornell|weekend|mixed"
+            "usage: bench_cpu_rt [cornell|weekend|mixed|coated|spectral"
             " [width height spp repeats]]"
         )
     var name = String(args[1]) if len(args) > 1 else String("cornell")
@@ -66,14 +68,20 @@ def main() raises:
         settings.image_width = parse_int_f32(StringSpan(args[2]), "width")
         settings.image_height = parse_int_f32(StringSpan(args[3]), "height")
         settings.samples_per_pixel = parse_int_f32(StringSpan(args[4]), "spp")
+        settings.sample_sequence_length = settings.samples_per_pixel
         repeats = parse_int_f32(StringSpan(args[5]), "repeats")
     if repeats < 1:
         raise Error("repeats must be positive")
     var camera = weekend_camera()
     var world: CpuScene[16, 16]
     match name:
-        case "cornell":
-            world = CpuScene[16, 16](make_cornell_scene())
+        case "cornell" | "coated" | "spectral":
+            if name == "cornell":
+                world = CpuScene[16, 16](make_cornell_scene())
+            else:
+                world = CpuScene[16, 16](make_coated_scene())
+                if name == "spectral":
+                    settings.color_mode = .SPECTRAL
             camera = Camera.from_vfov(
                 Point3W(0.0, 1.0, 3.2),
                 Point3W(0.0, 1.0, -1.0),

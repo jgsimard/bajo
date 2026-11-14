@@ -416,7 +416,7 @@ def print_result(
         bounds_width=String(bounds_width),
         leaf_width=String(leaf_width),
         traversal=traversal,
-        build_ms=String(round(ns_to_ms(build_ns), 3)),
+        build_ms=String(round(ns_to_ms(build_ns), 6)),
         trace_ms=String(round(ns_to_ms(result.ns), 3)),
         MRay_s=String(round(ns_to_mrays_per_s(result.ns, ray_count), 3)),
         hits=String(result.hits),

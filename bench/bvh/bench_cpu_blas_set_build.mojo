@@ -93,7 +93,7 @@ def _bench_case(
     var saved = 100.0 * (1.0 - Float64(final_f32) / Float64(capacity_f32))
     print(
         t"{label}\t{len(vertex_sets)}\t{triangle_count}\t"
-        t"{round(ns_to_ms(batch_ns), 3)}\t{capacity_f32 * 4}\t"
+        t"{round(ns_to_ms(batch_ns), 6)}\t{capacity_f32 * 4}\t"
         t"{final_f32 * 4}\t{round(saved, 1)}"
     )
 
@@ -127,7 +127,7 @@ def _bench_sphere_case(
     var saved = 100.0 * (1.0 - Float64(final_f32) / Float64(capacity_f32))
     print(
         t"{label}\t{len(sphere_sets)}\t{sphere_count}\t"
-        t"{round(ns_to_ms(batch_ns), 3)}\t{capacity_f32 * 4}\t"
+        t"{round(ns_to_ms(batch_ns), 6)}\t{capacity_f32 * 4}\t"
         t"{final_f32 * 4}\t{round(saved, 1)}"
     )
 

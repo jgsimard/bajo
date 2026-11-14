@@ -44,7 +44,6 @@ struct GpuAreaEmitter(TrivialRegisterPassable):
     var two_sided: Bool
 
 
-@always_inline
 def gpu_emitter(
     scene: GpuRtSceneView, primitive: UInt32, surface: UInt32
 ) -> GpuAreaEmitter:

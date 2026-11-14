@@ -11,7 +11,6 @@ from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from bajo.core.color import Color
 
 
-@always_inline
 def transmitted_medium(boundary: UInt32, front_face: Bool) -> UInt32:
     return (boundary & UInt32(65535)) if front_face else (boundary >> 16)
 
@@ -32,7 +31,6 @@ struct SceneMedia:
         self.triangles = List[UInt32]()
         self.instances = List[UInt32]()
 
-    @always_inline
     def transmittance[
         length: SIMDLength
     ](
@@ -87,7 +85,6 @@ struct SceneMedia:
         values[index] = boundary
 
     @staticmethod
-    @always_inline
     def boundary(values: ImmSpan[UInt32, _], index: Int) -> UInt32:
         return values[index] if index < len(values) else UInt32(0)
 

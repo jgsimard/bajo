@@ -24,7 +24,6 @@ def _trace_compressed_blas_separate[
     return trace_cwbvh8_triangles[frame, mode](nodes, leaves, root_idx, ray)
 
 
-@always_inline
 def trace_gpu_blas[
     frame: Frame,
     node_width: SIMDLength,
@@ -57,7 +56,6 @@ def trace_gpu_blas[
     ](nodes, leaves, root_idx, ray)
 
 
-@always_inline
 def trace_gpu_blas_descriptor[
     frame: Frame,
     node_width: SIMDLength,

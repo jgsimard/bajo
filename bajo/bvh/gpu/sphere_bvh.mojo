@@ -339,7 +339,6 @@ def _build_gpu_sphere_bvh[
     return adapter^.into_bvh(ctx, timings, measure_build)
 
 
-@always_inline
 def _trace_sphere_bvh_camera_ray[
     node_width: SIMDLength,
     leaf_width: SIMDLength,

@@ -40,7 +40,6 @@ comptime CWBVH_META_BASE = 6
 comptime CWBVH_QUANTIZED_BASE = 8
 
 
-@always_inline
 def _power_of_two_scale_exponent(extent: Float32) -> UInt32:
     if extent <= 0.0:
         return 127  # 2^0
@@ -53,12 +52,10 @@ def _power_of_two_scale_exponent(extent: Float32) -> UInt32:
     return clamp(exponent, 1, 254)
 
 
-@always_inline
 def _scale_from_exponent(exponent: UInt32) -> Float32:
     return bitcast[.float32](exponent << 23)
 
 
-@always_inline
 def _cwbvh_axis_scale(lower: Float32, upper: Float32) -> Tuple[UInt32, Float32]:
     """Choose a power-of-two grid whose decoded upper endpoint encloses bounds.
     """
@@ -70,7 +67,6 @@ def _cwbvh_axis_scale(lower: Float32, upper: Float32) -> Tuple[UInt32, Float32]:
     return (exponent, scale)
 
 
-@always_inline
 def _store_cwbvh_header(
     nodes: MutPointer[Float32, _],
     base: Int,
@@ -98,7 +94,6 @@ def _store_cwbvh_header(
     words[unsafe_offset=base + CWBVH_TRIANGLE_BASE] = triangle_base
 
 
-@always_inline
 def _inverse_scale_from_exponent(exponent: UInt32) -> Float32:
     # Reciprocal of 2**(exponent - 127); exponent 254 is subnormal.
     if exponent == UInt32(254):
@@ -106,7 +101,6 @@ def _inverse_scale_from_exponent(exponent: UInt32) -> Float32:
     return _scale_from_exponent(UInt32(254) - exponent)
 
 
-@always_inline
 def _quantize_lower[
     use_inverse: Bool = False
 ](
@@ -124,7 +118,6 @@ def _quantize_lower[
     return UInt32(q)
 
 
-@always_inline
 def _quantize_upper[
     use_inverse: Bool = False
 ](
@@ -141,7 +134,6 @@ def _quantize_upper[
     return UInt32(q)
 
 
-@always_inline
 def _unary_triangle_count(count: UInt32) -> UInt32:
     # Paper encoding: 1 -> 001, 2 -> 011, 3 -> 111 in the high bits.
     return ((1 << count) - 1) << 5
@@ -530,12 +522,10 @@ struct Cwbvh8NodeTasks(TrivialRegisterPassable):
     var triangle_group_mask: UInt32
 
 
-@always_inline
 def _packed_byte(word: UInt32, lane: Int) -> UInt32:
     return (word >> UInt32(lane * 8)) & UInt32(0xFF)
 
 
-@always_inline
 def _intersect_cwbvh8_node_tasks[
     frame: Frame,
     max_leaf_size: Int = CWBVH_MAX_LEAF_SIZE,

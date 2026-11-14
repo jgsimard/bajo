@@ -97,7 +97,6 @@ def refit_forest[
         limit = limit * 2 + 1
 
 
-@always_inline
 def centroid_order_key(lo: Float32, hi: Float32) -> UInt64:
     """Encode the exact finite endpoint sum, with both zeros comparing equal."""
     var center = Float64(lo) + Float64(hi)
@@ -108,7 +107,6 @@ def centroid_order_key(lo: Float32, hi: Float32) -> UInt64:
     return ~bits if (bits & sign) != 0 else bits ^ sign
 
 
-@always_inline
 def _rebuild_key[
     cached_keys: Bool
 ](items: ImmSpan[Float32, ImmutAnyOrigin], item: UInt32) -> UInt64:
@@ -126,7 +124,6 @@ def _rebuild_key[
         )
 
 
-@always_inline
 def _item_less[
     cached_keys: Bool = False
 ](items: ImmSpan[Float32, ImmutAnyOrigin], a: UInt32, b: UInt32) -> Bool:
@@ -269,7 +266,6 @@ def reorder_bounds_kernel[
         order[i] = 0
 
 
-@always_inline
 def _begin_single_block_update[
     block_size: Int
 ](status: MutSpan[UInt32, MutAnyOrigin]) -> Bool:
@@ -480,7 +476,6 @@ def clear_velocity_kernel(
         status[0] = 0
 
 
-@always_inline
 def _rebuild_leaf(
     nodes: ImmSpan[UInt32, ImmutAnyOrigin], root: Int, count: Int, ordinal: Int
 ) -> Int:

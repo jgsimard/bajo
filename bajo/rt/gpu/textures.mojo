@@ -39,7 +39,6 @@ struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
     var format: UInt32
 
     @staticmethod
-    @always_inline
     def load(
         texture_idx: UInt32,
         texture_descs: Pointer[UInt32, ImmutAnyOrigin],
@@ -57,7 +56,6 @@ struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
             descs[index, GpuTextureDescLayout.FORMAT],
         }
 
-    @always_inline
     def texel(self, index: Int) -> Color:
         if self.format == GpuTextureDescLayout.PALETTE_RGB8:
             var indices = self.pixels.unsafe_bitcast[UInt32]()[
@@ -74,7 +72,6 @@ struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
             )
         return Color(self.pixels.unsafe_offset(3 * index))
 
-    @always_inline
     def sample(self, u: Float32, v: Float32) -> Color:
         if self.format == GpuTextureDescLayout.PALETTE_RGB8:
             return self.texel(
@@ -88,7 +85,6 @@ struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
             v,
         )
 
-    @always_inline
     def sample_bilinear(self, u: Float32, v: Float32) -> Color:
         if self.format == GpuTextureDescLayout.PALETTE_RGB8:
             var x = (u - floor(u)) * Float32(self.width) - 0.5
@@ -120,19 +116,16 @@ struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
             v,
         )
 
-    @always_inline
     def environment_texel(self, index: Int) -> Color:
         var value = self.texel(index)
         return Color(max(value.x, 0.0), max(value.y, 0.0), max(value.z, 0.0))
 
-    @always_inline
     def sample_environment(self, u: Float32, v: Float32) -> Color:
         var x = min(max(Int(u * Float32(self.width)), 0), self.width - 1)
         var y = min(max(Int(v * Float32(self.height)), 0), self.height - 1)
         return self.environment_texel(y * self.width + x)
 
 
-@always_inline
 def _gpu_normal_map(
     surface: UInt32,
     normal: Vec3f32[.WORLD],
@@ -164,7 +157,6 @@ def _gpu_normal_map(
     return result if front_face else -result
 
 
-@always_inline
 def _sample_gpu_image_texture(
     texture_idx: UInt32,
     u: Float32,
@@ -177,7 +169,6 @@ def _sample_gpu_image_texture(
     ).sample(u, v)
 
 
-@always_inline
 def _sample_gpu_lambertian(
     surface_value: UInt32,
     u: Float32,
@@ -201,7 +192,6 @@ def _sample_gpu_lambertian(
     )
 
 
-@always_inline
 def _sample_gpu_coated_albedo(
     surface_value: UInt32,
     u: Float32,
@@ -232,7 +222,6 @@ def _sample_gpu_coated_albedo(
     )
 
 
-@always_inline
 def _gpu_coated_shading_normal(
     surface_value: UInt32,
     normal: Vec3f32[.WORLD],
@@ -277,7 +266,6 @@ def _gpu_coated_shading_normal(
     )
 
 
-@always_inline
 def _gpu_bump_normal(
     normal: Vec3f32[.WORLD],
     u: Float32,
@@ -307,7 +295,6 @@ def _gpu_bump_normal(
     return bump_normal(normal, slope_u, slope_v)
 
 
-@always_inline
 def _gpu_dielectric_shading_normal(
     surface_value: UInt32,
     normal: Vec3f32[.WORLD],
@@ -336,7 +323,6 @@ def _gpu_dielectric_shading_normal(
     )
 
 
-@always_inline
 def _sample_gpu_coated_parameters(
     data: Pointer[Float32, ImmutAnyOrigin],
     material_idx: Int,

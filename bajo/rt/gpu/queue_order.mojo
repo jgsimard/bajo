@@ -32,7 +32,6 @@ struct GpuRtQueueOrderScratch(TrivialRegisterPassable):
     var light_ids: Pointer[UInt32, MutUntrackedOrigin]
 
     @staticmethod
-    @always_inline
     def from_queues(queues: GpuRtTraceQueueView) -> Self:
         var capacity = Int(queues.capacity)
         return Self(
@@ -48,7 +47,6 @@ struct GpuRtQueueOrderScratch(TrivialRegisterPassable):
         )
 
 
-@always_inline
 def gpu_rt_queue_order_enabled(capacity: Int, bounce: UInt32) -> Bool:
     return (
         capacity >= GPU_RT_ORDER_MIN_CAPACITY
@@ -84,7 +82,6 @@ def gpu_rt_queue_order_scan_kernel[
         scratch.bins[unsafe_offset=idx] = offset
 
 
-@always_inline
 def gpu_rt_queue_order_group[
     scatter: Bool
 ](scratch: GpuRtQueueOrderScratch, idx: Int, key: UInt32, valid: Bool,):
@@ -109,7 +106,6 @@ def gpu_rt_queue_order_group[
             scratch.indices[unsafe_offset=Int(offset + rank)] = UInt32(idx)
 
 
-@always_inline
 def gpu_rt_queue_order_rays[
     scatter: Bool, KeyFn: def(Int) -> UInt32
 ](scratch: GpuRtQueueOrderScratch, active: Int, ref key_fn: KeyFn):

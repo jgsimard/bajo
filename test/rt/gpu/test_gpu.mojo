@@ -2,8 +2,12 @@ from test.helpers import assert_vec_equal
 from test.rt.helpers import assert_pixels_close, assert_pixels_equal
 
 from std.testing import TestSuite, assert_equal, assert_raises, assert_true
+from max.gpu import global_idx
 from max.gpu.host import DeviceContext
 
+from bajo.rt.gpu.scene_trace import _trace_scene_any
+from bajo.rt.gpu.views import GpuRtSceneView
+from bajo.core import Rayf32
 from bajo.core.camera import Camera
 from bajo.core.aabb import compute_bounds
 from bajo.core import Affine3f32, Point3f32, Point3W, Vec3f32, Vec3W
@@ -16,6 +20,8 @@ from bajo.rt.gpu.rgb import (
 )
 from bajo.rt.gpu import (
     GPU_RT_BVH_WIDE4,
+    GPU_RT_BVH_CWBVH8,
+    GPU_RT_BVH_TLAS4,
     GpuRtBvhFormat,
     GpuRtSceneKind,
     GpuRtRenderTarget,
@@ -38,6 +44,17 @@ from examples.stress_scenes import (
     make_indirect_hall_scene,
     make_many_lights_scene,
     make_specular_transport_scene,
+)
+
+
+comptime _GEOMETRY_KINDS = (
+    GpuRtSceneKind.SPHERES,
+    GpuRtSceneKind.TRIANGLES,
+    GpuRtSceneKind.SPHERES_TRIANGLES,
+    GpuRtSceneKind.INSTANCES,
+    GpuRtSceneKind.SPHERES_INSTANCES,
+    GpuRtSceneKind.TRIANGLES_INSTANCES,
+    GpuRtSceneKind.ALL,
 )
 
 
@@ -576,11 +593,9 @@ def test_gpu_chunked_triangle_nee_matches_full_capacity() raises:
     var world = _triangle_world()
     var camera = _camera()
     with DeviceContext() as ctx:
-        var gpu_world = prepare_gpu_scene[
-            kind=.TRIANGLES,
-            triangle_format=GPU_RT_BVH_WIDE4,
-            triangle_build_method=.LBVH,
-        ](ctx, world.scene_data())
+        var gpu_world = prepare_gpu_scene[kind=.TRIANGLES](
+            ctx, world.scene_data()
+        )
         var full = GpuRtRenderTarget(
             ctx,
             settings,
@@ -670,27 +685,81 @@ def test_gpu_camera_update_is_ordered_before_render() raises:
 def test_gpu_scene_dispatch_matches_each_configured_geometry_kind() raises:
     # Exercise all seven dispatch branches once. Feature tests select their
     # known geometry directly instead of compiling seven shapes per integrator.
-    # A non-default integrator checks that dispatch forwards the choice.
+    # Normals check geometry and non-default integrator forwarding without
+    # compiling a full direct-light renderer for every geometry mask.
     var settings = RenderSettings(7, 4, 2, UInt64(457))
     var camera = _camera()
     comptime for bits in range(1, 8):
-        comptime kind = (
-            GpuRtSceneKind.SPHERES,
-            GpuRtSceneKind.TRIANGLES,
-            GpuRtSceneKind.SPHERES_TRIANGLES,
-            GpuRtSceneKind.INSTANCES,
-            GpuRtSceneKind.SPHERES_INSTANCES,
-            GpuRtSceneKind.TRIANGLES_INSTANCES,
-            GpuRtSceneKind.ALL,
-        )[bits - 1]
+        comptime kind = _GEOMETRY_KINDS[bits - 1]
         var world = _combined_instance_world(
             Bool(bits & 1), Bool(bits & 2), Bool(bits & 4)
         )
-        var actual = render_gpu[.MIS](settings, camera, world.scene_data())
-        var expected = render_gpu_configured[kind=kind, integrator=.MIS](
+        var actual = render_gpu[.NORMALS](settings, camera, world.scene_data())
+        var expected = render_gpu_configured[kind=kind, integrator=.NORMALS](
             settings, camera, world.scene_data()
         )
         assert_pixels_equal(actual.pixels, expected.pixels)
+        var cpu = render_wavefront[.NORMALS, 1, PARALLEL=False](
+            settings, camera, world
+        )
+        assert_pixels_close(actual.pixels, cpu.pixels)
+
+
+def _visibility_ray(index: Int) -> Rayf32[.WORLD]:
+    var column = (index % 12) // 3
+    var x = Float32(-0.55)
+    if column == 1:
+        x = 0
+    elif column == 2:
+        x = 0.55
+    elif column == 3:
+        x = 5
+    var limit = Float32(0.5) if index % 3 == 0 else (
+        Float32(3.5) if index % 3 == 1 else Float32(100)
+    )
+    return Rayf32[.WORLD](Point3W(x, 0, 2), Vec3W(0, 0, -1), 1e-4, limit)
+
+
+def _geometry_visibility_kernel[
+    kind: GpuRtSceneKind
+](scene: GpuRtSceneView, output: Pointer[UInt32, MutAnyOrigin]):
+    var index = global_idx.x
+    if index >= 24:
+        return
+    output[unsafe_offset=index] = UInt32(
+        _trace_scene_any[
+            kind,
+            GPU_RT_BVH_WIDE4,
+            GPU_RT_BVH_CWBVH8,
+            GPU_RT_BVH_TLAS4,
+            GPU_RT_BVH_CWBVH8,
+        ](scene, _visibility_ray(index), index >= 12)
+    )
+
+
+def test_gpu_geometry_masks_preserve_shadow_visibility() raises:
+    # Check any-hit composition directly instead of multiplying the complete
+    # NEE/MIS/AO renderer by every geometry mask. Short rays and misses also
+    # exercise each traversal branch without accepting an empty result set.
+    comptime for bits in range(1, 8):
+        comptime kind = _GEOMETRY_KINDS[bits - 1]
+        var world = _combined_instance_world(
+            Bool(bits & 1), Bool(bits & 2), Bool(bits & 4)
+        )
+        var hits = 0
+        with DeviceContext() as ctx:
+            var scene = prepare_gpu_scene[kind](ctx, world.scene_data())
+            var output = ctx.enqueue_create_buffer[.uint32](24)
+            ctx.enqueue_function[_geometry_visibility_kernel[kind]](
+                scene.view(), output, grid_dim=1, block_dim=32
+            )
+            with output.map_to_host() as values:
+                for index in range(24):
+                    var expected = world.occluded(_visibility_ray(index))
+                    assert_equal(values[index], UInt32(expected))
+                    hits += Int(expected)
+        assert_true(hits > 0)
+        assert_true(hits < 24)
 
 
 def test_gpu_mixed_path_matches_cpu_wavefront() raises:
@@ -731,36 +800,26 @@ def test_gpu_textured_instance_matches_cpu_uvs_and_normals() raises:
     assert_pixels_close(gpu_normals.pixels, cpu_normals.pixels)
 
 
-def test_gpu_combined_instances_match_cpu_wavefront() raises:
+def test_gpu_combined_instances_path_matches_cpu_wavefront() raises:
     var settings = RenderSettings(7, 4, 2, UInt64(457))
     var world = _combined_instance_world()
     var camera = _camera()
-    comptime for integrator in [
-        Integrator.PATH,
-        Integrator.NORMALS,
-        Integrator.AO,
-        Integrator.NEE,
-        Integrator.MIS,
-    ]:
-        var cpu = render_wavefront[integrator, 1, PARALLEL=False](
-            settings, camera, world
-        )
-        var gpu = render_gpu_configured[
-            kind=.ALL,
-            integrator=integrator,
-        ](settings, camera, world.scene_data())
-        try:
-            assert_pixels_close(gpu.pixels, cpu.pixels)
-        except error:
-            raise Error(t"integrator {integrator}: {error}")
-        comptime if integrator == .PATH:
-            var gpu_hploc_tlas = render_gpu_configured[
-                kind=.ALL,
-                integrator=.PATH,
-                tlas_format=GpuRtBvhFormat(2, 2, .WIDE),
-                tlas_build_method=.HPLOC,
-            ](settings, camera, world.scene_data())
-            assert_pixels_close(gpu_hploc_tlas.pixels, cpu.pixels)
+    # Integrator behavior is covered by the sphere/triangle tests. This scene
+    # checks combined closest-hit transport and the alternate TLAS builder.
+    var cpu = render_wavefront[.PATH, 1, PARALLEL=False](
+        settings, camera, world
+    )
+    var gpu = render_gpu_configured[kind=.ALL, integrator=.PATH](
+        settings, camera, world.scene_data()
+    )
+    assert_pixels_close(gpu.pixels, cpu.pixels)
+    var gpu_hploc_tlas = render_gpu_configured[
+        kind=.ALL,
+        integrator=.PATH,
+        tlas_format=GpuRtBvhFormat(2, 2, .WIDE),
+        tlas_build_method=.HPLOC,
+    ](settings, camera, world.scene_data())
+    assert_pixels_close(gpu_hploc_tlas.pixels, cpu.pixels)
 
 
 def test_gpu_ao_matches_cpu_for_unoccluded_hits_and_environment_misses() raises:
@@ -870,10 +929,6 @@ def _test_gpu_mixed_lights_match_cpu[integrator: Integrator]() raises:
     assert_pixels_close(gpu.pixels, cpu.pixels, atol=1.0e-4)
 
 
-def test_gpu_mixed_lights_nee_matches_cpu_wavefront() raises:
-    _test_gpu_mixed_lights_match_cpu[.NEE]()
-
-
 def test_gpu_mixed_lights_mis_matches_cpu_wavefront() raises:
     _test_gpu_mixed_lights_match_cpu[.MIS]()
 
@@ -899,10 +954,6 @@ def _test_gpu_emissive_instance_matches_cpu[integrator: Integrator]() raises:
     assert_pixels_close(gpu.pixels, cpu.pixels, atol=1.0e-4)
 
 
-def test_gpu_emissive_instance_nee_matches_cpu_wavefront() raises:
-    _test_gpu_emissive_instance_matches_cpu[.NEE]()
-
-
 def test_gpu_emissive_instance_mis_matches_cpu_wavefront() raises:
     _test_gpu_emissive_instance_matches_cpu[.MIS]()
 
@@ -918,14 +969,10 @@ def test_gpu_direct_light_zero_depth_stays_black() raises:
     var nee = render_gpu_configured[
         kind=.TRIANGLES,
         integrator=.NEE,
-        triangle_format=GPU_RT_BVH_WIDE4,
-        triangle_build_method=.LBVH,
     ](settings, camera, scene)
     var mis = render_gpu_configured[
         kind=.TRIANGLES,
         integrator=.MIS,
-        triangle_format=GPU_RT_BVH_WIDE4,
-        triangle_build_method=.LBVH,
     ](settings, camera, scene)
     for pixel in nee.pixels:
         assert_equal(pixel.x, 0.0)

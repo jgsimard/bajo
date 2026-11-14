@@ -15,7 +15,6 @@ from bajo.rt.gpu import (
     download_gpu_pixels,
     prepare_gpu_scene,
 )
-from bajo.rt.gpu.config import GPU_RT_BVH_WIDE4
 from test.rt.gpu.test_gpu import _camera, _textured_instance_world
 
 
@@ -38,9 +37,7 @@ def _assert_capped_primary[integrator: Integrator]() raises:
         45.0,
     )
     with DeviceContext() as ctx:
-        var scene = prepare_gpu_scene[
-            kind=.TRIANGLES, triangle_format=GPU_RT_BVH_WIDE4
-        ](ctx, world)
+        var scene = prepare_gpu_scene[kind=.TRIANGLES](ctx, world)
         # Full, partial, and multiple chunks with non-warp-aligned sample counts.
         for capacity in [17 * 19 * 3, 53 * 3, 7 * 3]:
             var target = GpuRtRenderTarget(ctx, settings, camera, capacity)

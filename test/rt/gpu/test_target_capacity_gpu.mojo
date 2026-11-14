@@ -67,7 +67,7 @@ def test_gpu_rgb_entry_points_reject_spectral_settings_before_mutation() raises:
     with assert_raises(contains="RGB-only GPU rendering"):
         _ = render_gpu_configured[.SPHERES, .MIS](spectral, camera, data)
     with assert_raises(contains="RGB-only GPU rendering"):
-        _ = render_gpu[.MIS](spectral, camera, data)
+        _ = render_gpu[.NORMALS](spectral, camera, data)
 
     var renderer = GpuRtPreparedRenderer[.SPHERES](settings, camera, data)
     _ = renderer.render[.MIS](settings, camera)

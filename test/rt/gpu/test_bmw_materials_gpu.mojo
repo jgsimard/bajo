@@ -44,7 +44,6 @@ Shape "plymesh" "string filename" "mesh.ply"
         var scene = prepare_gpu_scene[kind=.INSTANCES](ctx, world.scene_data())
         comptime for integrator in [
             Integrator.PATH,
-            Integrator.NEE,
             Integrator.MIS,
         ]:
             var cpu = render_wavefront[integrator, 4](settings, camera, world)

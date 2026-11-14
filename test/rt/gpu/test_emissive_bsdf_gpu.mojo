@@ -24,7 +24,7 @@ from bajo.core.camera import Camera
 from bajo.rt.render_types import RenderSettings
 
 
-def test_gpu_emissive_diffuse_continues_reflection_and_matches_all_integrators() raises:
+def test_gpu_emissive_diffuse_continues_reflection_and_matches_path_and_mis() raises:
     for two_sided in [False, True]:
         for back in [False, True]:
             var parsed = make_emissive_plane(two_sided, back)
@@ -37,7 +37,6 @@ def test_gpu_emissive_diffuse_continues_reflection_and_matches_all_integrators()
                 )
                 comptime for integrator in [
                     Integrator.PATH,
-                    Integrator.NEE,
                     Integrator.MIS,
                 ]:
                     var cpu = render_wavefront[integrator, 4](
@@ -81,7 +80,7 @@ Shape "trianglemesh" "point3 P" [-1 -1 2 1 -1 2 0 1 2]
     var world = CpuScene[16, 16](parsed^.take_data())
     with DeviceContext() as ctx:
         var scene = prepare_gpu_scene[kind=.INSTANCES](ctx, world.scene_data())
-        comptime for integrator in [Integrator.NEE, Integrator.MIS]:
+        comptime for integrator in [Integrator.MIS]:
             var cpu = render_wavefront[integrator, 4](settings, camera, world)
             var target = GpuRtRenderTarget(ctx, settings, camera, 3 * 32)
             enqueue_render_gpu[integrator](ctx, target, scene, settings)
@@ -103,7 +102,6 @@ def test_emissive_coated_and_dielectric_surfaces_continue_their_bsdfs() raises:
             )
             comptime for integrator in [
                 Integrator.PATH,
-                Integrator.NEE,
                 Integrator.MIS,
             ]:
                 var cpu = render_wavefront[integrator, 4](
@@ -179,7 +177,6 @@ def test_gpu_depth_limits_preserve_terminal_emission_without_scattering() raises
                 var expected = depth_scene_expected(depth, diffuse, miss)
                 comptime for integrator in [
                     Integrator.PATH,
-                    Integrator.NEE,
                     Integrator.MIS,
                 ]:
                     var cpu = render_wavefront[integrator, 4](

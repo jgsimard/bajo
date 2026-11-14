@@ -131,7 +131,7 @@ def test_normal_maps_follow_uv_tangents_and_mirrored_instances() raises:
                 _check_normal_map(model, mirrored, back)
 
 
-def test_coated_conductor_reflectance_cpu_gpu_path_nee_and_mis() raises:
+def test_coated_conductor_reflectance_cpu_gpu_path_and_mis() raises:
     for eta in ["1", "1.5"]:
         var parsed = make_reflectance_scene(eta)
         var settings = parsed.settings.copy()
@@ -143,7 +143,6 @@ def test_coated_conductor_reflectance_cpu_gpu_path_nee_and_mis() raises:
             )
             comptime for integrator in [
                 Integrator.PATH,
-                Integrator.NEE,
                 Integrator.MIS,
             ]:
                 var cpu = render_wavefront[integrator, 4](

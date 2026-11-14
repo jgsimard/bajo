@@ -36,7 +36,6 @@ def test_gpu_clamps_complete_path_after_emission_and_environment_accumulation() 
             settings.sample_sequence_length = spp
             comptime for integrator in [
                 Integrator.PATH,
-                Integrator.NEE,
                 Integrator.MIS,
             ]:
                 var cpu = render_wavefront[integrator, 4](

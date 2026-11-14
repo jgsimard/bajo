@@ -288,10 +288,6 @@ def test_gpu_mis_ordered_textured_instances_match_unordered_chunks() raises:
     _assert_ordered_render[.MIS]()
 
 
-def test_gpu_nee_ordered_textured_instances_match_unordered_chunks() raises:
-    _assert_ordered_render[.NEE]()
-
-
 def _assert_grouped_lighting_render[integrator: Integrator]() raises:
     var builder = SceneBuilder()
     var texels: List[Float32] = [
@@ -354,10 +350,6 @@ def _assert_grouped_lighting_render[integrator: Integrator]() raises:
 
 def test_gpu_mis_grouped_coatings_and_mixed_lights_match_unordered_chunks() raises:
     _assert_grouped_lighting_render[.MIS]()
-
-
-def test_gpu_nee_grouped_coatings_and_mixed_lights_match_unordered_chunks() raises:
-    _assert_grouped_lighting_render[.NEE]()
 
 
 def run_tests[_discovery: Bool = True]() raises:

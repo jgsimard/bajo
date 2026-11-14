@@ -32,7 +32,6 @@ def component_root(parents: MutSpan[UInt32, _], face: UInt32) -> UInt32:
     return root
 
 
-@always_inline
 def _layout_component_root(parents: MutSpan[UInt32, _], face: UInt32) -> UInt32:
     # Private layout links start at in-range face IDs and union only roots.
     # Preserve the original two-phase full path compression and union order.

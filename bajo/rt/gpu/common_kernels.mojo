@@ -20,7 +20,6 @@ comptime GPU_RT_BLOCK_SIZE = 64
 comptime GPU_RT_MAX_BLOCKS = 1 << 30
 
 
-@always_inline
 def gpu_rt_bounce_block_limit(bounce: UInt32, block_size: Int) -> Int:
     """Bound late-bounce grids while grid-stride loops retain every path."""
     if bounce >= 64:
@@ -34,7 +33,6 @@ def gpu_rt_bounce_block_limit(bounce: UInt32, block_size: Int) -> Int:
     return GPU_RT_MAX_BLOCKS
 
 
-@always_inline
 def make_gpu_rt_primary_path(
     camera_params: Pointer[Float32, ImmutAnyOrigin],
     sample_base: UInt32,
@@ -86,7 +84,6 @@ def make_gpu_rt_primary_path(
     )
 
 
-@always_inline
 def clear_gpu_rt_sample(
     sample_radiance: Pointer[Float32, MutAnyOrigin],
     capacity: Int,
@@ -140,7 +137,6 @@ def gpu_rt_primary_kernel[
     clear_gpu_rt_sample(sample_radiance, capacity, idx)
 
 
-@always_inline
 def _gpu_rt_resolve_pixel[
     apply_film: Bool
 ](

@@ -155,7 +155,6 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
             result.output_blue = self.blue
         return result^
 
-    @always_inline
     def apply_spectral_sample[
         width: SIMDLength
     ](
@@ -193,7 +192,6 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
             dot(self.output_blue.broadcast[width](), rgb),
         )
 
-    @always_inline
     def apply_sample[
         length: SIMDLength = 1
     ](self, color: Vec3[.float32, .WORLD, length]) -> Vec3[
@@ -235,7 +233,6 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
     def get_type_name() -> String:
         return "FilmResponse"
 
-    @always_inline
     def apply[
         length: SIMDLength = 1
     ](self, color: Vec3[.float32, .WORLD, length]) -> Vec3[
@@ -250,7 +247,6 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
             * self.exposure
         )
 
-    @always_inline
     def _apply_block[
         length: SIMDLength, origin: Origin[mut=True]
     ](

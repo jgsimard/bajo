@@ -46,7 +46,6 @@ from bajo.rt.scene_data import SceneData
 from bajo.rt.filter import FilterView
 
 
-@always_inline
 def _same_captured_fields[T: AnyType](a: T, b: T) -> Bool:
     # Compare initialized fields rather than struct padding. Float constants
     # compare by bits so a changed signed zero also invalidates the capture.

@@ -42,7 +42,6 @@ from bajo.core import (
 )
 
 
-@always_inline
 def _trace_triangle_bvh_camera_ray[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
@@ -273,7 +272,6 @@ def _intersect_triangle_leaf[
     return any_hit
 
 
-@always_inline
 def _intersect_cwbvh_triangle[
     frame: Frame,
     mode: TraceMode,
@@ -321,7 +319,6 @@ def _intersect_cwbvh_triangle[
     return True
 
 
-@always_inline
 def _intersect_cwbvh_indexed_triangle[
     frame: Frame,
     mode: TraceMode,
@@ -503,7 +500,6 @@ def _trace_cwbvh8_filtered_impl[
     return hit
 
 
-@always_inline
 def _intersect_cwbvh_triangle_filtered[
     frame: Frame, mode: TraceMode, Filter: TriangleHitFilter
 ](
@@ -541,7 +537,6 @@ def _intersect_cwbvh_triangle_filtered[
     return True
 
 
-@always_inline
 def _trace_cwbvh8_triangles_impl[
     frame: Frame,
     mode: TraceMode,
@@ -569,7 +564,6 @@ def _trace_cwbvh8_triangles_impl[
     ](nodes, triangles, primitive_ids, vertices, root_idx, ray, stats, filter)
 
 
-@always_inline
 def trace_cwbvh8_triangles_filtered[
     frame: Frame, mode: TraceMode, Filter: TriangleHitFilter
 ](
@@ -594,7 +588,6 @@ def trace_cwbvh8_triangles_filtered[
     )
 
 
-@always_inline
 def trace_cwbvh8_triangles[
     frame: Frame,
     mode: TraceMode,
@@ -620,7 +613,6 @@ def trace_cwbvh8_triangles[
     )
 
 
-@always_inline
 def trace_cwbvh8_indexed_triangles[
     frame: Frame,
     mode: TraceMode,

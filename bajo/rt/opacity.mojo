@@ -30,7 +30,6 @@ struct Opacity(Copyable, Writable):
         ):
             raise Error("opacity image index is out of range")
 
-    @always_inline
     def evaluate(
         self, surfaces: SurfaceStore, u: Float32, v: Float32
     ) -> Float32:
@@ -49,7 +48,6 @@ struct SceneOpacity:
         self.records = Dict[UInt32, Opacity]()
 
 
-@always_inline
 def opacity_ray_sample(ray: Rayf32[.WORLD]) -> Float32:
     """A deterministic primary/shadow decision independent of BVH order."""
     var seed = UInt32(0xA511E9B3)
@@ -58,7 +56,6 @@ def opacity_ray_sample(ray: Rayf32[.WORLD]) -> Float32:
     return _u32_to_unit_float(seed)
 
 
-@always_inline
 def opacity_point_sample(point: Point3f32[.WORLD]) -> Float32:
     """Position-stable coverage for area-light emission, independent of RNG."""
     var seed = UInt32(0x728E5B29)
@@ -67,7 +64,6 @@ def opacity_point_sample(point: Point3f32[.WORLD]) -> Float32:
     return _u32_to_unit_float(seed)
 
 
-@always_inline
 def opacity_sphere_uv[
     length: SIMDLength = 1
 ](normal: Vec3[.float32, .WORLD, length]) -> Tuple[
@@ -81,6 +77,5 @@ def opacity_sphere_uv[
     )
 
 
-@always_inline
 def opacity_accepts(alpha: Float32, sample: Float32) -> Bool:
     return alpha >= 1.0 or (alpha > 0.0 and sample <= alpha)

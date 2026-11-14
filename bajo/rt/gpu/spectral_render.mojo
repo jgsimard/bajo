@@ -70,7 +70,6 @@ from bajo.rt.gpu.wavefront_contract import (
 from bajo.rt.rays import spawn_surface_ray
 
 
-@always_inline
 def _emitter_source(scene: GpuRtSceneView, primitive: UInt32) -> UInt32:
     var begin = 0
     var end = Int(scene.emission.count)
@@ -88,7 +87,6 @@ def _emitter_source(scene: GpuRtSceneView, primitive: UInt32) -> UInt32:
     return NO_SPECTRUM
 
 
-@always_inline
 def _environment(
     scene: GpuRtSceneView,
     direction: Vec3f32[.WORLD],
@@ -131,7 +129,6 @@ def _environment(
     return result
 
 
-@always_inline
 def _absorption(
     scene: GpuRtSceneView,
     medium: UInt32,
@@ -159,7 +156,6 @@ def _absorption(
     return result
 
 
-@always_inline
 def _shade[
     kind: MaterialKind,
     integrator: Integrator,

@@ -8,7 +8,6 @@ struct BoundsItem[frame: Frame](TrivialRegisterPassable):
     var centroid: Point3f32[Self.frame]
     var payload: UInt32
 
-    @always_inline
     def __init__(
         out self,
         bounds: AABB[Self.frame],

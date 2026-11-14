@@ -10,14 +10,12 @@ from bajo.rt.gpu.spectra import GpuMaterialSpectraView
 from bajo.rt.gpu.spectral_resources import GpuSpectralSceneView
 
 
-@always_inline
 def _immut[
     dtype: DType
 ](buffer: DeviceBuffer[dtype]) -> Pointer[Scalar[dtype], ImmUntrackedOrigin]:
     return buffer.unsafe_ptr().unsafe_origin_cast[ImmUntrackedOrigin]()
 
 
-@always_inline
 def _mut[
     dtype: DType
 ](buffer: DeviceBuffer[dtype]) -> Pointer[Scalar[dtype], MutUntrackedOrigin]:
@@ -183,7 +181,6 @@ struct GpuRtTraceQueueView(DevicePassable, TrivialRegisterPassable):
         return "GpuRtTraceQueueView"
 
 
-@always_inline
 def gpu_rt_trace_queue_view(
     arena: GpuWavefrontArena,
     src_path_ids: DeviceBuffer[.uint32],

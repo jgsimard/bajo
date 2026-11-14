@@ -117,7 +117,6 @@ __enum MaterialKind(Equatable, ImplicitlyCopyable, Writable):
             case _:
                 self = Self.MIX
 
-    @always_inline
     def value(self) -> UInt32:
         return UInt32(self._get_enum_discriminant())
 
@@ -132,7 +131,6 @@ comptime PRIMITIVE_INDEX_BITS = 32 - PRIMITIVE_KIND_BITS
 comptime PRIMITIVE_INDEX_MASK = UInt32((1 << PRIMITIVE_INDEX_BITS) - 1)
 
 
-@always_inline
 def sample_mix_branch(amount: Float32, mut random: Float32) -> Int:
     """Choose a child and remap its uniform variate for nested mixes."""
     if random < amount:
@@ -193,36 +191,29 @@ struct SurfaceId[length: SIMDLength = 1](Copyable, Writable):
         self.value = Self.pack_raw(kind, index)
 
     @staticmethod
-    @always_inline
     def pack_raw(kind: MaterialKind, index: UInt32) -> UInt32:
         return (kind.value() << SURFACE_INDEX_BITS) | index
 
-    @always_inline
     def kind(self) -> MaterialKind:
         comptime assert Self.length == 1
         return Self.kind_from_raw(self.value[0])
 
-    @always_inline
     def index(self) -> UInt32:
         comptime assert Self.length == 1
         return Self.index_from_raw(self.value[0])
 
     @staticmethod
-    @always_inline
     def from_raw(value: UInt32) -> SurfaceId[1]:
         return SurfaceId[1](SIMD[.uint32, 1](value))
 
     @staticmethod
-    @always_inline
     def kind_from_raw(value: UInt32) -> MaterialKind:
         return MaterialKind(value >> SURFACE_INDEX_BITS)
 
     @staticmethod
-    @always_inline
     def index_from_raw(value: UInt32) -> UInt32:
         return value & SURFACE_INDEX_MASK
 
-    @always_inline
     def get(self, lane: Int) -> SurfaceId[1]:
         return SurfaceId[1](self.value[lane])
 
@@ -568,7 +559,6 @@ struct SurfaceStore:
         self.mix_uv_scales.append(v_scale)
         return SurfaceId(.MIX, index)
 
-    @always_inline
     def _albedo_metadata(self, surface: SurfaceId[1]) -> Tuple[Color, UInt32]:
         match surface.kind():
             case .LAMBERTIAN:
@@ -583,7 +573,6 @@ struct SurfaceStore:
             case _:
                 return Color(0.0), NO_TEXTURE
 
-    @always_inline
     def _displacement_metadata(
         self, surface: SurfaceId[1]
     ) -> Tuple[UInt32, Float32, Float32, Float32]:
@@ -617,7 +606,6 @@ struct SurfaceStore:
             )
         return amount.clamp(0.0, 1.0)
 
-    @always_inline
     def resolve_mix(
         self,
         surface: SurfaceId[1],
@@ -667,7 +655,6 @@ struct SurfaceStore:
         )
         return textures.ne(NO_TEXTURE).select(mapped, roughness)
 
-    @always_inline
     def emitted_radiance[
         length: SIMDLength = 1
     ](
@@ -703,7 +690,6 @@ struct SurfaceStore:
         self.image_textures.append(texture^)
         return index
 
-    @always_inline
     def sample_image_textures[
         length: SIMDLength
     ](

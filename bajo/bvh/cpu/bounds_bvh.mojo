@@ -43,7 +43,6 @@ struct WideBvhNode[frame: Frame, width: SIMDLength](Copyable):
         self.data = SIMD[.uint32, Self.width](EMPTY_LANE)
 
 
-@always_inline
 def _checked_typed_leaf_range[
     leaf_width: SIMDLength
 ](first_item: UInt32, item_count: UInt32, item_index_count: Int) -> Tuple[

@@ -11,7 +11,6 @@ from bajo.rt.gpu.config import GpuRtSceneKind, GpuRtBvhFormat
 from bajo.rt.gpu.views import GpuRtSceneView
 
 
-@always_inline
 def _wide_order_bounds[
     width: Int
 ](
@@ -43,7 +42,6 @@ def _wide_order_bounds[
     return low, high
 
 
-@always_inline
 def _compressed_order_bounds(
     nodes: Pointer[Float32, ImmUntrackedOrigin],
     root: UInt32,
@@ -59,7 +57,6 @@ def _compressed_order_bounds(
     return low, high
 
 
-@always_inline
 def gpu_rt_order_bounds[
     kind: GpuRtSceneKind,
     sphere_format: GpuRtBvhFormat,
@@ -75,7 +72,6 @@ def gpu_rt_order_bounds[
         -max_finite[.float32](),
     )
 
-    @always_inline
     def include(a: Point3f32[.WORLD], b: Point3f32[.WORLD]) {mut}:
         low.x = min(low.x, a.x)
         low.y = min(low.y, a.y)

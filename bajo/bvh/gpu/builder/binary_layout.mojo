@@ -115,7 +115,6 @@ def _segment_for_item(offsets: ImmSpan[UInt32, _], item_idx: Int) -> Int:
     return low
 
 
-@always_inline
 def _warp_reduce_bounds(bounds: AABB[.WORLD]) -> AABB[.WORLD]:
     return AABB[.WORLD](
         Point3f32[.WORLD](

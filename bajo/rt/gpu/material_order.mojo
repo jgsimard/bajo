@@ -21,7 +21,6 @@ def gpu_rt_material_order_rays_kernel[
         return
     var scratch = GpuRtQueueOrderScratch.from_queues(queues)
 
-    @always_inline
     def key(idx: Int) {imm} -> UInt32:
         var surface = queues.shade_surfaces[unsafe_offset=idx]
         return SurfaceId.index_from_raw(surface) if SurfaceId.kind_from_raw(

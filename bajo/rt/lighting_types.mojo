@@ -103,7 +103,6 @@ struct LightStore:
         self.alias_probabilities = List[Float32]()
         self.alias_indices = List[UInt32]()
 
-    @always_inline
     def append(mut self, var record: LightRecord):
         self.total_weight += record.weight
         self.records.append(record^)
@@ -121,7 +120,6 @@ struct LightStore:
         )
 
 
-@always_inline
 def _light_importance[
     length: SIMDLength = 1
 ](radiance: Vec3[.float32, .WORLD, length]) -> SIMD[.float32, length]:

@@ -72,7 +72,6 @@ def clear_refit_kernel(
         status.unsafe_get(0) = 0
 
 
-@always_inline
 def _reject(status: MutSpan[UInt32, MutAnyOrigin]):
     comptime AtomicU32 = Atomic[
         UInt32, scope="device" if is_nvidia_gpu() else ""
@@ -130,7 +129,6 @@ def validate_bounds_refit_kernel(
             items.unsafe_get(i * 6 + axis + 3) = hi
 
 
-@always_inline
 def _publish_leaf(
     node: Int,
     items: ImmSpan[Float32, ImmutAnyOrigin],
@@ -149,7 +147,6 @@ def _publish_leaf(
     _publish_parent(node, bounds, nodes, parents, counters)
 
 
-@always_inline
 def _publish_parent(
     node: Int,
     bounds: MutSpan[Float32, MutAnyOrigin],

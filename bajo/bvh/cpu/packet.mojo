@@ -17,7 +17,6 @@ from bajo.core.utils import fmin, fmax
 comptime CPU_PACKET_STACK_SIZE = 256
 
 
-@always_inline
 def _intersect_packet_child_fma[
     frame: Frame,
     length: SIMDLength,
@@ -90,7 +89,6 @@ struct CoherentPacketFrustum[frame: Frame](TrivialRegisterPassable):
     var far_org_rdir: Vec3[.float32, Self.frame]
 
 
-@always_inline
 def _coherent_packet_frustum[
     frame: Frame,
     length: SIMDLength,
@@ -153,7 +151,6 @@ def _coherent_packet_frustum[
     )
 
 
-@always_inline
 def _intersect_coherent_packet_frustum[
     frame: Frame,
     bounds_width: SIMDLength,
@@ -226,7 +223,6 @@ def _intersect_coherent_packet_frustum[
     return frustum_near.le(frustum_far)
 
 
-@always_inline
 def trace_packet_stack_bounds_bvh[
     frame: Frame,
     bounds_width: SIMDLength,
@@ -312,7 +308,6 @@ def trace_packet_stack_bounds_bvh[
     stack_masks.unsafe_get(0) = valid
     stack_priorities.unsafe_get(0) = 0.0
 
-    @always_inline
     def push_task(
         child_ref: UInt32,
         child_mask: SIMD[.bool, length],

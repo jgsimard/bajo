@@ -33,7 +33,6 @@ __enum FilmSensorKind(DevicePassable, Equatable, ImplicitlyCopyable, Writable):
         return "FilmSensorKind"
 
 
-@always_inline
 def canon_sensor_sample[
     width: SIMDLength
 ](

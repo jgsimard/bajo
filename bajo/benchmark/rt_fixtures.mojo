@@ -2,9 +2,10 @@
 
 from std.math import max
 
+from bajo.core.image import ImageTexture
 from bajo.core.aabb import compute_bounds
 from bajo.core import AABB, Affine3f32, Point3, Point3W, Rayf32, Vec3f32, Vec3W
-from bajo.rt import Camera, Color, SceneBuilder, CpuScene
+from bajo.rt import Camera, Color, SceneBuilder, SceneData, CpuScene
 from .bvh_fixtures import make_grid_triangles, make_hit_and_miss_rays
 
 
@@ -139,3 +140,59 @@ def make_bounded_grid_rays() -> List[Rayf32[.WORLD]]:
     for ray in source:
         rays.append(Rayf32[.WORLD](ray.o, ray.d, ray.t_min, Float32(3.0)))
     return rays^
+
+
+def make_coated_scene() raises -> SceneData:
+    """Small textured room exercising layered shading and direct lighting."""
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.6))
+    var texels: List[Float32] = [
+        0.9,
+        0.2,
+        0.1,
+        0.2,
+        0.8,
+        0.3,
+        0.1,
+        0.3,
+        0.9,
+        0.8,
+        0.7,
+        0.2,
+    ]
+    var texture = builder.surfaces.add_image_texture(
+        ImageTexture(2, 2, texels^)
+    )
+    var coated = builder.surfaces.add_coated_diffuse(
+        Color(0.6, 0.3, 0.12),
+        0.2,
+        1.5,
+        texture_index=texture,
+        thickness=0.1,
+        layer_albedo=Color(0.2),
+        g=0.2,
+    )
+    var light = builder.add_emissive(Color(12.0))
+    builder.add_quad(
+        Point3W(-1.0, 0.0, 0.0),
+        Point3W(1.0, 0.0, 0.0),
+        Point3W(1.0, 0.0, -2.0),
+        Point3W(-1.0, 0.0, -2.0),
+        matte,
+    )
+    builder.add_quad(
+        Point3W(-1.0, 0.0, -2.0),
+        Point3W(1.0, 0.0, -2.0),
+        Point3W(1.0, 2.0, -2.0),
+        Point3W(-1.0, 2.0, -2.0),
+        coated,
+    )
+    builder.add_quad(
+        Point3W(-0.6, 1.99, -1.6),
+        Point3W(0.6, 1.99, -1.6),
+        Point3W(0.6, 1.99, -0.4),
+        Point3W(-0.6, 1.99, -0.4),
+        light,
+    )
+    builder.add_box(Point3W(-0.6, 0.0, -1.6), Point3W(0.5, 1.1, -0.7), coated)
+    return builder^.finish()

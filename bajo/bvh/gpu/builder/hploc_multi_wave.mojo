@@ -48,7 +48,6 @@ from bajo.core import AABB, Point3f32, SegmentOffsets
 comptime HPLOC_MULTI_WAVE_BLOCK_SIZE = 64
 
 
-@always_inline
 def _hploc_cluster_bounds[
     cache_leaf_bounds: Bool = False
 ](
@@ -74,7 +73,6 @@ def _hploc_cluster_bounds[
     return _hploc_load_bounds(scratch_bounds, cluster_idx)
 
 
-@always_inline
 def _hploc_cluster_leaf_count(
     encoded: UInt32,
     node_leaf_counts: ImmSpan[UInt32, _],
@@ -84,7 +82,6 @@ def _hploc_cluster_leaf_count(
     return node_leaf_counts.unsafe_get(Int(decode_ref_index(encoded)))
 
 
-@always_inline
 def _hploc_set_child_parent(
     encoded: UInt32,
     parent: UInt32,
@@ -98,7 +95,6 @@ def _hploc_set_child_parent(
         node_meta.unsafe_get(_node_parent_index(child_idx)) = parent
 
 
-@always_inline
 def _hploc_delta(
     sorted_morton_codes: ImmSpan[UInt32, _], a: Int, b: Int
 ) -> UInt64:
@@ -110,7 +106,6 @@ def _hploc_delta(
     )
 
 
-@always_inline
 def _hploc_find_parent_id(
     sorted_morton_codes: ImmSpan[UInt32, _],
     left: Int,
@@ -127,7 +122,6 @@ def _hploc_find_parent_id(
     return left - 1
 
 
-@always_inline
 def _hploc_arrive_parent(ptr: MutPointer[UInt32, _], desired: UInt32) -> UInt32:
     """Publish an endpoint at a parent slot with exactly two child arrivals."""
     # Slots start at UINT_MAX. The first addition stores its endpoint through
@@ -627,7 +621,6 @@ struct GpuHplocBuildState[
     var status: DeviceBuffer[.uint32]
 
     @staticmethod
-    @always_inline
     def from_binary(
         mut ctx: DeviceContext,
         mut binary: GpuBinaryBoundsBvh,

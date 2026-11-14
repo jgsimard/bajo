@@ -19,7 +19,6 @@ struct GpuRtSamplingConfig(Copyable, DevicePassable):
     def get_type_name() -> String:
         return "GpuRtSamplingConfig"
 
-    @always_inline
     def load(self) -> SamplingConfig:
         var value = self.fixed.copy()
         if self.offset:

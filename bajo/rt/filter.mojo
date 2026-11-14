@@ -144,7 +144,6 @@ struct FilterView(Copyable, DevicePassable, ImplicitlyCopyable, Writable):
     def get_type_name() -> String:
         return "FilterView"
 
-    @always_inline
     def _cell(self, cdf_base: Int, count: Int, u: Float32) -> Int:
         var data = self.data.value()
         var lo = 0
@@ -157,7 +156,6 @@ struct FilterView(Copyable, DevicePassable, ImplicitlyCopyable, Writable):
                 hi = mid
         return lo
 
-    @always_inline
     def _position(
         self, base: Int, cell: Int, count: Int, u: Float32, radius: Float32
     ) -> Float32:
@@ -169,7 +167,6 @@ struct FilterView(Copyable, DevicePassable, ImplicitlyCopyable, Writable):
         ) / Float32(count)
         return 0.5 + (1 - t) * (-radius) + t * radius
 
-    @always_inline
     def sample[
         width: SIMDLength
     ](self, u: SIMD[.float32, width], v: SIMD[.float32, width]) -> FilterSample[

@@ -36,7 +36,6 @@ struct _DielectricSample[length: SIMDLength](Copyable):
     var ok: SIMD[.bool, Self.length]
 
 
-@always_inline
 def _random[
     length: SIMDLength
 ](seed: SIMD[.uint32, length], dimension: SIMD[.uint32, length]) -> SIMD[
@@ -45,7 +44,6 @@ def _random[
     return _u32_to_unit_float(_mix32(seed + dimension * UInt32(0x9E3779B9)))
 
 
-@always_inline
 def _sample_seed[
     length: SIMDLength
 ](u: SIMD[.float32, length], v: SIMD[.float32, length]) -> SIMD[
@@ -56,7 +54,6 @@ def _sample_seed[
     )
 
 
-@always_inline
 def _ggx_lambda[
     length: SIMDLength
 ](v: Vec3[.float32, .WORLD, length], alpha: SIMD[.float32, length]) -> SIMD[
@@ -68,7 +65,6 @@ def _ggx_lambda[
     return valid.select(0.5 * (sqrt(1.0 + alpha * alpha * tan2) - 1.0), 0.0)
 
 
-@always_inline
 def _ggx_d[
     length: SIMDLength
 ](wm: Vec3[.float32, .WORLD, length], alpha: SIMD[.float32, length]) -> SIMD[
@@ -83,7 +79,6 @@ def _ggx_d[
     return valid.select(1.0 / (denominator * (1.0 + e) * (1.0 + e)), 0.0)
 
 
-@always_inline
 def _ggx_g[
     length: SIMDLength
 ](
@@ -94,7 +89,6 @@ def _ggx_g[
     return 1.0 / (1.0 + _ggx_lambda(wo, alpha) + _ggx_lambda(wi, alpha))
 
 
-@always_inline
 def _ggx_visible_pdf[
     length: SIMDLength
 ](
@@ -113,7 +107,6 @@ def _ggx_visible_pdf[
     )
 
 
-@always_inline
 def _sample_ggx_visible_normal[
     length: SIMDLength
 ](
@@ -151,7 +144,6 @@ def _sample_ggx_visible_normal[
     )
 
 
-@always_inline
 def _dielectric_geometry[
     length: SIMDLength
 ](
@@ -278,7 +270,6 @@ def _dielectric_pdf[
     return result
 
 
-@always_inline
 def _sample_dielectric[
     length: SIMDLength
 ](
@@ -374,7 +365,6 @@ def _sample_dielectric[
     return result^
 
 
-@always_inline
 def _is_diffuse[
     length: SIMDLength
 ](p: CoatedParameters[length]) -> SIMD[.bool, length]:
@@ -419,7 +409,6 @@ def _substrate_f[
     return result
 
 
-@always_inline
 def _substrate_pdf[
     length: SIMDLength
 ](
@@ -446,7 +435,6 @@ def _substrate_pdf[
     return result
 
 
-@always_inline
 def _sample_substrate[
     length: SIMDLength
 ](
@@ -512,7 +500,6 @@ def _sample_substrate[
     return result^
 
 
-@always_inline
 def _transmittance[
     length: SIMDLength
 ](distance: SIMD[.float32, length], v: Vec3[.float32, .WORLD, length]) -> SIMD[
@@ -522,7 +509,6 @@ def _transmittance[
     return valid.select(exp(-abs(distance / valid.select(v.z, 1.0))), 0.0)
 
 
-@always_inline
 def _phase_hg[
     length: SIMDLength
 ](cosine: SIMD[.float32, length], g_in: SIMD[.float32, length]) -> SIMD[
@@ -540,7 +526,6 @@ def _phase_hg[
     )
 
 
-@always_inline
 def _sample_phase_hg[
     length: SIMDLength
 ](
@@ -571,7 +556,6 @@ def _sample_phase_hg[
     )
 
 
-@always_inline
 def _to_local[
     length: SIMDLength
 ](
@@ -585,7 +569,6 @@ def _to_local[
     )
 
 
-@always_inline
 def _from_local[
     length: SIMDLength
 ](
@@ -902,7 +885,6 @@ def _evaluate_layered[
     )
 
 
-@always_inline
 def _safe_parameters[
     length: SIMDLength
 ](p: CoatedParameters[length], active: SIMD[.bool, length]) -> CoatedParameters[
@@ -930,7 +912,6 @@ def _safe_parameters[
     )
 
 
-@always_inline
 def _bare_conductor[
     length: SIMDLength
 ](p: CoatedParameters[length]) -> SIMD[.bool, length]:
@@ -945,7 +926,6 @@ def _bare_conductor[
     )
 
 
-@always_inline
 def _evaluate_coated_diffuse[
     length: SIMDLength
 ](

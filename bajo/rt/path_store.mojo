@@ -5,7 +5,6 @@ from bajo.rt.path_values import PathFloatField, PathValues
 from bajo.core.tensor_layout import FieldTile
 
 
-@always_inline
 def store_path_values[
     Values: PathValues,
     origin: Origin[mut=True],

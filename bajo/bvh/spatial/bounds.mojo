@@ -439,7 +439,6 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
                 )
         return end
 
-    @always_inline
     def _range_bounds[
         width: SIMDLength = BUILD_WIDTH, precise: Bool = True
     ](
@@ -565,7 +564,6 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
                 return self.group_roots[i]
         return EMPTY_LANE
 
-    @always_inline
     def _merge_node_bounds[
         precise: Bool
     ](self, left: Int, right: Int) -> AABB[Self.frame]:
@@ -582,13 +580,11 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
                 result._max[axis] = finite_f32_max(a._max[axis], b._max[axis])
             return result
 
-    @always_inline
     def _node_bounds(self, index: Int) -> AABB[Self.frame]:
         var base = index * 6
         var bounds = self.bounds.unsafe_ptr()
         return AABB[Self.frame].load6(bounds, base)
 
-    @always_inline
     def _store_bounds(mut self, index: Int, box: AABB[Self.frame]):
         var base = index * 6
         var bounds = self.bounds.unsafe_ptr()

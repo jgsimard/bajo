@@ -86,7 +86,6 @@ struct SpectralSampleState:
             self.eta_scale.append(1)
 
 
-@always_inline
 def _environment[
     width: SIMDLength, world_width: SIMDLength, instance_width: SIMDLength
 ](
@@ -139,7 +138,6 @@ def _environment[
     return result
 
 
-@always_inline
 def _absorption[
     width: SIMDLength, world_width: SIMDLength, instance_width: SIMDLength
 ](

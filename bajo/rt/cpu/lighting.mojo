@@ -55,7 +55,6 @@ struct _DirectLightSample[length: SIMDLength = 1](Copyable):
     var is_environment: SIMD[.bool, Self.length]
 
     @staticmethod
-    @always_inline
     def make_empty() -> Self:
         return Self(
             SIMD[.bool, Self.length](fill=False),
@@ -69,7 +68,6 @@ struct _DirectLightSample[length: SIMDLength = 1](Copyable):
         )
 
 
-@always_inline
 def _emissive_hit_weight[
     integrator: Integrator,
     world_bvh_width: SIMDLength,
@@ -101,7 +99,6 @@ def _emissive_hit_weight[
     )
 
 
-@always_inline
 def light_pdf_for_emissive_hit[
     world_bvh_width: SIMDLength,
     instance_bvh_width: SIMDLength,
@@ -163,7 +160,6 @@ def environment_pdf_for_miss[
     )[0]
 
 
-@always_inline
 def _environment_miss_weight[
     integrator: Integrator,
     world_bvh_width: SIMDLength,

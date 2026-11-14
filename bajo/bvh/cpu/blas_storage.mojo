@@ -29,7 +29,6 @@ struct CpuBlasSet[
     var leaves: List[Float32]
     var blas_count: Int
 
-    @always_inline
     def _view[
         frame: Frame
     ](self, desc: BlasDesc) -> _CpuBlasView[

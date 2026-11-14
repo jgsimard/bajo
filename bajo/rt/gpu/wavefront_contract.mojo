@@ -50,7 +50,6 @@ from bajo.rt.gpu.queue_layout import (
 )
 
 
-@always_inline
 def load_gpu_rt_path[
     integrator: Integrator,
 ](
@@ -69,7 +68,6 @@ def load_gpu_rt_path[
     ](path_ids, fields, capacity, idx)
 
 
-@always_inline
 def store_gpu_rt_path_values[
     Values: PathValues, //, integrator: Integrator
 ](
@@ -90,7 +88,6 @@ def store_gpu_rt_path_values[
     store_path_values[False, integrator == .MIS](tile, path, idx)
 
 
-@always_inline
 def load_gpu_rt_shadow[
     LOAD_CONTRIBUTION: Bool,
 ](
@@ -124,7 +121,6 @@ def load_gpu_rt_shadow[
     )
 
 
-@always_inline
 def store_gpu_rt_shadow[
     STORE_CONTRIBUTION: Bool,
 ](
@@ -250,7 +246,6 @@ struct GpuWavefrontArena:
         return packed^
 
 
-@always_inline
 def _reset_wavefront_output_counters(
     counters: Pointer[UInt32, MutAnyOrigin],
 ):
@@ -277,7 +272,6 @@ def _advance_wavefront_contract_counters_kernel(
     _reset_wavefront_output_counters(counters)
 
 
-@always_inline
 def _reserve_slot(
     counters: Pointer[UInt32, MutAnyOrigin], counter_idx: Int
 ) -> Int:
@@ -288,7 +282,6 @@ def _reserve_slot(
     )
 
 
-@always_inline
 def _mark_status(counters: Pointer[UInt32, MutAnyOrigin], status: UInt32):
     Atomic.store[ordering=Ordering.RELAXED](
         counters.unsafe_offset(WAVE_COUNTER.STATUS), status

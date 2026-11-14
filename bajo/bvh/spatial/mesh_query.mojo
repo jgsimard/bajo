@@ -215,7 +215,6 @@ struct MeshQueryView[
     def get_type_name() -> String:
         return "MeshQueryView"
 
-    @always_inline
     def __init__(
         out self,
         points: ImmSpan[Float32, Self.origin],
@@ -247,7 +246,6 @@ struct MeshQueryView[
     def face_vertex(self, face: UInt32, corner: Int) -> Point3f32[Self.frame]:
         return self.vertex(self.indices[Int(face) * 3 + corner])
 
-    @always_inline
     def eval_position(
         self, face: UInt32, u: Float32, v: Float32
     ) -> Point3f32[Self.frame]:
@@ -261,7 +259,6 @@ struct MeshQueryView[
         )
         return Point3f32[Self.frame](Float32(p.x), Float32(p.y), Float32(p.z))
 
-    @always_inline
     def eval_velocity(
         self, face: UInt32, u: Float32, v: Float32
     ) -> Vec3f32[Self.frame]:
@@ -310,7 +307,6 @@ struct MeshQueryView[
         """Enumerate faces whose bounds overlap; this is broad phase."""
         return self.bvh.query_aabb(box, root)
 
-    @always_inline
     def query_sphere(
         self, center: Point3f32[Self.frame], radius: Float32, root: UInt32 = 0
     ) -> MeshSphereQuery[Self.origin, Self.frame]:
@@ -323,7 +319,6 @@ struct MeshQueryView[
             radius,
         )
 
-    @always_inline
     def query_ray[
         width: SIMDLength = BATCH_WIDTH
     ](self, ray: Rayf32[Self.frame], root: UInt32 = 0) -> MeshRayResult[
@@ -331,7 +326,6 @@ struct MeshQueryView[
     ]:
         return self._query_ray_ordered[1 if is_gpu() else width](ray, root)
 
-    @always_inline
     def _ray_node_entries[
         width: SIMDLength, full: Bool = False
     ](
@@ -380,7 +374,6 @@ struct MeshQueryView[
         active &= lower.le(upper + max(abs(lower), abs(upper)) * 1e-14)
         return active.select(lower, SIMD[.float64, width](1e300))
 
-    @always_inline
     def _ray_node_lower_f32(
         self,
         ray: Rayf32[Self.frame],
@@ -436,7 +429,6 @@ struct MeshQueryView[
             or lower > upper else lower
         )
 
-    @always_inline
     def _ray_children_lower_f32(
         self,
         ray: Rayf32[Self.frame],
@@ -534,7 +526,6 @@ struct MeshQueryView[
             active.select(lower, SIMD[.float32, 2](miss)),
         )
 
-    @always_inline
     def _query_ray_f32_bounds(
         self,
         ray: Rayf32[Self.frame],
@@ -680,7 +671,6 @@ struct MeshQueryView[
             result.front_face = dot(n, direction) < 0.0
         return result
 
-    @always_inline
     def _ray_f32_inverse(
         self, ray: Rayf32[Self.frame], root: UInt32
     ) -> Tuple[Vec3f32[Self.frame], Bool]:
@@ -704,7 +694,6 @@ struct MeshQueryView[
                     inverse32[axis] = 1.0 / ray.d[axis]
         return (inverse32, regular)
 
-    @always_inline
     def _query_ray_ordered[
         width: SIMDLength
     ](self, ray: Rayf32[Self.frame], root: UInt32) -> MeshRayResult[Self.frame]:
@@ -793,7 +782,6 @@ struct MeshQueryView[
             result.front_face = dot(n, direction) < 0.0
         return result
 
-    @always_inline
     def query_ray_anyhit[
         width: SIMDLength = BATCH_WIDTH
     ](self, ray: Rayf32[Self.frame], root: UInt32 = 0) -> Bool:
@@ -802,7 +790,6 @@ struct MeshQueryView[
             != 0
         )
 
-    @always_inline
     def query_ray_count_intersections[
         width: SIMDLength = RAY_COUNT_WIDTH
     ](self, ray: Rayf32[Self.frame], root: UInt32 = 0) -> UInt32:
@@ -810,7 +797,6 @@ struct MeshQueryView[
             0
         ]
 
-    @always_inline
     def _query_ray_any_f32(
         self,
         ray: Rayf32[Self.frame],
@@ -869,7 +855,6 @@ struct MeshQueryView[
             node = pending[unsafe_offset=count]
             entry = ray.t_min
 
-    @always_inline
     def _query_ray_hits_f32[
         anyhit: Bool, parity: Bool
     ](
@@ -992,7 +977,6 @@ struct MeshQueryView[
                     else:
                         hits += 1
 
-    @always_inline
     def _point_node_distances2[
         width: SIMDLength, furthest: Bool = False
     ](self, point: Point3f32[Self.frame], nodes: SIMD[.uint32, width]) -> SIMD[
@@ -1050,7 +1034,6 @@ struct MeshQueryView[
             distance2, SIMD[.float64, width](-1.0 if furthest else 1e300)
         )
 
-    @always_inline
     def _furthest_node_upper_f32(
         self, point: Point3f32[Self.frame], node: UInt32
     ) -> Float32:
@@ -1066,7 +1049,6 @@ struct MeshQueryView[
         # Overflow gives +infinity, which conservatively retains the node.
         return distance2 * Float32(1.000002) + Float32(1e-30)
 
-    @always_inline
     def _query_furthest_f32_bounds(
         self,
         point: Point3f32[Self.frame],
@@ -1174,7 +1156,6 @@ struct MeshQueryView[
             0.0,
         )
 
-    @always_inline
     def _nearest_node_lower_f32(
         self, point: Point3f32[Self.frame], node: UInt32
     ) -> Float32:
@@ -1191,7 +1172,6 @@ struct MeshQueryView[
             distance2 += delta * delta
         return max(distance2 * Float32(0.999998) - Float32(1e-30), Float32(0.0))
 
-    @always_inline
     def _query_nearest_f32_bounds(
         self,
         point: Point3f32[Self.frame],
@@ -1295,7 +1275,6 @@ struct MeshQueryView[
             0.0,
         )
 
-    @always_inline
     def _query_point_distance[
         width: SIMDLength, furthest: Bool
     ](
@@ -1545,7 +1524,6 @@ struct MeshQueryView[
             compensation = (updated - sum) - adjusted
             sum = updated
 
-    @always_inline
     def _accumulate_device_angles(
         self,
         point: Point3f32[Self.frame],
@@ -1691,7 +1669,6 @@ struct MeshQueryView[
                 result.sign = 0.0
         return result
 
-    @always_inline
     def _component_parity_faces(
         self, ray: Rayf32[Self.frame], begin: UInt32, end: UInt32
     ) -> Tuple[UInt32, Bool]:

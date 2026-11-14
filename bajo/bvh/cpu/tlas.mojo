@@ -57,7 +57,6 @@ comptime CpuBlasTraceFn[
 
 
 __extension SIMD:
-    @always_inline
     def to_array(self) -> Array[Scalar[Self.dtype], Self.length]:
         return Array[Scalar[Self.dtype], Self.length](
             fill_with=lambda (i: Int) -> Scalar[Self.dtype]: self[i]
@@ -221,7 +220,6 @@ def _tree[
         capacity=(Int(builder.nodes_used) + 1) // 2
     )
 
-    @always_inline
     def pack_leaf(
         first_item: UInt32, item_count: UInt32
     ) {imm, mut leaf_blocks} -> UInt32:
@@ -472,7 +470,6 @@ struct CpuTlas[
                 self._refit_ancestors(decode_ref_index(child), depth - 1)
         _ = self._refit_node[False](node_idx)
 
-    @always_inline
     def _refit_instances(
         mut self, instances: ImmSpan[Instance, _], first: Int, end: Int
     ) -> Bool:
@@ -490,7 +487,6 @@ struct CpuTlas[
 
         return translation_only
 
-    @always_inline
     def _refit_leaves(
         mut self, instances: ImmSpan[Instance, _], first: Int, end: Int
     ):

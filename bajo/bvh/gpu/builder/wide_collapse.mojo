@@ -54,7 +54,6 @@ comptime HPLOC_WIDE_NOOP_ENCODED = LBVH_SENTINEL
 comptime CWBVH_COLLAPSE_BLOCK_SIZE = 64
 
 
-@always_inline
 def _collapse_node_left[
     compact_hploc: Bool
 ](
@@ -67,7 +66,6 @@ def _collapse_node_left[
     return _node_left(node_meta, node_idx)
 
 
-@always_inline
 def _collapse_node_right[
     compact_hploc: Bool
 ](
@@ -80,7 +78,6 @@ def _collapse_node_right[
     return _node_right(node_meta, node_idx)
 
 
-@always_inline
 def _collapse_encoded_bounds[
     compact_hploc: Bool, sorted_leaf_bounds: Bool = False
 ](
@@ -307,22 +304,18 @@ def _write_direct_cwbvh8_node[
     words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + 11] = packed_uz[1]
 
 
-@always_inline
 def _pack_hploc_wide_pair(encoded: UInt32, out_idx: UInt32) -> UInt64:
     return (UInt64(encoded) << 32) | UInt64(out_idx)
 
 
-@always_inline
 def _hploc_wide_pair_encoded(pair: UInt64) -> UInt32:
     return UInt32(pair >> 32)
 
 
-@always_inline
 def _hploc_wide_pair_out_idx(pair: UInt64) -> UInt32:
     return UInt32(pair)
 
 
-@always_inline
 def _hploc_encoded_leaf_count(
     encoded: UInt32,
     node_leaf_counts: ImmPointer[UInt32, _],
@@ -340,7 +333,6 @@ comptime HplocWideLeafDataFn = def(
 ) thin -> UInt32
 
 
-@always_inline
 def _hploc_leaf_block_data(
     encoded: UInt32,
     leaf_block_idx: UInt32,
@@ -350,7 +342,6 @@ def _hploc_leaf_block_data(
     return leaf_block_idx
 
 
-@always_inline
 def _hploc_embedded_leaf_payload(
     encoded: UInt32,
     leaf_block_idx: UInt32,

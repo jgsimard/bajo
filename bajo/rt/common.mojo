@@ -27,7 +27,6 @@ struct RussianRouletteResult[length: SIMDLength = 1](Copyable, Writable):
     var throughput: Vec3[.float32, .WORLD, Self.length]
 
 
-@always_inline
 def sky_color[
     length: SIMDLength
 ](direction: Vec3[.float32, .WORLD, length]) -> Vec3[.float32, .WORLD, length]:
@@ -38,7 +37,6 @@ def sky_color[
     ](0.5, 0.7, 1.0)
 
 
-@always_inline
 def environment_radiance[
     length: SIMDLength
 ](
@@ -81,7 +79,6 @@ def environment_radiance[
     )
 
 
-@always_inline
 def environment_light_pdf[
     length: SIMDLength
 ](
@@ -108,7 +105,6 @@ def environment_light_pdf[
     )
 
 
-@always_inline
 def environment_pdf_from_radiance[
     length: SIMDLength
 ](
@@ -125,7 +121,6 @@ def environment_pdf_from_radiance[
     return _light_importance(emission) / total_light_weight
 
 
-@always_inline
 def path_stage_rng(seed: UInt64, path_id: UInt32, stage: UInt32) -> Rng[1]:
     """Create the deterministic Philox stream owned by one path stage."""
     return path_stage_rng(
@@ -135,7 +130,6 @@ def path_stage_rng(seed: UInt64, path_id: UInt32, stage: UInt32) -> Rng[1]:
     )
 
 
-@always_inline
 def path_stage_rng[
     length: SIMDLength = 1
 ](
@@ -170,7 +164,6 @@ def path_stage_rng[
     )
 
 
-@always_inline
 def path_stage_seed[
     length: SIMDLength = 1
 ](
@@ -193,7 +186,6 @@ def path_stage_seed[
     return _mix32(path_seed ^ stage)
 
 
-@always_inline
 def russian_roulette(
     seed: UInt64,
     path_id: UInt32,
@@ -209,7 +201,6 @@ def russian_roulette(
     )
 
 
-@always_inline
 def russian_roulette[
     length: SIMDLength = 1
 ](

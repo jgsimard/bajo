@@ -21,7 +21,6 @@ from bajo.rt.material_types import PrimitiveId, SurfaceId
 from bajo.core.color import Color
 
 
-@always_inline
 def _validate_mesh_bounds(
     vertices: ImmSpan[Point3f32[.LOCAL], _]
 ) raises -> AABB[.LOCAL]:
@@ -83,7 +82,6 @@ def _validate_mesh_bounds(
     return result
 
 
-@always_inline
 def _transformed_triangles[
     lanes: Int
 ](
@@ -144,7 +142,6 @@ def _transformed_triangles[
     return (p0, p1, p2, weight)
 
 
-@always_inline
 def _instance_light_record[
     lanes: Int
 ](
@@ -204,7 +201,6 @@ def _instance_light_record[
     )
 
 
-@always_inline
 def _append_instance_lights(
     vertices: ImmSpan[Point3f32[.LOCAL], _],
     transform: Affine3f32[.LOCAL, .WORLD],

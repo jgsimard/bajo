@@ -24,7 +24,6 @@ struct _FilteredTriangleLeaf[Filter: TriangleHitFilter](Copyable):
     var filter: Self.Filter
 
 
-@always_inline
 def _filtered_triangle_leaf[
     frame: Frame, width: SIMDLength, mode: TraceMode, Filter: TriangleHitFilter
 ](
@@ -81,7 +80,6 @@ def _filtered_triangle_leaf[
     return found
 
 
-@always_inline
 def trace_gpu_blas_filtered[
     frame: Frame,
     node_width: SIMDLength,

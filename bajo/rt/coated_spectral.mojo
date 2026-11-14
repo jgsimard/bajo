@@ -53,7 +53,6 @@ from bajo.rt.coated_diffuse import (
 )
 
 
-@always_inline
 def _is_diffuse[
     length: SIMDLength
 ](p: CoatedParameters[length]) -> SIMD[.bool, length]:
@@ -62,7 +61,6 @@ def _is_diffuse[
     ) & p.conductor_k.max_component().eq(0.0)
 
 
-@always_inline
 def _substrate_f[
     length: SIMDLength
 ](
@@ -98,7 +96,6 @@ def _substrate_f[
     return result
 
 
-@always_inline
 def _substrate_pdf[
     length: SIMDLength
 ](
@@ -125,7 +122,6 @@ def _substrate_pdf[
     return result
 
 
-@always_inline
 def _sample_substrate[
     length: SIMDLength
 ](
@@ -492,7 +488,6 @@ def _evaluate_layered[
     )
 
 
-@always_inline
 def _safe_parameters[
     length: SIMDLength
 ](p: CoatedParameters[length], active: SIMD[.bool, length]) -> CoatedParameters[
@@ -520,7 +515,6 @@ def _safe_parameters[
     )
 
 
-@always_inline
 def _bare_conductor[
     length: SIMDLength
 ](p: CoatedParameters[length]) -> SIMD[.bool, length]:
@@ -535,7 +529,6 @@ def _bare_conductor[
     )
 
 
-@always_inline
 def _evaluate_coated_diffuse[
     length: SIMDLength
 ](

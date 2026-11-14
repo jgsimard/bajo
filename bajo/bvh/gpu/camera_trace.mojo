@@ -64,7 +64,6 @@ def trace_bvh_camera_kernel[
     _store_packed_hit[.WORLD](hit, hits, ray_count_int, ray_idx)
 
 
-@always_inline
 def enqueue_bvh_camera_trace[
     trace_ray: GpuCameraTraceFn,
 ](
@@ -81,7 +80,6 @@ def enqueue_bvh_camera_trace[
     """Launch the single-view or multi-view specialization with one ABI."""
     validate_camera_launch(camera_params, hits, ray_count, width, height)
 
-    @always_inline
     def enqueue[single_view: Bool]() raises {imm}:
         ctx.enqueue_function[trace_bvh_camera_kernel[trace_ray, single_view]](
             nodes,

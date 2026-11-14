@@ -54,7 +54,6 @@ struct SpectrumSource(Copyable, Writable):
         return Self(Self.PRODUCT, Color(0), first, second)
 
 
-@always_inline
 def blackbody_spectrum[
     width: SIMDLength
 ](
@@ -100,7 +99,6 @@ struct SpectrumSourcesView(DevicePassable, TrivialRegisterPassable):
     def get_type_name() -> String:
         return "SpectrumSourcesView"
 
-    @always_inline
     def sample[
         width: SIMDLength
     ](
@@ -136,7 +134,6 @@ struct SpectrumSourcesView(DevicePassable, TrivialRegisterPassable):
             result = result * value
         return result
 
-    @always_inline
     def emission[
         width: SIMDLength
     ](

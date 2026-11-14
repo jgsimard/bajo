@@ -6,7 +6,6 @@ from std.math import sqrt
 from bajo.core import Vec3, cross, dot, length2, normalize, orthonormal_basis
 
 
-@always_inline
 def mapped_normal[
     length: SIMDLength = 1
 ](
@@ -29,7 +28,6 @@ def mapped_normal[
     return Vec3.select(dot(result, normal).lt(0.0), -result, result)
 
 
-@always_inline
 def albedo_from_texture[
     length: SIMDLength = 1
 ](
@@ -41,7 +39,6 @@ def albedo_from_texture[
     return Vec3.select(textured, clamped, albedo)
 
 
-@always_inline
 def roughness_from_texture[
     length: SIMDLength = 1
 ](
@@ -55,7 +52,6 @@ def roughness_from_texture[
     return roughness
 
 
-@always_inline
 def bump_slope[
     length: SIMDLength = 1
 ](

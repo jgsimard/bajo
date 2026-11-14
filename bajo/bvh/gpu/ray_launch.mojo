@@ -21,7 +21,6 @@ def validate_ray_launch(
         raise Error("hit output buffer is too short")
 
 
-@always_inline
 def _load_packed_ray[
     frame: Frame,
 ](rays: ImmPointer[Float32, _], ray_count: Int, ray_idx: Int) -> Rayf32[frame]:
@@ -43,7 +42,6 @@ def _load_packed_ray[
     )
 
 
-@always_inline
 def _store_packed_hit[
     frame: Frame,
 ](hit: Hit[frame], hits: MutPointer[Float32, _], ray_count: Int, ray_idx: Int,):
@@ -52,7 +50,6 @@ def _store_packed_hit[
     )
 
 
-@always_inline
 def _store_packed_hit_vectorized[
     frame: Frame,
 ](hit: Hit[frame], hits: MutPointer[Float32, _], ray_count: Int, ray_idx: Int,):

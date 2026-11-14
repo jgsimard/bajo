@@ -33,7 +33,6 @@ def validate_camera_launch(
         raise Error("hit output buffer is too short")
 
 
-@always_inline
 def _camera_ray(
     camera_params: ImmPointer[Float32, _],
     ray_count: Int,
@@ -58,7 +57,6 @@ def _camera_ray(
     )
 
 
-@always_inline
 def _camera_ray_single_view(
     camera_params: ImmPointer[Float32, _],
     ray_idx: Int32,

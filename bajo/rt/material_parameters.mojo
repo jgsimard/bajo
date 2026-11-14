@@ -45,7 +45,6 @@ struct CoatedParameters[length: SIMDLength = 1](TrivialRegisterPassable):
             material.conductor_roughness,
         )
 
-    @always_inline
     def set_lane(mut self, lane: Int, value: CoatedParameters[1]):
         self.roughness[lane] = value.roughness
         self.eta[lane] = value.eta

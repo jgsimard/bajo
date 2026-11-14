@@ -441,7 +441,6 @@ struct WideNodeIntersection[width: SIMDLength](TrivialRegisterPassable):
         self.meta = meta
 
 
-@always_inline
 def _intersect_wide_node_precomputed[
     frame: Frame,
     width: SIMDLength,

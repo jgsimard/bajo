@@ -28,7 +28,6 @@ from bajo.rt.opacity import (
 from bajo.core.image import sample_scalar_texture_bilinear
 
 
-@always_inline
 def gpu_opacity_value(
     view: GpuOpacityView, key: UInt32, u: Float32, v: Float32
 ) -> Float32:
@@ -68,7 +67,6 @@ struct _GpuOpacityFilter(TriangleHitFilter, TrivialRegisterPassable):
     var texcoords: ImmPointer[Float32, ImmUntrackedOrigin]
     var sample: Float32
 
-    @always_inline
     def accept(self, primitive: UInt32, u: Float32, v: Float32) -> Bool:
         var key = self.shape_key
         if key == UInt32.MAX:
@@ -93,7 +91,6 @@ struct _GpuOpacityFilter(TriangleHitFilter, TrivialRegisterPassable):
         )
 
 
-@always_inline
 def trace_gpu_opacity_triangles[
     format: GpuRtBvhFormat, mode: TraceMode
 ](scene: GpuRtSceneView, ray: Rayf32[.WORLD],) -> Hit[.WORLD]:
@@ -117,7 +114,6 @@ struct _OpacityTlasState(TrivialRegisterPassable):
     var sample: Float32
 
 
-@always_inline
 def _opacity_instance_leaf[
     tlas_width: SIMDLength, blas_format: GpuRtBvhFormat, mode: TraceMode
 ](
@@ -176,7 +172,6 @@ def _opacity_instance_leaf[
     return found
 
 
-@always_inline
 def trace_gpu_opacity_instances[
     tlas_format: GpuRtBvhFormat, blas_format: GpuRtBvhFormat, mode: TraceMode
 ](scene: GpuRtSceneView, ray: Rayf32[.WORLD],) -> Hit[.WORLD]:
@@ -212,7 +207,6 @@ struct _OpacitySphereState(TrivialRegisterPassable):
     var sample: Float32
 
 
-@always_inline
 def _opacity_sphere_leaf[
     width: SIMDLength, mode: TraceMode
 ](
@@ -274,7 +268,6 @@ def _opacity_sphere_leaf[
     return found
 
 
-@always_inline
 def trace_gpu_opacity_spheres[
     format: GpuRtBvhFormat, mode: TraceMode
 ](scene: GpuRtSceneView, ray: Rayf32[.WORLD]) -> Hit[.WORLD]:

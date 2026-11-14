@@ -48,7 +48,6 @@ __enum PrimitiveKind(Equatable, ImplicitlyCopyable, Writable):
             case _:
                 self = Self.UNKNOWN
 
-    @always_inline
     def value(self) -> UInt32:
         match self:
             case .UNKNOWN:

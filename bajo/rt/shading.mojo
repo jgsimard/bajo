@@ -31,7 +31,6 @@ comptime INV_PI = 1.0 / pi
 comptime METAL_DELTA_FUZZ_THRESHOLD = 1.0e-4
 
 
-@always_inline
 def _metal_lobe_parameters[
     length: SIMDLength
 ](fuzz: SIMD[.float32, length]) -> Tuple[
@@ -43,7 +42,6 @@ def _metal_lobe_parameters[
     return smooth, exponent
 
 
-@always_inline
 def _evaluate_lambertian[
     length: SIMDLength
 ](
@@ -59,7 +57,6 @@ def _evaluate_lambertian[
     )
 
 
-@always_inline
 def _evaluate_metal[
     length: SIMDLength
 ](
@@ -88,7 +85,6 @@ def _evaluate_metal[
     )
 
 
-@always_inline
 def _evaluate_material[
     MATERIAL_KIND: MaterialKind, length: SIMDLength
 ](
@@ -141,7 +137,6 @@ def _evaluate_material[
             ), "layered and mixed materials require their BSDF adapters"
 
 
-@always_inline
 def _sample_lambertian[
     length: SIMDLength
 ](
@@ -168,7 +163,6 @@ def _sample_lambertian[
     )
 
 
-@always_inline
 def _sample_metal[
     length: SIMDLength
 ](
@@ -205,7 +199,6 @@ def _sample_metal[
     return BsdfSample[length](direction, weight, pdf, smooth, ok)
 
 
-@always_inline
 def dielectric_geometry[
     length: SIMDLength
 ](
@@ -221,7 +214,6 @@ def dielectric_geometry[
     return {unit_direction, cos_theta, relative_eta * sin_theta}
 
 
-@always_inline
 def _sample_dielectric[
     length: SIMDLength
 ](
@@ -261,7 +253,6 @@ def _sample_dielectric[
     )
 
 
-@always_inline
 def _sample_material[
     MATERIAL_KIND: MaterialKind, length: SIMDLength
 ](

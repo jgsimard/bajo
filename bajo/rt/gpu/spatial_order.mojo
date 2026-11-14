@@ -18,7 +18,6 @@ from bajo.rt.gpu.order_bounds import gpu_rt_order_bounds
 from bajo.core.morton import expand_bits_3d
 
 
-@always_inline
 def gpu_rt_spatial_order_enabled(capacity: Int, bounce: UInt32) -> Bool:
     return gpu_rt_queue_order_enabled(capacity, bounce) and bounce > 0
 
@@ -43,7 +42,6 @@ def gpu_rt_spatial_order_rays_kernel[
     var inv_y = 4.0 / max(high.y - low.y, Float32(1e-10))
     var inv_z = 4.0 / max(high.z - low.z, Float32(1e-10))
 
-    @always_inline
     def key(idx: Int) {imm} -> UInt32:
         var dx = paths[(WavePathFloatAbi.DX, idx)]
         var dy = paths[(WavePathFloatAbi.DY, idx)]

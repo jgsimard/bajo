@@ -13,7 +13,6 @@ comptime RT_SHADOW_END_OFFSET = Float32(0.002)
 comptime RT_AO_DISTANCE = Float32(4.0)
 
 
-@always_inline
 def make_camera_ray_from_samples[
     length: SIMDLength
 ](
@@ -41,7 +40,6 @@ def make_camera_ray_from_samples[
     )
 
 
-@always_inline
 def spawn_surface_ray[
     length: SIMDLength
 ](
@@ -53,7 +51,6 @@ def spawn_surface_ray[
     return Ray[.float32, .WORLD, length](point, direction, RT_RAY_T_MIN, t_max)
 
 
-@always_inline
 def make_ao_ray[
     length: SIMDLength = 1
 ](

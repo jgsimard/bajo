@@ -89,7 +89,6 @@ struct SpectralLightCandidate(TrivialRegisterPassable):
         return Self(False, Vec3f32[.WORLD](0), Color(0), 0, 0, 0, UInt32.MAX)
 
 
-@always_inline
 def sample_spectral_light[
     integrator: Integrator,
     light_kind: PrimitiveKind = .UNKNOWN,

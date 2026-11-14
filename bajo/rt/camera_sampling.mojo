@@ -14,7 +14,6 @@ struct CameraSamples[width: SIMDLength](TrivialRegisterPassable):
     var filter_weight: SIMD[.float32, Self.width]
 
 
-@always_inline
 def sample_camera[
     width: SIMDLength
 ](

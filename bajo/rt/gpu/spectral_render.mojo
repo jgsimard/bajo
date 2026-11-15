@@ -406,7 +406,7 @@ def spectral_bounce_kernel[
                     hit.surface.kind(),
                     emitter.radiance.max_component() > 0
                     or source != NO_SPECTRUM,
-                )
+                ).value()
             if (hit.front_face or emitter.two_sided) and opacity_accepts(
                 gpu_opacity_value(scene.opacity, primitive, hit.uv_u, hit.uv_v),
                 opacity_point_sample(ray.at(hit.t)),

@@ -619,7 +619,7 @@ def _gpu_rt_scene_trace_path[
         )[unsafe_offset=Int(path.path_id)] = denoise_component(
             SurfaceId.kind_from_raw(surface_value),
             primary_emitter.radiance.max_component() > 0,
-        )
+        ).value()
     comptime if integrator == .AO:
         var ao_rng = path_stage_rng(sampling, path.path_id, UInt32(1))
         var ao_ray = make_ao_ray(ray.at(closest_t), normal, ao_rng)

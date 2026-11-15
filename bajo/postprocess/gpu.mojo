@@ -7,6 +7,7 @@ from std.memory import bitcast
 from bajo.gpu.buffers import upload_list
 from bajo.core.color import luminance
 from .types import AtrousSettings, DenoiseGuides, GuideLayout
+from .samples import DenoiseComponent
 from .common import _color, _albedo, _reconstruct_pixel, _filter_pixel
 from .statistics import (
     CascadeLayout,
@@ -15,6 +16,7 @@ from .statistics import (
 )
 
 
+@fieldwise_init
 struct GpuDenoiseGuides:
     var width: Int
     var height: Int
@@ -34,10 +36,12 @@ struct GpuDenoiseGuides:
     @staticmethod
     def upload(mut ctx: DeviceContext, guides: DenoiseGuides) raises -> Self:
         guides.validate(guides.width, guides.height)
-        var result = Self(ctx, guides.width, guides.height)
-        result.fields = upload_list(ctx, guides.fields)
-        result.surfaces = upload_list(ctx, guides.surfaces)
-        return result^
+        return Self(
+            guides.width,
+            guides.height,
+            upload_list(ctx, guides.fields),
+            upload_list(ctx, guides.surfaces),
+        )
 
 
 struct GpuDenoiseSampleBatch:
@@ -51,7 +55,7 @@ struct GpuDenoiseSampleBatch:
         self.colors = ctx.enqueue_create_buffer[.float32](count * 3)
         self.weights = ctx.enqueue_create_buffer[.float32](count)
         self.components = ctx.enqueue_create_buffer[.uint32](count)
-        self.components.enqueue_fill(0)
+        self.components.enqueue_fill(DenoiseComponent.PASSTHROUGH.value())
 
 
 # enqueue_function requires concrete pointer origins at kernel entry points.
@@ -72,7 +76,7 @@ def _maximum_kernel(
             or not isfinite(y)
             or not isfinite(weights[unsafe_offset=i])
             or weights[unsafe_offset=i] < 0
-            or components[unsafe_offset=i] > 2
+            or components[unsafe_offset=i] > DenoiseComponent.GLOSSY.value()
         ):
             largest = bitcast[.float32](UInt32(0x7F800000))
         largest = max(largest, y)
@@ -92,16 +96,6 @@ def _maximum_finish(
         for i in range(Int(count)):
             largest = max(largest, partial[unsafe_offset=i])
         result[unsafe_offset=0] = largest
-
-
-def _copy_statistics(
-    source: ImmPointer[Float64, ImmutAnyOrigin],
-    dest: MutPointer[Float64, MutAnyOrigin],
-    count: Int32,
-):
-    var i = global_idx.x
-    if i < Int(count):
-        dest[unsafe_offset=i] = source[unsafe_offset=i]
 
 
 def _accumulate_statistics(
@@ -125,7 +119,7 @@ def _accumulate_statistics(
             Int(count),
             _color(colors, i),
             weights[unsafe_offset=i],
-            components[unsafe_offset=i],
+            DenoiseComponent(components[unsafe_offset=i]),
         )
 
 
@@ -194,12 +188,8 @@ struct GpuDenoiseStatistics:
             )
             next.enqueue_fill(0)
             if self.n_bins:
-                ctx.enqueue_function[_copy_statistics](
-                    self.bins,
-                    next,
-                    Int32(len(self.bins)),
-                    grid_dim=ceildiv(len(self.bins), 128),
-                    block_dim=128,
+                ctx.enqueue_copy(
+                    next.unsafe_ptr(), self.bins.unsafe_ptr(), len(self.bins)
                 )
             self.bins = next^
             self.n_bins = required

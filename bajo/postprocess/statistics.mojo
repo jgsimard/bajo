@@ -7,7 +7,7 @@ interactive reweighting. All storage is Float64, including weighted sums.
 
 from std.math import floor, log2, exp2, isfinite
 from max.algorithm import parallelize
-from .samples import DenoiseSampleBatch
+from .samples import DenoiseSampleBatch, DenoiseComponent
 from bajo.core.color import Color, luminance, LUMINANCE_WEIGHTS
 
 
@@ -81,7 +81,7 @@ def accumulate_sample(
     count: Int,
     color: Color,
     weight: Float32,
-    component: UInt32,
+    component: DenoiseComponent,
 ):
     var m = pixel * CascadeLayout.META
     var w = Float64(weight)
@@ -90,9 +90,9 @@ def accumulate_sample(
     # Inactive camera samples have a zero contribution to this component.
     # Store their squared weights directly, avoiding subtraction of two large
     # nearly equal weight sums when reconstructing a constant HDR image.
-    if component != 1 or y <= 0:
+    if component != DenoiseComponent.DIFFUSE or y <= 0:
         meta[unsafe_offset=m + CascadeLayout.INACTIVE_DIFFUSE] += w * w
-    if component == 0 or y <= 0:
+    if component == DenoiseComponent.PASSTHROUGH or y <= 0:
         comptime for c in range(3):
             meta[
                 unsafe_offset=m + CascadeLayout.PASSTHROUGH + c
@@ -103,7 +103,7 @@ def accumulate_sample(
     if Float64(y) >= CascadeLayout.BASE:
         # Eq. 16. Below the numerical floor samples belong entirely to B0.
         a = ((cascade_scale(bin) / Float64(y) - 0.125) / 0.875).clamp(0, 1)
-    var layer = Int(component) - 1
+    var layer = Int(component.value()) - 1
     for part in range(2):
         var alpha = a if part == 0 else 1 - a
         var at = _record(bin + part, layer, pixel, count)
@@ -351,18 +351,19 @@ struct DenoiseStatistics:
             raise Error("incomplete denoising sample sidecar")
         var largest = Float32(0)
         for i in range(count):
+            var y = luminance(batch.colors[i])
             if (
                 not batch.colors[i].is_finite()[0]
-                or not isfinite(luminance(batch.colors[i]))
+                or not isfinite(y)
                 or not isfinite(batch.weights[i])
                 or batch.weights[i] < 0
-                or batch.components[i] > 2
+                or batch.components[i] > DenoiseComponent.GLOSSY.value()
             ):
                 raise Error(
                     "denoising samples must be finite with nonnegative weights"
                     " and valid components"
                 )
-            largest = max(largest, luminance(batch.colors[i]))
+            largest = max(largest, y)
         self.reserve(cascade_size(largest))
         var bins = self.bins.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
         var meta = self.meta.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
@@ -379,7 +380,7 @@ struct DenoiseStatistics:
                     pixels,
                     batch.colors[i],
                     batch.weights[i],
-                    batch.components[i],
+                    DenoiseComponent(batch.components[i]),
                 )
 
         parallelize(accumulate, pixels)

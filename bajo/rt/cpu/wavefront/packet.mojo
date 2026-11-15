@@ -472,7 +472,7 @@ def _trace_packets_impl[
                         ] = denoise_component(
                             surface_hits.surface.get(lane).kind(),
                             surface_hits.emission.max_component()[lane] > 0,
-                        )
+                        ).value()
             if world.has_shading_normals():
                 surface_hits.normal = (
                     world.scene_data()

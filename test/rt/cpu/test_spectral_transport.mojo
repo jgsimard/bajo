@@ -31,7 +31,7 @@ from bajo.rt.render_types import RenderSettings
 from bajo.rt.scene_data import SceneBuilder
 from bajo.rt.material_types import Environment
 from bajo.rt.film import FilmResponse
-from bajo.rt.sensor import FilmSensorKind, sensor_to_xyz, canon_sensor_sample
+from bajo.rt.sensor import sensor_to_xyz, canon_sensor_sample
 from bajo.rt.spectrum_sources import blackbody_spectrum, SpectrumSource
 
 # Independent NumPy references computed from the original PBRT sources.

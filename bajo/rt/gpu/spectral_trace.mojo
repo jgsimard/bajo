@@ -1,13 +1,7 @@
-"""Compile-time-specialized traversal kernel for all GPU RT scene shapes."""
+"""Surface traversal and material-hit reconstruction for spectral transport."""
 
-from max.gpu import block_dim, global_idx, grid_dim
-from std.math import ceildiv, pi
-from max.gpu.host import DeviceContext
-
-from bajo.bvh.constants import PrimitiveKind
 from bajo.bvh.types import Hit
 from bajo.rt.gpu.opacity import (
-    gpu_opacity_value,
     trace_gpu_opacity_triangles,
     trace_gpu_opacity_instances,
     trace_gpu_opacity_spheres,
@@ -20,29 +14,19 @@ from bajo.bvh.gpu.blas_trace import trace_gpu_blas
 from bajo.core import (
     Affine3f32,
     GeoKind,
-    Point3f32,
     Rayf32,
     Vec3f32,
     dot,
     length,
 )
-from bajo.core.mappings import equal_area_sphere_to_square
-from bajo.rt.common import path_stage_rng, sky_color
+from bajo.rt.common import path_stage_rng
 from bajo.core.geometry import (
     orient_surface_normal,
     interpolate_triangle_attribute,
 )
 from bajo.core.tensor_layout import record_tile
-from bajo.rt.lighting import (
-    _emissive_hit_weight_from_pdf,
-    _emissive_hit_light_pdf,
-)
-from bajo.rt.gpu.emission import gpu_emitter
-from bajo.rt.rays import make_ao_ray
-from bajo.core.color import Color, luminance
+from bajo.core.color import luminance
 from bajo.rt.render_types import SamplingConfig
-from bajo.rt.gpu.sampling import GpuRtSamplingConfig
-from bajo.core.optics import medium_transmittance
 from bajo.rt.material_types import (
     PrimitiveId,
     NO_TEXTURE,
@@ -50,57 +34,20 @@ from bajo.rt.material_types import (
     SurfaceId,
     sample_mix_branch,
 )
-from bajo.rt.lighting_types import _light_importance
-from bajo.rt.opacity import (
-    opacity_accepts,
-    opacity_point_sample,
-    opacity_sphere_uv,
-)
+from bajo.rt.opacity import opacity_sphere_uv
 
 from bajo.rt.gpu.config import (
     _GpuRtKernelFormats,
     GpuRtSceneKind,
 )
-from bajo.rt.wavefront_contract import (
-    DeviceWavePath,
-    DeviceWaveShadow,
-    WAVE_COUNTER,
-    wavefront_rng_material_stage,
-)
-from bajo.rt.gpu.wavefront_contract import (
-    load_gpu_rt_path,
-    load_gpu_rt_shadow,
-    store_gpu_rt_path_values,
-)
-from bajo.rt.gpu.common_kernels import (
-    GPU_RT_MAX_BLOCKS,
-    clear_gpu_rt_sample,
-    make_gpu_rt_primary_path,
-    gpu_rt_bounce_block_limit,
-)
-from bajo.rt.gpu.lighting import _sample_direct_light_candidate
+from bajo.rt.wavefront_contract import wavefront_rng_material_stage
 from bajo.rt.gpu.textures import (
-    _GpuImageTextureView,
     _gpu_normal_map,
     _gpu_coated_shading_normal,
     _gpu_dielectric_shading_normal,
     _sample_gpu_image_texture,
 )
-from bajo.rt.gpu.path_shading import (
-    _accumulate_sample,
-    _append_shadow,
-    _append_direct_light_shadow,
-    _route_surface_hit,
-)
-from bajo.rt.gpu.queue_order import (
-    GpuRtQueueOrderScratch,
-    gpu_rt_queue_order_enabled,
-)
-from bajo.rt.gpu.views import GpuRtSceneView, GpuRtTraceQueueView
-from bajo.rt.gpu.spatial_order import gpu_rt_spatial_order_enabled
-from bajo.rt.gpu.light_order import enqueue_gpu_rt_light_order
-
-
+from bajo.rt.gpu.views import GpuRtSceneView
 from bajo.rt.shading_types import SurfaceHit
 from bajo.rt.gpu.scene_trace import GPU_RT_LARGE_QUEUE_MIN_CAPACITY
 

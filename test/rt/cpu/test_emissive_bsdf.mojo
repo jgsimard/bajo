@@ -6,7 +6,6 @@ from std.testing import (
     TestSuite,
     assert_equal,
     assert_almost_equal,
-    assert_true,
     assert_raises,
 )
 from bajo.core import Point3f32, Vec3f32, Rayf32, Point3, Vec3, Ray

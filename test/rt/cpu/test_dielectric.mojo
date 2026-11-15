@@ -7,9 +7,9 @@ from std.testing import (
     assert_equal,
     assert_true,
 )
-from bajo.core import Vec3, Vec3f32, normalize
+from bajo.core import Vec3f32, normalize
 from bajo.core.optics import fresnel_dielectric
-from bajo.rt.material_types import MaterialKind, SurfaceStore, ImageTexture
+from bajo.rt.material_types import SurfaceStore, ImageTexture
 from bajo.rt.texture_math import mapped_normal
 from bajo.rt.shading import _sample_material, _evaluate_material
 from bajo.rt.cpu.bsdf import _MaterialParameters

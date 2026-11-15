@@ -4,7 +4,6 @@ from std.math import sqrt
 from bajo.core import Vec3
 from bajo.core.sampled_spectrum import SampledSpectrum, SampledWavelengths
 from bajo.core.rgb_spectrum import RgbSpectrumView
-from bajo.core.optics import conductor_k_from_reflectance
 from bajo.core.random import Rng
 from bajo.rt.material_types import (
     SurfaceStore,

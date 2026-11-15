@@ -4,11 +4,9 @@ from std.math import abs, cos, pi, pow, sin, sqrt
 
 from bajo.core import (
     dot,
-    fresnel_schlick,
     normalize,
     orthonormal_basis,
     reflect,
-    refract,
     Vec3,
 )
 from bajo.core.random import unit_vector_from_samples

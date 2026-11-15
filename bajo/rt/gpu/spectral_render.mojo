@@ -1,8 +1,7 @@
 """Four-wavelength GPU wavefront transport and complete-sample film reduction."""
 
-from std.math import abs, exp, ceildiv, pi
+from std.math import exp
 from max.gpu import global_idx, block_dim, grid_dim
-from max.gpu.host import DeviceContext
 from bajo.core import Point3f32, Vec3f32, Rayf32, dot, length
 from bajo.core.color import Color
 from bajo.core.sampled_spectrum import (
@@ -24,14 +23,11 @@ from bajo.rt.path_values import PathContinuation
 from bajo.rt.material_types import (
     MaterialKind,
     Integrator,
-    SurfaceId,
-    NO_TEXTURE,
-    EnvironmentKind,
 )
 from bajo.rt.spectrum_sources import NO_SPECTRUM
 from bajo.rt.shading_types import SurfaceHit
 from bajo.rt.film import FilmResponse
-from bajo.rt.render_types import SamplingConfig, RenderSettings
+from bajo.rt.render_types import SamplingConfig
 from bajo.rt.lighting import (
     _direct_light_scale,
     _emissive_hit_light_pdf,
@@ -48,7 +44,6 @@ from bajo.rt.wavefront_contract import (
 from bajo.rt.gpu.views import (
     GpuRtSceneView,
     GpuRtTraceQueueView,
-    gpu_rt_trace_queue_view,
 )
 from bajo.rt.gpu.config import (
     _GpuRtKernelFormats,
@@ -68,7 +63,6 @@ from bajo.rt.gpu.wavefront_contract import (
     store_gpu_rt_path_values,
     _reserve_slot,
     _mark_status,
-    enqueue_wavefront_advance,
 )
 from bajo.rt.rays import spawn_surface_ray
 

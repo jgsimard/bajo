@@ -6,7 +6,6 @@ from max.gpu.host import DeviceContext
 from bajo.bvh.constants import PrimitiveKind
 from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.rt.material_types import Integrator, SurfaceId
-from bajo.rt.render_types import SamplingConfig
 from bajo.rt.gpu.sampling import GpuRtSamplingConfig
 from bajo.rt.wavefront_contract import (
     WAVE_COUNTER,

@@ -6,7 +6,6 @@ values is not equivalent to multiplying their reconstructed spectra.
 
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import exp, pow
-from bajo.core import Vec3
 from bajo.core.color import Color
 from bajo.core.rgb_spectrum import RgbSpectrumView
 from bajo.core.sampled_spectrum import (

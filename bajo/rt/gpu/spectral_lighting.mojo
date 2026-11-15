@@ -4,14 +4,12 @@ from std.utils.numerics import max_finite
 
 from std.math import abs, pi
 from std.memory import bitcast
-from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.bvh.constants import PrimitiveKind
 from bajo.core import Point3f32, Rayf32, Vec3f32, dot, normalize
 from bajo.core.random import random_unit_vector
 from bajo.core.mappings import equal_area_square_to_sphere
-from bajo.rt.common import path_stage_rng, path_stage_seed, sky_color
+from bajo.rt.common import path_stage_rng, sky_color
 from bajo.rt.lighting import (
-    _direct_light_scale,
     _finish_direct_light_geometry,
     _DirectLightGeometrySample,
     _LightSurfaceSample,
@@ -20,58 +18,20 @@ from bajo.rt.lighting import (
     light_sample_uv,
 )
 from bajo.core.sampling import draw_alias_column, resolve_alias_draw
-from bajo.rt.shading import (
-    METAL_DELTA_FUZZ_THRESHOLD,
-    _evaluate_coated_diffuse,
-    _evaluate_material,
-)
 
 from bajo.core.color import Color
 from bajo.rt.render_types import SamplingConfig
 from bajo.rt.material_types import Integrator, SurfaceId
-from bajo.rt.lighting_types import _light_importance
-from bajo.rt.scene_data import SceneData
 from bajo.rt.wavefront_contract import (
     DeviceWavePath,
     wavefront_rng_light_stage,
-    wavefront_rng_stage,
 )
 from bajo.rt.gpu.views import GpuRtSceneView
-from bajo.rt.gpu.upload import _upload_nonempty
 from bajo.rt.gpu.opacity import gpu_opacity_value
 from bajo.rt.opacity import opacity_accepts, opacity_point_sample
-from bajo.rt.gpu.material_layout import (
-    GpuMetalLayout,
-    GpuTextureDescLayout,
-    GpuDielectricLayout,
-)
-from bajo.rt.gpu.textures import (
-    _GpuImageTextureView,
-    _sample_gpu_lambertian,
-    _sample_gpu_coated_albedo,
-    _sample_gpu_coated_parameters,
-)
-
-
-comptime GPU_RT_LIGHT_STRIDE = 22
-comptime GPU_RT_LIGHT_P0_X = 0
-comptime GPU_RT_LIGHT_P0_Y = 1
-comptime GPU_RT_LIGHT_P0_Z = 2
-comptime GPU_RT_LIGHT_P1_X = 3
-comptime GPU_RT_LIGHT_P1_Y = 4
-comptime GPU_RT_LIGHT_P1_Z = 5
-comptime GPU_RT_LIGHT_P2_X = 6
-comptime GPU_RT_LIGHT_P2_Y = 7
-comptime GPU_RT_LIGHT_P2_Z = 8
-comptime GPU_RT_LIGHT_RADIUS = 9
-comptime GPU_RT_LIGHT_E_X = 10
-comptime GPU_RT_LIGHT_E_Y = 11
-comptime GPU_RT_LIGHT_E_Z = 12
-# The selection hot path reads the duplicated dense probability prefix.
-comptime GPU_RT_LIGHT_ALIAS_PROBABILITY = 13
-comptime GPU_RT_LIGHT_UV0 = 14
-comptime GPU_RT_LIGHT_PRIMITIVE = 20
-comptime GPU_RT_LIGHT_FLAGS = 21
+from bajo.rt.gpu.material_layout import GpuTextureDescLayout
+from bajo.rt.gpu.textures import _GpuImageTextureView
+from bajo.rt.gpu.light_layout import GPU_RT_LIGHT
 
 
 @fieldwise_init
@@ -220,26 +180,26 @@ def sample_spectral_light[
         )
         light_id = UInt32(selected_idx)
         var base = (
-            Int(scene.light_count) + Int(selected_idx) * GPU_RT_LIGHT_STRIDE
+            Int(scene.light_count) + Int(selected_idx) * GPU_RT_LIGHT.STRIDE
         )
         var p0 = Point3f32[.WORLD](
-            scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT_P0_X)
+            scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT.P0_X)
         )
         var surface_sample: _LightSurfaceSample[1]
         comptime match light_kind:
             case .SPHERE:
                 var radius = scene.light_fields[
-                    unsafe_offset=base + GPU_RT_LIGHT_RADIUS
+                    unsafe_offset=base + GPU_RT_LIGHT.RADIUS
                 ]
                 surface_sample = _sample_sphere_light_surface(
                     p0, radius, random_unit_vector[.WORLD](rng)
                 )
             case .TRIANGLE:
                 var p1 = Point3f32[.WORLD](
-                    scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT_P1_X)
+                    scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT.P1_X)
                 )
                 var p2 = Point3f32[.WORLD](
-                    scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT_P2_X)
+                    scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT.P2_X)
                 )
                 surface_sample = _sample_triangle_light_surface(
                     p0, p1, p2, rng.f32(), rng.f32()
@@ -250,7 +210,7 @@ def sample_spectral_light[
                 )
                 if kind == PrimitiveKind.SPHERE:
                     var radius = scene.light_fields[
-                        unsafe_offset=base + GPU_RT_LIGHT_RADIUS
+                        unsafe_offset=base + GPU_RT_LIGHT.RADIUS
                     ]
                     surface_sample = _sample_sphere_light_surface(
                         p0, radius, random_unit_vector[.WORLD](rng)
@@ -258,19 +218,19 @@ def sample_spectral_light[
                 else:
                     var p1 = Point3f32[.WORLD](
                         scene.light_fields.unsafe_offset(
-                            base + GPU_RT_LIGHT_P1_X
+                            base + GPU_RT_LIGHT.P1_X
                         )
                     )
                     var p2 = Point3f32[.WORLD](
                         scene.light_fields.unsafe_offset(
-                            base + GPU_RT_LIGHT_P2_X
+                            base + GPU_RT_LIGHT.P2_X
                         )
                     )
                     surface_sample = _sample_triangle_light_surface(
                         p0, p1, p2, rng.f32(), rng.f32()
                     )
         emission = Color(
-            scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT_E_X)
+            scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT.E_X)
         )
         if scene.opacity.count > 0:
             var texture_u = surface_sample.u
@@ -279,7 +239,7 @@ def sample_spectral_light[
                 scene.light_kinds[unsafe_offset=selected_idx] & UInt32(0xF)
             )
             if kind != PrimitiveKind.SPHERE:
-                var uv_base = base + GPU_RT_LIGHT_UV0
+                var uv_base = base + GPU_RT_LIGHT.UV0
                 var uv = light_sample_uv(
                     scene.light_fields[unsafe_offset=uv_base],
                     scene.light_fields[unsafe_offset=uv_base + 1],
@@ -293,7 +253,7 @@ def sample_spectral_light[
                 texture_u = uv[0]
                 texture_v = uv[1]
             var primitive = bitcast[.uint32](
-                scene.light_fields[unsafe_offset=base + GPU_RT_LIGHT_PRIMITIVE]
+                scene.light_fields[unsafe_offset=base + GPU_RT_LIGHT.PRIMITIVE]
             )
             surface_sample.valid &= opacity_accepts(
                 gpu_opacity_value(
@@ -309,15 +269,15 @@ def sample_spectral_light[
             lighting.total_weight,
             surface_kind == .DIELECTRIC,
             bitcast[.uint32](
-                scene.light_fields[unsafe_offset=base + GPU_RT_LIGHT_FLAGS]
+                scene.light_fields[unsafe_offset=base + GPU_RT_LIGHT.FLAGS]
             )
             != 0,
         )
     var primitive = UInt32.MAX
     if selection_u >= environment_probability:
-        var base = Int(scene.light_count) + Int(light_id) * GPU_RT_LIGHT_STRIDE
+        var base = Int(scene.light_count) + Int(light_id) * GPU_RT_LIGHT.STRIDE
         primitive = bitcast[.uint32](
-            scene.light_fields[unsafe_offset=base + GPU_RT_LIGHT_PRIMITIVE]
+            scene.light_fields[unsafe_offset=base + GPU_RT_LIGHT.PRIMITIVE]
         )
     return SpectralLightCandidate(
         geometry.valid,

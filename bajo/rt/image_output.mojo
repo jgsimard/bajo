@@ -5,7 +5,7 @@ from std.memory import bitcast
 from std.sys import simd_width_of
 from std.sys import Endian
 from std.sys.info import size_of
-from bajo.core.color import Color, color_to_byte, linear_to_gamma
+from bajo.core.color import Color, color_to_byte
 
 
 def write_linear_rgb(path: String, pixels: ImmSpan[Color, _]) raises:

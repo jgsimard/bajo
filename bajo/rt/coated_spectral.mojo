@@ -4,43 +4,31 @@ Scalar CPU/GPU shading specializes the same SIMD functions with length=1.
 Lanes retain independent sample counts, depths, seeds and termination masks.
 """
 
-from bajo.core.optics import fresnel_dielectric, fresnel_conductor
+from bajo.core.optics import fresnel_conductor
 
-from std.math import abs, cos, exp, log, pi, sin, sqrt
-from std.memory import bitcast
+from std.math import abs, cos, log, pi, sin, sqrt
 from bajo.core import (
     Vec3,
-    cross,
     dot,
     length2,
     normalize,
     orthonormal_basis,
     reflect,
 )
-from bajo.core.random import _mix32, _u32_to_unit_float
 from bajo.rt.spectral_shading_types import (
     SpectralCoatedParameters as CoatedParameters,
-)
-from bajo.core.sampled_spectrum import SampledSpectrum
-from bajo.core.sampling import power_heuristic
-from bajo.rt.spectral_shading_types import (
     SpectralBsdfEvaluation as BsdfEvaluation,
     SpectralBsdfSample as BsdfSample,
 )
-
-comptime _INV_PI = 1.0 / pi
-comptime _INV_4_PI = 1.0 / (4.0 * pi)
-
-
+from bajo.core.sampled_spectrum import SampledSpectrum
+from bajo.core.sampling import power_heuristic
 from bajo.rt.coated_diffuse import (
     _random,
     _sample_seed,
-    _ggx_lambda,
     _ggx_d,
     _ggx_g,
     _ggx_visible_pdf,
     _sample_ggx_visible_normal,
-    _dielectric_geometry,
     _dielectric_f,
     _dielectric_pdf,
     _sample_dielectric,
@@ -49,8 +37,11 @@ from bajo.rt.coated_diffuse import (
     _sample_phase_hg,
     _to_local,
     _from_local,
-    _DielectricSample,
 )
+
+
+comptime _INV_PI = 1.0 / pi
+comptime _INV_4_PI = 1.0 / (4.0 * pi)
 
 
 def _is_diffuse[

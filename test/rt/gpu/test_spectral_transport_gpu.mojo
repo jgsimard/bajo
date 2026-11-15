@@ -6,7 +6,7 @@ from std.testing import (
     assert_almost_equal,
     assert_true,
 )
-from std.math import abs, sqrt
+from std.math import sqrt
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext
 from bajo.core.color import Color
@@ -22,11 +22,6 @@ from bajo.rt.render_types import RenderSettings
 from bajo.rt.cpu import CpuScene, CpuWavefrontWorkspace
 from bajo.rt.cpu.wavefront import render_wavefront_configured
 from bajo.rt.gpu.prepared_renderer import GpuRtPreparedRenderer
-from bajo.rt.gpu import (
-    prepare_gpu_scene,
-    enqueue_render_gpu,
-    download_gpu_pixels,
-)
 
 
 def _canon_kernel[

@@ -2,7 +2,7 @@
 from max.algorithm import parallelize
 from bajo.core.color import Color
 from .types import AtrousSettings, DenoiseGuides, GuideLayout
-from .common import _bootstrap_pixel, _atrous_pixel, _guide_vec, _albedo
+from .common import _bootstrap_pixel, _atrous_pixel, _albedo
 from .statistics import DenoiseStatistics, CascadeLayout, reconstruct_component
 
 
@@ -72,7 +72,10 @@ def reconstruct_frame(
         var p = Color(0)
         if normalization > 0:
             comptime for c in range(3):
-                p[c] = Float32(meta[unsafe_offset=m + 2 + c] / normalization)
+                p[c] = Float32(
+                    meta[unsafe_offset=m + CascadeLayout.PASSTHROUGH + c]
+                    / normalization
+                )
         passthrough[unsafe_offset=i] = p
 
     parallelize(reconstruct, count)

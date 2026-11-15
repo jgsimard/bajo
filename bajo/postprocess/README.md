@@ -93,8 +93,10 @@ enqueues reconstruction/filtering. Only a scalar maximum is read back to size
 the cascade. The filter itself adds no synchronization or image readback.
 
 Cascade arrays grow to cover observed finite Float32 luminance rather than
-clamping overflow. Each allocated level costs `2 × 27 × 8` bytes per pixel;
-metadata costs 56 bytes per pixel. The temporary complete-sample sidecar costs
+clamping overflow. Each allocated level costs `(27 + 4) × 8 = 248` bytes per
+pixel: 27 Float64 diffuse statistics and four glossy count/RGB sums. Glossy
+variance is not stored or reconstructed. Metadata costs 40 bytes per pixel.
+The temporary complete-sample sidecar costs
 20 bytes per camera sample. This correctness baseline uses more memory than
 the old filter. Allocations and filter scratch are reused; allocation or
 reconstruction failures report an error and publish the retained raw preview.

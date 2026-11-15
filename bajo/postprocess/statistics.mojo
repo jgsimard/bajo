@@ -5,18 +5,20 @@ second and adjacent cross moments allow reconstruction of uncertainty after
 interactive reweighting. All storage is Float64, including weighted sums.
 """
 
-from std.math import abs, floor, log2, exp2, isfinite
+from std.math import floor, log2, exp2, isfinite
 from max.algorithm import parallelize
 from .samples import DenoiseSampleBatch
 from bajo.core.color import Color, luminance
-from .types import GuideLayout
 
 
 struct CascadeLayout:
     comptime BASE = Float64(1e-6)
     # Covers the entire finite Float32 positive luminance range above BASE.
     comptime MAX_BINS = 52
-    comptime STRIDE = 27
+    comptime DIFFUSE_STRIDE = 27
+    # Glossy needs only the sample-count luminance and RGB sums, not variance.
+    comptime GLOSSY_STRIDE = 4
+    comptime LEVEL_STRIDE = Self.DIFFUSE_STRIDE + Self.GLOSSY_STRIDE
     comptime RGB = 1
     comptime ORIGIN = 4
     comptime SECOND_WEIGHT = 7
@@ -25,8 +27,10 @@ struct CascadeLayout:
     comptime CROSS_WEIGHT = 17
     comptime CROSS_OFFSET = 18
     comptime CROSS = 21
-    # Per pixel: sum(w), sum(w^2), passthrough RGB, inactive w^2 per layer.
-    comptime META = 7
+    # Per pixel: sum(w), passthrough RGB, diffuse's inactive squared weights.
+    comptime PASSTHROUGH = 1
+    comptime INACTIVE_DIFFUSE = 4
+    comptime META = 5
 
 
 def cascade_scale(bin: Int) -> Float64:
@@ -52,7 +56,14 @@ def cascade_size(value: Float32) -> Int:
 
 
 def _record(bin: Int, layer: Int, pixel: Int, count: Int) -> Int:
-    return ((bin * 2 + layer) * count + pixel) * CascadeLayout.STRIDE
+    var first = bin * count * CascadeLayout.LEVEL_STRIDE
+    if layer == 0:
+        return first + pixel * CascadeLayout.DIFFUSE_STRIDE
+    return (
+        first
+        + count * CascadeLayout.DIFFUSE_STRIDE
+        + pixel * CascadeLayout.GLOSSY_STRIDE
+    )
 
 
 def _covariance_index(i: Int, j: Int) -> Int:
@@ -75,17 +86,17 @@ def accumulate_sample(
     var m = pixel * CascadeLayout.META
     var w = Float64(weight)
     meta[unsafe_offset=m] += w
-    meta[unsafe_offset=m + 1] += w * w
     var y = luminance(color)
     # Inactive camera samples have a zero contribution to this component.
     # Store their squared weights directly, avoiding subtraction of two large
     # nearly equal weight sums when reconstructing a constant HDR image.
-    for layer in range(2):
-        if component != UInt32(layer + 1) or y <= 0:
-            meta[unsafe_offset=m + 5 + layer] += w * w
+    if component != 1 or y <= 0:
+        meta[unsafe_offset=m + CascadeLayout.INACTIVE_DIFFUSE] += w * w
     if component == 0 or y <= 0:
         comptime for c in range(3):
-            meta[unsafe_offset=m + 2 + c] += w * Float64(color[c])
+            meta[
+                unsafe_offset=m + CascadeLayout.PASSTHROUGH + c
+            ] += w * Float64(color[c])
         return
     var bin = cascade_bin(y)
     var a = Float64(1)
@@ -98,6 +109,12 @@ def accumulate_sample(
         var at = _record(bin + part, layer, pixel, count)
         var aw = alpha * w
         bins[unsafe_offset=at] += alpha * Float64(y)
+        comptime for c in range(3):
+            bins[unsafe_offset=at + CascadeLayout.RGB + c] += aw * Float64(
+                color[c]
+            )
+        if layer == 1:
+            continue
         if bins[unsafe_offset=at + CascadeLayout.SECOND_WEIGHT] == 0:
             comptime for c in range(3):
                 bins[unsafe_offset=at + CascadeLayout.ORIGIN + c] = Float64(
@@ -108,9 +125,6 @@ def accumulate_sample(
         bins[unsafe_offset=at + CascadeLayout.SECOND_WEIGHT] += q_weight
         bins[unsafe_offset=at + CascadeLayout.CROSS_WEIGHT] += cross_weight
         comptime for c in range(3):
-            bins[unsafe_offset=at + CascadeLayout.RGB + c] += aw * Float64(
-                color[c]
-            )
             var dc = (
                 Float64(color[c])
                 - bins[unsafe_offset=at + CascadeLayout.ORIGIN + c]
@@ -210,14 +224,19 @@ def reconstruct_component(
         Float32(result[1] / normalization),
         Float32(result[2] / normalization),
     )
-    if coefficients.x == 0 and coefficients.y == 0 and coefficients.z == 0:
+    if layer == 1 or (
+        coefficients.x == 0 and coefficients.y == 0 and coefficients.z == 0
+    ):
         return color, Float32(0)
     var mean = Float64(0)
     comptime for c in range(3):
         mean += Float64(coefficients[c]) * result[c] / normalization
     var squared_residual = Float64(0)
     var shifted_residual = Float64(0)
-    var lost_weight = meta[unsafe_offset=pixel * CascadeLayout.META + 5 + layer]
+    var lost_weight = meta[
+        unsafe_offset=pixel * CascadeLayout.META
+        + CascadeLayout.INACTIVE_DIFFUSE
+    ]
     for bin in range(n_bins):
         var at = _record(bin, layer, pixel, count)
         var r = weights[bin]
@@ -311,7 +330,7 @@ struct DenoiseStatistics:
     def reserve(mut self, n_bins: Int):
         if n_bins > self.n_bins:
             self.bins.resize(
-                n_bins * 2 * self.width * self.height * CascadeLayout.STRIDE,
+                n_bins * self.width * self.height * CascadeLayout.LEVEL_STRIDE,
                 fill=0,
             )
             self.n_bins = n_bins

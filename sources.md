@@ -76,3 +76,10 @@
 - https://github.com/calderpg/common_robotics_utilities
 - https://royfeatherstone.org/spatial/index.html#spatial-software
 
+
+## Image reconstruction
+
+- Dammertz et al. (2010), [Edge-Avoiding À-Trous Wavelet Transform for fast Global Illumination Filtering](https://doi.org/10.2312/EGGH/HPG10/067-075). Spatial reconstruction in `bajo/postprocess`.
+
+- Schied et al. (2017), [Spatiotemporal Variance-Guided Filtering](https://research.nvidia.com/labs/rtr/publication/schied2017spatiotemporal/). Spatial stages ported from [Falcor SVGF](https://github.com/NVIDIAGameWorks/Falcor/tree/759aad033ff610fb0d82c74f7e0a508d0096d5f2/Source/RenderPasses/SVGFPass), BSD-3-Clause; license in `bajo/postprocess/FALCOR_LICENSE.txt`.
+- Zirr, Hanika and Dachsbacher (2018), [Reweighting Firefly Samples for Improved Finite-Sample Monte Carlo Estimates](https://jo.dreggn.org/home/2018_fireflies.pdf). Cascaded sample-count framebuffer and reweighting equations in `bajo/postprocess/statistics.mojo`.

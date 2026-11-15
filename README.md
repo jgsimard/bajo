@@ -57,6 +57,28 @@ RGB is the default. `--color-mode spectral` enables four-wavelength CPU/GPU
 transport with physical CIE or Canon sensor integration. See the
 [spectral rendering notes](BISTRO_SUPPORT.md#end-to-end-spectral-rendering).
 This does not imply complete Bistro or volume support.
+Click **Denoise: Off / On** to toggle published firefly reweighting and diffuse
+SVGF à-trous filtering in trace mode. Glossy reflections retain their detail
+and residual noise; they receive firefly removal without spatial blur.
+It supports CPU/GPU tracing and RGB/spectral output, preserves accumulated
+samples, and refreshes completed renders without tracing again. The control is
+disabled in raster and NORMALS modes. See the [postprocess module](bajo/postprocess/README.md)
+for guide conventions, the standalone API, and limitations.
+
+The timing row shows asset **Load**, cumulative scene **Prep** (raster setup,
+CPU/GPU acceleration and render resources), the latest tracing **Batch**, active
+**Total** work so far, **Est. total** for the sample budget, and the latest
+**Post** operation. Post includes progressive accumulation, guide generation,
+denoising, display encoding, and GPU readback. GPU preview stage boundaries wait
+for completed work; the general asynchronous render API is unchanged. Total
+excludes idle/UI time and includes the current worker request while it runs.
+Camera/render resets restart render accounting and estimation while retaining
+scene load/preparation costs. The estimate appears after the first batch and
+uses measured time per sample plus postprocess time per remaining batch;
+changing the batch size updates it. Completed renders stop the running total,
+and denoise-only refreshes update Post/Total without adding samples or batches.
+The row wraps in narrow windows.
+
 A native background thread handles tracing and acceleration preparation while
 raylib continues processing input. Camera/settings changes reset accumulation;
 completed frames from an older camera are discarded. Closing waits for the
@@ -158,12 +180,14 @@ The test runner accepts a suite path when a smaller run is useful, for
 example `pixi run test core` or `pixi run test bvh/cpu`. With no suite argument,
 `pixi run test` runs all Mojo and Python tests and requires a supported accelerator.
 
-Each subsystem (`core`, `parser`, `bvh`, `rt`, `sort`, `gpu`, and `viewer`) has
+Each subsystem (`core`, `parser`, `bvh`, `rt`, `sort`, `gpu`, `postprocess`, and `viewer`) has
 one `run_tests.mojo` entry point that runs its test modules in one process and
 reports failures after all selected modules finish. Test modules expose
 `run_tests()`; add new modules to their subsystem runner. The shell runner checks
 that every discovered test is registered. Suite and individual-file filters
 select modules at compile time, so host-only runs do not compile GPU tests.
+The viewer suite is built as a standalone executable before starting its native
+worker threads, matching the viewer launcher and avoiding lazy JIT stalls.
 For example, `pixi run test core/test_aabb.mojo` runs just the AABB tests.
 
 ## Examples
@@ -228,6 +252,7 @@ are ignored by Git.
 - [`bajo/parser`](bajo/parser/) — pure-Mojo OBJ/MTL/PBRT loading
 - [`bajo/bvh`](bajo/bvh/) — CPU/GPU BVH construction and traversal
 - [`bajo/rt`](bajo/rt/) — CPU and GPU ray-tracing and shading pipelines
+- [`bajo/postprocess`](bajo/postprocess/) — CPU/GPU spatial à-trous denoising
 - [`bajo/sort`](bajo/sort/) — CPU and GPU sorting implementations
 - [`test`](test/) — Mojo tests grouped by subsystem
 - [`bench`](bench/) — performance and diagnostic benchmarks

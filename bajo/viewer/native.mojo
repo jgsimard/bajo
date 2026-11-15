@@ -1,6 +1,7 @@
 """The native Mojo/raylib viewer: raster presentation and Bajo tracing."""
 
 from std.math import min, max
+from std.time import perf_counter_ns
 from std.os import getenv
 from std.sys.arg import argv
 from bajo.core.camera import Camera
@@ -36,6 +37,7 @@ from .debug import DebugBox, object_boxes
 from .file_picker import FilePicker, contains, is_scene_file
 from .batching import samples_for_batch, smaller_batch, larger_batch
 from .accumulation import FrameAccumulator
+from .timing import ViewerTimings
 
 
 struct ViewerOptions(Copyable):
@@ -47,6 +49,7 @@ struct ViewerOptions(Copyable):
     var max_samples: Int
     var moving_samples: Int
     var samples_per_batch: Int
+    var denoise: Bool
     var max_depth: Int
     var integrator: Int
     var backend: Int
@@ -74,6 +77,7 @@ struct ViewerOptions(Copyable):
         self.max_samples = 0
         self.moving_samples = 1
         self.samples_per_batch = 1
+        self.denoise = False
         self.max_depth = -1
         self.integrator = 0
         self.backend = 0
@@ -204,6 +208,10 @@ def print_help():
     )
     print("--pbrt PATH  --mode raster|trace  --backend cpu|gpu")
     print("--color-mode rgb|spectral (default: rgb)")
+    print(
+        "Denoise: Off / On button toggles spatial CPU/GPU denoising in trace"
+        " mode"
+    )
     print("--width N --height N --max-spp N --moving-spp N --max-depth N")
     print(
         "--samples-per-batch N (or --batch-spp): positive count, -1 for all"
@@ -261,9 +269,14 @@ struct PreparedScene:
     var objects: List[DebugBox]
     var worker: RenderWorker
     var name: String
+    var asset_ns: Int
+    var preparation_ns: Int
 
     def __init__(out self, window: Window, options: ViewerOptions) raises:
+        var load_t0 = perf_counter_ns()
         var scene = ViewerScene(load_viewer_scene(options.scene, options.path))
+        var loaded_t1 = perf_counter_ns()
+        self.asset_ns = Int(loaded_t1 - load_t0)
         var camera = scene.state.camera
         var settings = scene.state.settings.copy()
         if options.width:
@@ -296,6 +309,15 @@ struct PreparedScene:
         self.objects = objects^
         self.worker = worker^
         self.name = name^
+        self.preparation_ns = Int(perf_counter_ns() - loaded_t1)
+
+
+def denoise_button_rect(width: Int) -> Tuple[Int, Int, Int, Int]:
+    if width < 450:
+        return 10, 146, 142, 28
+    if width < 840:
+        return 270, 112, 142, 28
+    return width - 300, 58, 142, 28
 
 
 def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
@@ -334,10 +356,12 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
     var box_request_in_flight = False
     var accumulation = FrameAccumulator()
     var texture = Optional[DisplayTexture]()
-    var render_ms = Float64(0)
+    var timings = ViewerTimings(view.asset_ns, view.preparation_ns)
     var moving_time = Float32(0)
     var display_frames = 0
     var error_text = String("")
+    var presentation_revision = UInt64(0)
+    var refresh_needed = False
     var next_scene = False
     var picker = FilePicker()
     var load_error = String("")
@@ -365,6 +389,19 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
         if not picker.active:
             var batch_click = window.mouse_pressed()
             var mouse = window.mouse_position()
+            var denoise_rect = denoise_button_rect(width)
+            var over_denoise = contains(
+                mouse,
+                denoise_rect[0],
+                denoise_rect[1],
+                denoise_rect[2],
+                denoise_rect[3],
+            )
+            if batch_click and over_denoise and traced and integrator != 3:
+                options.denoise = not options.denoise
+                error_text = ""
+                presentation_revision += 1
+                refresh_needed = True
             if window.is_key_pressed(74) or (
                 batch_click and contains(mouse, batch_x, batch_y, 28, 28)
             ):
@@ -377,8 +414,10 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
                 options.samples_per_batch = larger_batch(
                     options.samples_per_batch, max_samples
                 )
-            if window.mouse_down() and not contains(
-                mouse, batch_x, batch_y, 250, 28
+            if (
+                window.mouse_down()
+                and not over_denoise
+                and not contains(mouse, batch_x, batch_y, 250, 28)
             ):
                 var delta = window.mouse_delta()
                 if delta.x != 0 or delta.y != 0:
@@ -475,7 +514,7 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
                 boxes.clear()
                 have_boxes = False
                 box_request_in_flight = False
-                render_ms = 0
+                timings = ViewerTimings(view.asset_ns, view.preparation_ns)
                 error_text = ""
                 load_error = ""
                 picker.active = False
@@ -497,21 +536,38 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
             changed = True
         if changed:
             accumulation.reset()
+            timings.reset_render()
+            refresh_needed = False
             moving_time = 0.25 if camera_moved else 0
             error_text = ""
         else:
             moving_time = max(Float32(0), moving_time - dt)
         if view.worker.ready():
             if view.worker.state[].error != "":
-                error_text = view.worker.state[].error
+                var obsolete_postprocess_error = (
+                    view.worker.state[].error.startswith("Denoising failed:")
+                    and Bool(view.worker.state[].result)
+                    and view.worker.state[].result.value().presentation_revision
+                    != presentation_revision
+                )
+                if not obsolete_postprocess_error:
+                    error_text = view.worker.state[].error
             if box_request_in_flight:
                 boxes = view.worker.state[].take_boxes()
                 have_boxes = True
                 box_request_in_flight = False
             if view.worker.state[].result:
                 var completed = view.worker.state[].result.take()
-                if accumulation.take_frame(completed):
-                    render_ms = completed.render_ms
+                timings.finish_request(
+                    completed.preparation_ns,
+                    completed.batch_ns,
+                    completed.postprocess_ns,
+                    completed.work_ns,
+                    completed.samples,
+                    completed.generation == accumulation.generation,
+                )
+                if accumulation.take_frame(completed, presentation_revision):
+                    refresh_needed = False
                     if texture:
                         if (
                             Int(texture.value().texture.width)
@@ -532,10 +588,39 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
                         window.update_texture(
                             texture.value().texture, accumulation.rgba
                         )
+            else:
+                # Bounds-only preparation and failed operations have no frame.
+                timings.finish_request(
+                    view.worker.state[].operation_ns,
+                    0,
+                    0,
+                    view.worker.state[].operation_ns,
+                    0,
+                    False,
+                )
             view.worker.acknowledge()
         var needs_boxes = (
             bounds >= 2 and not have_boxes and not box_request_in_flight
         )
+        if (
+            view.worker.idle()
+            and not next_scene
+            and error_text == ""
+            and traced
+            and refresh_needed
+            and accumulation.samples > 0
+        ):
+            timings.begin_request(Int(perf_counter_ns()))
+            view.worker.refresh_preview(
+                camera,
+                settings,
+                accumulation.generation,
+                integrator,
+                backend,
+                options.denoise,
+                presentation_revision,
+            )
+            refresh_needed = False
         if (
             view.worker.idle()
             and not next_scene
@@ -553,18 +638,29 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
             ) if traced else 1
             batch.sample_offset = accumulation.samples
             batch.sample_sequence_length = max_samples
-            view.worker.submit(
+            timings.begin_request(Int(perf_counter_ns()))
+            view.worker.submit_preview(
                 camera,
                 batch,
                 accumulation.generation,
                 integrator,
                 backend,
-                traced,
+                traced and accumulation.samples < max_samples,
                 needs_boxes,
+                options.denoise,
+                presentation_revision,
             )
             box_request_in_flight = needs_boxes
         var message = load_error if load_error != "" else error_text
-        var toolbar_height = 138 if width < 840 else 110
+        var timing_y = 180 if width < 450 else (146 if width < 840 else 112)
+        var timing_lines = timings.lines(
+            width,
+            Int(perf_counter_ns()),
+            accumulation.samples,
+            max_samples,
+            options.samples_per_batch,
+        )
+        var toolbar_height = timing_y + len(timing_lines) * 18 + 4
         # Validate the camera before starting any linear drawing session.
         var raster_view = Optional[Matrix]()
         if not traced or not texture:
@@ -606,8 +702,7 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
             t"{accumulation.batches} batches"
         )
         var trace_stats = String(
-            t"{accumulation.samples}/{max_samples} spp | {batch_count} |"
-            t" {render_ms} ms"
+            t"{accumulation.samples}/{max_samples} spp | {batch_count}"
         )
         frame.draw_text_ex(
             font.font,
@@ -697,6 +792,42 @@ def _session(mut window: Window, mut options: ViewerOptions) raises -> Bool:
             16,
             Color(235, 240, 250, 255),
         )
+        var denoise_rect = denoise_button_rect(width)
+        var denoise_available = traced and integrator != 3
+        var denoise_color = Color(
+            40, 115, 75, 255
+        ) if options.denoise else Color(45, 75, 108, 255)
+        if not denoise_available:
+            denoise_color = Color(48, 52, 58, 255)
+        frame.draw_rectangle(
+            denoise_rect[0],
+            denoise_rect[1],
+            denoise_rect[2],
+            denoise_rect[3],
+            denoise_color,
+        )
+        var denoise_label = String(
+            "Denoise: On"
+        ) if options.denoise else String("Denoise: Off")
+        frame.draw_text_ex(
+            font.font,
+            denoise_label,
+            denoise_rect[0] + 10,
+            denoise_rect[1] + 5,
+            16,
+            Color(235, 240, 250, 255) if denoise_available else Color(
+                120, 125, 135, 255
+            ),
+        )
+        for line in range(len(timing_lines)):
+            frame.draw_text_ex(
+                font.font,
+                timing_lines[line],
+                10,
+                timing_y + line * 18,
+                14,
+                Color(210, 220, 235, 255),
+            )
         if message != "":
             frame.draw_text_ex(
                 font.font,

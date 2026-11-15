@@ -28,12 +28,19 @@ struct FrameAccumulator:
         self.linear.clear()
         self.rgba.clear()
 
-    def take_frame(mut self, mut frame: CompletedFrame) -> Bool:
+    def take_frame(
+        mut self, mut frame: CompletedFrame, presentation_revision: UInt64 = 0
+    ) -> Bool:
         """Accept a frame, adopting its owned preview buffer when present."""
         if frame.generation != self.generation:
             return False
         if len(frame.rgba) == 0:
             return self.add(frame)
+        if frame.presentation_revision != presentation_revision:
+            # The worker still accumulated this batch; only its presentation is stale.
+            self.samples = frame.preview_samples
+            self.batches = frame.preview_batches
+            return False
         self.linear.clear()
         self.rgba = frame.rgba^
         frame.rgba = List[UInt8]()

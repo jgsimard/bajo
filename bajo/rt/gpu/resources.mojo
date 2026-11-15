@@ -1,6 +1,7 @@
 """Persistent render resources and asynchronous GPU RT submission helpers."""
 
 from bajo.rt.gpu.spectral_state import GpuSpectralState
+from bajo.postprocess.gpu import GpuDenoiseSampleBatch
 
 from std.math import ceildiv, min
 from std.sys import size_of, align_of
@@ -21,6 +22,7 @@ from bajo.rt.gpu.common_kernels import (
     gpu_rt_primary_kernel,
     gpu_rt_resolve_kernel,
     gpu_rt_resolve_film_kernel,
+    gpu_rt_capture_samples_kernel,
 )
 from bajo.rt.gpu.wavefront_contract import (
     GpuWavefrontArena,
@@ -64,6 +66,7 @@ struct GpuRtRenderTarget:
     var pixels: DeviceBuffer[.float32]
     var filter: GpuFilterTables
     var spectral: Optional[GpuSpectralState]
+    var denoise_samples: Optional[GpuDenoiseSampleBatch]
 
     def __init__(
         out self,
@@ -75,6 +78,7 @@ struct GpuRtRenderTarget:
         settings.validate()
         self.filter = GpuFilterTables(ctx, settings.filter)
         self.spectral = {}
+        self.denoise_samples = {}
         self.image_width = settings.image_width
         self.image_height = settings.image_height
         self.samples_per_pixel = settings.samples_per_pixel
@@ -97,6 +101,13 @@ struct GpuRtRenderTarget:
         self.arena = GpuWavefrontArena(ctx, arena_capacity)
         self.camera = upload_camera(ctx, camera)
         self.pixels = ctx.enqueue_create_buffer[.float32](self.pixel_count * 3)
+
+    def enable_denoising(mut self, ctx: DeviceContext) raises:
+        if not self.denoise_samples:
+            self.denoise_samples = GpuDenoiseSampleBatch(ctx, self.sample_count)
+            self.arena.denoise_components = (
+                self.denoise_samples.value().components.copy()
+            )
 
     def ensure_spectral(mut self, ctx: DeviceContext) raises:
         if not self.spectral:
@@ -211,6 +222,19 @@ def _enqueue_gpu_resolve(
             film,
             grid_dim=ceildiv(chunk_pixel_count, GPU_RT_BLOCK_SIZE),
             block_dim=GPU_RT_BLOCK_SIZE,
+        )
+
+    if target.denoise_samples:
+        ctx.enqueue_function[gpu_rt_capture_samples_kernel](
+            target.arena.sample_radiance,
+            target.denoise_samples.value().colors,
+            target.denoise_samples.value().weights,
+            Int32(target.arena.capacity),
+            Int32(sample_begin),
+            Int32(active_count),
+            film,
+            grid_dim=ceildiv(active_count, 128),
+            block_dim=128,
         )
 
 

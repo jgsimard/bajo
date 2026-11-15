@@ -1,5 +1,6 @@
 """Compile-time-specialized traversal kernel for all GPU RT scene shapes."""
 
+from bajo.rt.denoise_guides import denoise_component
 from max.gpu import block_dim, global_idx, grid_dim
 from std.math import ceildiv, pi
 from max.gpu.host import DeviceContext
@@ -606,6 +607,18 @@ def _gpu_rt_scene_trace_path[
             scene.dielectrics.unsafe_origin_cast[ImmutAnyOrigin](),
             texture_descs,
             texture_pixels,
+        )
+    if (
+        bounce == 0
+        and Int(queues.denoise_components) != 0
+        and Integrator.is_path_tracing[integrator]
+    ):
+        var primary_emitter = gpu_emitter(scene, primitive_value, surface_value)
+        Pointer[UInt32, MutUntrackedOrigin](
+            unsafe_from_address=queues.denoise_components
+        )[unsafe_offset=Int(path.path_id)] = denoise_component(
+            SurfaceId.kind_from_raw(surface_value),
+            primary_emitter.radiance.max_component() > 0,
         )
     comptime if integrator == .AO:
         var ao_rng = path_stage_rng(sampling, path.path_id, UInt32(1))

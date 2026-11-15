@@ -248,3 +248,29 @@ def gpu_rt_resolve_film_kernel(
         samples_per_pixel_i32,
         film,
     )
+
+
+def gpu_rt_capture_samples_kernel(
+    radiance_data: Pointer[Float32, ImmutAnyOrigin],
+    colors: Pointer[Float32, MutAnyOrigin],
+    weights: Pointer[Float32, MutAnyOrigin],
+    capacity: Int32,
+    sample_base: Int32,
+    count: Int32,
+    film: FilmResponse,
+):
+    var i = global_idx.x
+    if i >= Int(count):
+        return
+    var radiance = gpu_rt_radiance_tile(radiance_data, Int(capacity))
+    var color = film.apply_sample(
+        Color(
+            radiance[(WaveSampleFloatAbi.R, i)],
+            radiance[(WaveSampleFloatAbi.G, i)],
+            radiance[(WaveSampleFloatAbi.B, i)],
+        )
+    )
+    var id = Int(sample_base) + i
+    comptime for c in range(3):
+        colors[unsafe_offset=3 * id + c] = color[c]
+    weights[unsafe_offset=id] = radiance[(WaveSampleFloatAbi.FILTER_WEIGHT, i)]

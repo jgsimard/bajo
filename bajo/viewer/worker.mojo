@@ -5,6 +5,7 @@ publish immutable requests and completed frames; raylib is never called here.
 """
 
 from std.atomic import Atomic, Ordering
+from std.time import perf_counter_ns
 from std.ffi import external_call, c_int
 from std.memory import Pointer
 from std.memory.alloc import unsafe_alloc
@@ -20,10 +21,12 @@ from bajo.rt.cpu.wavefront import (
 from bajo.bvh.cpu import CpuTraversalMode
 from bajo.rt.cpu.scene import CpuScene
 from bajo.rt.gpu.prepared_renderer import GpuRtPreparedRenderer
-from bajo.rt.gpu.preview import GpuRtPreviewResult
+from bajo.rt.preview_types import PreviewResult
 from bajo.rt.gpu.config import GpuRtSceneKind
 from bajo.viewer.core import ViewerScene
 from .debug import DebugBox, cpu_bvh_boxes
+from .preview import CpuPreviewAccumulator
+from bajo.rt.render_types import RenderTimings
 from .notification import create_notification, notify, wait_notification
 
 
@@ -35,16 +38,25 @@ def _render_backend[
     camera: Camera,
     preview: Bool,
     generation: UInt64,
-    mut output: Optional[GpuRtPreviewResult],
+    mut output: Optional[PreviewResult],
+    denoise: Bool = False,
+    refresh: Bool = False,
+    preparation_ns: Int = 0,
 ) raises -> RenderResult:
     if preview:
-        output = renderer.preview[integrator](settings, camera, generation)
+        if refresh:
+            output = renderer.refresh_preview(camera, generation, denoise)
+        else:
+            output = renderer.preview[integrator](
+                settings, camera, generation, denoise
+            )
+        output.value().preparation_ns += preparation_ns
         return RenderResult(List[Color](), output.value().timings)
     return renderer.render[integrator](settings, camera)
 
 
 struct GpuBackend:
-    var preview_result: Optional[GpuRtPreviewResult]
+    var preview_result: Optional[PreviewResult]
     var spheres: Optional[GpuRtPreparedRenderer[.SPHERES]]
     var triangles: Optional[GpuRtPreparedRenderer[.TRIANGLES]]
     var spheres_triangles: Optional[GpuRtPreparedRenderer[.SPHERES_TRIANGLES]]
@@ -74,8 +86,11 @@ struct GpuBackend:
         camera: Camera,
         preview: Bool = False,
         generation: UInt64 = 0,
+        denoise: Bool = False,
+        refresh: Bool = False,
     ) raises -> RenderResult:
         self.preview_result = {}
+        var preparation_t0 = perf_counter_ns()
         ref data = scene.scene_data()
         var mask = (
             Int(len(data.spheres()) > 0)
@@ -94,6 +109,9 @@ struct GpuBackend:
                 preview,
                 generation,
                 self.preview_result,
+                denoise,
+                refresh,
+                Int(perf_counter_ns() - preparation_t0),
             )
         if mask == 2:
             if not self.triangles:
@@ -107,6 +125,9 @@ struct GpuBackend:
                 preview,
                 generation,
                 self.preview_result,
+                denoise,
+                refresh,
+                Int(perf_counter_ns() - preparation_t0),
             )
         if mask == 3:
             if not self.spheres_triangles:
@@ -120,6 +141,9 @@ struct GpuBackend:
                 preview,
                 generation,
                 self.preview_result,
+                denoise,
+                refresh,
+                Int(perf_counter_ns() - preparation_t0),
             )
         if mask == 4:
             if not self.instances:
@@ -133,6 +157,9 @@ struct GpuBackend:
                 preview,
                 generation,
                 self.preview_result,
+                denoise,
+                refresh,
+                Int(perf_counter_ns() - preparation_t0),
             )
         if mask == 5:
             if not self.spheres_instances:
@@ -146,6 +173,9 @@ struct GpuBackend:
                 preview,
                 generation,
                 self.preview_result,
+                denoise,
+                refresh,
+                Int(perf_counter_ns() - preparation_t0),
             )
         if mask == 6:
             if not self.triangles_instances:
@@ -159,6 +189,9 @@ struct GpuBackend:
                 preview,
                 generation,
                 self.preview_result,
+                denoise,
+                refresh,
+                Int(perf_counter_ns() - preparation_t0),
             )
         if mask == 7:
             if not self.all:
@@ -170,6 +203,9 @@ struct GpuBackend:
                 preview,
                 generation,
                 self.preview_result,
+                denoise,
+                refresh,
+                Int(perf_counter_ns() - preparation_t0),
             )
         raise Error("scene has no supported geometry")
 
@@ -180,10 +216,15 @@ struct CompletedFrame:
     var preview_batches: Int
     var pixels: List[Color]
     var generation: UInt64
+    var presentation_revision: UInt64
     var samples: Int
     var width: Int
     var height: Int
     var render_ms: Float64
+    var preparation_ns: Int
+    var batch_ns: Int
+    var postprocess_ns: Int
+    var work_ns: Int
 
     def __init__(
         out self,
@@ -195,16 +236,21 @@ struct CompletedFrame:
         self.preview_samples = 0
         self.preview_batches = 0
         self.render_ms = Float64(result.timings.render_ns) / 1_000_000
+        self.preparation_ns = result.timings.init_ns
+        self.batch_ns = result.timings.render_ns
+        self.postprocess_ns = 0
+        self.work_ns = result.timings.total_ns
         self.pixels = result.pixels^
         result.pixels = List[Color]()
         self.generation = generation
+        self.presentation_revision = 0
         self.samples = settings.samples_per_pixel
         self.width = settings.image_width
         self.height = settings.image_height
 
     @staticmethod
     def from_preview(
-        var result: GpuRtPreviewResult,
+        var result: PreviewResult,
         generation: UInt64,
         settings: RenderSettings,
     ) -> Self:
@@ -215,6 +261,9 @@ struct CompletedFrame:
         result.rgba = List[UInt8]()
         frame.preview_samples = result.samples
         frame.preview_batches = result.batches
+        frame.preparation_ns = result.preparation_ns
+        frame.batch_ns = result.batch_ns
+        frame.postprocess_ns = result.postprocess_ns
         return frame^
 
 
@@ -226,6 +275,8 @@ def _render_cpu[
     world: CpuScene[16, 16],
     mut workspace: CpuWavefrontWorkspace[16, integrator],
 ) raises -> RenderResult:
+    var preview_settings = settings.copy()
+    preview_settings.collect_denoise = integrator != Integrator.NORMALS
     return render_wavefront_configured[
         traversal,
         integrator,
@@ -238,7 +289,7 @@ def _render_cpu[
         16,
         8,
         4,
-    ](settings, camera, world, workspace)
+    ](preview_settings, camera, world, workspace)
 
 
 struct _WorkerState[gpu_enabled: Bool]:
@@ -264,6 +315,13 @@ struct _WorkerState[gpu_enabled: Bool]:
     var debug_requested: Bool
     var trace_requested: Bool
     var boxes: List[DebugBox]
+    var cpu_preview: Optional[CpuPreviewAccumulator]
+    var preview_requested: Bool
+    var refresh_requested: Bool
+    var denoise_enabled: Bool
+    var presentation_revision: UInt64
+    var operation_preparation_ns: Int
+    var operation_ns: Int
 
     def __init__(
         out self, var scene: ViewerScene[], build_method: Int, traversal: Int
@@ -290,6 +348,13 @@ struct _WorkerState[gpu_enabled: Bool]:
         self.debug_requested = False
         self.trace_requested = True
         self.boxes = {}
+        self.cpu_preview = {}
+        self.preview_requested = False
+        self.refresh_requested = False
+        self.denoise_enabled = False
+        self.presentation_revision = 0
+        self.operation_preparation_ns = 0
+        self.operation_ns = 0
 
     def take_boxes(mut self) -> List[DebugBox]:
         var boxes = self.boxes^
@@ -309,6 +374,8 @@ struct _WorkerState[gpu_enabled: Bool]:
                     self.camera,
                     True,
                     self.generation,
+                    self.denoise_enabled and self.integrator != 3,
+                    self.refresh_requested,
                 )
             else:
                 raise Error(
@@ -353,6 +420,8 @@ struct _WorkerState[gpu_enabled: Bool]:
             )
 
     def prepare_cpu(mut self) raises:
+        var already_prepared = self.scene.has_cpu_scene()
+        var t0 = perf_counter_ns()
         match self.build_method:
             case 1:
                 self.scene.prepare_cpu[.LBVH]()
@@ -363,11 +432,45 @@ struct _WorkerState[gpu_enabled: Bool]:
             case _:
                 self.scene.prepare_cpu()
 
+        if not already_prepared:
+            self.operation_preparation_ns += Int(perf_counter_ns() - t0)
+
     def render(mut self) raises:
+        var t0 = perf_counter_ns()
+        self.operation_preparation_ns = 0
+        self.operation_ns = 0
+        try:
+            self._render()
+        except error:
+            self.operation_ns = Int(perf_counter_ns() - t0)
+            raise error
+        self.operation_ns = Int(perf_counter_ns() - t0)
+        if self.result:
+            self.result.value().preparation_ns += self.operation_preparation_ns
+            self.result.value().work_ns = self.operation_ns
+
+    def _render(mut self) raises:
         if self.debug_requested:
             self.prepare_cpu()
             self.boxes = cpu_bvh_boxes(self.scene.cpu_scene())
         if not self.trace_requested:
+            return
+        if self.refresh_requested and self.backend == 0:
+            if (
+                not self.cpu_preview
+                or self.cpu_preview.value().generation != self.generation
+            ):
+                raise Error("CPU preview generation is no longer available")
+            self._publish_cpu_preview(
+                RenderTimings(
+                    0,
+                    0,
+                    0,
+                    self.settings.image_width * self.settings.image_height,
+                    0,
+                    self.settings.max_depth,
+                )
+            )
             return
         var result: RenderResult
         match self.integrator:
@@ -384,13 +487,72 @@ struct _WorkerState[gpu_enabled: Bool]:
             case _:
                 raise Error("unknown integrator")
         if self.backend == 1 and self.gpu.preview_result:
+            self.error = (
+                self.gpu.preview_result.value().postprocess_error.copy()
+            )
             self.result = CompletedFrame.from_preview(
                 self.gpu.preview_result.take(), self.generation, self.settings
+            )
+        elif self.preview_requested:
+            if (
+                not self.cpu_preview
+                or self.cpu_preview.value().width != self.settings.image_width
+                or self.cpu_preview.value().height != self.settings.image_height
+            ):
+                self.cpu_preview = CpuPreviewAccumulator(
+                    self.settings.image_width, self.settings.image_height
+                )
+            var post_t0 = perf_counter_ns()
+            self.cpu_preview.value().add(
+                ImmSpan(result.pixels),
+                self.generation,
+                self.settings.samples_per_pixel,
+                result.denoise_samples,
+            )
+            self._publish_cpu_preview(result.timings)
+            self.result.value().postprocess_ns = Int(
+                perf_counter_ns() - post_t0
             )
         else:
             self.result = CompletedFrame(
                 result^, self.generation, self.settings
             )
+        if self.result:
+            self.result.value().presentation_revision = (
+                self.presentation_revision
+            )
+            if self.refresh_requested:
+                self.result.value().samples = 0
+
+    def _publish_cpu_preview(mut self, timings: RenderTimings) raises:
+        var post_t0 = perf_counter_ns()
+        ref preview = self.cpu_preview.value()
+        var rgba: List[UInt8]
+        try:
+            rgba = preview.present(
+                self.scene.cpu_scene(),
+                self.camera,
+                self.denoise_enabled and self.integrator != 3,
+            )
+        except error:
+            if not self.denoise_enabled:
+                raise Error(String(error))
+            rgba = preview.present(self.scene.cpu_scene(), self.camera, False)
+            self.error = "Denoising failed: " + String(error)
+        self.result = CompletedFrame.from_preview(
+            PreviewResult(
+                rgba^,
+                timings.copy(),
+                preview.samples,
+                preview.batches,
+                postprocess_ns=Int(perf_counter_ns() - post_t0),
+            ),
+            self.generation,
+            self.settings,
+        )
+        self.result.value().presentation_revision = self.presentation_revision
+        if self.refresh_requested:
+            self.result.value().samples = 0
 
 
 def _run_render_thread[gpu_enabled: Bool](address: UInt) -> UInt:
@@ -489,6 +651,10 @@ struct _RenderWorker[gpu_enabled: Bool]:
         backend: Int,
         trace: Bool,
         debug: Bool,
+        preview: Bool = False,
+        refresh: Bool = False,
+        denoise: Bool = False,
+        presentation_revision: UInt64 = 0,
     ) raises:
         if not self.idle():
             raise Error("render worker is busy")
@@ -499,11 +665,65 @@ struct _RenderWorker[gpu_enabled: Bool]:
         self.state[].backend = backend
         self.state[].trace_requested = trace
         self.state[].debug_requested = debug
+        self.state[].preview_requested = preview
+        self.state[].refresh_requested = refresh
+        self.state[].denoise_enabled = denoise
+        self.state[].presentation_revision = presentation_revision
         self.state[].error = ""
         Atomic.store[ordering=Ordering.RELEASE](
             Pointer(to=self.state[].status), UInt32(1)
         )
         notify(self.state[].notification)
+
+    def submit_preview(
+        self,
+        camera: Camera,
+        settings: RenderSettings,
+        generation: UInt64,
+        integrator: Int,
+        backend: Int,
+        trace: Bool,
+        debug: Bool,
+        denoise: Bool,
+        presentation_revision: UInt64,
+    ) raises:
+        self.submit(
+            camera,
+            settings,
+            generation,
+            integrator,
+            backend,
+            trace,
+            debug,
+            True,
+            False,
+            denoise,
+            presentation_revision,
+        )
+
+    def refresh_preview(
+        self,
+        camera: Camera,
+        settings: RenderSettings,
+        generation: UInt64,
+        integrator: Int,
+        backend: Int,
+        denoise: Bool,
+        presentation_revision: UInt64,
+    ) raises:
+        self.submit(
+            camera,
+            settings,
+            generation,
+            integrator,
+            backend,
+            True,
+            False,
+            True,
+            True,
+            denoise,
+            presentation_revision,
+        )
 
     def acknowledge(self):
         # Call only after consuming the published result/error/debug snapshot.

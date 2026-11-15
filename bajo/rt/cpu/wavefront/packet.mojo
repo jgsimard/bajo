@@ -1,5 +1,6 @@
 """Width-generic packet CPU wavefront kernels."""
 
+from bajo.rt.denoise_guides import denoise_component
 from std.math import iota
 from bajo.rt.continuation import finish_continuation, continuation_medium
 
@@ -326,6 +327,7 @@ def _trace_packets[
     mut dielectric_queue: PacketShadeQueue[length],
     mut coated_diffuse_queue: PacketShadeQueue[length],
     sample_base: Int = -1,
+    components: Optional[Pointer[UInt32, MutAnyOrigin]] = {},
 ):
     # The emission-only preview has no BSDF continuations. Bistro counts
     # scattering events, so depth zero is main's former depth-one shortcut;
@@ -352,6 +354,7 @@ def _trace_packets[
                 dielectric_queue,
                 coated_diffuse_queue,
                 sample_base,
+                components,
             )
             return
     _trace_packets_impl[
@@ -374,6 +377,7 @@ def _trace_packets[
         dielectric_queue,
         coated_diffuse_queue,
         sample_base,
+        components,
     )
 
 
@@ -397,6 +401,7 @@ def _trace_packets_impl[
     mut dielectric_queue: PacketShadeQueue[length],
     mut coated_diffuse_queue: PacketShadeQueue[length],
     sample_base: Int = -1,
+    components: Optional[Pointer[UInt32, MutAnyOrigin]] = {},
 ):
     var bounce_count = (
         settings.max_depth + 1 if Integrator.is_path_tracing[integrator] else 1
@@ -455,6 +460,19 @@ def _trace_packets_impl[
                                 )
                                 .value[0]
                             )
+            if (
+                bounce == 0
+                and components
+                and Integrator.is_path_tracing[integrator]
+            ):
+                for lane in range(lane_count):
+                    if surface_hits.hit[lane]:
+                        components.value()[
+                            unsafe_offset=Int(packet.path_ids[lane])
+                        ] = denoise_component(
+                            surface_hits.surface.get(lane).kind(),
+                            surface_hits.emission.max_component()[lane] > 0,
+                        )
             if world.has_shading_normals():
                 surface_hits.normal = (
                     world.scene_data()

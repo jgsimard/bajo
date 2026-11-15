@@ -72,8 +72,22 @@ if [ "${#mojo_groups[@]}" -gt 0 ]; then
       continue
     fi
     echo "Running Mojo tests in: test/$group"
-    if ! mojo run -I "$repo_root" "${flags[@]}" "$runner"; then
-      failed=1
+    if [[ "$group" == viewer ]]; then
+      # Foreign worker threads can stall lazy JIT compilation. Match the
+      # viewer launcher: compile all callbacks before starting native threads.
+      viewer_test_dir="$(mktemp -d "${TMPDIR:-/tmp}/bajo-viewer-tests.XXXXXX")"
+      trap 'rm -rf -- "$viewer_test_dir"' EXIT
+      if ! mojo build -I "$repo_root" "${flags[@]}" "$runner" -o "$viewer_test_dir/run"; then
+        failed=1
+      elif ! "$viewer_test_dir/run"; then
+        failed=1
+      fi
+      rm -rf -- "$viewer_test_dir"
+      trap - EXIT
+    else
+      if ! mojo run -I "$repo_root" "${flags[@]}" "$runner"; then
+        failed=1
+      fi
     fi
   done
 fi

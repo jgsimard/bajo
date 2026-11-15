@@ -1,5 +1,6 @@
 """Spectral packet transport with radiometric state owned by stable sample IDs."""
 
+from bajo.rt.denoise_guides import denoise_component
 from std.math import iota, exp
 from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
 from bajo.core import Point3, Vec3, Ray, dot, length as vector_length
@@ -379,6 +380,7 @@ def trace_spectral_packets[
     mut next_paths: PacketPathQueue[width],
     sample_base: Int,
     sample_count: Int,
+    components: Optional[Pointer[UInt32, MutAnyOrigin]] = {},
 ):
     state.initialize(sample_count, sample_base, sampling)
     for bounce in range(settings.max_depth + 1):
@@ -427,6 +429,16 @@ def trace_spectral_packets[
                         )
                         .value
                     )
+            if bounce == 0 and components:
+                for lane in range(count):
+                    if hit.hit[lane]:
+                        components.value()[
+                            unsafe_offset=Int(packet.path_ids[lane])
+                        ] = denoise_component(
+                            hit.surface.get(lane).kind(),
+                            hit.emission.max_component()[lane] > 0
+                            or hit.emission_spectrum[lane] != UInt32.MAX,
+                        )
             if world.has_shading_normals():
                 hit.normal = (
                     world.scene_data()

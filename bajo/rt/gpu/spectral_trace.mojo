@@ -63,6 +63,7 @@ def spectral_trace_surface[
     path_id: UInt32,
     bounce: UInt32,
     capacity: Int,
+    guide_mix_random: Float32 = -1,
 ) -> Tuple[SurfaceHit[1], UInt32]:
     var texture_descs = scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin]()
     var texture_pixels = scene.texture_pixels.unsafe_origin_cast[
@@ -370,6 +371,8 @@ def spectral_trace_surface[
             sampling, path_id, wavefront_rng_material_stage(UInt32(bounce))
         )
         var random = material_rng.f32()
+        if guide_mix_random >= 0:
+            random = guide_mix_random
         while SurfaceId.kind_from_raw(surface_value) == .MIX:
             var index = Int(SurfaceId.index_from_raw(surface_value))
             var amount = scene.mix_amounts[unsafe_offset=index]

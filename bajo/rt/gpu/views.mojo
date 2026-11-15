@@ -168,6 +168,7 @@ struct GpuRtTraceQueueView(DevicePassable, TrivialRegisterPassable):
     var sample_radiance: Pointer[Float32, MutUntrackedOrigin]
     var capacity: Int32
     var sample_base: UInt32
+    var denoise_components: Int
 
     comptime device_type: AnyType = Self
 
@@ -189,6 +190,9 @@ def gpu_rt_trace_queue_view(
     dst_path_fields: DeviceBuffer[.float32],
 ) -> GpuRtTraceQueueView:
     """Assemble the shared wavefront queues for one bounce submission."""
+    var components = 0
+    if arena.denoise_components:
+        components = Int(_mut(arena.denoise_components.value()))
     return GpuRtTraceQueueView(
         _immut(src_path_ids),
         _immut(src_path_fields),
@@ -203,4 +207,5 @@ def gpu_rt_trace_queue_view(
         _mut(arena.sample_radiance),
         Int32(arena.capacity),
         arena.sample_base,
+        components,
     )

@@ -201,9 +201,11 @@ struct GpuWavefrontArena:
     var shadow: GpuWaveShadowQueue
     var counters: DeviceBuffer[.uint32]
     var sample_radiance: DeviceBuffer[.float32]
+    var denoise_components: Optional[DeviceBuffer[.uint32]]
 
     def __init__(out self, mut ctx: DeviceContext, capacity: Int) raises:
         debug_assert["safe", _use_compiler_assume=True](capacity > 0)
+        self.denoise_components = {}
         self.capacity = capacity
         self.sample_base = UInt32(0)
         self.path_a = GpuWavePathQueue(ctx, capacity)

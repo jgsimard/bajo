@@ -10,6 +10,7 @@ from std.memory import ArcPointer
 from bajo.core.camera import Camera
 from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
 from bajo.core.color import Color
+from bajo.postprocess.samples import DenoiseSampleBatch
 from bajo.rt.render_types import (
     RenderResult,
     RenderSettings,
@@ -138,6 +139,9 @@ def _trace_packet_range[
     spectra: Optional[SpectrumSourcesView],
     film: FilmResponse,
     lighting: Optional[SpectralLightDistributionView],
+    components: Optional[Pointer[UInt32, MutAnyOrigin]],
+    sample_colors: Optional[Pointer[Color, MutAnyOrigin]],
+    sample_weights: Optional[Pointer[Float32, MutAnyOrigin]],
 ):
     _initialize_path_packets_range[length](
         queues.active_paths,
@@ -169,6 +173,7 @@ def _trace_packet_range[
                 queues.next_paths,
                 path_begin,
                 count,
+                components,
             )
             var spp = settings.samples_per_pixel
             for first in range(0, count, spp):
@@ -183,6 +188,17 @@ def _trace_packet_range[
                         * queues.weights[index]
                     )
                     weight += queues.weights[index]
+                    if sample_colors:
+                        var id = path_begin + index
+                        sample_colors.value()[
+                            unsafe_offset=id
+                        ] = film.apply_spectral_sample(
+                            queues.spectral.radiance[index],
+                            queues.spectral.wavelengths[index],
+                        )
+                        sample_weights.value()[
+                            unsafe_offset=id
+                        ] = queues.weights[index]
                 pixels[
                     (path_begin + first) // spp
                 ] = total / weight if weight != 0 else Color(0)
@@ -208,6 +224,7 @@ def _trace_packet_range[
         queues.dielectric,
         queues.coated_diffuse,
         path_begin,
+        components,
     )
     # Each worker owns complete pixels. Retain complete path radiance until
     # sample-level sensor conversion/clamping, then reduce in sample order.
@@ -221,6 +238,12 @@ def _trace_packet_range[
                 * queues.weights[index]
             )
             weight += queues.weights[index]
+            if sample_colors:
+                var id = path_begin + index
+                sample_colors.value()[
+                    unsafe_offset=id
+                ] = settings.film.apply_sample(queues.samples[index])
+                sample_weights.value()[unsafe_offset=id] = queues.weights[index]
         pixels[
             (path_begin + first) // spp
         ] = sum / weight if weight != 0 else Color(0)
@@ -357,6 +380,27 @@ def _render_wavefront_configured[
             spectra = Optional(workspace.spectral.value().view())
             film = settings.film.prepared_spectral()
     var pixels = List[Color](length=pixel_count, fill=Color(0.0))
+    var samples = Optional[DenoiseSampleBatch]()
+    var components = Optional[Pointer[UInt32, MutAnyOrigin]]()
+    var sample_colors = Optional[Pointer[Color, MutAnyOrigin]]()
+    var sample_weights = Optional[Pointer[Float32, MutAnyOrigin]]()
+    if settings.collect_denoise:
+        samples = DenoiseSampleBatch(pixel_count, settings.samples_per_pixel)
+        components = (
+            samples.value()
+            .components.unsafe_ptr()
+            .unsafe_origin_cast[MutAnyOrigin]()
+        )
+        sample_colors = (
+            samples.value()
+            .colors.unsafe_ptr()
+            .unsafe_origin_cast[MutAnyOrigin]()
+        )
+        sample_weights = (
+            samples.value()
+            .weights.unsafe_ptr()
+            .unsafe_origin_cast[MutAnyOrigin]()
+        )
     var init_t1 = perf_counter_ns()
 
     var render_t0 = perf_counter_ns()
@@ -405,6 +449,9 @@ def _render_wavefront_configured[
                     spectra,
                     film,
                     lighting,
+                    components,
+                    sample_colors,
+                    sample_weights,
                 )
                 chunk_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
                     next_chunk_ptr, 1
@@ -443,6 +490,9 @@ def _render_wavefront_configured[
                 spectra,
                 film,
                 lighting,
+                components,
+                sample_colors,
+                sample_weights,
             )
             path_begin = path_end
     var render_t1 = perf_counter_ns()
@@ -461,6 +511,7 @@ def _render_wavefront_configured[
             path_count,
             settings.max_depth,
         ),
+        samples^,
     )
 
 

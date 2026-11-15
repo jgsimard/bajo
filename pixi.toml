@@ -34,12 +34,14 @@ test_host = { depends-on = [
   { task = "test", args = ["bvh/cpu"] },
   { task = "test", args = ["sort/cpu"] },
   { task = "test", args = ["viewer"] },
+  { task = "test", args = ["postprocess/cpu"] },
 ] }
 test_gpu = { depends-on = [
   { task = "test", args = ["sort/gpu"] },
   { task = "test", args = ["bvh/gpu"] },
   { task = "test", args = ["rt/gpu"] },
   { task = "test", args = ["gpu"] },
+  { task = "test", args = ["postprocess/gpu"] },
 ] }
 
 test_python_host = "python test/viewer/test_viewer_launcher.py"

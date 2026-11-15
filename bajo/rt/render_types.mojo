@@ -3,6 +3,7 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 
 from bajo.core.color import Color
+from bajo.postprocess.samples import DenoiseSampleBatch
 from bajo.rt.film import FilmResponse
 from bajo.rt.filter import ReconstructionFilter, FilterView
 from bajo.core.random import Sampler
@@ -27,6 +28,7 @@ struct RenderSettings(Copyable, Writable):
     var sample_sequence_length: Int
     var film: FilmResponse
     var filter: ReconstructionFilter
+    var collect_denoise: Bool
     var color_mode: RenderColorMode
 
     def __init__(
@@ -42,6 +44,7 @@ struct RenderSettings(Copyable, Writable):
         film: FilmResponse = {},
         filter: ReconstructionFilter = {},
         color_mode: RenderColorMode = .RGB,
+        collect_denoise: Bool = False,
     ):
         debug_assert["safe", _use_compiler_assume=True](
             image_width > 0, "image width must be positive"
@@ -75,6 +78,7 @@ struct RenderSettings(Copyable, Writable):
         self.film = film.copy()
         self.filter = filter
         self.color_mode = color_mode
+        self.collect_denoise = collect_denoise
 
     def validate(self) raises:
         """Validate mutable render settings at a host API boundary."""
@@ -194,11 +198,14 @@ struct RenderTimings(Copyable, Writable):
 struct RenderResult:
     var pixels: List[Color]
     var timings: RenderTimings
+    var denoise_samples: Optional[DenoiseSampleBatch]
 
     def __init__(
         out self,
         var pixels: List[Color],
         timings: RenderTimings,
+        var denoise_samples: Optional[DenoiseSampleBatch] = {},
     ):
         self.pixels = pixels^
         self.timings = timings.copy()
+        self.denoise_samples = denoise_samples^

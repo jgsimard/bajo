@@ -1,4 +1,5 @@
 """Unified prepared and synchronous GPU RT entry points."""
+from bajo.rt.gpu.spectral_render import spectral_capture_samples_kernel
 
 from std.time import perf_counter_ns
 from std.math import ceildiv
@@ -255,6 +256,19 @@ def enqueue_render_gpu[
                     grid_dim=ceildiv(count // settings.samples_per_pixel, 128),
                     block_dim=128,
                 )
+                if target.denoise_samples:
+                    ctx.enqueue_function[spectral_capture_samples_kernel](
+                        state,
+                        target.arena.sample_radiance.unsafe_ptr()
+                        .unsafe_mut_cast[False]()
+                        .unsafe_origin_cast[ImmUntrackedOrigin](),
+                        target.denoise_samples.value().colors,
+                        target.denoise_samples.value().weights,
+                        Int32(count),
+                        film,
+                        grid_dim=ceildiv(count, 128),
+                        block_dim=128,
+                    )
             return
     _enqueue_render_gpu_rgb[
         integrator,

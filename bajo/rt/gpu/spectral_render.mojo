@@ -1,6 +1,7 @@
 """Four-wavelength GPU wavefront transport and complete-sample film reduction."""
 
 from std.math import exp
+from bajo.rt.denoise_guides import denoise_component
 from max.gpu import global_idx, block_dim, grid_dim
 from bajo.core import Point3f32, Vec3f32, Rayf32, dot, length
 from bajo.core.color import Color
@@ -398,6 +399,14 @@ def spectral_bounce_kernel[
         else:
             var emitter = gpu_emitter(scene, primitive, hit.surface.value)
             var source = _emitter_source(scene, primitive)
+            if bounce == 0 and Int(queues.denoise_components) != 0:
+                Pointer[UInt32, MutUntrackedOrigin](
+                    unsafe_from_address=queues.denoise_components
+                )[unsafe_offset=Int(path.path_id)] = denoise_component(
+                    hit.surface.kind(),
+                    emitter.radiance.max_component() > 0
+                    or source != NO_SPECTRUM,
+                )
             if (hit.front_face or emitter.two_sided) and opacity_accepts(
                 gpu_opacity_value(scene.opacity, primitive, hit.uv_u, hit.uv_v),
                 opacity_point_sample(ray.at(hit.t)),
@@ -537,3 +546,25 @@ def spectral_resolve_kernel(
     var output = (Int(state.sample_base) // spp + pixel) * 3
     comptime for channel in range(3):
         pixels[unsafe_offset=output + channel] = total[channel]
+
+
+def spectral_capture_samples_kernel(
+    state: GpuSpectralStateView,
+    weights: ImmPointer[Float32, ImmUntrackedOrigin],
+    colors: Pointer[Float32, MutAnyOrigin],
+    output_weights: Pointer[Float32, MutAnyOrigin],
+    count: Int32,
+    film: FilmResponse,
+):
+    var i = global_idx.x
+    if i >= Int(count):
+        return
+    var color = film.apply_spectral_sample(
+        state.load(12, i), state.wavelengths(i)
+    )
+    var id = Int(state.sample_base) + i
+    comptime for c in range(3):
+        colors[unsafe_offset=3 * id + c] = color[c]
+    output_weights[unsafe_offset=id] = weights[
+        unsafe_offset=3 * Int(state.capacity) + i
+    ]

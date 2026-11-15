@@ -3,6 +3,8 @@
 from test.runner import TestRunner, module_selected
 
 import test.viewer.test_core as test_core
+import test.viewer.test_timing as test_timing
+import test.viewer.test_denoising as test_denoising
 import test.viewer.test_batching as test_batching
 import test.viewer.test_native as test_native
 import test.viewer.test_accumulation as test_accumulation
@@ -23,4 +25,10 @@ def main() raises:
         tests.run(
             "test/viewer/test_batching.mojo", test_batching.run_tests[True]
         )
+    comptime if module_selected["test_denoising"]():
+        tests.run(
+            "test/viewer/test_denoising.mojo", test_denoising.run_tests[True]
+        )
+    comptime if module_selected["test_timing"]():
+        tests.run("test/viewer/test_timing.mojo", test_timing.run_tests[True])
     tests^.finish()

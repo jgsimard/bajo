@@ -20,6 +20,7 @@ from bajo.rt.gpu.config import (
     GpuRtSceneKind,
     GPU_RT_BVH_CWBVH8,
     GPU_RT_BVH_TLAS4,
+    _gpu_rt_kernel_formats,
     GPU_RT_BVH_WIDE4,
 )
 from bajo.rt.gpu.render import (
@@ -33,6 +34,9 @@ from bajo.rt.gpu.resources import (
     update_gpu_camera,
 )
 from bajo.rt.gpu.preview import GpuRtPreviewAccumulator, GpuRtPreviewResult
+from bajo.rt.gpu.denoise_guides import enqueue_gpu_denoise_guides
+from bajo.postprocess.gpu import GpuDenoiseGuides
+from bajo.rt.gpu.upload import _upload_nonempty
 from bajo.rt.gpu.scene import GpuRtScene, prepare_gpu_scene
 from bajo.rt.gpu.views import (
     GpuRtSceneView,
@@ -152,6 +156,8 @@ struct GpuRtPreparedRenderer[
     var _last_offset: UInt32
     var _readback: Optional[_GpuRtReadback]
     var _preview: Optional[GpuRtPreviewAccumulator]
+    var _guide_metal_textures: List[UInt32]
+    var _guide_metal_device: Optional[DeviceBuffer[.uint32]]
     var _preview_color_mode: RenderColorMode
     var _render_graph: Optional[DeviceGraph]
     var _graph_arguments: Optional[_RenderGraphArguments]
@@ -170,6 +176,10 @@ struct GpuRtPreparedRenderer[
             _validate_rgb_settings(settings)
         self._readback = {}
         self._preview = {}
+        self._guide_metal_textures = [
+            material.texture_index for material in data.surfaces().metals
+        ]
+        self._guide_metal_device = {}
         self._preview_color_mode = .RGB
         self._render_graph = {}
         self._graph_arguments = {}
@@ -368,7 +378,11 @@ struct GpuRtPreparedRenderer[
     def preview[
         integrator: Integrator
     ](
-        mut self, settings: RenderSettings, camera: Camera, generation: UInt64
+        mut self,
+        settings: RenderSettings,
+        camera: Camera,
+        generation: UInt64,
+        denoise: Bool = False,
     ) raises -> GpuRtPreviewResult:
         """Render a weighted progressive preview; advance generation on reset.
 
@@ -384,22 +398,122 @@ struct GpuRtPreparedRenderer[
             self._preview = GpuRtPreviewAccumulator(
                 self.ctx, self.target.pixel_count
             )
+        comptime if not Self._rgb_only and Integrator.is_path_tracing[
+            integrator
+        ]:
+            if settings.color_mode == .SPECTRAL:
+                self.scene.enable_spectral(self.ctx)
+                self.target.ensure_spectral(self.ctx)
+        # Collect samples even when presentation filtering is off.
+        try:
+            self.target.enable_denoising(self.ctx)
+            self.target.denoise_samples.value().components.enqueue_fill(0)
+        except error:
+            self._preview.value().statistics_error = String(error)
+        # Preview timings measure completed GPU work at stage boundaries.
+        # The general asynchronous enqueue API remains unfenced.
+        self.ctx.synchronize()
         var init_ns = Int(perf_counter_ns() - total_t0)
         var render_t0 = perf_counter_ns()
         self.enqueue[integrator](settings)
-        var rgba = self._preview.value().add(
+        self.ctx.synchronize()
+        var batch_ns = Int(perf_counter_ns() - render_t0)
+        var post_t0 = perf_counter_ns()
+        self._preview.value().enqueue_add(
             self.ctx, self.target, generation, settings.samples_per_pixel
+        )
+        var rgba, postprocess_error = self._present_preview(
+            camera, generation, denoise
         )
         return GpuRtPreviewResult(
             rgba^,
             RenderTimings(
                 Int(perf_counter_ns() - total_t0),
                 init_ns,
-                Int(perf_counter_ns() - render_t0),
+                batch_ns,
                 self.target.pixel_count,
                 self.target.sample_count,
                 settings.max_depth,
             ),
             self._preview.value().samples,
             self._preview.value().batches,
+            postprocess_error,
+            preparation_ns=init_ns,
+            batch_ns=batch_ns,
+            postprocess_ns=Int(perf_counter_ns() - post_t0),
+        )
+
+    def _present_preview(
+        mut self, camera: Camera, generation: UInt64, denoise: Bool
+    ) raises -> Tuple[List[UInt8], String]:
+        try:
+            self._prepare_denoising(camera, generation, denoise)
+            return self._preview.value().present(
+                self.ctx, self.target, denoise
+            ), String("")
+        except error:
+            if (
+                not denoise
+                or String(error) == "GPU RT wavefront queue overflow"
+            ):
+                raise Error(String(error))
+            # Reconstruction never writes the raw sums. Publish those samples
+            # even if optional guide allocation or filtering failed.
+            var rgba = self._preview.value().present(
+                self.ctx, self.target, False
+            )
+            return rgba^, String("Denoising failed: ") + String(error)
+
+    def _prepare_denoising(
+        mut self, camera: Camera, generation: UInt64, enabled: Bool
+    ) raises:
+        if not enabled:
+            return
+        ref preview = self._preview.value()
+        if not preview.guides or preview.guide_generation != generation:
+            if not preview.guides:
+                preview.guides = GpuDenoiseGuides(
+                    self.ctx, self.target.image_width, self.target.image_height
+                )
+            if not self._guide_metal_device:
+                self._guide_metal_device = _upload_nonempty(
+                    self.ctx, self._guide_metal_textures
+                )
+            comptime Formats = _gpu_rt_kernel_formats[
+                Self.kind,
+                Self.sphere_format,
+                Self.triangle_format,
+                Self.tlas_format,
+                Self.blas_format,
+            ]
+            enqueue_gpu_denoise_guides[Self.kind, Formats](
+                self.ctx,
+                self.scene.view(),
+                self.target.camera,
+                self._guide_metal_device.value(),
+                preview.guides.value(),
+            )
+            preview.guide_generation = generation
+
+    def refresh_preview(
+        mut self, camera: Camera, generation: UInt64, denoise: Bool = False
+    ) raises -> GpuRtPreviewResult:
+        """Re-present retained samples without submitting transport work."""
+        if not self._preview or self._preview.value().generation != generation:
+            raise Error("GPU preview generation is no longer available")
+        var t0 = perf_counter_ns()
+        var rgba, postprocess_error = self._present_preview(
+            camera, generation, denoise
+        )
+        return GpuRtPreviewResult(
+            rgba^,
+            RenderTimings(
+                Int(perf_counter_ns() - t0), 0, 0, self.target.pixel_count, 0, 0
+            ),
+            self._preview.value().samples,
+            self._preview.value().batches,
+            postprocess_error,
+            preparation_ns=0,
+            batch_ns=0,
+            postprocess_ns=Int(perf_counter_ns() - t0),
         )

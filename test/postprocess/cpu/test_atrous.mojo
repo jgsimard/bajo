@@ -258,5 +258,36 @@ def test_sample_sidecar_preserves_raw_transport_bits() raises:
             assert_equal(tag, UInt32(1))
 
 
+def test_compact_components_survive_cascade_growth_and_mixed_coverage() raises:
+    var guides = flat_guides(2, 1)
+    var first = sample_fixture(2, 1, 4)
+    for s in range(4):
+        first.components[4 + s] = 2
+        first.colors[4 + s] = Color(5, 6, 7)
+    var stats = DenoiseStatistics(2, 1)
+    stats.add(first)
+    var prior_bins = stats.n_bins
+    var tail = sample_fixture(2, 1, 1)
+    # One pixel now sees a passthrough surface; another sees a bright glossy
+    # sample. The new brightness range must preserve both existing components.
+    tail.components[0] = 0
+    tail.colors[0] = Color(2)
+    tail.components[1] = 2
+    tail.colors[1] = Color(1e6)
+    stats.add(tail)
+    assert_true(stats.n_bins > prior_bins)
+    assert_equal(len(stats.bins), stats.n_bins * 2 * (27 + 4))
+    assert_equal(len(stats.meta), 2 * 5)
+    var frame = reconstruct_frame(stats, guides, False)
+    comptime for c in range(3):
+        assert_almost_equal(frame.diffuse[0][c], Float32(0.8), atol=1e-6)
+        assert_almost_equal(frame.passthrough[0][c], Float32(0.4), atol=1e-6)
+        assert_almost_equal(
+            frame.glossy[1][c], (Float32(5 + c) * 4 + 1e6) / 5, atol=0.02
+        )
+    assert_almost_equal(frame.variance[0], Float32(0.16), atol=1e-6)
+    assert_equal(frame.variance[1], Float32(0))
+
+
 def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

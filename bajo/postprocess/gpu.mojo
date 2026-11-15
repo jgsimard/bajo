@@ -190,7 +190,7 @@ struct GpuDenoiseStatistics:
             required = cascade_size(largest[0])
         if required > self.n_bins:
             var next = ctx.enqueue_create_buffer[.float64](
-                required * 2 * count * CascadeLayout.STRIDE
+                required * count * CascadeLayout.LEVEL_STRIDE
             )
             next.enqueue_fill(0)
             if self.n_bins:
@@ -289,7 +289,12 @@ def _reconstruct_kernel(
         ping[unsafe_offset=i * 3 + c] = d[c] / albedo[c]
         diffuse[unsafe_offset=i * 3 + c] = d[c]
         var p = Float32(
-            meta[unsafe_offset=i * CascadeLayout.META + 2 + c] / normalization
+            meta[
+                unsafe_offset=i * CascadeLayout.META
+                + CascadeLayout.PASSTHROUGH
+                + c
+            ]
+            / normalization
         ) if normalization > 0 else Float32(0)
         residual[unsafe_offset=i * 3 + c] = g[c] + p
     variance[unsafe_offset=i] = v

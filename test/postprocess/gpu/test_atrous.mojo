@@ -58,7 +58,9 @@ def test_cpu_gpu_statistics_reweighting_filter_and_input_preservation() raises:
                     )
                     batch.components[i] = UInt32((i // spp) % 3)
                     batch.weights[i] = Float32(1) + Float32(i % 2) * 0.1
-                batch.colors[0] = Color(10000)
+                # Grow the cascade after its first batch to exercise retained
+                # diffuse/glossy records in the compact device allocation.
+                batch.colors[0] = Color(Float32(1 if spp == 1 else 10000))
                 var uploaded = upload_samples(ctx, batch)
                 host.add(batch)
                 device.add(ctx, uploaded, spp)
@@ -98,6 +100,8 @@ def test_cpu_gpu_statistics_reweighting_filter_and_input_preservation() raises:
                             )
             assert_equal(host.samples, device.samples)
             assert_equal(host.n_bins, device.n_bins)
+            assert_equal(len(device.bins), width * 3 * device.n_bins * (27 + 4))
+            assert_equal(len(device.meta), width * 3 * 5)
             var wrong = GpuDenoiseGuides(ctx, width + 1, 3)
             with assert_raises():
                 enqueue_atrous_denoise(ctx, device, wrong, gpu)

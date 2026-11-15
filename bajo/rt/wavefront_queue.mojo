@@ -2,7 +2,7 @@
 
 from std.collections import Array
 from std.math import ceildiv
-from std.sys.intrinsics import llvm_intrinsic
+from std.sys.intrinsics import compressed_store
 from layout import Coord
 from bajo.rt.path_values import PathContinuation, PathFloatField
 from bajo.rt.path_store import store_path_values
@@ -235,7 +235,7 @@ struct PacketPathQueue[length: SIMDLength](Sized):
         ) {values}:
             var tile = destination.tile()
             comptime for field in range(PathFloatField.VALUE_PLANES):
-                llvm_intrinsic["llvm.masked.compressstore", NoneType](
+                compressed_store(
                     values.float_field[field](),
                     tile.ptr.unsafe_offset(
                         Int(tile.layout(Coord(field, target_lane)))

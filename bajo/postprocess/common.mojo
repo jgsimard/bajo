@@ -6,8 +6,96 @@ moments instead of SVGF's reprojected exponential temporal history.
 """
 from std.math import abs, exp, pow, sqrt
 from bajo.core import dot
-from bajo.core.color import Color, luminance
+from bajo.core.color import Color, luminance, LUMINANCE_WEIGHTS
 from .types import GuideLayout
+from .statistics import CascadeLayout, reconstruct_component
+
+
+def _reconstruct_pixel(
+    bins: ImmPointer[Float64, _],
+    meta: ImmPointer[Float64, _],
+    pixel: Int,
+    width: Int,
+    height: Int,
+    n_bins: Int,
+    samples: Int,
+    albedo: Color,
+    firefly: Bool,
+) -> Tuple[Color, Color, Color, Float32]:
+    var diffuse, variance = reconstruct_component(
+        bins,
+        meta,
+        pixel,
+        width,
+        height,
+        0,
+        n_bins,
+        samples,
+        LUMINANCE_WEIGHTS[.float32] / albedo,
+        firefly,
+    )
+    var glossy, _ = reconstruct_component(
+        bins,
+        meta,
+        pixel,
+        width,
+        height,
+        1,
+        n_bins,
+        samples,
+        Color(0),
+        firefly,
+    )
+    var m = pixel * CascadeLayout.META
+    var normalization = meta[unsafe_offset=m]
+    var passthrough = Color(0)
+    if normalization > 0:
+        comptime for c in range(3):
+            passthrough[c] = Float32(
+                meta[unsafe_offset=m + CascadeLayout.PASSTHROUGH + c]
+                / normalization
+            )
+    return diffuse, glossy, passthrough, variance
+
+
+def _filter_pixel(
+    source: ImmPointer[Float32, _],
+    variance: ImmPointer[Float32, _],
+    fields: ImmPointer[Float32, _],
+    surfaces: ImmPointer[UInt32, _],
+    width: Int,
+    height: Int,
+    pixel: Int,
+    iteration: Int,
+    samples: Int,
+    phi_color: Float32,
+    phi_normal: Float32,
+) -> Tuple[Color, Float32]:
+    if iteration < 0:
+        return _bootstrap_pixel(
+            source,
+            variance,
+            fields,
+            surfaces,
+            width,
+            height,
+            pixel,
+            samples,
+            phi_color,
+            phi_normal,
+        )
+    return _atrous_pixel(
+        source,
+        fields,
+        surfaces,
+        variance,
+        width,
+        height,
+        pixel,
+        1 << iteration,
+        phi_color,
+        phi_normal,
+    )
 
 
 def _color(p: ImmPointer[Float32, _], index: Int) -> Color:

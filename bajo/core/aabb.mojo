@@ -2,7 +2,11 @@ from std.utils.numerics import max_finite, min_finite
 from std.math import abs, max, min
 from std.memory import bitcast
 from std.sys.info import size_of
-from bajo.core.numerics import finite_f32_key, round_float32_outward
+from bajo.core.numerics import (
+    finite_f32_key,
+    FLOAT32_GAMMA,
+    round_float32_outward,
+)
 from std.memory import AddressSpace
 
 from bajo.core.transform import Affine3
@@ -244,8 +248,7 @@ def transform_bounds_conservative[
     """
     var matrix = transform.flatten()
     var result = AxisAlignedBoundingBox[.float32, To].invalid()
-    comptime u = Float64(5.9604644775390625e-8)
-    comptime gamma = (8 * u) / (1 - 8 * u)
+    comptime gamma = FLOAT32_GAMMA[8]
     comptime for row in range(3):
         var lo = Float64(matrix[row * 4 + 3])
         var hi = lo

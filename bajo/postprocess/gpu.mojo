@@ -5,14 +5,13 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from std.math import ceildiv, isfinite
 from std.memory import bitcast
 from bajo.gpu.buffers import upload_list
-from bajo.core.color import Color, luminance
+from bajo.core.color import luminance
 from .types import AtrousSettings, DenoiseGuides, GuideLayout
-from .common import _color, _albedo, _bootstrap_pixel, _atrous_pixel
+from .common import _color, _albedo, _reconstruct_pixel, _filter_pixel
 from .statistics import (
     CascadeLayout,
     cascade_size,
     accumulate_sample,
-    reconstruct_component,
 )
 
 
@@ -260,44 +259,21 @@ def _reconstruct_kernel(
     if i >= Int(width) * Int(height):
         return
     var albedo = _albedo(fields, i)
-    var coefficients = Color(0.2126, 0.7152, 0.0722) / albedo
-    var d, v = reconstruct_component(
+    var d, g, p, v = _reconstruct_pixel(
         bins,
         meta,
         i,
         Int(width),
         Int(height),
-        0,
         Int(n_bins),
         Int(samples),
-        coefficients,
+        albedo,
         firefly != 0,
     )
-    var g, unused = reconstruct_component(
-        bins,
-        meta,
-        i,
-        Int(width),
-        Int(height),
-        1,
-        Int(n_bins),
-        Int(samples),
-        Color(0),
-        firefly != 0,
-    )
-    var normalization = meta[unsafe_offset=i * CascadeLayout.META]
     comptime for c in range(3):
         ping[unsafe_offset=i * 3 + c] = d[c] / albedo[c]
         diffuse[unsafe_offset=i * 3 + c] = d[c]
-        var p = Float32(
-            meta[
-                unsafe_offset=i * CascadeLayout.META
-                + CascadeLayout.PASSTHROUGH
-                + c
-            ]
-            / normalization
-        ) if normalization > 0 else Float32(0)
-        residual[unsafe_offset=i * 3 + c] = g[c] + p
+        residual[unsafe_offset=i * 3 + c] = g[c] + p[c]
     variance[unsafe_offset=i] = v
 
 
@@ -318,34 +294,19 @@ def _filter_kernel(
     var i = global_idx.x
     if i >= Int(width) * Int(height):
         return
-    var color = Color(0)
-    var v = Float32(0)
-    if iteration < 0:
-        color, v = _bootstrap_pixel(
-            source,
-            variance,
-            fields,
-            surfaces,
-            Int(width),
-            Int(height),
-            i,
-            Int(samples),
-            phi_color,
-            phi_normal,
-        )
-    else:
-        color, v = _atrous_pixel(
-            source,
-            fields,
-            surfaces,
-            variance,
-            Int(width),
-            Int(height),
-            i,
-            1 << Int(iteration),
-            phi_color,
-            phi_normal,
-        )
+    var color, v = _filter_pixel(
+        source,
+        variance,
+        fields,
+        surfaces,
+        Int(width),
+        Int(height),
+        i,
+        Int(iteration),
+        Int(samples),
+        phi_color,
+        phi_normal,
+    )
     comptime for c in range(3):
         output[unsafe_offset=i * 3 + c] = color[c]
     next_variance[unsafe_offset=i] = v

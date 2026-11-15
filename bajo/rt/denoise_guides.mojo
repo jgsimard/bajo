@@ -2,6 +2,7 @@
 
 from bajo.core import Camera, Point3f32, Vec3f32, Rayf32, dot
 from bajo.core.color import Color
+from bajo.core.numerics import FLOAT32_GAMMA
 from bajo.rt.rays import make_camera_ray_from_samples
 from bajo.postprocess.types import GuideLayout
 from std.math import abs
@@ -74,9 +75,7 @@ def store_denoise_guide(
     # Bound that Float32 uncertainty before passing a depth derivative to the
     # unchanged reference weights. Otherwise a frontoparallel plane with zero
     # analytic derivative rejects neighbors differing by only one depth ULP.
-    # This is the same gamma(8) error-bound convention used by core.aabb.
-    comptime u = Float32(5.9604644775390625e-8)
-    comptime gamma8 = (8 * u) / (1 - 8 * u)
+    comptime gamma8 = FLOAT32_GAMMA[8, .float32]
     var magnitude = depth
     comptime for c in range(3):
         magnitude += (abs(position[c]) + abs(camera.origin[c])) * abs(

@@ -13,10 +13,6 @@ from bajo.postprocess.gpu import (
 )
 
 
-def _preview_sum(prior: Float32, incoming: Float32, batch: Float32) -> Float32:
-    return fma(incoming, batch, prior)
-
-
 def gpu_rt_accumulate_preview_kernel(
     incoming: ImmPointer[Float32, ImmutAnyOrigin],
     summed: MutPointer[Float32, MutAnyOrigin],
@@ -32,8 +28,9 @@ def gpu_rt_accumulate_preview_kernel(
     ):
         return
     var prior = Float32(0) if reset != 0 else summed[unsafe_offset=channel]
-    var value = _preview_sum(prior, incoming[unsafe_offset=channel], batch)
-    summed[unsafe_offset=channel] = value
+    summed[unsafe_offset=channel] = fma(
+        incoming[unsafe_offset=channel], batch, prior
+    )
 
 
 def _encode_preview_kernel(

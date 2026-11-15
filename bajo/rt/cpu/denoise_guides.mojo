@@ -3,10 +3,14 @@
 from max.algorithm import parallelize
 from bajo.core.camera import Camera
 from bajo.core.color import Color
-from bajo.rt.material_types import MaterialKind
 from bajo.rt.cpu.scene import CpuScene
-from bajo.rt.denoise_guides import denoise_guide_ray, store_denoise_guide
+from bajo.rt.denoise_guides import (
+    denoise_guide_ray,
+    store_denoise_guide,
+    denoise_component,
+)
 from bajo.postprocess.types import DenoiseGuides, GuideLayout
+from bajo.postprocess.samples import DenoiseComponent
 
 
 def make_cpu_denoise_guides[
@@ -48,8 +52,10 @@ def make_cpu_denoise_guides[
             unsafe_offset=i * GuideLayout.STRIDE + GuideLayout.DIFFUSE
         ] = Float32(
             UInt32(
-                surface.kind() == .LAMBERTIAN
-                and not (hit.emission.max_component()[0] > 0)
+                denoise_component(
+                    surface.kind(), hit.emission.max_component()[0] > 0
+                )
+                == DenoiseComponent.DIFFUSE
             )
         )
         store_denoise_guide(

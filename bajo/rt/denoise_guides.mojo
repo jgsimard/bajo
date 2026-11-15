@@ -45,15 +45,12 @@ def store_denoise_guide(
         fields[unsafe_offset=first + GuideLayout.ALBEDO + channel] = albedo[
             channel
         ]
+    var depth = abs(dot(position - camera.origin, camera.forward))
     fields[unsafe_offset=first + GuideLayout.FOOTPRINT] = max(
-        2
-        * abs(dot(position - camera.origin, camera.forward))
-        * camera.fov_scale
-        / Float32(height),
+        2 * depth * camera.fov_scale / Float32(height),
         1e-6,
     )
 
-    var depth = abs(dot(position - camera.origin, camera.forward))
     fields[unsafe_offset=first + GuideLayout.DEPTH] = depth
     # Analytic planar depth fwidth, in raster pixels, as required by SVGF.
     var denominator = max(
@@ -87,7 +84,9 @@ def store_denoise_guide(
     )
 
 
-def denoise_component(kind: MaterialKind, emissive: Bool = False) -> UInt32:
+def denoise_component(
+    kind: MaterialKind, emissive: Bool = False
+) -> DenoiseComponent:
     if not emissive:
         if kind == .LAMBERTIAN:
             return DenoiseComponent.DIFFUSE

@@ -19,7 +19,6 @@ struct CpuPreviewAccumulator:
     var samples: Int
     var batches: Int
     var sums: List[Color]
-    var linear: List[Color]
     var guides: Optional[DenoiseGuides]
     var workspace: AtrousWorkspace
     var statistics: Optional[DenoiseStatistics]
@@ -32,7 +31,6 @@ struct CpuPreviewAccumulator:
         self.samples = 0
         self.batches = 0
         self.sums = List[Color](length=width * height, fill=Color(0))
-        self.linear = List[Color](length=width * height, fill=Color(0))
         self.guides = {}
         self.workspace = {}
         self.statistics = {}
@@ -79,8 +77,6 @@ struct CpuPreviewAccumulator:
     ) raises -> List[UInt8]:
         if self.samples == 0:
             raise Error("CPU preview has no accumulated samples")
-        for i in range(len(self.sums)):
-            self.linear[i] = self.sums[i] / Float32(self.samples)
         if denoise:
             if not self.guides:
                 self.guides = make_cpu_denoise_guides(
@@ -99,8 +95,10 @@ struct CpuPreviewAccumulator:
                 self.statistics.value(), self.guides.value(), self.workspace
             )
         var rgba = List[UInt8](length=self.width * self.height * 4, fill=255)
-        for i in range(len(self.linear)):
-            var color = self.workspace.ping[i] if denoise else self.linear[i]
+        for i in range(len(self.sums)):
+            var color = self.workspace.ping[i] if denoise else self.sums[
+                i
+            ] / Float32(self.samples)
             comptime for channel in range(3):
                 rgba[4 * i + channel] = color_to_byte(color[channel])
         return rgba^

@@ -438,7 +438,7 @@ def trace_spectral_packets[
                             hit.surface.get(lane).kind(),
                             hit.emission.max_component()[lane] > 0
                             or hit.emission_spectrum[lane] != UInt32.MAX,
-                        )
+                        ).value()
             if world.has_shading_normals():
                 hit.normal = (
                     world.scene_data()

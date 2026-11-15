@@ -4,7 +4,11 @@ from max.gpu.host import DeviceContext, DeviceBuffer
 from std.math import ceildiv
 from bajo.core.camera import Camera
 from bajo.core.color import Color
-from bajo.rt.denoise_guides import denoise_guide_ray, store_denoise_guide
+from bajo.rt.denoise_guides import (
+    denoise_guide_ray,
+    store_denoise_guide,
+    denoise_component,
+)
 from bajo.rt.gpu.config import GpuRtSceneKind, _GpuRtKernelFormats
 from bajo.rt.gpu.views import GpuRtSceneView
 from bajo.rt.gpu.spectral_trace import spectral_trace_surface
@@ -13,11 +17,12 @@ from bajo.rt.gpu.textures import (
     _sample_gpu_coated_albedo,
     _sample_gpu_image_texture,
 )
-from bajo.rt.material_types import SurfaceId, NO_TEXTURE
+from bajo.rt.material_types import NO_TEXTURE
 from bajo.rt.material_storage import MetalLayout
 from bajo.rt.render_types import SamplingConfig
 from bajo.postprocess.gpu import GpuDenoiseGuides
 from bajo.postprocess.types import GuideLayout
+from bajo.postprocess.samples import DenoiseComponent
 from bajo.rt.gpu.emission import gpu_emitter
 from bajo.rt.texture_math import albedo_from_texture
 
@@ -101,8 +106,10 @@ def _guide_kernel[
         unsafe_offset=i * GuideLayout.STRIDE + GuideLayout.DIFFUSE
     ] = Float32(
         UInt32(
-            hit.surface.kind() == .LAMBERTIAN
-            and emitter.radiance.max_component() <= 0
+            denoise_component(
+                hit.surface.kind(), emitter.radiance.max_component() > 0
+            )
+            == DenoiseComponent.DIFFUSE
         )
     )
     store_denoise_guide(

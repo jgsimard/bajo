@@ -1,11 +1,21 @@
-"""Float32 ordering, finite extrema, and outward endpoint conversion.
+"""Float32 error bounds, ordering, extrema, and outward endpoint conversion.
 
 Integer comparisons preserve subnormals even when floating-point arithmetic
-flushes them to zero. These helpers require finite inputs and distinguish
+flushes them to zero. The ordering helpers require finite inputs and distinguish
 negative zero from positive zero.
 """
 
 from std.memory import bitcast
+
+
+# Relative rounding-error bound for n Float32 operations (0 <= n < 2**24),
+# evaluated in Float32 or Float64 as requested.
+comptime FLOAT32_UNIT_ROUNDOFF[dtype: DType] = Scalar[dtype](
+    5.9604644775390625e-8
+)
+comptime FLOAT32_GAMMA[operations: Int, dtype: DType = .float64] = (
+    Scalar[dtype](operations) * FLOAT32_UNIT_ROUNDOFF[dtype]
+) / (1 - Scalar[dtype](operations) * FLOAT32_UNIT_ROUNDOFF[dtype])
 
 
 @inline(.always)

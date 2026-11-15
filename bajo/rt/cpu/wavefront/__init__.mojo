@@ -180,22 +180,15 @@ def _trace_packet_range[
                 var total = Color(0)
                 var weight = Float32(0)
                 for index in range(first, first + spp):
-                    total += (
-                        film.apply_spectral_sample(
-                            queues.spectral.radiance[index],
-                            queues.spectral.wavelengths[index],
-                        )
-                        * queues.weights[index]
+                    var sample = film.apply_spectral_sample(
+                        queues.spectral.radiance[index],
+                        queues.spectral.wavelengths[index],
                     )
+                    total += sample * queues.weights[index]
                     weight += queues.weights[index]
                     if sample_colors:
                         var id = path_begin + index
-                        sample_colors.value()[
-                            unsafe_offset=id
-                        ] = film.apply_spectral_sample(
-                            queues.spectral.radiance[index],
-                            queues.spectral.wavelengths[index],
-                        )
+                        sample_colors.value()[unsafe_offset=id] = sample
                         sample_weights.value()[
                             unsafe_offset=id
                         ] = queues.weights[index]
@@ -233,16 +226,12 @@ def _trace_packet_range[
         var sum = Color(0.0)
         var weight = Float32(0)
         for index in range(first, first + spp):
-            sum += (
-                settings.film.apply_sample(queues.samples[index])
-                * queues.weights[index]
-            )
+            var sample = settings.film.apply_sample(queues.samples[index])
+            sum += sample * queues.weights[index]
             weight += queues.weights[index]
             if sample_colors:
                 var id = path_begin + index
-                sample_colors.value()[
-                    unsafe_offset=id
-                ] = settings.film.apply_sample(queues.samples[index])
+                sample_colors.value()[unsafe_offset=id] = sample
                 sample_weights.value()[unsafe_offset=id] = queues.weights[index]
         pixels[
             (path_begin + first) // spp

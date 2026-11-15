@@ -2,8 +2,7 @@
 
 from std.sys.info import size_of
 
-from bajo.core.color import Color
-from bajo.rt.image_output import color_to_byte
+from bajo.core.color import Color, color_to_byte
 from .worker import CompletedFrame
 
 

@@ -60,15 +60,18 @@ comptime _CIE1931_XYZ: Array[Color, 48] = [
 ]
 
 
+# Linear sRGB luminance coefficients in the requested precision.
+comptime LUMINANCE_WEIGHTS[dtype: DType] = Vec3[dtype, .WORLD](
+    0.2126, 0.7152, 0.0722
+)
+
+
 @inline(.always)
 def luminance[
     length: SIMDLength = 1
 ](color: Vec3[.float32, .WORLD, length]) -> SIMD[.float32, length]:
-    return (
-        Float32(0.2126) * color.x
-        + Float32(0.7152) * color.y
-        + Float32(0.0722) * color.z
-    )
+    comptime weights = LUMINANCE_WEIGHTS[.float32]
+    return weights.x * color.x + weights.y * color.y + weights.z * color.z
 
 
 def xyz_to_linear_srgb(xyz: Color) -> Color:

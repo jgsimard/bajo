@@ -8,7 +8,7 @@ interactive reweighting. All storage is Float64, including weighted sums.
 from std.math import floor, log2, exp2, isfinite
 from max.algorithm import parallelize
 from .samples import DenoiseSampleBatch
-from bajo.core.color import Color, luminance
+from bajo.core.color import Color, luminance, LUMINANCE_WEIGHTS
 
 
 struct CascadeLayout:
@@ -188,6 +188,7 @@ def reconstruct_component(
         return Color(0), Float32(0)
     var weights = Array[Float64, CascadeLayout.MAX_BINS](fill=0)
     var result = Array[Float64, 3](fill=0)
+    comptime luma = LUMINANCE_WEIGHTS[.float64]
     var expected = Float64(0)
     for bin in range(n_bins):
         var at = _record(bin, layer, pixel, count)
@@ -216,7 +217,7 @@ def reconstruct_component(
             result[c] += w * bins[unsafe_offset=at + CascadeLayout.RGB + c]
         expected = max(
             Float64(0),
-            (0.2126 * result[0] + 0.7152 * result[1] + 0.0722 * result[2])
+            (luma.x * result[0] + luma.y * result[1] + luma.z * result[2])
             / normalization,
         )
     var color = Color(

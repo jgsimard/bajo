@@ -1,9 +1,9 @@
 """Reference-based diffuse SVGF spatial reconstruction and firefly removal."""
 from max.algorithm import parallelize
 from bajo.core.color import Color
-from .types import AtrousSettings, DenoiseGuides, GuideLayout
-from .common import _bootstrap_pixel, _atrous_pixel, _albedo
-from .statistics import DenoiseStatistics, CascadeLayout, reconstruct_component
+from .types import AtrousSettings, DenoiseGuides
+from .common import _reconstruct_pixel, _filter_pixel, _albedo
+from .statistics import DenoiseStatistics
 
 
 struct DenoiseFrame:
@@ -39,43 +39,20 @@ def reconstruct_frame(
 
     def reconstruct(i: Int) {imm}:
         var albedo = _albedo(fields, i)
-        var coefficients = Color(0.2126, 0.7152, 0.0722) / albedo
-        var d, v = reconstruct_component(
+        var d, g, p, v = _reconstruct_pixel(
             bins,
             meta,
             i,
             stats.width,
             stats.height,
-            0,
             stats.n_bins,
             stats.samples,
-            coefficients,
-            firefly,
-        )
-        var g, unused = reconstruct_component(
-            bins,
-            meta,
-            i,
-            stats.width,
-            stats.height,
-            1,
-            stats.n_bins,
-            stats.samples,
-            Color(0),
+            albedo,
             firefly,
         )
         diffuse[unsafe_offset=i] = d
         glossy[unsafe_offset=i] = g
         variance[unsafe_offset=i] = v
-        var m = i * CascadeLayout.META
-        var normalization = meta[unsafe_offset=m]
-        var p = Color(0)
-        if normalization > 0:
-            comptime for c in range(3):
-                p[c] = Float32(
-                    meta[unsafe_offset=m + CascadeLayout.PASSTHROUGH + c]
-                    / normalization
-                )
         passthrough[unsafe_offset=i] = p
 
     parallelize(reconstruct, count)
@@ -151,34 +128,19 @@ def atrous_denoise(
         var next_variance = workspace.variance_pong.unsafe_ptr()
 
         def filter_pixel(i: Int) {imm}:
-            var color = Color(0)
-            var v = Float32(0)
-            if iteration < 0:
-                color, v = _bootstrap_pixel(
-                    source,
-                    variance,
-                    fields,
-                    surfaces,
-                    guides.width,
-                    guides.height,
-                    i,
-                    frame.samples,
-                    settings.phi_color,
-                    settings.phi_normal,
-                )
-            else:
-                color, v = _atrous_pixel(
-                    source,
-                    fields,
-                    surfaces,
-                    variance,
-                    guides.width,
-                    guides.height,
-                    i,
-                    1 << iteration,
-                    settings.phi_color,
-                    settings.phi_normal,
-                )
+            var color, v = _filter_pixel(
+                source,
+                variance,
+                fields,
+                surfaces,
+                guides.width,
+                guides.height,
+                i,
+                iteration,
+                frame.samples,
+                settings.phi_color,
+                settings.phi_normal,
+            )
             target[unsafe_offset=i] = color
             next_variance[unsafe_offset=i] = v
 

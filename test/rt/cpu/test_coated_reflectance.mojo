@@ -7,7 +7,7 @@ from std.testing import (
     assert_raises,
     assert_true,
 )
-from bajo.core import Vec3, Vec3f32
+from bajo.core import Vec3f32
 from bajo.core.optics import conductor_k_from_reflectance, fresnel_conductor
 from bajo.core.color import Color
 from bajo.parser import MemoryAssetLoader

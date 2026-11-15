@@ -5,7 +5,7 @@ from bajo.core.color import Color
 from bajo.core.sampled_spectrum import SampledSpectrum, SampledWavelengths
 from bajo.core.rgb_spectrum import RgbSpectrumView
 from bajo.rt.cpu.spectral_bsdf import SpectralMaterialParameters
-from bajo.rt.material_types import MaterialKind, SurfaceId, NO_TEXTURE
+from bajo.rt.material_types import MaterialKind, NO_TEXTURE
 from bajo.rt.spectrum_sources import NO_SPECTRUM
 from bajo.rt.material_storage import (
     CoatedDiffuseLayout,

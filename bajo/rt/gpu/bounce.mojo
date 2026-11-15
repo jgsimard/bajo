@@ -57,6 +57,7 @@ def _enqueue_primary_trace[
     sampling: GpuRtSamplingConfig,
     blocks: Int,
 ) raises:
+    # MIS supplies the shared NEE/MIS path layout; use_mis selects weighting.
     comptime trace_integrator = Integrator.MIS if Integrator.uses_direct_lighting[
         integrator
     ] else integrator
@@ -217,29 +218,26 @@ def enqueue_gpu_rt_bounce[
         dst_path_fields,
     )
 
-    def enqueue_trace() raises {imm}:
-        comptime trace_integrator = Integrator.MIS if Integrator.uses_direct_lighting[
-            integrator
-        ] else integrator
-        ctx.enqueue_function[
-            gpu_rt_scene_trace_kernel[trace_integrator, scene_kind, Formats]
-        ](
-            scene,
-            queues,
-            sampling,
-            bounce,
-            UInt32(1 if allow_scattering else 0),
-            uniform_sampling_kind.value(),
-            UInt32(integrator == .MIS),
-            grid_dim=blocks,
-            block_dim=trace_block_size,
-        )
-
     comptime if Integrator.uses_direct_lighting[integrator]:
         enqueue_gpu_rt_spatial_order[scene_kind, Formats](
             ctx, scene, queues, bounce
         )
-    enqueue_trace()
+    comptime trace_integrator = Integrator.MIS if Integrator.uses_direct_lighting[
+        integrator
+    ] else integrator
+    ctx.enqueue_function[
+        gpu_rt_scene_trace_kernel[trace_integrator, scene_kind, Formats]
+    ](
+        scene,
+        queues,
+        sampling,
+        bounce,
+        UInt32(allow_scattering),
+        uniform_sampling_kind.value(),
+        UInt32(integrator == .MIS),
+        grid_dim=blocks,
+        block_dim=trace_block_size,
+    )
     if not allow_scattering:
         return
     comptime if Integrator.is_path_tracing[integrator]:

@@ -1,14 +1,12 @@
 """Four-wavelength primitives and original-table spectral reconstruction."""
 
 from std.builtin.globals import global_constant
-from std.math import abs
 from std.memory import bitcast
 from std.testing import (
     TestSuite,
     assert_almost_equal,
     assert_equal,
     assert_true,
-    assert_raises,
 )
 from bajo.core.color import Color
 from bajo.core.vec import Vec3
@@ -25,7 +23,6 @@ from bajo.core.sampled_spectrum import (
 from bajo.core.rgb_spectrum import (
     RgbSpectrumTable,
     RgbSpectrumView,
-    RGB_SPECTRUM_D65_OFFSET,
 )
 from bajo.rt.film import FilmResponse
 from bajo.parser.pbrt import parse_pbrt

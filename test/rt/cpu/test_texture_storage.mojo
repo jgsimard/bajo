@@ -4,8 +4,6 @@ from std.memory import bitcast
 from std.testing import (
     TestSuite,
     assert_equal,
-    assert_almost_equal,
-    assert_true,
 )
 from bajo.rt.material_types import SurfaceStore, ImageTexture
 from bajo.rt.material_storage import TextureDescLayout

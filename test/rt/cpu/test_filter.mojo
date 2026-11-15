@@ -12,7 +12,6 @@ from bajo.rt.filter import ReconstructionFilter, FilterSampler
 from bajo.rt.cpu.rgb import render_wavefront
 from bajo.rt import CpuScene
 from bajo.rt.material_types import Integrator
-from bajo.rt.film import FilmResponse
 from bajo.rt.render_types import RenderSettings, SamplingConfig
 from bajo.core.random import Sampler
 from bajo.rt.camera_sampling import sample_camera

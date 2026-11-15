@@ -21,7 +21,6 @@ from bajo.core.sampling import build_alias_distribution
 from bajo.rt.scene_data import SceneData
 from bajo.rt.material_types import EnvironmentKind
 from bajo.rt.spectrum_sources import (
-    SpectrumSource,
     PackedSpectrumSources,
     SpectrumSourcesView,
     NO_SPECTRUM,

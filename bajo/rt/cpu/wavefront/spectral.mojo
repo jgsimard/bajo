@@ -1,6 +1,6 @@
 """Spectral packet transport with radiometric state owned by stable sample IDs."""
 
-from std.math import abs, iota, exp
+from std.math import iota, exp
 from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
 from bajo.core import Point3, Vec3, Ray, dot, length as vector_length
 from bajo.core.color import Color
@@ -13,8 +13,6 @@ from bajo.core.rgb_spectrum import RgbSpectrumView
 from bajo.rt.material_types import (
     MaterialKind,
     Integrator,
-    SurfaceId,
-    EnvironmentKind,
 )
 from bajo.rt.render_types import RenderSettings, SamplingConfig
 from bajo.rt.spectrum_sources import SpectrumSourcesView, NO_SPECTRUM
@@ -45,11 +43,7 @@ from bajo.rt.lighting import (
 from bajo.rt.spectral_light_distribution import SpectralLightDistributionView
 from bajo.rt.cpu.scene import CpuScene
 from bajo.rt.cpu.spectral_bsdf import SpectralMaterialParameters
-from bajo.rt.cpu.lighting import (
-    _sample_direct_light_candidate,
-    _emissive_hit_weight,
-    _environment_miss_weight,
-)
+from bajo.rt.cpu.lighting import _sample_direct_light_candidate
 from bajo.core.mappings import equal_area_sphere_to_square
 
 

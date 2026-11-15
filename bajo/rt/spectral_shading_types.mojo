@@ -2,7 +2,6 @@
 
 from bajo.core import Vec3
 from bajo.core.sampled_spectrum import SampledSpectrum
-from bajo.rt.material_types import CoatedDiffuse
 
 
 @fieldwise_init

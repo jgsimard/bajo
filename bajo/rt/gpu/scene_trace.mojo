@@ -4,7 +4,6 @@ from max.gpu import block_dim, global_idx, grid_dim
 from std.math import ceildiv, pi
 from max.gpu.host import DeviceContext
 
-from bajo.bvh.constants import PrimitiveKind
 from bajo.bvh.types import Hit
 from bajo.rt.gpu.opacity import (
     gpu_opacity_value,
@@ -33,9 +32,7 @@ from bajo.core.geometry import (
     interpolate_triangle_attribute,
 )
 from bajo.core.tensor_layout import record_tile
-from bajo.rt.lighting import (
-    _emissive_hit_light_pdf,
-)
+from bajo.rt.lighting import _emissive_hit_light_pdf
 from bajo.rt.gpu.emission import gpu_emitter
 from bajo.rt.rays import make_ao_ray
 from bajo.core.color import Color, luminance

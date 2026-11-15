@@ -3,9 +3,7 @@
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext
 from std.builtin.globals import global_constant
-from std.memory import bitcast
 from std.testing import TestSuite, assert_almost_equal, assert_equal
-from bajo.core.color import Color
 from bajo.core.vec import Vec3
 from bajo.core.rgb_spectrum import RgbSpectrumTable, RgbSpectrumView
 from bajo.core.sampled_spectrum import (

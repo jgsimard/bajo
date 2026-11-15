@@ -4,7 +4,7 @@ from max.gpu.host import DeviceBuffer, DeviceContext
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.collections import Array
 from std.sys.info import size_of
-from bajo.core.rgb_spectrum import RgbSpectrumTable, RgbSpectrumView
+from bajo.core.rgb_spectrum import RgbSpectrumTable
 from bajo.core.spectrum_tables import (
     PiecewiseSpectrumTable,
     PiecewiseSpectrumView,

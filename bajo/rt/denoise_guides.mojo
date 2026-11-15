@@ -26,7 +26,7 @@ def denoise_guide_ray(
 
 
 def store_denoise_guide(
-    fields: Pointer[Float32, MutAnyOrigin],
+    fields: MutPointer[Float32, _],
     index: Int,
     position: Point3f32[.WORLD],
     normal: Vec3f32[.WORLD],

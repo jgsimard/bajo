@@ -10,18 +10,16 @@ from bajo.core.color import Color, luminance
 from .types import GuideLayout
 
 
-def _color(p: Pointer[Float32, ImmutAnyOrigin], index: Int) -> Color:
+def _color(p: ImmPointer[Float32, _], index: Int) -> Color:
     return Color(p.unsafe_offset(3 * index))
 
 
-def _guide_vec(
-    p: Pointer[Float32, ImmutAnyOrigin], index: Int, field: Int
-) -> Color:
+def _guide_vec(p: ImmPointer[Float32, _], index: Int, field: Int) -> Color:
     return Color(p.unsafe_offset(GuideLayout.STRIDE * index + field))
 
 
 def _svgf_weight(
-    fields: Pointer[Float32, ImmutAnyOrigin],
+    fields: ImmPointer[Float32, _],
     p: Int,
     q: Int,
     distance: Float32,
@@ -46,10 +44,10 @@ def _svgf_weight(
 
 
 def _bootstrap_pixel(
-    source: Pointer[Float32, ImmutAnyOrigin],
-    variance: Pointer[Float32, ImmutAnyOrigin],
-    fields: Pointer[Float32, ImmutAnyOrigin],
-    surfaces: Pointer[UInt32, ImmutAnyOrigin],
+    source: ImmPointer[Float32, _],
+    variance: ImmPointer[Float32, _],
+    fields: ImmPointer[Float32, _],
+    surfaces: ImmPointer[UInt32, _],
     width: Int,
     height: Int,
     p: Int,
@@ -110,10 +108,10 @@ def _bootstrap_pixel(
 
 
 def _atrous_pixel(
-    source: Pointer[Float32, ImmutAnyOrigin],
-    fields: Pointer[Float32, ImmutAnyOrigin],
-    surfaces: Pointer[UInt32, ImmutAnyOrigin],
-    variance: Pointer[Float32, ImmutAnyOrigin],
+    source: ImmPointer[Float32, _],
+    fields: ImmPointer[Float32, _],
+    surfaces: ImmPointer[UInt32, _],
+    variance: ImmPointer[Float32, _],
     width: Int,
     height: Int,
     p: Int,
@@ -194,7 +192,7 @@ def _atrous_pixel(
     return result / sum_w, v / (sum_w * sum_w)
 
 
-def _albedo(fields: Pointer[Float32, ImmutAnyOrigin], i: Int) -> Color:
+def _albedo(fields: ImmPointer[Float32, _], i: Int) -> Color:
     var a = _guide_vec(fields, i, GuideLayout.ALBEDO)
     return Color(
         max(a.x, Float32(0.001)),

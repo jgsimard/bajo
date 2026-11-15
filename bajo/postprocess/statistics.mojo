@@ -75,8 +75,8 @@ def _covariance_index(i: Int, j: Int) -> Int:
 
 
 def accumulate_sample(
-    bins: Pointer[Float64, MutAnyOrigin],
-    meta: Pointer[Float64, MutAnyOrigin],
+    bins: MutPointer[Float64, _],
+    meta: MutPointer[Float64, _],
     pixel: Int,
     count: Int,
     color: Color,
@@ -155,7 +155,7 @@ def accumulate_sample(
 
 
 def _sample_count(
-    bins: Pointer[Float64, ImmutAnyOrigin],
+    bins: ImmPointer[Float64, _],
     pixel: Int,
     count: Int,
     layer: Int,
@@ -171,8 +171,8 @@ def _sample_count(
 
 
 def reconstruct_component(
-    bins: Pointer[Float64, ImmutAnyOrigin],
-    meta: Pointer[Float64, ImmutAnyOrigin],
+    bins: ImmPointer[Float64, _],
+    meta: ImmPointer[Float64, _],
     pixel: Int,
     width: Int,
     height: Int,

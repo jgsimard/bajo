@@ -26,10 +26,10 @@ def _guide_kernel[
     kind: GpuRtSceneKind, Formats: _GpuRtKernelFormats
 ](
     scene: GpuRtSceneView,
-    camera_data: Pointer[Float32, ImmutAnyOrigin],
-    fields: Pointer[Float32, MutAnyOrigin],
-    surfaces: Pointer[UInt32, MutAnyOrigin],
-    metal_textures: Pointer[UInt32, ImmutAnyOrigin],
+    camera_data: ImmPointer[Float32, ImmutAnyOrigin],
+    fields: MutPointer[Float32, MutAnyOrigin],
+    surfaces: MutPointer[UInt32, MutAnyOrigin],
+    metal_textures: ImmPointer[UInt32, ImmutAnyOrigin],
     width: Int32,
     height: Int32,
 ):

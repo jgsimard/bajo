@@ -1,8 +1,7 @@
 """Retained progressive sums and host-ready RGBA for GPU preview consumers."""
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
-from std.math import ceildiv, fma
-from std.sys.intrinsics import llvm_intrinsic
+from std.math import ceildiv, fma, sqrt
 from bajo.rt.wavefront_contract import WAVE_COUNTER, WAVE_STATUS
 from bajo.rt.gpu.resources import GpuRtRenderTarget
 from bajo.postprocess.gpu import (
@@ -18,9 +17,9 @@ def _preview_sum(prior: Float32, incoming: Float32, batch: Float32) -> Float32:
 
 
 def gpu_rt_accumulate_preview_kernel(
-    incoming: Pointer[Float32, ImmutAnyOrigin],
-    summed: Pointer[Float32, MutAnyOrigin],
-    counters: Pointer[UInt32, ImmutAnyOrigin],
+    incoming: ImmPointer[Float32, ImmutAnyOrigin],
+    summed: MutPointer[Float32, MutAnyOrigin],
+    counters: ImmPointer[UInt32, ImmutAnyOrigin],
     count: Int32,
     batch: Float32,
     reset: UInt32,
@@ -37,8 +36,8 @@ def gpu_rt_accumulate_preview_kernel(
 
 
 def _encode_preview_kernel(
-    source: Pointer[Float32, ImmutAnyOrigin],
-    rgba: Pointer[UInt8, MutAnyOrigin],
+    source: ImmPointer[Float32, ImmutAnyOrigin],
+    rgba: MutPointer[UInt8, MutAnyOrigin],
     count: Int32,
     divisor: Float32,
 ):
@@ -46,7 +45,7 @@ def _encode_preview_kernel(
     if i >= Int(count) * 3:
         return
     var linear = source[unsafe_offset=i] / divisor
-    var gamma = llvm_intrinsic["llvm.sqrt.f32", Float32](max(linear, 0))
+    var gamma = sqrt(max(linear, 0))
     rgba[unsafe_offset=4 * (i // 3) + i % 3] = (
         Float32(256) * gamma.clamp(0, 0.999)
     ).cast[.uint8]()

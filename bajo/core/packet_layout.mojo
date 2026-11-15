@@ -1,6 +1,6 @@
 """Borrowed field/lane TileTensor views of homogeneous CPU SIMD packets."""
 
-from std.sys.intrinsics import llvm_intrinsic
+from std.sys.intrinsics import compressed_store
 from std.bit import count_trailing_zeros
 from std.memory import pack_bits
 from layout import Coord, Idx
@@ -79,7 +79,7 @@ def compact_packet_floats[
     comptime assert length > 1
     comptime for field in range(fields):
         var values = source.load[width=length]((field, 0))
-        llvm_intrinsic["llvm.masked.compressstore", NoneType](
+        compressed_store(
             values,
             destination.ptr.unsafe_offset(
                 Int(destination.layout(Coord(field, destination_lane)))

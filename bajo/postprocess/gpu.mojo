@@ -55,11 +55,12 @@ struct GpuDenoiseSampleBatch:
         self.components.enqueue_fill(0)
 
 
+# enqueue_function requires concrete pointer origins at kernel entry points.
 def _maximum_kernel(
-    colors: Pointer[Float32, ImmutAnyOrigin],
-    partial: Pointer[Float32, MutAnyOrigin],
-    weights: Pointer[Float32, ImmutAnyOrigin],
-    components: Pointer[UInt32, ImmutAnyOrigin],
+    colors: ImmPointer[Float32, ImmutAnyOrigin],
+    partial: MutPointer[Float32, MutAnyOrigin],
+    weights: ImmPointer[Float32, ImmutAnyOrigin],
+    components: ImmPointer[UInt32, ImmutAnyOrigin],
     count: Int32,
 ):
     var largest = Float32(0)
@@ -83,8 +84,8 @@ def _maximum_kernel(
 
 
 def _maximum_finish(
-    partial: Pointer[Float32, ImmutAnyOrigin],
-    result: Pointer[Float32, MutAnyOrigin],
+    partial: ImmPointer[Float32, ImmutAnyOrigin],
+    result: MutPointer[Float32, MutAnyOrigin],
     count: Int32,
 ):
     if global_idx.x == 0:
@@ -95,8 +96,8 @@ def _maximum_finish(
 
 
 def _copy_statistics(
-    source: Pointer[Float64, ImmutAnyOrigin],
-    dest: Pointer[Float64, MutAnyOrigin],
+    source: ImmPointer[Float64, ImmutAnyOrigin],
+    dest: MutPointer[Float64, MutAnyOrigin],
     count: Int32,
 ):
     var i = global_idx.x
@@ -105,11 +106,11 @@ def _copy_statistics(
 
 
 def _accumulate_statistics(
-    colors: Pointer[Float32, ImmutAnyOrigin],
-    weights: Pointer[Float32, ImmutAnyOrigin],
-    components: Pointer[UInt32, ImmutAnyOrigin],
-    bins: Pointer[Float64, MutAnyOrigin],
-    meta: Pointer[Float64, MutAnyOrigin],
+    colors: ImmPointer[Float32, ImmutAnyOrigin],
+    weights: ImmPointer[Float32, ImmutAnyOrigin],
+    components: ImmPointer[UInt32, ImmutAnyOrigin],
+    bins: MutPointer[Float64, MutAnyOrigin],
+    meta: MutPointer[Float64, MutAnyOrigin],
     count: Int32,
     spp: Int32,
 ):
@@ -242,13 +243,13 @@ struct GpuAtrousWorkspace:
 
 
 def _reconstruct_kernel(
-    bins: Pointer[Float64, ImmutAnyOrigin],
-    meta: Pointer[Float64, ImmutAnyOrigin],
-    fields: Pointer[Float32, ImmutAnyOrigin],
-    ping: Pointer[Float32, MutAnyOrigin],
-    diffuse: Pointer[Float32, MutAnyOrigin],
-    residual: Pointer[Float32, MutAnyOrigin],
-    variance: Pointer[Float32, MutAnyOrigin],
+    bins: ImmPointer[Float64, ImmutAnyOrigin],
+    meta: ImmPointer[Float64, ImmutAnyOrigin],
+    fields: ImmPointer[Float32, ImmutAnyOrigin],
+    ping: MutPointer[Float32, MutAnyOrigin],
+    diffuse: MutPointer[Float32, MutAnyOrigin],
+    residual: MutPointer[Float32, MutAnyOrigin],
+    variance: MutPointer[Float32, MutAnyOrigin],
     width: Int32,
     height: Int32,
     n_bins: Int32,
@@ -301,12 +302,12 @@ def _reconstruct_kernel(
 
 
 def _filter_kernel(
-    source: Pointer[Float32, ImmutAnyOrigin],
-    fields: Pointer[Float32, ImmutAnyOrigin],
-    surfaces: Pointer[UInt32, ImmutAnyOrigin],
-    variance: Pointer[Float32, ImmutAnyOrigin],
-    output: Pointer[Float32, MutAnyOrigin],
-    next_variance: Pointer[Float32, MutAnyOrigin],
+    source: ImmPointer[Float32, ImmutAnyOrigin],
+    fields: ImmPointer[Float32, ImmutAnyOrigin],
+    surfaces: ImmPointer[UInt32, ImmutAnyOrigin],
+    variance: ImmPointer[Float32, ImmutAnyOrigin],
+    output: MutPointer[Float32, MutAnyOrigin],
+    next_variance: MutPointer[Float32, MutAnyOrigin],
     width: Int32,
     height: Int32,
     iteration: Int32,
@@ -351,10 +352,10 @@ def _filter_kernel(
 
 
 def _compose_kernel(
-    pixels: Pointer[Float32, MutAnyOrigin],
-    fields: Pointer[Float32, ImmutAnyOrigin],
-    diffuse: Pointer[Float32, ImmutAnyOrigin],
-    residual: Pointer[Float32, ImmutAnyOrigin],
+    pixels: MutPointer[Float32, MutAnyOrigin],
+    fields: ImmPointer[Float32, ImmutAnyOrigin],
+    diffuse: ImmPointer[Float32, ImmutAnyOrigin],
+    residual: ImmPointer[Float32, ImmutAnyOrigin],
     count: Int32,
     passes: Int32,
 ):

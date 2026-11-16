@@ -404,17 +404,16 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
         var cursor = node
         var begin = first
         var size = count
-        var nodes = self.nodes.unsafe_ptr()
         var end = node + 2 * count - 1
         while True:
-            nodes.unsafe_store(cursor * 2, UInt32(cursor + 2 * size - 1))
-            nodes.unsafe_store(cursor * 2 + 1, EMPTY_LANE)
+            self.nodes.unsafe_get(cursor * 2) = UInt32(cursor + 2 * size - 1)
+            self.nodes.unsafe_get(cursor * 2 + 1) = EMPTY_LANE
             if size == 1:
                 ref item = items.unsafe_get(
                     Int(pairs.unsafe_get(begin).item_idx)
                 )
                 self._store_bounds(cursor, item.bounds)
-                nodes.unsafe_store(cursor * 2 + 1, item.payload)
+                self.nodes.unsafe_get(cursor * 2 + 1) = item.payload
                 if depth == 0:
                     break
                 depth -= 1
@@ -430,9 +429,9 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
                 cursor += 1
                 size = split
         for current in range(end - 1, node - 1, -1):
-            if nodes.unsafe_load(current * 2 + 1) == EMPTY_LANE:
+            if self.nodes.unsafe_get(current * 2 + 1) == EMPTY_LANE:
                 var left = current + 1
-                var right = Int(nodes.unsafe_load(left * 2))
+                var right = Int(self.nodes.unsafe_get(left * 2))
                 self._store_bounds(
                     current,
                     self._merge_node_bounds[precise](left, right),

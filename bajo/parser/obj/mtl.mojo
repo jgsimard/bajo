@@ -58,9 +58,7 @@ def _read_mtl_text(mut mesh: ObjMesh, base: String, text: String) raises:
 
     while line_start < text_len:
         # Fast newline scan. CR and comments are handled lazily by ObjLineCursor.
-        var line_end = text_span.find("\n", line_start)
-        if line_end == -1:
-            line_end = text_len
+        var line_end = text_span.find("\n", line_start).or_else(text_len)
 
         var cur = ObjLineCursor(bytes[line_start:line_end])
         var tag = cur.next_word()

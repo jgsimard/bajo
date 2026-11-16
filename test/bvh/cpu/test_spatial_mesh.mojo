@@ -279,7 +279,7 @@ def test_empty_invalid_mesh_inputs_and_queries() raises:
     )
     var rejected = False
     try:
-        var bad = SpatialMesh[.WORLD](
+        var _ = SpatialMesh[.WORLD](
             List[Point3f32[.WORLD]](),
             List[UInt32]([UInt32(0), UInt32(1), UInt32(2)]),
         )
@@ -289,7 +289,7 @@ def test_empty_invalid_mesh_inputs_and_queries() raises:
     rejected = False
     try:
         var bad_indices: List[UInt32] = [0]
-        var bad = SpatialMesh[.WORLD](List[Point3f32[.WORLD]]([p]), bad_indices)
+        var _ = SpatialMesh[.WORLD](List[Point3f32[.WORLD]]([p]), bad_indices)
     except:
         rejected = True
     assert_true(rejected)

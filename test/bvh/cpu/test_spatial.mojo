@@ -77,7 +77,7 @@ def test_empty_and_invalid_bounds() raises:
     assert_equal(index, UInt32(42))
     var rejected = False
     try:
-        var bad = SpatialBoundsBvh[.WORLD]([AABB[.WORLD].invalid()])
+        var _ = SpatialBoundsBvh[.WORLD]([AABB[.WORLD].invalid()])
     except:
         rejected = True
     assert_true(rejected)
@@ -186,7 +186,7 @@ def test_group_mismatch_and_update_count_fail_atomically() raises:
     var rejected = False
     try:
         var groups: List[UInt32] = [1, 2]
-        var bad = SpatialBoundsBvh(boxes, groups)
+        var _ = SpatialBoundsBvh(boxes, groups)
     except:
         rejected = True
     assert_true(rejected)

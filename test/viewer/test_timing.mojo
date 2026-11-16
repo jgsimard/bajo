@@ -49,7 +49,7 @@ def test_timing_labels_wrap_and_format_long_durations() raises:
     assert_equal(len(t.lines(960, 0, 0, 10, 1)), 1)
     assert_equal(len(t.lines(640, 0, 0, 10, 1)), 2)
     assert_equal(len(t.lines(320, 0, 0, 10, 1)), 3)
-    assert_true(t.lines(960, 0, 0, 10, 1)[0].find("Est. total --") >= 0)
+    assert_true("Est. total --" in t.lines(960, 0, 0, 10, 1)[0])
 
 
 def run_tests[_discovery: Bool = True]() raises:

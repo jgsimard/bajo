@@ -121,7 +121,7 @@ def test_inverted_subnormal_rejection_is_atomic() raises:
     ]
     var rejected = False
     try:
-        var bad = SpatialBoundsBvh(invalid)
+        var _ = SpatialBoundsBvh(invalid)
     except:
         rejected = True
     assert_true(rejected)

@@ -546,12 +546,14 @@ def _parse_obj_bulk[
         var begin = 0
         var end = text.byte_length()
         if task > 0:
-            begin = text.find("\n", text.byte_length() * task // task_count - 1)
+            begin = text.find(
+                "\n", text.byte_length() * task // task_count - 1
+            ).or_else(-1)
             begin = text.byte_length() if begin == -1 else begin + 1
         if task + 1 < task_count:
             end = text.find(
                 "\n", text.byte_length() * (task + 1) // task_count - 1
-            )
+            ).or_else(-1)
             end = text.byte_length() if end == -1 else end + 1
         chunks[task] = _count_chunk(text, begin, end)
 

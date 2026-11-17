@@ -84,7 +84,7 @@ def _accumulate_direct_light_packet[
     lights: _DirectLightBatch[length],
     lane_count: Int,
     surfaces: SurfaceStore,
-    coated_fields: Span[Float32, _],
+    coated_fields: ImmSpan[Float32, _],
     samples_per_pixel: Int,
     sampling: SamplingConfig,
     stage: UInt32,
@@ -203,7 +203,7 @@ def _sample_bsdf_values[
     batch: ShadePacket[length],
     lane_count: Int,
     surfaces: SurfaceStore,
-    coated_fields: Span[Float32, _],
+    coated_fields: ImmSpan[Float32, _],
     sampling: SamplingConfig,
     stage: UInt32,
 ) -> BsdfSample[length]:
@@ -275,7 +275,7 @@ def _shade_material_packets[
     mut next_paths: PacketPathQueue[length],
     queue: PacketShadeQueue[length],
     surfaces: SurfaceStore,
-    coated_fields: Span[Float32, _],
+    coated_fields: ImmSpan[Float32, _],
     sampling: SamplingConfig,
     stage: UInt32,
 ):

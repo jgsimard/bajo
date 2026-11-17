@@ -483,7 +483,7 @@ struct Emissive(Copyable, Writable):
             raise Error("emissive radiance must be non-negative")
 
 
-struct SurfaceStore:
+struct SurfaceStore(Defaultable):
     var lambertians: List[Lambertian]
     var metals: List[Metal]
     var dielectrics: List[Dielectric]
@@ -501,24 +501,6 @@ struct SurfaceStore:
     var mix_amounts: List[Float32]
     var mix_texture_indices: List[UInt32]
     var mix_uv_scales: List[Float32]
-
-    def __init__(out self):
-        self.lambertians = {}
-        self.metals = {}
-        self.dielectrics = {}
-        self.emissives = {}
-        self.coated_diffuses = {}
-        self.image_textures = {}
-        self.optical_spectra = {}
-        self.spectrum_sources = {}
-        self.albedo_spectra = {}
-        self.dielectric_eta_sources = {}
-        self.layer_albedo_spectra = {}
-        self.normal_maps = {}
-        self.mix_surfaces = {}
-        self.mix_amounts = {}
-        self.mix_texture_indices = {}
-        self.mix_uv_scales = {}
 
     def contains(self, surface: SurfaceId[1]) -> Bool:
         match surface.kind():

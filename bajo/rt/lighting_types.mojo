@@ -91,17 +91,11 @@ struct LightRecord(Copyable, Writable):
         )
 
 
-struct LightStore:
+struct LightStore(Defaultable):
     var records: List[LightRecord]
     var total_weight: Float32
     var alias_probabilities: List[Float32]
     var alias_indices: List[UInt32]
-
-    def __init__(out self):
-        self.records = {}
-        self.total_weight = 0.0
-        self.alias_probabilities = {}
-        self.alias_indices = {}
 
     def append(mut self, var record: LightRecord):
         self.total_weight += record.weight

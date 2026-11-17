@@ -14,7 +14,7 @@ def module_selected[name: StaticString]() -> Bool:
 
 
 struct TestRunner(
-    Deinitable where (False, "Call tests^.finish() to report all test results")
+    not Deinitable else "Call tests^.finish() to report all test results"
 ):
     var modules: Int
     var failures: Int

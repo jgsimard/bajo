@@ -34,10 +34,7 @@ from bajo.rt.emission import AreaEmitter, SceneEmission
 
 
 struct SceneBuilder(
-    Deinitable where (
-        False,
-        "call finish() or abort() to consume the scene builder",
-    )
+    not Deinitable else "call finish() or abort() to consume the scene builder"
 ):
     var spheres: List[Sphere[.WORLD]]
     var sphere_surfaces: List[SurfaceId[1]]

@@ -11,10 +11,7 @@ comptime _MAX_OBJ_INDEX = Int(0x7FFFFFFF)
 
 
 struct _ObjParserState(
-    Deinitable where (
-        False,
-        "call finish() or abort() to consume OBJ parser state",
-    )
+    not Deinitable else "call finish() or abort() to consume OBJ parser state"
 ):
     """Pending object/group metadata that must be finalized or discarded."""
 

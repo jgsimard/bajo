@@ -2,7 +2,7 @@
 
 from bajo.core.camera import Camera
 from bajo.bvh.cpu import CpuBvhBuildMethod
-from bajo.core import Point3W, Vec3W
+from bajo.core import Point3W
 from bajo.rt.cpu.scene import CpuScene
 from bajo.rt.material_types import Integrator
 from bajo.rt.render_types import RenderSettings

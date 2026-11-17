@@ -57,15 +57,10 @@ struct PathAssetLoader(AssetLoader, Copyable):
         return read_png(path, linear=True, preserve_alpha=True)
 
 
-struct MemoryAssetLoader(AssetLoader):
+struct MemoryAssetLoader(AssetLoader, Defaultable):
     var files: Dict[String, String]
     var ply_files: Dict[String, List[UInt8]]
     var image_files: Dict[String, List[UInt8]]
-
-    def __init__(out self):
-        self.files = {}
-        self.ply_files = {}
-        self.image_files = {}
 
     def add_file(mut self, path: String, text: String):
         self.files[path] = text

@@ -6,19 +6,12 @@ from bajo.core.color import Color, color_to_byte
 from .worker import CompletedFrame
 
 
-struct FrameAccumulator:
+struct FrameAccumulator(Defaultable):
     var generation: UInt64
     var samples: Int
     var batches: Int
     var linear: List[Color]
     var rgba: List[UInt8]
-
-    def __init__(out self):
-        self.generation = 0
-        self.samples = 0
-        self.batches = 0
-        self.linear = {}
-        self.rgba = {}
 
     def reset(mut self):
         self.generation += 1

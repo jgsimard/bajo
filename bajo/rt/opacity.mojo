@@ -41,11 +41,8 @@ struct Opacity(Copyable, Writable):
         return value.clamp(0.0, 1.0)
 
 
-struct SceneOpacity:
+struct SceneOpacity(Defaultable):
     var records: Dict[UInt32, Opacity]
-
-    def __init__(out self):
-        self.records = {}
 
 
 def opacity_ray_sample(ray: Rayf32[.WORLD]) -> Float32:

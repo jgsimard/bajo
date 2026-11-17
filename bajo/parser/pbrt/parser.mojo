@@ -34,7 +34,6 @@ from std.builtin.globals import global_constant
 from bajo.core.cie_data import CIE_XYZ
 from bajo.core.colorimetry import srgb_to_xyz_matrix
 from bajo.core.mat import inverse
-from bajo.rt.sensor import FilmSensorKind
 from bajo.rt.emission import AreaEmitter
 from bajo.rt.spectrum_sources import SpectrumSource, NO_SPECTRUM
 from bajo.rt.film import FilmResponse
@@ -454,7 +453,7 @@ struct _PlyAsset(Copyable):
 
 
 struct _Builder(
-    Deinitable where (False, "call finish() or abort() to consume the parser")
+    not Deinitable else "call finish() or abort() to consume the parser"
 ):
     var scene: SceneBuilder
     var named_materials: Dict[String, SurfaceId[1]]
@@ -1088,7 +1087,7 @@ def _optical_constant(
         return params.color(name, default)
     if len(values) == 1:
         var text = values[0]
-        if text.find("metal-") == 0:
+        if text.startswith("metal-"):
             return _named_optical_constant(text)
         return Color(_parse_f32(text))
     if len(values) == 3:
@@ -1149,7 +1148,7 @@ def _retain_optical_spectrum(
 ) raises -> UInt32:
     """Keep authored spectral data independently of legacy RGB parameters."""
     var values = params.values("spectrum " + name)
-    if len(values) == 1 and values[0].find("metal-") == 0:
+    if len(values) == 1 and values[0].startswith("metal-"):
         return _retain_named_optical_spectrum(builder, String(values[0]))
     if len(values) >= 4 and len(values) % 2 == 0:
         var spectrum = _pbrt_spectral_curve(

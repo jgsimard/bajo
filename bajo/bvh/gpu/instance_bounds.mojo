@@ -4,7 +4,7 @@ from std.math import ceildiv, fma
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext
 
-from bajo.core import AABB, Point3f32
+from bajo.core import AABB
 from bajo.core.aabb import transform_bounds_conservative
 from bajo.bvh.constants import EMPTY_LANE, WideNode, PrimitiveKind
 from bajo.bvh.types import BlasDesc, Instance

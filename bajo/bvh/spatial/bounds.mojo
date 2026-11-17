@@ -7,7 +7,7 @@ from max.algorithm import parallelize
 from bajo.bvh.cpu.parallel import _worker_count
 from bajo.core import AABB, Frame, Point3f32, longest_axis
 from std.math import min, max
-from std.memory import Pointer, bitcast
+from std.memory import Pointer
 from std.sys.intrinsics import masked_load
 from std.sys.info import size_of
 from bajo.bvh.constants import EMPTY_LANE

@@ -37,7 +37,6 @@ from bajo.core import (
     Rayf32,
     Vec3f32,
     cross,
-    dot,
     normalize,
 )
 

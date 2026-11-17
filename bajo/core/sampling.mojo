@@ -2,7 +2,7 @@
 
 
 def build_alias_distribution(
-    weights: Span[Float32, _],
+    weights: ImmSpan[Float32, _],
     total: Float64,
     mut probabilities: List[Float32],
     mut indices: List[UInt32],

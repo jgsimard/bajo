@@ -494,12 +494,12 @@ struct Rng[length: SIMDLength = 1]:
         comptime for word in range(1, 4):
             self._counter[word] += carry.cast[.uint32]()
             carry &= self._counter[word].eq(0)
-        var result = Array[SIMD[.float32, Self.length], 4](uninitialized=True)
-        comptime for word in range(4):
-            result[word] = (words[word] & UInt32(0x7FFFFFFF)).cast[
-                .float32
-            ]() * Float32(4.6566127342e-10)
-        return result^
+        return Array[SIMD[.float32, Self.length], 4](
+            fill_with=lambda (word: Int) -> SIMD[.float32, Self.length]: (
+                (words[word] & UInt32(0x7FFFFFFF)).cast[.float32]()
+                * Float32(4.6566127342e-10)
+            )
+        )
 
     @inline(.always)
     def f32(

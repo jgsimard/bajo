@@ -59,17 +59,11 @@ def reconstruct_frame(
     return frame^
 
 
-struct AtrousWorkspace:
+struct AtrousWorkspace(Defaultable):
     var ping: List[Color]
     var pong: List[Color]
     var variance: List[Float32]
     var variance_pong: List[Float32]
-
-    def __init__(out self):
-        self.ping = {}
-        self.pong = {}
-        self.variance = {}
-        self.variance_pong = {}
 
 
 def atrous_denoise(

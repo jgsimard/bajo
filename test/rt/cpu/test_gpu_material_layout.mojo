@@ -23,6 +23,10 @@ from bajo.core.color import Color
 from bajo.rt.scene_data import SceneBuilder, SceneData
 from bajo.rt.gpu.config import GpuRtSceneKind
 from bajo.rt.gpu.material_layout import _load_gpu_coated_parameters
+from bajo.rt.gpu.prepared_renderer import (
+    _same_captured_fields,
+    _same_optional_capture,
+)
 from bajo.rt.gpu.texture_storage import pack_texture_tables
 from bajo.rt.gpu.materials import (
     _flatten_coated_diffuse_texture_indices,
@@ -408,6 +412,36 @@ def test_empty_coated_tables_are_valid() raises:
     var surfaces = SurfaceStore()
     assert_equal(len(pack_coated_materials[False](surfaces)), 0)
     assert_equal(len(pack_coated_materials[True](surfaces)), 0)
+
+
+@fieldwise_init
+struct _CaptureFields(Copyable):
+    var tag: UInt8
+    var value: Float64
+
+
+def test_capture_comparison_preserves_float_bits_and_optional_presence() raises:
+    assert_equal(_same_captured_fields(Float32(0.0), Float32(-0.0)), False)
+    assert_equal(_same_captured_fields(Float64(0.0), Float64(-0.0)), False)
+    var nan = bitcast[.float32](UInt32(0x7FC00001))
+    assert_equal(_same_captured_fields(nan, nan), True)
+    assert_equal(
+        _same_captured_fields(nan, bitcast[.float32](UInt32(0x7FC00002))), False
+    )
+    var original = _CaptureFields(UInt8(1), 2.0)
+    assert_equal(_same_captured_fields(original, original), True)
+    assert_equal(
+        _same_captured_fields(original, _CaptureFields(UInt8(2), 2.0)), False
+    )
+    assert_equal(
+        _same_captured_fields(original, _CaptureFields(UInt8(1), 3.0)), False
+    )
+    var empty = Optional[_CaptureFields]()
+    var present = Optional(original^)
+    assert_equal(_same_optional_capture(empty, empty), True)
+    assert_equal(_same_optional_capture(present, present), True)
+    assert_equal(_same_optional_capture(empty, present), False)
+    assert_equal(_same_optional_capture(present, empty), False)
 
 
 def run_tests[_discovery: Bool = True]() raises:

@@ -1,7 +1,7 @@
 """Backend-neutral indexed mesh data loaded from a PLY file."""
 
 
-struct PlyMesh:
+struct PlyMesh(Defaultable):
     """Indexed polygon mesh with optional per-vertex normals and UVs.
 
     Positions and normals are stored as xyz triples, texture coordinates as uv
@@ -13,13 +13,6 @@ struct PlyMesh:
     var texcoords: List[Float32]
     var indices: List[UInt32]
     var _source_face_count: Int
-
-    def __init__(out self):
-        self.positions = {}
-        self.normals = {}
-        self.texcoords = {}
-        self.indices = {}
-        self._source_face_count = 0
 
     def vertex_count(self) -> Int:
         return len(self.positions) / 3

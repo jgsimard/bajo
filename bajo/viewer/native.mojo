@@ -5,7 +5,7 @@ from std.time import perf_counter_ns
 from std.os import getenv
 from std.sys.arg import argv
 from bajo.core.camera import Camera
-from bajo.core import Vec3W, cross, dot, length, normalize
+from bajo.core import Vec3W, dot, normalize
 from bajo.core.random import Sampler
 from bajo.rt.render_types import RenderSettings, RenderColorMode
 from .core import ViewerScene

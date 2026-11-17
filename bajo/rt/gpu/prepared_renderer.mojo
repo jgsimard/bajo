@@ -3,7 +3,7 @@
 from std.time import perf_counter_ns
 from std.memory import bitcast
 from std.reflection import reflect
-from std.builtin.rebind import downcast, rebind
+from std.builtin.rebind import rebind
 from max.gpu.host import (
     DeviceContext,
     DeviceGraph,
@@ -66,13 +66,11 @@ def _same_captured_fields[T: AnyType](a: T, b: T) -> Bool:
             rebind[Float64](b)
         )
     elif conforms_to(T, Equatable):
-        return rebind[downcast[T, Equatable]](a) == rebind[
-            downcast[T, Equatable]
-        ](b)
+        return a == b
     else:
         comptime for field in range(reflect[T].field_count()):
             if not _same_captured_fields(
-                __struct_field_ref(field, a), __struct_field_ref(field, b)
+                reflect[T].field_ref[field](a), reflect[T].field_ref[field](b)
             ):
                 return False
         return True
@@ -102,7 +100,8 @@ def _same_scene_capture(a: GpuRtSceneView, b: GpuRtSceneView) -> Bool:
             field
         ] != "spectral":
             if not _same_captured_fields(
-                __struct_field_ref(field, a), __struct_field_ref(field, b)
+                reflect[GpuRtSceneView].field_ref[field](a),
+                reflect[GpuRtSceneView].field_ref[field](b),
             ):
                 return False
     return True

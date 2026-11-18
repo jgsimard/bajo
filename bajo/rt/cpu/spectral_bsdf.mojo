@@ -46,7 +46,7 @@ struct SpectralMaterialParameters[width: SIMDLength]:
     ](
         mut self,
         surfaces: SurfaceStore,
-        spectra: SpectrumSourcesView,
+        spectra: SpectrumSourcesView[_],
         indices: SIMD[.uint32, Self.width],
         u: SIMD[.float32, Self.width],
         v: SIMD[.float32, Self.width],

@@ -9,10 +9,12 @@ from bajo.core.sampled_spectrum import SampledSpectrum, SampledWavelengths
 
 
 @fieldwise_init
-struct PiecewiseSpectrumView(Copyable, DevicePassable, TrivialRegisterPassable):
-    var samples: ImmPointer[Float32, ImmUntrackedOrigin]
+struct PiecewiseSpectrumView[origin: ImmOrigin = ImmUntrackedOrigin](
+    Copyable, DevicePassable, TrivialRegisterPassable
+):
+    var samples: ImmPointer[Float32, Self.origin]
     # Each descriptor is an offset followed by an interleaved word count.
-    var ranges: ImmPointer[UInt32, ImmUntrackedOrigin]
+    var ranges: ImmPointer[UInt32, Self.origin]
     var count: UInt32
 
     comptime device_type: AnyType = Self
@@ -112,11 +114,23 @@ struct PiecewiseSpectrumTable:
             self.samples.append(0)
             self.ranges.extend([0, 0])
 
-    def view(self) -> PiecewiseSpectrumView:
-        """Borrow the packed curves; keep this owner alive through all sampling.
+    def view(
+        self,
+    ) -> PiecewiseSpectrumView[
+        origin_of(
+            type_of(self.samples.unsafe_ptr()).origin,
+            type_of(self.ranges.unsafe_ptr()).origin,
+        )
+    ]:
+        """Borrow the buffers, preventing reallocation while the view is live.
         """
-        return PiecewiseSpectrumView(
-            self.samples.unsafe_ptr().unsafe_origin_cast[ImmUntrackedOrigin](),
-            self.ranges.unsafe_ptr().unsafe_origin_cast[ImmUntrackedOrigin](),
+        var samples = self.samples.unsafe_ptr()
+        var ranges = self.ranges.unsafe_ptr()
+        comptime origin = origin_of(
+            type_of(samples).origin, type_of(ranges).origin
+        )
+        return PiecewiseSpectrumView[origin](
+            samples.unsafe_origin_cast[origin](),
+            ranges.unsafe_origin_cast[origin](),
             self.count,
         )

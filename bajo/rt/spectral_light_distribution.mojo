@@ -34,8 +34,8 @@ def _environment_importance[
     width: SIMDLength
 ](
     rgb: Vec3[.float32, .WORLD, width],
-    table: RgbSpectrumView,
-    factors: ImmPointer[Float32, ImmUntrackedOrigin],
+    table: RgbSpectrumView[_],
+    factors: ImmPointer[Float32, _],
 ) -> SIMD[.float32, width]:
     # Integrate the slowly varying RGB polynomial against bins of the exact
     # illuminant * observer product. Narrow authored emission retains support.
@@ -59,20 +59,22 @@ def _validate_source(index: UInt32, count: UInt32) raises:
 
 
 @fieldwise_init
-struct SpectralLightDistributionView(DevicePassable, TrivialRegisterPassable):
-    var weights: ImmPointer[Float32, ImmUntrackedOrigin]
-    var probabilities: ImmPointer[Float32, ImmUntrackedOrigin]
-    var aliases: ImmPointer[UInt32, ImmUntrackedOrigin]
-    var environment_probabilities: ImmPointer[Float32, ImmUntrackedOrigin]
-    var environment_aliases: ImmPointer[UInt32, ImmUntrackedOrigin]
-    var source_power: ImmPointer[Float32, ImmUntrackedOrigin]
+struct SpectralLightDistributionView[origin: ImmOrigin = ImmUntrackedOrigin](
+    DevicePassable, TrivialRegisterPassable
+):
+    var weights: ImmPointer[Float32, Self.origin]
+    var probabilities: ImmPointer[Float32, Self.origin]
+    var aliases: ImmPointer[UInt32, Self.origin]
+    var environment_probabilities: ImmPointer[Float32, Self.origin]
+    var environment_aliases: ImmPointer[UInt32, Self.origin]
+    var source_power: ImmPointer[Float32, Self.origin]
     var luminance: Color
     var environment_count: UInt32
     var environment_weight: Float32
     var total_weight: Float32
     var environment_floor: Float32
-    var environment_factors: ImmPointer[Float32, ImmUntrackedOrigin]
-    var rgb: RgbSpectrumView
+    var environment_factors: ImmPointer[Float32, Self.origin]
+    var rgb: RgbSpectrumView[Self.origin]
 
     comptime device_type: AnyType = Self
 
@@ -148,7 +150,6 @@ struct SpectralLightDistribution:
     var total_weight: Float32
     var environment_floor: Float32
     var environment_factors: List[Float32]
-    var rgb: Optional[RgbSpectrumView]
     var light_sources: List[UInt32]
     var light_rgb: List[Color]
     var light_measure: List[Float32]
@@ -175,7 +176,6 @@ struct SpectralLightDistribution:
         self.environment_factors = List[Float32](
             length=ENVIRONMENT_SPECTRAL_BINS, fill=0
         )
-        self.rgb = {}
         self.light_sources = {}
         self.light_rgb = {}
         self.light_measure = {}
@@ -240,10 +240,9 @@ struct SpectralLightDistribution:
             0,
         )
 
-    def prepare(mut self, spectra: SpectrumSourcesView):
+    def prepare(mut self, spectra: SpectrumSourcesView[_]):
         """Refine all distributions after the reconstruction table is enabled.
         """
-        self.rgb = Optional(spectra.rgb)
         self.environment_factors.resize(ENVIRONMENT_SPECTRAL_BINS, fill=0)
         for index in range(ENVIRONMENT_SPECTRAL_BINS):
             self.environment_factors[index] = 0
@@ -305,9 +304,7 @@ struct SpectralLightDistribution:
                 var weight = _environment_importance(
                     texel,
                     spectra.rgb,
-                    self.environment_factors.unsafe_ptr()
-                    .unsafe_mut_cast[False]()
-                    .unsafe_origin_cast[ImmUntrackedOrigin](),
+                    self.environment_factors.unsafe_ptr(),
                 )
                 weights.append(weight)
                 total += Float64(weight)
@@ -342,29 +339,53 @@ struct SpectralLightDistribution:
             self.probabilities.append(1)
             self.aliases.append(0)
 
-    def view(self) -> SpectralLightDistributionView:
-        return SpectralLightDistributionView(
-            self.weights.unsafe_ptr().unsafe_origin_cast[ImmUntrackedOrigin](),
-            self.probabilities.unsafe_ptr().unsafe_origin_cast[
-                ImmUntrackedOrigin
-            ](),
-            self.aliases.unsafe_ptr().unsafe_origin_cast[ImmUntrackedOrigin](),
-            self.environment_probabilities.unsafe_ptr().unsafe_origin_cast[
-                ImmUntrackedOrigin
-            ](),
-            self.environment_aliases.unsafe_ptr().unsafe_origin_cast[
-                ImmUntrackedOrigin
-            ](),
-            self.source_power.unsafe_ptr().unsafe_origin_cast[
-                ImmUntrackedOrigin
-            ](),
+    def view[
+        rgb_origin: ImmOrigin
+    ](self, rgb: RgbSpectrumView[rgb_origin]) -> SpectralLightDistributionView[
+        origin_of(
+            type_of(self.weights.unsafe_ptr()).origin,
+            type_of(self.probabilities.unsafe_ptr()).origin,
+            type_of(self.aliases.unsafe_ptr()).origin,
+            type_of(self.environment_probabilities.unsafe_ptr()).origin,
+            type_of(self.environment_aliases.unsafe_ptr()).origin,
+            type_of(self.source_power.unsafe_ptr()).origin,
+            type_of(self.environment_factors.unsafe_ptr()).origin,
+            rgb_origin,
+        )
+    ]:
+        var weights = self.weights.unsafe_ptr()
+        var probabilities = self.probabilities.unsafe_ptr()
+        var aliases = self.aliases.unsafe_ptr()
+        var environment_probabilities = (
+            self.environment_probabilities.unsafe_ptr()
+        )
+        var environment_aliases = self.environment_aliases.unsafe_ptr()
+        var source_power = self.source_power.unsafe_ptr()
+        var environment_factors = self.environment_factors.unsafe_ptr()
+        # The distribution stores no borrowed RGB pointer; each view borrows
+        # its tables and the explicitly supplied RGB coefficient buffer.
+        comptime origin = origin_of(
+            type_of(weights).origin,
+            type_of(probabilities).origin,
+            type_of(aliases).origin,
+            type_of(environment_probabilities).origin,
+            type_of(environment_aliases).origin,
+            type_of(source_power).origin,
+            type_of(environment_factors).origin,
+            rgb_origin,
+        )
+        return SpectralLightDistributionView[origin](
+            weights.unsafe_origin_cast[origin](),
+            probabilities.unsafe_origin_cast[origin](),
+            aliases.unsafe_origin_cast[origin](),
+            environment_probabilities.unsafe_origin_cast[origin](),
+            environment_aliases.unsafe_origin_cast[origin](),
+            source_power.unsafe_origin_cast[origin](),
             self.luminance,
             self.environment_count,
             self.environment_weight,
             self.total_weight,
             self.environment_floor,
-            self.environment_factors.unsafe_ptr().unsafe_origin_cast[
-                ImmUntrackedOrigin
-            ](),
-            self.rgb.value(),
+            environment_factors.unsafe_origin_cast[origin](),
+            RgbSpectrumView[origin](rgb.data.unsafe_origin_cast[origin]()),
         )

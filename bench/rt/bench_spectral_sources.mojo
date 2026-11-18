@@ -15,7 +15,9 @@ from bajo.rt.spectrum_sources import (
 )
 
 
-def benchmark[packet: Bool](sources: SpectrumSourcesView, pattern: Int) raises:
+def benchmark[
+    packet: Bool
+](sources: SpectrumSourcesView[_], pattern: Int) raises:
     var wavelengths = List[SampledWavelengths[16]]()
     var indices = List[SIMD[.uint32, 16]]()
     for block in range(256):

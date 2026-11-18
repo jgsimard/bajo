@@ -136,9 +136,9 @@ def _trace_packet_range[
     path_begin: Int,
     path_end: Int,
     mut queues: _PacketQueueArena[length, integrator],
-    spectra: Optional[SpectrumSourcesView],
+    spectra: Optional[SpectrumSourcesView[_]],
     film: FilmResponse,
-    lighting: Optional[SpectralLightDistributionView],
+    lighting: Optional[SpectralLightDistributionView[_]],
     components: Optional[Pointer[UInt32, MutAnyOrigin]],
     sample_colors: Optional[Pointer[Color, MutAnyOrigin]],
     sample_weights: Optional[Pointer[Float32, MutAnyOrigin]],
@@ -298,6 +298,119 @@ def render_wavefront_configured[
     ](settings, camera, world, workspace)
 
 
+def _trace_packet_batches[
+    _rgb_only: Bool,
+    PARALLEL: Bool,
+    scheduler_mode: CpuSchedulerMode,
+    length: SIMDLength,
+    integrator: Integrator,
+    world_bvh_width: SIMDLength,
+    instance_bvh_width: SIMDLength,
+    traversal_mode: CpuTraversalMode,
+    *adaptive_packet_sizes: SIMDLength,
+](
+    settings: RenderSettings,
+    sampling: SamplingConfig,
+    camera: Camera,
+    world: CpuScene[world_bvh_width, instance_bvh_width],
+    output: MutSpan[Color, _],
+    arenas: MutSpan[_PacketQueueArena[length, integrator], _],
+    worker_count: Int,
+    chunk_count: Int,
+    paths_per_chunk: Int,
+    path_count: Int,
+    spectra: Optional[SpectrumSourcesView[_]],
+    film: FilmResponse,
+    lighting: Optional[SpectralLightDistributionView[_]],
+    components: Optional[Pointer[UInt32, MutAnyOrigin]],
+    sample_colors: Optional[Pointer[Color, MutAnyOrigin]],
+    sample_weights: Optional[Pointer[Float32, MutAnyOrigin]],
+):
+    # Accept already-borrowed views so worker captures contain no owning
+    # containers. Queue/output partitions remain disjoint for each worker.
+    comptime if PARALLEL:
+        # Whole-pixel chunks keep output partitions disjoint and preserve the
+        # global Philox streams. Relaxed atomics only assign work, not data.
+        var next_chunk = List[Int](length=1, fill=0)
+        var next_chunk_ptr = next_chunk.unsafe_ptr()
+
+        def worker(_worker_idx: Int) {imm}:
+            var chunk_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
+                next_chunk_ptr, 1
+            )
+            if chunk_idx >= chunk_count:
+                return
+            ref queues = arenas[_worker_idx]
+            while chunk_idx < chunk_count:
+                var path_begin = chunk_idx * paths_per_chunk
+                var path_end = min(path_begin + paths_per_chunk, path_count)
+                _trace_packet_range[
+                    _rgb_only,
+                    length,
+                    integrator,
+                    world_bvh_width,
+                    instance_bvh_width,
+                    traversal_mode,
+                    *adaptive_packet_sizes,
+                ](
+                    settings,
+                    sampling,
+                    camera,
+                    world,
+                    output,
+                    path_begin,
+                    path_end,
+                    queues,
+                    spectra,
+                    film,
+                    lighting,
+                    components,
+                    sample_colors,
+                    sample_weights,
+                )
+                chunk_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
+                    next_chunk_ptr, 1
+                )
+
+        # Explicit partitions map one callback per arena;
+        # runtime-default mode retains the runtime's partitioning choice.
+        comptime if scheduler_mode == .RUNTIME_DEFAULT:
+            parallelize(worker, worker_count)
+        else:
+            parallelize(worker, worker_count, worker_count)
+
+    else:
+        ref queues = arenas[0]
+        var path_begin = 0
+        while path_begin < path_count:
+            var path_end = min(path_begin + paths_per_chunk, path_count)
+            _trace_packet_range[
+                _rgb_only,
+                length,
+                integrator,
+                world_bvh_width,
+                instance_bvh_width,
+                traversal_mode,
+                *adaptive_packet_sizes,
+            ](
+                settings,
+                sampling,
+                camera,
+                world,
+                output,
+                path_begin,
+                path_end,
+                queues,
+                spectra,
+                film,
+                lighting,
+                components,
+                sample_colors,
+                sample_weights,
+            )
+            path_begin = path_end
+
+
 def _render_wavefront_configured[
     _rgb_only: Bool,
     traversal_mode: CpuTraversalMode,
@@ -338,8 +451,6 @@ def _render_wavefront_configured[
     )
     var arena_capacity = min(paths_per_chunk, path_count)
     var init_t0 = perf_counter_ns()
-    var spectra = Optional[SpectrumSourcesView]()
-    var lighting = Optional[SpectralLightDistributionView]()
     var film = settings.film.copy()
     comptime if not _rgb_only and Integrator.is_path_tracing[integrator]:
         if settings.color_mode == .SPECTRAL:
@@ -362,11 +473,7 @@ def _render_wavefront_configured[
                 )
             if not workspace.spectral.value().lighting:
                 workspace.spectral.value().prepare_lighting(world.scene_data())
-            lighting = Optional(
-                workspace.spectral.value().lighting.value().view()
-            )
             workspace.spectral_scene = Optional(scene_identity^)
-            spectra = Optional(workspace.spectral.value().view())
             film = settings.film.prepared_spectral()
     var pixels = List[Color](length=pixel_count, fill=Color(0.0))
     var samples = Optional[DenoiseSampleBatch]()
@@ -393,97 +500,81 @@ def _render_wavefront_configured[
     var init_t1 = perf_counter_ns()
 
     var render_t0 = perf_counter_ns()
+    var chunk_count = ceildiv(path_count, paths_per_chunk)
+    var worker_count = 1
     comptime if PARALLEL:
-        # Whole-pixel boundaries give every task exclusive output pixels.
-        # Global path IDs retain their Philox streams regardless of task order.
-        var chunk_count = ceildiv(path_count, paths_per_chunk)
-
-        # Bounded workers claim whole-pixel chunks dynamically and retain a
-        # private arena. The atomic counter publishes no data; relaxed ordering
-        # suffices to assign distinct chunks and therefore distinct pixels.
-        var worker_count = min(num_logical_cores(), chunk_count)
-        workspace.prepare(
-            worker_count, arena_capacity, world.scene_data().surfaces()
+        worker_count = min(num_logical_cores(), chunk_count)
+    # Allocate queues before borrowing spectral buffers. Workers then mutate
+    # only arenas, so the spectral owners stay immutably borrowed throughout.
+    workspace.prepare(
+        worker_count, arena_capacity, world.scene_data().surfaces()
+    )
+    var output = Span(pixels)
+    var arenas = Span(workspace.arenas)
+    var use_spectral = False
+    comptime if not _rgb_only and Integrator.is_path_tracing[integrator]:
+        use_spectral = settings.color_mode == .SPECTRAL
+    if use_spectral:
+        ref resources = workspace.spectral.value()
+        var spectra = resources.view()
+        var lighting = resources.lighting.value().view(resources.rgb.view())
+        _trace_packet_batches[
+            _rgb_only,
+            PARALLEL,
+            scheduler_mode,
+            length,
+            integrator,
+            world_bvh_width,
+            instance_bvh_width,
+            traversal_mode,
+            *adaptive_packet_sizes,
+        ](
+            settings,
+            sampling,
+            camera,
+            world,
+            output,
+            arenas,
+            worker_count,
+            chunk_count,
+            paths_per_chunk,
+            path_count,
+            Optional(spectra),
+            film,
+            Optional(lighting),
+            components,
+            sample_colors,
+            sample_weights,
         )
-        var next_chunk = List[Int](length=1, fill=0)
-        var next_chunk_ptr = next_chunk.unsafe_ptr()
-
-        def worker(_worker_idx: Int) {imm, mut pixels, mut workspace}:
-            var chunk_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
-                next_chunk_ptr, 1
-            )
-            if chunk_idx >= chunk_count:
-                return
-            ref queues = workspace.arenas[_worker_idx]
-            while chunk_idx < chunk_count:
-                var path_begin = chunk_idx * paths_per_chunk
-                var path_end = min(path_begin + paths_per_chunk, path_count)
-                _trace_packet_range[
-                    _rgb_only,
-                    length,
-                    integrator,
-                    world_bvh_width,
-                    instance_bvh_width,
-                    traversal_mode,
-                    *adaptive_packet_sizes,
-                ](
-                    settings,
-                    sampling,
-                    camera,
-                    world,
-                    pixels,
-                    path_begin,
-                    path_end,
-                    queues,
-                    spectra,
-                    film,
-                    lighting,
-                    components,
-                    sample_colors,
-                    sample_weights,
-                )
-                chunk_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
-                    next_chunk_ptr, 1
-                )
-
-        # Explicit partitions map one callback per arena;
-        # runtime-default mode retains the runtime's partitioning choice.
-        comptime if scheduler_mode == .RUNTIME_DEFAULT:
-            parallelize(worker, worker_count)
-        else:
-            parallelize(worker, worker_count, worker_count)
-
     else:
-        workspace.prepare(1, arena_capacity, world.scene_data().surfaces())
-        ref queues = workspace.arenas[0]
-        var path_begin = 0
-        while path_begin < path_count:
-            var path_end = min(path_begin + paths_per_chunk, path_count)
-            _trace_packet_range[
-                _rgb_only,
-                length,
-                integrator,
-                world_bvh_width,
-                instance_bvh_width,
-                traversal_mode,
-                *adaptive_packet_sizes,
-            ](
-                settings,
-                sampling,
-                camera,
-                world,
-                pixels,
-                path_begin,
-                path_end,
-                queues,
-                spectra,
-                film,
-                lighting,
-                components,
-                sample_colors,
-                sample_weights,
-            )
-            path_begin = path_end
+        _trace_packet_batches[
+            _rgb_only,
+            PARALLEL,
+            scheduler_mode,
+            length,
+            integrator,
+            world_bvh_width,
+            instance_bvh_width,
+            traversal_mode,
+            *adaptive_packet_sizes,
+        ](
+            settings,
+            sampling,
+            camera,
+            world,
+            output,
+            arenas,
+            worker_count,
+            chunk_count,
+            paths_per_chunk,
+            path_count,
+            Optional[SpectrumSourcesView[]](),
+            film,
+            Optional[SpectralLightDistributionView[]](),
+            components,
+            sample_colors,
+            sample_weights,
+        )
     var render_t1 = perf_counter_ns()
     # SamplingConfig carries an untracked view shared with device code. Keep
     # its host owner alive until all workers have finished using the tables.

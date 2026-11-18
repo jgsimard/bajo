@@ -82,14 +82,16 @@ def blackbody_spectrum[
 
 
 @fieldwise_init
-struct SpectrumSourcesView(DevicePassable, TrivialRegisterPassable):
-    var sources: ImmPointer[SpectrumSource, ImmUntrackedOrigin]
-    var leaves: ImmPointer[UInt32, ImmUntrackedOrigin]
-    var ranges: ImmPointer[UInt32, ImmUntrackedOrigin]
+struct SpectrumSourcesView[origin: ImmOrigin = ImmUntrackedOrigin](
+    DevicePassable, TrivialRegisterPassable
+):
+    var sources: ImmPointer[SpectrumSource, Self.origin]
+    var leaves: ImmPointer[UInt32, Self.origin]
+    var ranges: ImmPointer[UInt32, Self.origin]
     var count: UInt32
-    var curves: PiecewiseSpectrumView
-    var rgb: RgbSpectrumView
-    var photometric: ImmPointer[Float32, ImmUntrackedOrigin]
+    var curves: PiecewiseSpectrumView[Self.origin]
+    var rgb: RgbSpectrumView[Self.origin]
+    var photometric: ImmPointer[Float32, Self.origin]
 
     comptime device_type: AnyType = Self
 
@@ -280,7 +282,7 @@ struct PackedSpectrumSources:
             self.leaves.append(0)
             self.ranges.extend([0, 0])
 
-    def prepare_photometric(mut self, curves: PiecewiseSpectrumView) raises:
+    def prepare_photometric(mut self, curves: PiecewiseSpectrumView[_]) raises:
         for index in range(Int(self.count)):
             ref source = self.sources[index]
             if (
@@ -311,17 +313,46 @@ struct PackedSpectrumSources:
                     integral += value.s0 * cie_xyz(Float32(nm)).y
             self.photometric[index] = 1 / integral if integral > 0 else 0
 
-    def view(
-        self, curves: PiecewiseSpectrumView, rgb: RgbSpectrumView
-    ) -> SpectrumSourcesView:
-        return SpectrumSourcesView(
-            self.sources.unsafe_ptr().unsafe_origin_cast[ImmUntrackedOrigin](),
-            self.leaves.unsafe_ptr().unsafe_origin_cast[ImmUntrackedOrigin](),
-            self.ranges.unsafe_ptr().unsafe_origin_cast[ImmUntrackedOrigin](),
+    def view[
+        curves_origin: ImmOrigin, rgb_origin: ImmOrigin
+    ](
+        self,
+        curves: PiecewiseSpectrumView[curves_origin],
+        rgb: RgbSpectrumView[rgb_origin],
+    ) -> SpectrumSourcesView[
+        origin_of(
+            type_of(self.sources.unsafe_ptr()).origin,
+            type_of(self.leaves.unsafe_ptr()).origin,
+            type_of(self.ranges.unsafe_ptr()).origin,
+            type_of(self.photometric.unsafe_ptr()).origin,
+            curves_origin,
+            rgb_origin,
+        )
+    ]:
+        # Bind the raw buffers to their storage, including the borrowed
+        # curve/RGB tables. These casts join borrows rather than erase their lifetimes.
+        var sources = self.sources.unsafe_ptr()
+        var leaves = self.leaves.unsafe_ptr()
+        var ranges = self.ranges.unsafe_ptr()
+        var photometric = self.photometric.unsafe_ptr()
+        comptime origin = origin_of(
+            type_of(sources).origin,
+            type_of(leaves).origin,
+            type_of(ranges).origin,
+            type_of(photometric).origin,
+            curves_origin,
+            rgb_origin,
+        )
+        return SpectrumSourcesView[origin](
+            sources.unsafe_origin_cast[origin](),
+            leaves.unsafe_origin_cast[origin](),
+            ranges.unsafe_origin_cast[origin](),
             self.count,
-            curves,
-            rgb,
-            self.photometric.unsafe_ptr().unsafe_origin_cast[
-                ImmUntrackedOrigin
-            ](),
+            PiecewiseSpectrumView[origin](
+                curves.samples.unsafe_origin_cast[origin](),
+                curves.ranges.unsafe_origin_cast[origin](),
+                curves.count,
+            ),
+            RgbSpectrumView[origin](rgb.data.unsafe_origin_cast[origin]()),
+            photometric.unsafe_origin_cast[origin](),
         )

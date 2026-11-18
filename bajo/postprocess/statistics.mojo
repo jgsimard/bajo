@@ -378,8 +378,8 @@ struct DenoiseStatistics:
                 )
             largest = max(largest, y)
         self.reserve(cascade_size(largest))
-        var bins = self.bins.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
-        var meta = self.meta.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
+        var bins = self.bins.unsafe_ptr()
+        var meta = self.meta.unsafe_ptr()
         var spp = batch.samples_per_pixel
         var pixels = batch.pixel_count
 

@@ -27,7 +27,7 @@ def make_cpu_denoise_guides[
     if width <= 0 or height <= 0:
         raise Error("denoising dimensions must be positive")
     var guides = DenoiseGuides(width, height)
-    var fields = guides.fields.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin]()
+    var fields = guides.fields.unsafe_ptr()
     var surfaces = guides.surfaces.unsafe_ptr()
 
     var count = width * height

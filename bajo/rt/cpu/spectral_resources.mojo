@@ -23,7 +23,9 @@ struct CpuSpectralResources:
 
     def prepare_lighting(mut self, data: SceneData) raises:
         self.lighting = Optional(SpectralLightDistribution(data, self.sources))
-        self.lighting.value().prepare(self.view())
+        self.lighting.value().prepare(
+            self.sources.view(self.curves.view(), self.rgb.view())
+        )
 
     def prepare(mut self, surfaces: SurfaceStore) raises:
         self.lighting = {}
@@ -31,5 +33,7 @@ struct CpuSpectralResources:
         self.sources = PackedSpectrumSources(surfaces.spectrum_sources)
         self.sources.prepare_photometric(self.curves.view())
 
-    def view(self) -> SpectrumSourcesView:
+    def view(
+        self,
+    ) -> type_of(self.sources.view(self.curves.view(), self.rgb.view())):
         return self.sources.view(self.curves.view(), self.rgb.view())

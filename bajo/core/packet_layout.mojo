@@ -1,15 +1,16 @@
 """Borrowed field/lane TileTensor views of homogeneous CPU SIMD packets."""
 
+from layout import Coord, Idx, TileTensor, row_major
 from std.sys.intrinsics import compressed_store
 from std.bit import count_trailing_zeros
 from std.memory import pack_bits
-from layout import Coord, Idx
-from bajo.core.tensor_layout import FieldTile, field_tile
 
 
 comptime PacketFloatTile[
     fields: Int, length: SIMDLength, origin: Origin
-] = FieldTile[.float32, fields, type_of(Idx[Int(length)]), origin]
+] = TileTensor[
+    .float32, type_of(row_major(Coord(Idx[fields], Idx[Int(length)]))), origin
+]
 
 
 @inline(.always)
@@ -18,8 +19,9 @@ def packet_float_tile[
 ](storage: Pointer[SIMD[.float32, length], origin]) -> PacketFloatTile[
     fields, length, origin
 ]:
-    return field_tile[.float32, fields](
-        storage.unsafe_bitcast[Float32](), Idx[Int(length)]
+    return TileTensor(
+        ptr=storage.unsafe_bitcast[Float32](),
+        layout=row_major(Coord(Idx[fields], Idx[Int(length)])),
     )
 
 
@@ -45,7 +47,7 @@ def packet_float_field[
 
 @inline(.always)
 def copy_packet_float_lane[
-    destination_origin: Origin[mut=True],
+    destination_origin: MutOrigin,
     //,
     fields: Int,
     length: SIMDLength,
@@ -61,7 +63,7 @@ def copy_packet_float_lane[
 
 @inline(.always)
 def compact_packet_floats[
-    destination_origin: Origin[mut=True],
+    destination_origin: MutOrigin,
     //,
     fields: Int,
     length: SIMDLength,

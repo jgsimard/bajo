@@ -1,4 +1,6 @@
 """Deterministic GPU surface guides with no radiance transport or readback."""
+
+from layout import TileTensor, Coord, Idx, row_major
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer
 from std.math import ceildiv
@@ -41,6 +43,12 @@ def _guide_kernel[
     var i = global_idx.x
     if i >= Int(width) * Int(height):
         return
+    var records = TileTensor(
+        ptr=fields,
+        layout=row_major(
+            Coord(Int(width) * Int(height), Idx[GuideLayout.STRIDE])
+        ),
+    )
     var camera = Camera(ImmSpan(unsafe_ptr=camera_data, length=Camera.STRIDE))
     var ray = denoise_guide_ray(camera, i, Int(width), Int(height))
     var sampling = SamplingConfig(
@@ -52,7 +60,7 @@ def _guide_kernel[
     surfaces[unsafe_offset=i] = GuideLayout.MISS
     # Initialize misses too: guide buffers are reused and publicly inspectable.
     for field in range(GuideLayout.STRIDE):
-        fields[unsafe_offset=i * GuideLayout.STRIDE + field] = 0
+        records[i, field] = 0
     if not hit.hit[0]:
         return
     var surface = hit.surface.value[0]
@@ -102,9 +110,7 @@ def _guide_kernel[
             )
     surfaces[unsafe_offset=i] = surface
     var emitter = gpu_emitter(scene, primitive, surface)
-    fields[
-        unsafe_offset=i * GuideLayout.STRIDE + GuideLayout.DIFFUSE
-    ] = Float32(
+    records[i, GuideLayout.DIFFUSE] = Float32(
         UInt32(
             denoise_component(
                 hit.surface.kind(), emitter.radiance.max_component() > 0
@@ -113,7 +119,7 @@ def _guide_kernel[
         )
     )
     store_denoise_guide(
-        fields,
+        records,
         i,
         ray.at(hit.t),
         hit.normal,

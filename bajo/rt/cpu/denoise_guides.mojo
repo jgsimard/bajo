@@ -1,5 +1,6 @@
 """Lazy guide generation using the renderer's existing surface queries."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from max.algorithm import parallelize
 from std.math import iota, ceildiv
 from std.sys import simd_width_of
@@ -27,7 +28,10 @@ def make_cpu_denoise_guides[
     if width <= 0 or height <= 0:
         raise Error("denoising dimensions must be positive")
     var guides = DenoiseGuides(width, height)
-    var fields = guides.fields.unsafe_ptr()
+    var fields = TileTensor(
+        ptr=guides.fields.unsafe_ptr(),
+        layout=row_major(Coord(width * height, Idx[GuideLayout.STRIDE])),
+    )
     var surfaces = guides.surfaces.unsafe_ptr()
 
     var count = width * height
@@ -76,9 +80,7 @@ def make_cpu_denoise_guides[
             if active[lane]:
                 var i = safe_indices[lane]
                 surfaces[unsafe_offset=i] = surface.value[lane]
-                fields[
-                    unsafe_offset=i * GuideLayout.STRIDE + GuideLayout.DIFFUSE
-                ] = diffuse[lane].cast[.float32]()
+                fields[i, GuideLayout.DIFFUSE] = diffuse[lane].cast[.float32]()
         store_denoise_guide(
             fields,
             safe_indices,

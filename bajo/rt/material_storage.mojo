@@ -4,12 +4,8 @@ Logical coordinates are [material, field]. GPU records keep fields adjacent;
 CPU tables keep materials adjacent so SIMD lanes can gather one field.
 """
 
-from layout import TileTensor, TensorLayout
-from bajo.core.tensor_layout import (
-    record_tile,
-    gather_record_field,
-    gather_record_vec3,
-)
+from layout import TileTensor, TensorLayout, Coord, Idx, row_major, col_major
+from bajo.core.tensor_gather import gather_record_field, gather_record_vec3
 from bajo.rt.material_parameters import CoatedParameters
 from bajo.rt.material_types import SurfaceStore, CoatedDiffuse
 
@@ -120,7 +116,7 @@ def load_coated_parameters[
 
 
 def store_coated_material[
-    origin: Origin[mut=True], Layout: TensorLayout
+    origin: MutOrigin, Layout: TensorLayout
 ](
     records: TileTensor[.float32, Layout, origin],
     idx: Int,
@@ -186,9 +182,13 @@ def pack_coated_materials[
 ](surfaces: SurfaceStore) -> List[Float32]:
     var count = len(surfaces.coated_diffuses)
     var out = List[Float32](length=count * CoatedDiffuseLayout.STRIDE, fill=0.0)
-    var records = record_tile[
-        .float32, CoatedDiffuseLayout.STRIDE, COLUMN_MAJOR
-    ](out.unsafe_ptr(), count)
-    for idx in range(count):
-        store_coated_material(records, idx, surfaces.coated_diffuses[idx])
+    var shape = Coord(count, Idx[CoatedDiffuseLayout.STRIDE])
+    comptime if COLUMN_MAJOR:
+        var records = TileTensor(Span(out), col_major(shape))
+        for idx in range(count):
+            store_coated_material(records, idx, surfaces.coated_diffuses[idx])
+    else:
+        var records = TileTensor(Span(out), row_major(shape))
+        for idx in range(count):
+            store_coated_material(records, idx, surfaces.coated_diffuses[idx])
     return out^

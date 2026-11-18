@@ -1,6 +1,5 @@
+from layout import Idx, TileTensor, Coord, row_major
 from bajo.bvh.constants import EMPTY_LANE, WideNode
-from layout import Idx
-from bajo.core.tensor_layout import FieldTile, field_tile
 
 
 def wide_node_tile[
@@ -8,11 +7,14 @@ def wide_node_tile[
     origin: Origin[mut=mut],
     //,
     width: SIMDLength,
-](nodes: Pointer[Float32, origin], node_idx: UInt32) -> FieldTile[
-    .float32, WideNode.CHILD_STRIDE, type_of(Idx[Int(width)]), origin
+](nodes: Pointer[Float32, origin], node_idx: UInt32) -> TileTensor[
+    .float32,
+    type_of(row_major(Coord(Idx[WideNode.CHILD_STRIDE], Idx[Int(width)]))),
+    origin,
 ]:
-    return field_tile[.float32, WideNode.CHILD_STRIDE](
-        nodes.unsafe_offset(_wide_node_base[width](node_idx)), Idx[Int(width)]
+    return TileTensor(
+        ptr=nodes.unsafe_offset(_wide_node_base[width](node_idx)),
+        layout=row_major(Coord(Idx[WideNode.CHILD_STRIDE], Idx[Int(width)])),
     )
 
 

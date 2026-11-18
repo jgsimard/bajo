@@ -7,10 +7,9 @@ choose the lowest original face ID. Sign classification assumes an oriented,
 closed surface; open/nonmanifold surfaces do not define a universal inside.
 """
 
+from layout import Idx, TileTensor, Coord, row_major
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.sys.intrinsics import strided_load
-from layout import Idx
-from bajo.core.tensor_layout import field_tile
 from std.math import abs, sqrt, max, min, pi
 from std.memory import stack_allocation, bitcast
 from std.sys.info import is_gpu
@@ -1501,8 +1500,9 @@ struct MeshQueryView[
     ):
         var triangles = self.packed_triangles.unsafe_ptr()
         for block in range(begin, end):
-            var fields = field_tile[.float32, 9](
-                triangles.unsafe_offset(block * 9 * width), Idx[Int(width)]
+            var fields = TileTensor(
+                ptr=triangles.unsafe_offset(block * 9 * width),
+                layout=row_major(Coord(Idx[9], Idx[Int(width)])),
             )
             var a = Vec3[.float64, Self.frame, width](0.0)
             var b = Vec3[.float64, Self.frame, width](0.0)

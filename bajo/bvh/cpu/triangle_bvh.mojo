@@ -1,9 +1,8 @@
+from layout import Idx, TileTensor, Coord, row_major
 from max.algorithm import parallelize
 from std.atomic import Atomic, Ordering
 from std.bit import count_trailing_zeros
 from std.memory import pack_bits, bitcast
-from layout import Idx
-from bajo.core.tensor_layout import field_tile
 from std.sys import size_of
 
 from bajo.core import (
@@ -686,11 +685,16 @@ struct _TriangleBuild[
             var first, count = _checked_typed_leaf_range[Self.leaf_width](
                 first_item, item_count, len(builder.item_indices)
             )
-            var fields = field_tile[.float32, CPU_TRI_LEAF_PACKED_STRIDE](
-                packed_leaves.unsafe_offset(
+            var fields = TileTensor(
+                ptr=packed_leaves.unsafe_offset(
                     block_idx * Self.leaf_width * CPU_TRI_LEAF_PACKED_STRIDE
                 ),
-                Idx[Int(Self.leaf_width)],
+                layout=row_major(
+                    Coord(
+                        Idx[CPU_TRI_LEAF_PACKED_STRIDE],
+                        Idx[Int(Self.leaf_width)],
+                    )
+                ),
             )
             comptime for plane in range(CPU_TRI_LEAF_PACKED_STRIDE):
                 fields.store[width=Self.leaf_width]((plane, 0), 0.0)

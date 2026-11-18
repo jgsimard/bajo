@@ -1,9 +1,11 @@
 """Reference-based diffuse SVGF spatial reconstruction and firefly removal."""
+
+from layout import TileTensor, Coord, Idx, row_major
 from max.algorithm import parallelize
 from std.math import iota, ceildiv
 from std.sys import simd_width_of
 from bajo.core.color import Color
-from .types import AtrousSettings, DenoiseGuides
+from .types import AtrousSettings, DenoiseGuides, GuideLayout
 from .common import _reconstruct_pixel, _filter_pixel, _albedo, _color
 from .statistics import DenoiseStatistics
 
@@ -35,7 +37,10 @@ def reconstruct_frame[
     var frame = DenoiseFrame(count, stats.samples)
     var bins = stats.bins.unsafe_ptr()
     var meta = stats.meta.unsafe_ptr()
-    var fields = guides.fields.unsafe_ptr()
+    var fields = TileTensor(
+        ImmSpan(guides.fields),
+        layout=row_major(Coord(count, Idx[GuideLayout.STRIDE])),
+    )
     var diffuse = frame.diffuse.unsafe_ptr()
     var glossy = frame.glossy.unsafe_ptr()
     var passthrough = frame.passthrough.unsafe_ptr()
@@ -109,14 +114,26 @@ def atrous_denoise[
     workspace.pong.resize(unsafe_uninit_length=count)
     workspace.variance.resize(unsafe_uninit_length=count)
     workspace.variance_pong.resize(unsafe_uninit_length=count)
-    var fields = guides.fields.unsafe_ptr()
+    var fields = TileTensor(
+        ImmSpan(guides.fields),
+        layout=row_major(Coord(count, Idx[GuideLayout.STRIDE])),
+    )
     var surfaces = guides.surfaces.unsafe_ptr()
     var output = workspace.ping.unsafe_ptr()
     var var_out = workspace.variance.unsafe_ptr()
 
-    var diffuse = frame.diffuse.unsafe_ptr().unsafe_bitcast[Float32]()
-    var glossy = frame.glossy.unsafe_ptr().unsafe_bitcast[Float32]()
-    var passthrough = frame.passthrough.unsafe_ptr().unsafe_bitcast[Float32]()
+    var diffuse = TileTensor(
+        ptr=frame.diffuse.unsafe_ptr().unsafe_bitcast[Float32](),
+        layout=row_major(Coord(count, Idx[3])),
+    )
+    var glossy = TileTensor(
+        ptr=frame.glossy.unsafe_ptr().unsafe_bitcast[Float32](),
+        layout=row_major(Coord(count, Idx[3])),
+    )
+    var passthrough = TileTensor(
+        ptr=frame.passthrough.unsafe_ptr().unsafe_bitcast[Float32](),
+        layout=row_major(Coord(count, Idx[3])),
+    )
     var sample_variance = frame.variance.unsafe_ptr()
     var packets = ceildiv(count, Int(packet_width))
 
@@ -137,7 +154,10 @@ def atrous_denoise[
     for iteration in range(-1 if frame.samples < 4 else 0, settings.passes):
         if settings.passes == 0:
             break
-        var source = workspace.ping.unsafe_ptr().unsafe_bitcast[Float32]()
+        var source = TileTensor(
+            ptr=workspace.ping.unsafe_ptr().unsafe_bitcast[Float32](),
+            layout=row_major(Coord(count, Idx[3])),
+        )
         var variance = workspace.variance.unsafe_ptr()
         var target = workspace.pong.unsafe_ptr()
         var next_variance = workspace.variance_pong.unsafe_ptr()
@@ -171,7 +191,10 @@ def atrous_denoise[
         swap(workspace.variance, workspace.variance_pong)
     var final_pixels = workspace.ping.unsafe_ptr()
 
-    var final_words = final_pixels.unsafe_bitcast[Float32]()
+    var final_words = TileTensor(
+        ptr=final_pixels.unsafe_bitcast[Float32](),
+        layout=row_major(Coord(count, Idx[3])),
+    )
 
     # Discarded tail lanes read within their own packet, because composition
     # updates the final buffer in place while other packets run in parallel.

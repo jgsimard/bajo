@@ -1,4 +1,6 @@
 """Device-safe access to GPU material textures and shading normals."""
+
+from layout import TileTensor, Coord, Idx, row_major
 from bajo.core.image import (
     sample_image_texture,
     sample_image_texture_bilinear,
@@ -15,7 +17,6 @@ from bajo.rt.texture_math import (
 from std.memory import bitcast
 from std.math import floor
 from bajo.core import Vec3f32
-from bajo.core.tensor_layout import record_tile
 from bajo.core.color import Color
 from bajo.core.optics import conductor_k_from_reflectance
 from bajo.rt.material_types import NO_TEXTURE, SurfaceId
@@ -45,8 +46,11 @@ struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
         texture_pixels: Pointer[Float32, Self.origin],
     ) -> Self:
         var index = Int(texture_idx)
-        var descs = record_tile[.uint32, GpuTextureDescLayout.STRIDE](
-            texture_descs, index + 1
+        var descs = TileTensor(
+            ptr=texture_descs,
+            layout=row_major(
+                Coord(index + 1, Idx[GpuTextureDescLayout.STRIDE])
+            ),
         )
         var pixel_offset = Int(descs[index, GpuTextureDescLayout.PIXEL_OFFSET])
         return {
@@ -78,7 +82,10 @@ struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
                 Int(image_pixel_index(self.width, self.height, u, v))
             )
         return sample_image_texture(
-            record_tile[.float32, 3](self.pixels, self.width * self.height),
+            TileTensor(
+                ptr=self.pixels,
+                layout=row_major(Coord(self.width * self.height, Idx[3])),
+            ),
             self.width,
             self.height,
             u,
@@ -109,7 +116,10 @@ struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
             )
             return top * (1.0 - dy) + bottom * dy
         return sample_image_texture_bilinear(
-            record_tile[.float32, 3](self.pixels, self.width * self.height),
+            TileTensor(
+                ptr=self.pixels,
+                layout=row_major(Coord(self.width * self.height, Idx[3])),
+            ),
             self.width,
             self.height,
             u,
@@ -235,11 +245,17 @@ def _gpu_coated_shading_normal(
     if SurfaceId.kind_from_raw(surface_value) != .COATED_DIFFUSE:
         return normal
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-    var records = record_tile[.float32, GpuCoatedDiffuseLayout.STRIDE](
-        coated_diffuses, material_idx + 1
+    var records = TileTensor(
+        ptr=coated_diffuses,
+        layout=row_major(
+            Coord(material_idx + 1, Idx[GpuCoatedDiffuseLayout.STRIDE])
+        ),
     )
-    var textures = record_tile[.uint32, GpuCoatedDiffuseLayout.TEXTURE_STRIDE](
-        texture_indices, material_idx + 1
+    var textures = TileTensor(
+        ptr=texture_indices,
+        layout=row_major(
+            Coord(material_idx + 1, Idx[GpuCoatedDiffuseLayout.TEXTURE_STRIDE])
+        ),
     )
     var texture_idx = textures[
         material_idx, GpuCoatedDiffuseLayout.DISPLACEMENT_TEXTURE
@@ -305,8 +321,11 @@ def _gpu_dielectric_shading_normal(
     texture_pixels: Pointer[Float32, ImmutAnyOrigin],
 ) -> Vec3f32[.WORLD]:
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-    var records = record_tile[.float32, GpuDielectricLayout.STRIDE](
-        data, material_idx + 1
+    var records = TileTensor(
+        ptr=data,
+        layout=row_major(
+            Coord(material_idx + 1, Idx[GpuDielectricLayout.STRIDE])
+        ),
     )
     return _gpu_bump_normal(
         normal,
@@ -333,15 +352,21 @@ def _sample_gpu_coated_parameters(
     texture_pixels: Pointer[Float32, ImmutAnyOrigin],
 ) -> _GpuCoatedDiffuseParameters:
     var value = _load_gpu_coated_parameters(data, material_idx)
-    var textures = record_tile[.uint32, GpuCoatedDiffuseLayout.TEXTURE_STRIDE](
-        texture_indices, material_idx + 1
+    var textures = TileTensor(
+        ptr=texture_indices,
+        layout=row_major(
+            Coord(material_idx + 1, Idx[GpuCoatedDiffuseLayout.TEXTURE_STRIDE])
+        ),
     )
     var texture_idx = textures[
         material_idx, GpuCoatedDiffuseLayout.ROUGHNESS_TEXTURE
     ]
     if texture_idx != NO_TEXTURE:
-        var records = record_tile[.float32, GpuCoatedDiffuseLayout.STRIDE](
-            data, material_idx + 1
+        var records = TileTensor(
+            ptr=data,
+            layout=row_major(
+                Coord(material_idx + 1, Idx[GpuCoatedDiffuseLayout.STRIDE])
+            ),
         )
         var color = _sample_gpu_image_texture(
             texture_idx,
@@ -357,8 +382,11 @@ def _sample_gpu_coated_parameters(
                 0.0
             ),
         )
-    var records = record_tile[.float32, GpuCoatedDiffuseLayout.STRIDE](
-        data, material_idx + 1
+    var records = TileTensor(
+        ptr=data,
+        layout=row_major(
+            Coord(material_idx + 1, Idx[GpuCoatedDiffuseLayout.STRIDE])
+        ),
     )
     if (
         records[material_idx, GpuCoatedDiffuseLayout.CONDUCTOR_REFLECTANCE]

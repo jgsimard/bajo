@@ -1,4 +1,6 @@
 """Resident complete-sample statistics and reference SVGF spatial stages."""
+
+from layout import TileTensor, Coord, Idx, row_major
 from max.gpu import global_idx, block_idx, block_dim, grid_dim, thread_idx
 from max.gpu.primitives import block
 from max.gpu.host import DeviceBuffer, DeviceContext
@@ -66,10 +68,13 @@ def _maximum_kernel(
     components: ImmPointer[UInt32, ImmutAnyOrigin],
     count: Int32,
 ):
+    var records = TileTensor(
+        ptr=colors, layout=row_major(Coord(Int(count), Idx[3]))
+    )
     var largest = Float32(0)
     var i = global_idx.x
     while i < Int(count):
-        var color = _color(colors, i)
+        var color = _color(records, i)
         var y = luminance(color)
         if (
             not color.is_finite()[0]
@@ -110,6 +115,9 @@ def _accumulate_statistics(
     var pixel = global_idx.x
     if pixel >= Int(count):
         return
+    var records = TileTensor(
+        ptr=colors, layout=row_major(Coord(Int(count) * Int(spp), Idx[3]))
+    )
     for s in range(Int(spp)):
         var i = pixel * Int(spp) + s
         accumulate_sample(
@@ -117,7 +125,7 @@ def _accumulate_statistics(
             meta,
             pixel,
             Int(count),
-            _color(colors, i),
+            _color(records, i),
             weights[unsafe_offset=i],
             DenoiseComponent(components[unsafe_offset=i]),
         )
@@ -248,7 +256,13 @@ def _reconstruct_kernel(
     var i = global_idx.x
     if i >= Int(width) * Int(height):
         return
-    var albedo = _albedo(fields, i)
+    var guide_records = TileTensor(
+        ptr=fields,
+        layout=row_major(
+            Coord(Int(width) * Int(height), Idx[GuideLayout.STRIDE])
+        ),
+    )
+    var albedo = _albedo(guide_records, i)
     var d, g, p, v = _reconstruct_pixel(
         bins,
         meta,
@@ -285,9 +299,17 @@ def _filter_kernel(
     if i >= Int(width) * Int(height):
         return
     var color, v = _filter_pixel(
-        source,
+        TileTensor(
+            ptr=source,
+            layout=row_major(Coord(Int(width) * Int(height), Idx[3])),
+        ),
         variance,
-        fields,
+        TileTensor(
+            ptr=fields,
+            layout=row_major(
+                Coord(Int(width) * Int(height), Idx[GuideLayout.STRIDE])
+            ),
+        ),
         surfaces,
         Int(width),
         Int(height),
@@ -313,7 +335,13 @@ def _compose_kernel(
     var i = global_idx.x
     if i >= Int(count):
         return
-    var albedo = _albedo(fields, i)
+    var albedo = _albedo(
+        TileTensor(
+            ptr=fields,
+            layout=row_major(Coord(Int(count), Idx[GuideLayout.STRIDE])),
+        ),
+        i,
+    )
     comptime for c in range(3):
         var at = i * 3 + c
         var d = (

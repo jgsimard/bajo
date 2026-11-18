@@ -1,5 +1,6 @@
 """CPU-prepared scene ownership and traversal."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from std.utils.numerics import max_finite
 
 from std.bit import count_trailing_zeros
@@ -40,7 +41,6 @@ from bajo.core import (
     dot,
 )
 
-from bajo.core.tensor_layout import record_tile
 from bajo.rt.material_types import PrimitiveId, SurfaceId, NO_TEXTURE
 from bajo.rt.shading_types import HitRecord, SurfaceHit
 from bajo.rt.scene_data import SceneData
@@ -86,8 +86,9 @@ def _coherent_triangle_instance_shading[
     var triangles = active.select(triangle_idx, UInt32(0)).cast[.int64]()
     ref normals = data.triangle_mesh_normals()[mesh_idx]
     if len(normals) != 0:
-        var records = record_tile[.float32, 9](
-            normals.unsafe_ptr(), len(normals) // 9
+        var records = TileTensor(
+            ptr=normals.unsafe_ptr(),
+            layout=row_major(Coord(len(normals) // 9, Idx[9])),
         )
         var local_normal = Vec3[.float32, .LOCAL, length](
             interpolate_triangle_attribute[3, 0](
@@ -128,8 +129,9 @@ def _coherent_triangle_instance_shading[
         outward_normal = Vec3.select(active, transformed, outward_normal)
     ref texcoords = data.triangle_mesh_texcoords()[mesh_idx]
     if len(texcoords) != 0:
-        var records = record_tile[.float32, 6](
-            texcoords.unsafe_ptr(), len(texcoords) // 6
+        var records = TileTensor(
+            ptr=texcoords.unsafe_ptr(),
+            layout=row_major(Coord(len(texcoords) // 6, Idx[6])),
         )
         texture_u = active.select(
             interpolate_triangle_attribute[2, 0](

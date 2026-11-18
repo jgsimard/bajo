@@ -1,11 +1,12 @@
 """Geometry values, triangle attributes, surface orientation and bounds."""
 
+from layout import TileTensor
 from std.math import abs, sqrt
 from std.utils.numerics import isfinite
 from .aabb import AxisAlignedBoundingBox
 from .frame import Frame
 from .vec import Point3, Vec3, cross, dot, length2, normalize, orthonormal_basis
-from .tensor_layout import RecordTile, gather_record_field
+from .tensor_gather import gather_record_field
 
 
 @inline(.always)
@@ -71,7 +72,7 @@ def interpolate_triangle_attribute[
     index_dtype: DType,
     length: SIMDLength,
 ](
-    attributes: RecordTile[.float32, 3 * components, _],
+    attributes: TileTensor[.float32, _, _],
     triangles: SIMD[index_dtype, length],
     u: SIMD[.float32, length],
     v: SIMD[.float32, length],

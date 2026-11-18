@@ -1,24 +1,18 @@
 """Common path float projection into CPU packet and GPU queue layouts."""
 
-from layout import CoordLike
+from layout import TileTensor
 from bajo.rt.path_values import PathFloatField, PathValues
-from bajo.core.tensor_layout import FieldTile
 
 
 def store_path_values[
     Values: PathValues,
-    origin: Origin[mut=True],
-    Extent: CoordLike,
-    fields: Int,
+    origin: MutOrigin,
     //,
     STORE_BOUNDS: Bool = True,
     STORE_PDF: Bool = True,
-](
-    target: FieldTile[.float32, fields, Extent, origin],
-    values: Values,
-    item: Int,
-):
+](target: TileTensor[.float32, _, origin], values: Values, item: Int,):
     """Write only stage-live fields; bounds may be GPU scratch aliases."""
+    comptime assert target.flat_rank == 2
     comptime for field in range(PathFloatField.VALUE_PLANES):
         comptime if (
             STORE_BOUNDS

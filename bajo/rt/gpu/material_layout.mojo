@@ -3,8 +3,8 @@
 Offsets are in Float32 elements. Texture-table offsets are in UInt32 elements.
 """
 
+from layout import TileTensor, Coord, Idx, row_major
 from bajo.rt.material_parameters import CoatedParameters
-from bajo.core.tensor_layout import record_tile
 
 
 from bajo.rt.material_storage import (
@@ -23,7 +23,10 @@ comptime _GpuCoatedDiffuseParameters = CoatedParameters[1]
 def _load_gpu_coated_parameters(
     data: Pointer[Float32, ImmutAnyOrigin], material_idx: Int
 ) -> _GpuCoatedDiffuseParameters:
-    var records = record_tile[.float32, GpuCoatedDiffuseLayout.STRIDE](
-        data, material_idx + 1
+    var records = TileTensor(
+        ptr=data,
+        layout=row_major(
+            Coord(material_idx + 1, Idx[GpuCoatedDiffuseLayout.STRIDE])
+        ),
     )
     return load_coated_parameters(records, UInt32(material_idx))

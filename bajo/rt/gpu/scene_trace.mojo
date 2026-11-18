@@ -1,5 +1,6 @@
 """Compile-time-specialized traversal kernel for all GPU RT scene shapes."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from bajo.rt.denoise_guides import denoise_component
 from max.gpu import block_dim, global_idx, grid_dim
 from std.math import ceildiv, pi
@@ -32,7 +33,6 @@ from bajo.core.geometry import (
     orient_surface_normal,
     interpolate_triangle_attribute,
 )
-from bajo.core.tensor_layout import record_tile
 from bajo.rt.lighting import _emissive_hit_light_pdf
 from bajo.rt.gpu.emission import gpu_emitter
 from bajo.rt.rays import make_ao_ray
@@ -442,9 +442,9 @@ def _gpu_rt_scene_trace_path[
                 )
                 var forward = inverse.inverse()
                 dpdu = forward.inv.vector(tangent)
-                var records = record_tile[.float32, 6](
-                    vertex_texcoords.unsafe_offset(Int(texcoord_offset)),
-                    triangle_idx + 1,
+                var records = TileTensor(
+                    ptr=vertex_texcoords.unsafe_offset(Int(texcoord_offset)),
+                    layout=row_major(Coord(triangle_idx + 1, Idx[6])),
                 )
                 uv_u = interpolate_triangle_attribute[2, 0](
                     records,
@@ -460,9 +460,9 @@ def _gpu_rt_scene_trace_path[
                 )
             var normal_offset = normal_offsets[unsafe_offset=mesh_idx]
             if normal_offset != UInt32.MAX:
-                var records = record_tile[.float32, 9](
-                    vertex_normals.unsafe_offset(Int(normal_offset)),
-                    triangle_idx + 1,
+                var records = TileTensor(
+                    ptr=vertex_normals.unsafe_offset(Int(normal_offset)),
+                    layout=row_major(Coord(triangle_idx + 1, Idx[9])),
                 )
                 var local_normal = Vec3f32[.LOCAL](
                     interpolate_triangle_attribute[3, 0](

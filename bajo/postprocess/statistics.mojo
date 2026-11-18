@@ -9,6 +9,7 @@ from std.math import floor, log2, exp2, isfinite
 from max.algorithm import parallelize
 from .samples import DenoiseSampleBatch, DenoiseComponent
 from bajo.core.color import Color, luminance, LUMINANCE_WEIGHTS
+from bajo.core import Vec3
 
 
 struct CascadeLayout:
@@ -55,7 +56,11 @@ def cascade_size(value: Float32) -> Int:
     return min(CascadeLayout.MAX_BINS, cascade_bin(value) + 2)
 
 
-def _record(bin: Int, layer: Int, pixel: Int, count: Int) -> Int:
+def _record[
+    length: SIMDLength = 1
+](bin: Int, layer: Int, pixel: SIMD[.int, length], count: Int) -> SIMD[
+    .int, length
+]:
     var first = bin * count * CascadeLayout.LEVEL_STRIDE
     if layer == 0:
         return first + pixel * CascadeLayout.DIFFUSE_STRIDE
@@ -154,130 +159,138 @@ def accumulate_sample(
                 )
 
 
-def _sample_count(
+def _sample_count[
+    length: SIMDLength = 1
+](
     bins: ImmPointer[Float64, _],
-    pixel: Int,
+    pixel: SIMD[.int, length],
     count: Int,
     layer: Int,
     bin: Int,
     n_bins: Int,
-) -> Float64:
-    var n = Float64(0)
+) -> SIMD[.float64, length]:
+    var n = SIMD[.float64, length](0)
     for j in range(max(0, bin - 1), min(n_bins, bin + 2)):
-        n += bins[
-            unsafe_offset=_record(j, layer, pixel, count)
-        ] / cascade_scale(j)
+        n += bins.unsafe_gather(
+            _record(j, layer, pixel, count)
+        ) / cascade_scale(j)
     return n
 
 
-def reconstruct_component(
+def reconstruct_component[
+    length: SIMDLength = 1
+](
     bins: ImmPointer[Float64, _],
     meta: ImmPointer[Float64, _],
-    pixel: Int,
+    pixel: SIMD[.int, length],
     width: Int,
     height: Int,
     layer: Int,
     n_bins: Int,
     samples: Int,
-    coefficients: Color,
+    coefficients: Vec3[.float32, .WORLD, length],
     reweight: Bool,
-) -> Tuple[Color, Float32]:
+) -> Tuple[Vec3[.float32, .WORLD, length], SIMD[.float32, length]]:
     var count = width * height
-    var normalization = meta[unsafe_offset=pixel * CascadeLayout.META]
-    if normalization <= 0:
-        return Color(0), Float32(0)
-    var weights = Array[Float64, CascadeLayout.MAX_BINS](fill=0)
-    var result = Array[Float64, 3](fill=0)
+    var normalization = meta.unsafe_gather(pixel * CascadeLayout.META)
+    var valid = ~normalization.le(0)
+    if not valid.reduce_or():
+        return Vec3[.float32, .WORLD, length](0), SIMD[.float32, length](0)
+    normalization = valid.select(normalization, 1)
+    var weights = Array[SIMD[.float64, length], CascadeLayout.MAX_BINS](fill=0)
+    var result = Array[SIMD[.float64, length], 3](fill=0)
     comptime luma = LUMINANCE_WEIGHTS[.float64]
-    var expected = Float64(0)
+    var expected = SIMD[.float64, length](0)
     for bin in range(n_bins):
         var at = _record(bin, layer, pixel, count)
-        var w = Float64(1)
+        var w = SIMD[.float64, length](1)
         if reweight and bin > 0:
             var n = _sample_count(bins, pixel, count, layer, bin, n_bins)
-            var neighbors = Float64(0)
-            var n_pixels = Float64(0)
+            var neighbors = SIMD[.float64, length](0)
+            var n_pixels = SIMD[.float64, length](0)
             for dy in range(-1, 2):
                 for dx in range(-1, 2):
                     var x = pixel % width + dx
                     var y = pixel // width + dy
-                    if x >= 0 and x < width and y >= 0 and y < height:
-                        neighbors += _sample_count(
-                            bins, y * width + x, count, layer, bin, n_bins
-                        )
-                        n_pixels += 1
+                    var inside = x.ge(0) & x.lt(width) & y.ge(0) & y.lt(height)
+                    var q = inside.select(y * width + x, 0)
+                    neighbors += inside.select(
+                        _sample_count(bins, q, count, layer, bin, n_bins), 0
+                    )
+                    n_pixels += inside.cast[.float64]()
             # Sections 4.2, 4.3 and 5.3.1: kappa=kappa_min=1.
             w = max(
                 n - 1, Float64(samples) * expected / cascade_scale(bin)
             ).clamp(0, 1)
-            if neighbors <= n_pixels:
-                w = 0
+            w = neighbors.le(n_pixels).select(SIMD[.float64, length](0), w)
         weights[bin] = w
         comptime for c in range(3):
-            result[c] += w * bins[unsafe_offset=at + CascadeLayout.RGB + c]
+            result[c] += w * bins.unsafe_gather(at + CascadeLayout.RGB + c)
         expected = max(
-            Float64(0),
+            SIMD[.float64, length](0),
             (luma.x * result[0] + luma.y * result[1] + luma.z * result[2])
             / normalization,
         )
-    var color = Color(
-        Float32(result[0] / normalization),
-        Float32(result[1] / normalization),
-        Float32(result[2] / normalization),
+    var color = Vec3[.float32, .WORLD, length](
+        (result[0] / normalization).cast[.float32](),
+        (result[1] / normalization).cast[.float32](),
+        (result[2] / normalization).cast[.float32](),
     )
-    if layer == 1 or (
-        coefficients.x == 0 and coefficients.y == 0 and coefficients.z == 0
+    color = Vec3.select(valid, color, Vec3[.float32, .WORLD, length](0))
+    if (
+        layer == 1
+        or (
+            coefficients.x.eq(0) & coefficients.y.eq(0) & coefficients.z.eq(0)
+        ).reduce_and()
     ):
-        return color, Float32(0)
-    var mean = Float64(0)
+        return color, SIMD[.float32, length](0)
+    var mean = SIMD[.float64, length](0)
     comptime for c in range(3):
-        mean += Float64(coefficients[c]) * result[c] / normalization
-    var squared_residual = Float64(0)
-    var shifted_residual = Float64(0)
-    var lost_weight = meta[
-        unsafe_offset=pixel * CascadeLayout.META
-        + CascadeLayout.INACTIVE_DIFFUSE
-    ]
+        mean += coefficients[c].cast[.float64]() * result[c] / normalization
+    var squared_residual = SIMD[.float64, length](0)
+    var shifted_residual = SIMD[.float64, length](0)
+    var lost_weight = meta.unsafe_gather(
+        pixel * CascadeLayout.META + CascadeLayout.INACTIVE_DIFFUSE
+    )
     for bin in range(n_bins):
         var at = _record(bin, layer, pixel, count)
         var r = weights[bin]
-        var next_r = weights[bin + 1] if bin + 1 < n_bins else Float64(1)
+        var next_r = weights[bin + 1] if bin + 1 < n_bins else SIMD[
+            .float64, length
+        ](1)
         var delta = r - 1
         var next_delta = next_r - 1
-        var origin = Float64(0)
-        var q_first = Float64(0)
-        var cross_first = Float64(0)
-        var q_second = Float64(0)
-        var cross_second = Float64(0)
+        var origin = SIMD[.float64, length](0)
+        var q_first = SIMD[.float64, length](0)
+        var cross_first = SIMD[.float64, length](0)
+        var q_second = SIMD[.float64, length](0)
+        var cross_second = SIMD[.float64, length](0)
         for c in range(3):
-            origin += (
-                Float64(coefficients[c])
-                * bins[unsafe_offset=at + CascadeLayout.ORIGIN + c]
+            origin += coefficients[c].cast[.float64]() * bins.unsafe_gather(
+                at + CascadeLayout.ORIGIN + c
             )
-            q_first += (
-                Float64(coefficients[c])
-                * bins[unsafe_offset=at + CascadeLayout.SECOND_OFFSET + c]
+            q_first += coefficients[c].cast[.float64]() * bins.unsafe_gather(
+                at + CascadeLayout.SECOND_OFFSET + c
             )
-            cross_first += (
-                Float64(coefficients[c])
-                * bins[unsafe_offset=at + CascadeLayout.CROSS_OFFSET + c]
-            )
+            cross_first += coefficients[c].cast[
+                .float64
+            ]() * bins.unsafe_gather(at + CascadeLayout.CROSS_OFFSET + c)
             for d in range(c, 3):
                 var k = _covariance_index(c, d)
                 var factor = (
-                    Float64(coefficients[c])
-                    * Float64(coefficients[d])
+                    coefficients[c].cast[.float64]()
+                    * coefficients[d].cast[.float64]()
                     * Float64(1 if c == d else 2)
                 )
-                q_second += (
-                    factor * bins[unsafe_offset=at + CascadeLayout.SECOND + k]
+                q_second += factor * bins.unsafe_gather(
+                    at + CascadeLayout.SECOND + k
                 )
-                cross_second += (
-                    factor * bins[unsafe_offset=at + CascadeLayout.CROSS + k]
+                cross_second += factor * bins.unsafe_gather(
+                    at + CascadeLayout.CROSS + k
                 )
         var displacement = origin - mean
-        var qw = bins[unsafe_offset=at + CascadeLayout.SECOND_WEIGHT]
-        var cw = bins[unsafe_offset=at + CascadeLayout.CROSS_WEIGHT]
+        var qw = bins.unsafe_gather(at + CascadeLayout.SECOND_WEIGHT)
+        var cw = bins.unsafe_gather(at + CascadeLayout.CROSS_WEIGHT)
         q_second += (
             2 * displacement * q_first + displacement * displacement * qw
         )
@@ -305,7 +318,7 @@ def reconstruct_component(
         variance *= Float64(samples) / Float64(samples - 1)
     else:
         variance = 0
-    return color, Float32(variance)
+    return color, valid.select(variance.cast[.float32](), 0)
 
 
 struct DenoiseStatistics:

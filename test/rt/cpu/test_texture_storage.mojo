@@ -4,8 +4,9 @@ from std.memory import bitcast
 from std.testing import (
     TestSuite,
     assert_equal,
+    assert_almost_equal,
 )
-from bajo.rt.material_types import SurfaceStore, ImageTexture
+from bajo.rt.material_types import SurfaceStore, ImageTexture, NO_TEXTURE
 from bajo.rt.material_storage import TextureDescLayout
 from bajo.rt.gpu.texture_storage import pack_texture_tables, plan_texture_upload
 from bajo.rt.gpu.textures import _GpuImageTextureView
@@ -39,6 +40,50 @@ def make_textures() -> SurfaceStore:
         pixels.append(bitcast[.float32](word))
     _ = surfaces.add_image_texture(ImageTexture(17, 17, pixels^))
     return surfaces^
+
+
+def _check_texture_groups[
+    width: SIMDLength, bilinear: Bool
+](surfaces: SurfaceStore) raises:
+    for pattern in range(6):
+        var ids = SIMD[.uint32, width](NO_TEXTURE)
+        var u = SIMD[.float32, width](0)
+        var v = SIMD[.float32, width](0)
+        for lane in range(Int(width)):
+            var index = (
+                lane // 3 if pattern
+                == 0 else lane if pattern
+                == 1 else 2 if pattern
+                == 2 else lane % 2
+            ) % 4
+            if pattern != 4 and (pattern != 3 or lane % 3):
+                ids[lane] = UInt32(index)
+                u[lane] = Float32(lane) / 7 - 1.3
+                v[lane] = Float32(lane) / 11 + 0.2
+            else:
+                u[lane] = bitcast[.float32](UInt32(0x7FC00000))
+                v[lane] = u[lane]
+        var actual = surfaces.sample_image_textures[width, bilinear](ids, u, v)
+        for lane in range(Int(width)):
+            if ids[lane] == NO_TEXTURE:
+                for channel in range(3):
+                    assert_equal(actual[channel][lane], Float32(1))
+            else:
+                ref image = surfaces.image_textures[Int(ids[lane])]
+                var expected = image.sample_bilinear(
+                    u[lane], v[lane]
+                ) if bilinear else image.sample(u[lane], v[lane])
+                for channel in range(3):
+                    assert_almost_equal(
+                        actual[channel][lane], expected[channel], atol=1e-6
+                    )
+
+
+def test_cpu_texture_packets_preserve_mixed_groups_missing_maps_and_bilinear_samples() raises:
+    var surfaces = make_textures()
+    comptime for width in [1, 4, 8, 16, 32]:
+        _check_texture_groups[width, False](surfaces)
+        _check_texture_groups[width, True](surfaces)
 
 
 def test_upload_plan_leaves_raw_images_in_their_original_storage() raises:

@@ -289,5 +289,65 @@ def test_compact_components_survive_cascade_growth_and_mixed_coverage() raises:
     assert_equal(frame.variance[1], Float32(0))
 
 
+def _check_packet_postprocess[
+    packet: SIMDLength
+](spp: Int, passes: Int, firefly: Bool) raises:
+    var guides = flat_guides(17, 5)
+    var batch = sample_fixture(17, 5, spp)
+    for pixel in range(85):
+        if pixel % 11 == 0:
+            guides.surfaces[pixel] = GuideLayout.MISS
+        guides.fields[
+            pixel * GuideLayout.STRIDE + GuideLayout.DIFFUSE
+        ] = Float32(Int(pixel % 7 != 0))
+        for sample in range(spp):
+            var i = pixel * spp + sample
+            batch.colors[i] = Color(
+                Float32((i * 17) % 31) / 9,
+                Float32((i * 7) % 19) / 13,
+                Float32(i % 5) / 7,
+            )
+            batch.components[i] = UInt32(i % 3)
+            batch.weights[i] = Float32(i % 5) / 4 if pixel % 13 else Float32(0)
+    batch.colors[5] = Color(4096, 512, 16)
+    var stats = DenoiseStatistics(17, 5)
+    stats.add(batch)
+    var scalar = reconstruct_frame[1](stats, guides, firefly)
+    var wide = reconstruct_frame[packet](stats, guides, firefly)
+    for i in range(85):
+        comptime for channel in range(3):
+            assert_almost_equal(
+                wide.diffuse[i][channel], scalar.diffuse[i][channel], atol=2e-5
+            )
+            assert_almost_equal(
+                wide.glossy[i][channel], scalar.glossy[i][channel], atol=2e-5
+            )
+            assert_almost_equal(
+                wide.passthrough[i][channel],
+                scalar.passthrough[i][channel],
+                atol=2e-5,
+            )
+        assert_almost_equal(wide.variance[i], scalar.variance[i], atol=2e-4)
+    var expected = AtrousWorkspace()
+    var actual = AtrousWorkspace()
+    var settings = AtrousSettings(passes=passes, firefly=firefly)
+    atrous_denoise[1](scalar, guides, expected, settings)
+    atrous_denoise[packet](wide, guides, actual, settings)
+    for i in range(85):
+        comptime for channel in range(3):
+            assert_almost_equal(
+                actual.ping[i][channel], expected.ping[i][channel], atol=3e-5
+            )
+        assert_almost_equal(actual.variance[i], expected.variance[i], atol=2e-4)
+
+
+def test_packet_reconstruction_filter_borders_tails_masks_and_bootstrap() raises:
+    comptime for width in [4, 8, 16, 32]:
+        for spp in [2, 8]:
+            for passes in [0, 1, 3]:
+                for firefly in [False, True]:
+                    _check_packet_postprocess[width](spp, passes, firefly)
+
+
 def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

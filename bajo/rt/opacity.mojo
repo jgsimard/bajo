@@ -2,7 +2,7 @@
 
 from std.memory import bitcast
 from std.utils.numerics import isfinite
-from bajo.core import Rayf32, Point3f32, Vec3
+from bajo.core import Ray, Rayf32, Point3f32, Vec3
 from std.math import acos, atan2, pi
 from bajo.core.random import _mix32, _u32_to_unit_float
 from bajo.rt.material_types import NO_TEXTURE, SurfaceStore
@@ -30,10 +30,15 @@ struct Opacity(Copyable, Writable):
         ):
             raise Error("opacity image index is out of range")
 
-    def evaluate(
-        self, surfaces: SurfaceStore, u: Float32, v: Float32
-    ) -> Float32:
-        var value = self.scale
+    def evaluate[
+        length: SIMDLength = 1
+    ](
+        self,
+        surfaces: SurfaceStore,
+        u: SIMD[.float32, length],
+        v: SIMD[.float32, length],
+    ) -> SIMD[.float32, length]:
+        var value = SIMD[.float32, length](self.scale)
         if self.texture_index != NO_TEXTURE:
             value *= surfaces.image_textures[
                 Int(self.texture_index)
@@ -45,9 +50,11 @@ struct SceneOpacity(Defaultable):
     var records: Dict[UInt32, Opacity]
 
 
-def opacity_ray_sample(ray: Rayf32[.WORLD]) -> Float32:
+def opacity_ray_sample[
+    length: SIMDLength = 1
+](ray: Ray[.float32, .WORLD, length]) -> SIMD[.float32, length]:
     """A deterministic primary/shadow decision independent of BVH order."""
-    var seed = UInt32(0xA511E9B3)
+    var seed = SIMD[.uint32, length](UInt32(0xA511E9B3))
     for value in [ray.o.x, ray.o.y, ray.o.z, ray.d.x, ray.d.y, ray.d.z]:
         seed = _mix32(seed ^ bitcast[.uint32](value))
     return _u32_to_unit_float(seed)
@@ -74,5 +81,9 @@ def opacity_sphere_uv[
     )
 
 
-def opacity_accepts(alpha: Float32, sample: Float32) -> Bool:
-    return alpha >= 1.0 or (alpha > 0.0 and sample <= alpha)
+def opacity_accepts[
+    length: SIMDLength = 1
+](alpha: SIMD[.float32, length], sample: SIMD[.float32, length]) -> SIMD[
+    .bool, length
+]:
+    return alpha.ge(1) | (alpha.gt(0) & sample.le(alpha))

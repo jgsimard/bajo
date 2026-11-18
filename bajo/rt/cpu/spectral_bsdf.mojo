@@ -57,7 +57,7 @@ struct SpectralMaterialParameters[width: SIMDLength]:
         if not active.reduce_or():
             return
         var base = _MaterialParameters[Self.width]()
-        base.load[kind](surfaces, indices, u, v, active, fields)
+        base.load[kind, False, False](surfaces, indices, u, v, active, fields)
         self.parameter = base.parameter
         self.roughness = base.roughness
         comptime if kind == .COATED_DIFFUSE:
@@ -68,24 +68,145 @@ struct SpectralMaterialParameters[width: SIMDLength]:
             self.coated.max_depth = base.coated.max_depth
             self.coated.n_samples = base.coated.n_samples
             self.coated.conductor_roughness = base.coated.conductor_roughness
+        # Width one avoids packet metadata/masking overhead; keep its direct
+        # source dispatch while using the same wavelength reconstruction APIs.
+        comptime if Self.width == 1:
+            for lane in range(Int(Self.width)):
+                if not active[lane]:
+                    continue
+                var surface = SurfaceId[1](kind, indices[lane])
+                var lambda_sample = wavelengths.get(lane)
+                comptime if kind == .DIELECTRIC:
+                    ref material = surfaces.dielectrics[Int(indices[lane])]
+                    var source = surfaces.dielectric_eta_sources.get(
+                        surface.value[0]
+                    ).or_else(NO_SPECTRUM)
+                    if source != NO_SPECTRUM:
+                        self.parameter[lane] = spectra.sample(
+                            source, lambda_sample, RgbSpectrumView.UNBOUNDED
+                        ).s0
+                        var descriptor = spectra.sources[
+                            unsafe_offset=Int(source)
+                        ].copy()
+                        var dispersive = (
+                            descriptor.kind == descriptor.CURVE
+                            or descriptor.kind == descriptor.PRODUCT
+                            or (
+                                descriptor.kind == descriptor.RGB
+                                and (
+                                    descriptor.value.x != descriptor.value.y
+                                    or descriptor.value.y != descriptor.value.z
+                                )
+                            )
+                        )
+                        if dispersive:
+                            lambda_sample.terminate_secondary(True)
+                            wavelengths.set(lane, lambda_sample)
+                    elif material.eta_spectrum != NO_TEXTURE:
+                        self.parameter[lane] = spectra.curves.sample(
+                            SIMD[.uint32, 1](material.eta_spectrum),
+                            lambda_sample,
+                        ).s0
+                        lambda_sample.terminate_secondary(True)
+                        wavelengths.set(lane, lambda_sample)
+                else:
+                    var metadata = surfaces._albedo_metadata(surface)
+                    var albedo: SampledSpectrum[1]
+                    if case .Some(source) = surfaces.albedo_spectra.get(
+                        surface.value[0]
+                    ):
+                        albedo = spectra.sample(
+                            source, lambda_sample, RgbSpectrumView.ALBEDO
+                        )
+                    else:
+                        albedo = spectra.rgb.sample(
+                            metadata[0].clamp(0, 1),
+                            lambda_sample,
+                            RgbSpectrumView.ALBEDO,
+                        )
+                    if metadata[1] != NO_TEXTURE:
+                        var texel = surfaces.image_textures[
+                            Int(metadata[1])
+                        ].sample(u[lane], v[lane])
+                        albedo = albedo * spectra.rgb.sample(
+                            texel.clamp(0, 1),
+                            lambda_sample,
+                            RgbSpectrumView.ALBEDO,
+                        )
+                    self.albedo.set(lane, albedo.clamp(0, 1))
+                comptime if kind == .COATED_DIFFUSE:
+                    ref material = surfaces.coated_diffuses[Int(indices[lane])]
+                    var eta = material.eta
+                    var layer = spectra.rgb.sample(
+                        material.layer_albedo,
+                        lambda_sample,
+                        RgbSpectrumView.ALBEDO,
+                    )
+                    if case .Some(source) = surfaces.layer_albedo_spectra.get(
+                        surface.value[0]
+                    ):
+                        layer = spectra.sample(
+                            source, lambda_sample, RgbSpectrumView.ALBEDO
+                        )
+                    self.coated.layer_albedo.set(lane, layer.clamp(0, 1))
+                    var conductor_eta = spectra.rgb.sample(
+                        material.conductor_eta,
+                        lambda_sample,
+                        RgbSpectrumView.UNBOUNDED,
+                    )
+                    var conductor_k = spectra.rgb.sample(
+                        material.conductor_k,
+                        lambda_sample,
+                        RgbSpectrumView.UNBOUNDED,
+                    )
+                    if material.conductor_eta_spectrum != NO_TEXTURE:
+                        conductor_eta = (
+                            spectra.curves.sample(
+                                SIMD[.uint32, 1](
+                                    material.conductor_eta_spectrum
+                                ),
+                                lambda_sample,
+                            )
+                            / eta
+                        )
+                    if material.conductor_k_spectrum != NO_TEXTURE:
+                        conductor_k = (
+                            spectra.curves.sample(
+                                SIMD[.uint32, 1](material.conductor_k_spectrum),
+                                lambda_sample,
+                            )
+                            / eta
+                        )
+                    if material.conductor_reflectance:
+                        conductor_eta = SampledSpectrum[1](1 / eta)
+                        comptime for channel in range(4):
+                            var r = self.albedo[channel][lane].clamp(0, 0.9999)
+                            conductor_k[channel] = 2 * sqrt(r / (1 - r)) / eta
+                    self.coated.conductor_eta.set(lane, conductor_eta)
+                    self.coated.conductor_k.set(lane, conductor_k)
+            return
+        var source_ids = SIMD[.uint32, Self.width](NO_SPECTRUM)
+        var curve_ids = SIMD[.uint32, Self.width](NO_TEXTURE)
+        var layer_ids = SIMD[.uint32, Self.width](NO_SPECTRUM)
+        var eta_curves = SIMD[.uint32, Self.width](NO_TEXTURE)
+        var k_curves = SIMD[.uint32, Self.width](NO_TEXTURE)
+        var dispersive = SIMD[.bool, Self.width](fill=False)
+        var reflectance = SIMD[.bool, Self.width](fill=False)
+        # Sparse authoring bindings remain scalar metadata; wavelength math,
+        # texture reconstruction and expression evaluation run across packets.
         for lane in range(Int(Self.width)):
             if not active[lane]:
                 continue
             var surface = SurfaceId[1](kind, indices[lane])
-            var lambda_sample = wavelengths.get(lane)
             comptime if kind == .DIELECTRIC:
-                ref material = surfaces.dielectrics[Int(indices[lane])]
-                var source = surfaces.dielectric_eta_sources.get(
+                source_ids[lane] = surfaces.dielectric_eta_sources.get(
                     surface.value[0]
                 ).or_else(NO_SPECTRUM)
-                if source != NO_SPECTRUM:
-                    self.parameter[lane] = spectra.sample(
-                        source, lambda_sample, RgbSpectrumView.UNBOUNDED
-                    ).s0
+                if source_ids[lane] != NO_SPECTRUM:
                     var descriptor = spectra.sources[
-                        unsafe_offset=Int(source)
+                        unsafe_offset=Int(source_ids[lane])
                     ].copy()
-                    var dispersive = (
+                    dispersive[lane] = (
                         descriptor.kind == descriptor.CURVE
                         or descriptor.kind == descriptor.PRODUCT
                         or (
@@ -96,84 +217,102 @@ struct SpectralMaterialParameters[width: SIMDLength]:
                             )
                         )
                     )
-                    if dispersive:
-                        lambda_sample.terminate_secondary(True)
-                        wavelengths.set(lane, lambda_sample)
-                elif material.eta_spectrum != NO_TEXTURE:
-                    self.parameter[lane] = spectra.curves.sample(
-                        SIMD[.uint32, 1](material.eta_spectrum), lambda_sample
-                    ).s0
-                    lambda_sample.terminate_secondary(True)
-                    wavelengths.set(lane, lambda_sample)
-            else:
-                var metadata = surfaces._albedo_metadata(surface)
-                var albedo: SampledSpectrum[1]
-                if case .Some(source) = surfaces.albedo_spectra.get(
-                    surface.value[0]
-                ):
-                    albedo = spectra.sample(
-                        source, lambda_sample, RgbSpectrumView.ALBEDO
-                    )
                 else:
-                    albedo = spectra.rgb.sample(
-                        metadata[0].clamp(0, 1),
-                        lambda_sample,
-                        RgbSpectrumView.ALBEDO,
-                    )
-                if metadata[1] != NO_TEXTURE:
-                    var texel = surfaces.image_textures[
-                        Int(metadata[1])
-                    ].sample(u[lane], v[lane])
-                    albedo = albedo * spectra.rgb.sample(
-                        texel.clamp(0, 1), lambda_sample, RgbSpectrumView.ALBEDO
-                    )
-                self.albedo.set(lane, albedo.clamp(0, 1))
+                    curve_ids[lane] = surfaces.dielectrics[
+                        Int(indices[lane])
+                    ].eta_spectrum
+                    dispersive[lane] = curve_ids[lane] != NO_TEXTURE
+            else:
+                source_ids[lane] = surfaces.albedo_spectra.get(
+                    surface.value[0]
+                ).or_else(NO_SPECTRUM)
             comptime if kind == .COATED_DIFFUSE:
                 ref material = surfaces.coated_diffuses[Int(indices[lane])]
-                var eta = material.eta
-                var layer = spectra.rgb.sample(
-                    material.layer_albedo, lambda_sample, RgbSpectrumView.ALBEDO
-                )
-                if case .Some(source) = surfaces.layer_albedo_spectra.get(
+                layer_ids[lane] = surfaces.layer_albedo_spectra.get(
                     surface.value[0]
-                ):
-                    layer = spectra.sample(
-                        source, lambda_sample, RgbSpectrumView.ALBEDO
-                    )
-                self.coated.layer_albedo.set(lane, layer.clamp(0, 1))
-                var conductor_eta = spectra.rgb.sample(
-                    material.conductor_eta,
-                    lambda_sample,
-                    RgbSpectrumView.UNBOUNDED,
+                ).or_else(NO_SPECTRUM)
+                eta_curves[lane] = material.conductor_eta_spectrum
+                k_curves[lane] = material.conductor_k_spectrum
+                reflectance[lane] = material.conductor_reflectance
+        comptime if kind == .DIELECTRIC:
+            self.parameter = spectra.sample_packet(
+                source_ids,
+                wavelengths,
+                RgbSpectrumView.UNBOUNDED,
+                active,
+                SampledSpectrum[Self.width](self.parameter),
+            ).s0
+            self.parameter = spectra.curves.sample(
+                curve_ids, wavelengths, self.parameter
+            ).s0
+            wavelengths.terminate_secondary(dispersive)
+        else:
+            var metadata = surfaces._albedo_metadata(
+                SurfaceId[Self.width](SurfaceId.pack_raw(kind, 0) | indices),
+                active,
+            )
+            var albedo = spectra.rgb.sample(
+                metadata[0].clamp(0, 1), wavelengths, RgbSpectrumView.ALBEDO
+            )
+            albedo = spectra.sample_packet(
+                source_ids, wavelengths, RgbSpectrumView.ALBEDO, active, albedo
+            )
+            var textured = active & metadata[1].ne(NO_TEXTURE)
+            if textured.reduce_or():
+                var texel = surfaces.sample_image_textures(metadata[1], u, v)
+                var modulation = spectra.rgb.sample(
+                    texel.clamp(0, 1), wavelengths, RgbSpectrumView.ALBEDO
                 )
-                var conductor_k = spectra.rgb.sample(
-                    material.conductor_k,
-                    lambda_sample,
-                    RgbSpectrumView.UNBOUNDED,
+                comptime for channel in range(4):
+                    albedo[channel] = textured.select(
+                        albedo[channel] * modulation[channel], albedo[channel]
+                    )
+            comptime for channel in range(4):
+                self.albedo[channel] = active.select(
+                    albedo[channel].clamp(0, 1), self.albedo[channel]
                 )
-                if material.conductor_eta_spectrum != NO_TEXTURE:
-                    conductor_eta = (
-                        spectra.curves.sample(
-                            SIMD[.uint32, 1](material.conductor_eta_spectrum),
-                            lambda_sample,
-                        )
-                        / eta
-                    )
-                if material.conductor_k_spectrum != NO_TEXTURE:
-                    conductor_k = (
-                        spectra.curves.sample(
-                            SIMD[.uint32, 1](material.conductor_k_spectrum),
-                            lambda_sample,
-                        )
-                        / eta
-                    )
-                if material.conductor_reflectance:
-                    conductor_eta = SampledSpectrum[1](1 / eta)
-                    comptime for channel in range(4):
-                        var r = self.albedo[channel][lane].clamp(0, 0.9999)
-                        conductor_k[channel] = 2 * sqrt(r / (1 - r)) / eta
-                self.coated.conductor_eta.set(lane, conductor_eta)
-                self.coated.conductor_k.set(lane, conductor_k)
+        comptime if kind == .COATED_DIFFUSE:
+            var layer = spectra.rgb.sample(
+                base.coated.layer_albedo, wavelengths, RgbSpectrumView.ALBEDO
+            )
+            layer = spectra.sample_packet(
+                layer_ids, wavelengths, RgbSpectrumView.ALBEDO, active, layer
+            )
+            var eta = base.coated.eta
+            var n = spectra.rgb.sample(
+                base.coated.conductor_eta,
+                wavelengths,
+                RgbSpectrumView.UNBOUNDED,
+            )
+            var k = spectra.rgb.sample(
+                base.coated.conductor_k, wavelengths, RgbSpectrumView.UNBOUNDED
+            )
+            var measured_n = (
+                spectra.curves.sample(eta_curves, wavelengths) / eta
+            )
+            var measured_k = spectra.curves.sample(k_curves, wavelengths) / eta
+            comptime for channel in range(4):
+                n[channel] = eta_curves.ne(NO_TEXTURE).select(
+                    measured_n[channel], n[channel]
+                )
+                k[channel] = k_curves.ne(NO_TEXTURE).select(
+                    measured_k[channel], k[channel]
+                )
+                var r = self.albedo[channel].clamp(0, 0.9999)
+                n[channel] = reflectance.select(1 / eta, n[channel])
+                k[channel] = reflectance.select(
+                    2 * sqrt(r / (1 - r)) / eta, k[channel]
+                )
+                self.coated.layer_albedo[channel] = active.select(
+                    layer[channel].clamp(0, 1),
+                    self.coated.layer_albedo[channel],
+                )
+                self.coated.conductor_eta[channel] = active.select(
+                    n[channel], self.coated.conductor_eta[channel]
+                )
+                self.coated.conductor_k[channel] = active.select(
+                    k[channel], self.coated.conductor_k[channel]
+                )
 
     def sample[
         kind: MaterialKind

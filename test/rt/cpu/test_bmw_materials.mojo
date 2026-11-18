@@ -17,6 +17,7 @@ from bajo.core.random import Rng
 from bajo.parser.pbrt import parse_pbrt
 from bajo.rt.cpu.rgb import render_wavefront
 from bajo.rt import CpuScene, SurfaceStore, Color
+from bajo.rt.material_types import SurfaceId, ImageTexture
 from bajo.rt.cpu.bsdf import evaluate_bsdf, sample_bsdf
 from bajo.rt.shading_types import ShadingPoint
 from bajo.core.optics import fresnel_conductor, fresnel_dielectric
@@ -229,6 +230,43 @@ Shape "sphere"
         )
         energy += packet.pixels[i].x[0]
     assert_true(energy > 0.0)
+
+
+def _check_mix_packet[width: SIMDLength]() raises:
+    var surfaces = SurfaceStore()
+    var first = surfaces.add_lambertian(Color(0.7, 0.2, 0.1))
+    var second = surfaces.add_lambertian(Color(0.1, 0.2, 0.7))
+    var map = surfaces.add_image_texture(
+        ImageTexture(2, 1, [0.1, 0.2, 0.3, 0.9, 0.8, 0.7])
+    )
+    var inner = surfaces.add_mix(first, second, 0.7, map, 2, 3)
+    var outer = surfaces.add_mix(inner, second, 0.2)
+    var ids = SurfaceId[width](SIMD[.uint32, width](outer.value[0]))
+    var random = SIMD[.float32, width](0)
+    var u = SIMD[.float32, width](0)
+    var v = SIMD[.float32, width](0.4)
+    var active = SIMD[.bool, width](fill=True)
+    for lane in range(Int(width)):
+        random[lane] = Float32(lane % 11) / 10
+        u[lane] = Float32(lane) / 9
+        active[lane] = lane % 5 != 1
+        if not active[lane]:
+            ids.value[lane] = UInt32.MAX
+        elif lane % 7 == 0:
+            ids.value[lane] = first.value[0]
+    var actual = surfaces.resolve_mix_packet(ids, random, u, v, active)
+    for lane in range(Int(width)):
+        var expected = ids.value[lane]
+        if active[lane]:
+            expected = surfaces.resolve_mix(
+                ids.get(lane), random[lane], u[lane], v[lane]
+            ).value[0]
+        assert_equal(actual.value[lane], expected)
+
+
+def test_packet_nested_textured_mix_preserves_remapped_random_and_masks() raises:
+    comptime for width in [1, 4, 8, 16, 32]:
+        _check_mix_packet[width]()
 
 
 def run_tests[_discovery: Bool = True]() raises:

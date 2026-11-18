@@ -6,6 +6,9 @@ values is not equivalent to multiplying their reconstructed spectra.
 
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import exp, pow
+from std.bit import count_trailing_zeros
+from std.memory import pack_bits
+from std.sys.info import size_of
 from bajo.core.color import Color
 from bajo.core.rgb_spectrum import RgbSpectrumView
 from bajo.core.sampled_spectrum import (
@@ -15,6 +18,7 @@ from bajo.core.sampled_spectrum import (
     cie_xyz,
 )
 from bajo.core.spectrum_tables import PiecewiseSpectrumView
+from bajo.core.vec import Vec3
 
 comptime NO_SPECTRUM = UInt32.MAX
 
@@ -147,6 +151,80 @@ struct SpectrumSourcesView(DevicePassable, TrivialRegisterPassable):
             self.sample(index, wavelengths, RgbSpectrumView.ILLUMINANT)
             * self.photometric[unsafe_offset=Int(normalized)]
         )
+
+    def sample_packet[
+        width: SIMDLength
+    ](
+        self,
+        indices: SIMD[.uint32, width],
+        wavelengths: SampledWavelengths[width],
+        role: UInt32,
+        active: SIMD[.bool, width] = SIMD[.bool, width](fill=True),
+        fallback: SampledSpectrum[width] = {},
+    ) -> SampledSpectrum[width]:
+        """Evaluate shared and paired source expressions across wavelengths.
+
+        Products retain their original leaf order. Divergent roots use direct
+        scalar leaves; invalid or inactive IDs keep the supplied fallback.
+        """
+        var valid = active & indices.lt(self.count)
+        if not valid.reduce_or():
+            return fallback
+        comptime if width == 1:
+            return self.sample(indices[0], wavelengths, role)
+        var first = Int(count_trailing_zeros(pack_bits(valid)))
+        var first_group = valid & indices.eq(indices[first])
+        var remaining = valid & ~first_group
+        if not remaining.reduce_or():
+            return SampledSpectrum[width].select(
+                valid, self.sample(indices[first], wavelengths, role), fallback
+            )
+        var second = Int(count_trailing_zeros(pack_bits(remaining)))
+        if (~remaining | indices.eq(indices[second])).reduce_and():
+            var value = SampledSpectrum[width].select(
+                first_group,
+                self.sample(indices[first], wavelengths, role),
+                self.sample(indices[second], wavelengths, role),
+            )
+            return SampledSpectrum[width].select(valid, value, fallback)
+        # Measurements favor direct leaves for highly divergent expressions:
+        # otherwise every leaf kind runs across mostly unrelated wavelengths.
+        var result = fallback
+        comptime for lane in range(Int(width)):
+            if valid[lane]:
+                result.set(
+                    lane,
+                    self.sample(indices[lane], wavelengths.get(lane), role),
+                )
+        return result
+
+    def emission_packet[
+        width: SIMDLength
+    ](
+        self,
+        indices: SIMD[.uint32, width],
+        wavelengths: SampledWavelengths[width],
+        active: SIMD[.bool, width] = SIMD[.bool, width](fill=True),
+    ) -> SampledSpectrum[width]:
+        var valid = active & indices.lt(self.count)
+        if not valid.reduce_or():
+            return SampledSpectrum[width]()
+        comptime if width == 1:
+            return self.emission(indices[0], wavelengths)
+        comptime assert size_of[SpectrumSource]() == 6 * size_of[UInt32]()
+        var roots = valid.select(indices, 0).cast[.int64]() * 6
+        var words = self.sources.unsafe_bitcast[UInt32]()
+        var normalized = (
+            words.unsafe_gather(roots)
+            .eq(SpectrumSource.PRODUCT)
+            .select(words.unsafe_gather(roots + 4), indices)
+        )
+        var factor = self.photometric.unsafe_gather(
+            valid.select(normalized, 0).cast[.int64]()
+        )
+        return self.sample_packet(
+            indices, wavelengths, RgbSpectrumView.ILLUMINANT, valid
+        ) * valid.select(factor, 0)
 
 
 struct PackedSpectrumSources:

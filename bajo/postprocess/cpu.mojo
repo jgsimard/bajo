@@ -33,9 +33,9 @@ def reconstruct_frame[
         raise Error("denoising requires complete camera-sample statistics")
     var count = stats.width * stats.height
     var frame = DenoiseFrame(count, stats.samples)
-    var bins = stats.bins.unsafe_ptr().unsafe_origin_cast[ImmutAnyOrigin]()
-    var meta = stats.meta.unsafe_ptr().unsafe_origin_cast[ImmutAnyOrigin]()
-    var fields = guides.fields.unsafe_ptr().unsafe_origin_cast[ImmutAnyOrigin]()
+    var bins = stats.bins.unsafe_ptr()
+    var meta = stats.meta.unsafe_ptr()
+    var fields = guides.fields.unsafe_ptr()
     var diffuse = frame.diffuse.unsafe_ptr()
     var glossy = frame.glossy.unsafe_ptr()
     var passthrough = frame.passthrough.unsafe_ptr()
@@ -109,10 +109,8 @@ def atrous_denoise[
     workspace.pong.resize(unsafe_uninit_length=count)
     workspace.variance.resize(unsafe_uninit_length=count)
     workspace.variance_pong.resize(unsafe_uninit_length=count)
-    var fields = guides.fields.unsafe_ptr().unsafe_origin_cast[ImmutAnyOrigin]()
-    var surfaces = guides.surfaces.unsafe_ptr().unsafe_origin_cast[
-        ImmutAnyOrigin
-    ]()
+    var fields = guides.fields.unsafe_ptr()
+    var surfaces = guides.surfaces.unsafe_ptr()
     var output = workspace.ping.unsafe_ptr()
     var var_out = workspace.variance.unsafe_ptr()
 
@@ -139,17 +137,8 @@ def atrous_denoise[
     for iteration in range(-1 if frame.samples < 4 else 0, settings.passes):
         if settings.passes == 0:
             break
-        var source = (
-            workspace.ping.unsafe_ptr()
-            .unsafe_bitcast[Float32]()
-            .unsafe_mut_cast[False]()
-            .unsafe_origin_cast[ImmutAnyOrigin]()
-        )
-        var variance = (
-            workspace.variance.unsafe_ptr()
-            .unsafe_mut_cast[False]()
-            .unsafe_origin_cast[ImmutAnyOrigin]()
-        )
+        var source = workspace.ping.unsafe_ptr().unsafe_bitcast[Float32]()
+        var variance = workspace.variance.unsafe_ptr()
         var target = workspace.pong.unsafe_ptr()
         var next_variance = workspace.variance_pong.unsafe_ptr()
 

@@ -66,13 +66,15 @@ struct SigmoidPolynomial[width: SIMDLength = 1](TrivialRegisterPassable):
         return finite.select(value, x.gt(0).select(Float32(1), 0))
 
 
-struct RgbSpectrumView(Copyable, DevicePassable, TrivialRegisterPassable):
+struct RgbSpectrumView[origin: ImmOrigin = ImmUntrackedOrigin](
+    Copyable, DevicePassable, TrivialRegisterPassable
+):
     comptime ALBEDO = UInt32(0)
     comptime UNBOUNDED = UInt32(1)
     comptime ILLUMINANT = UInt32(2)
-    var data: ImmPointer[Float32, ImmUntrackedOrigin]
+    var data: ImmPointer[Float32, Self.origin]
 
-    def __init__(out self, data: ImmPointer[Float32, ImmUntrackedOrigin]):
+    def __init__(out self, data: ImmPointer[Float32, Self.origin]):
         self.data = data
 
     comptime device_type: AnyType = Self
@@ -352,9 +354,8 @@ struct RgbSpectrumTable:
             values[index] = bitcast[.float32](word)
         return Self(values^)
 
-    def view(self) -> RgbSpectrumView:
-        """Borrow spectral coefficients; keep this owner alive through sampling.
-        """
-        return RgbSpectrumView(
-            self.values.unsafe_ptr().unsafe_origin_cast[ImmUntrackedOrigin]()
+    def view(self) -> RgbSpectrumView[type_of(self.values.unsafe_ptr()).origin]:
+        """Borrow spectral coefficients with their owner's lifetime."""
+        return RgbSpectrumView[type_of(self.values.unsafe_ptr()).origin](
+            self.values.unsafe_ptr()
         )

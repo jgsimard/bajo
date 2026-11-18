@@ -13,7 +13,7 @@ from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 
 @fieldwise_init
 struct GpuMaterialSpectraView(Copyable, DevicePassable):
-    var curves: PiecewiseSpectrumView
+    var curves: PiecewiseSpectrumView[]
     var coated_eta_k: ImmPointer[UInt32, ImmUntrackedOrigin]
     var dielectric_eta: ImmPointer[UInt32, ImmUntrackedOrigin]
 
@@ -86,7 +86,7 @@ struct GpuRgbSpectrumTable:
     ) raises:
         self.data = upload_list(ctx, host.values)
 
-    def view(self) -> RgbSpectrumView:
+    def view(self) -> RgbSpectrumView[]:
         return RgbSpectrumView(
             self.data.unsafe_ptr().unsafe_origin_cast[ImmUntrackedOrigin]()
         )

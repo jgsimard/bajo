@@ -198,24 +198,24 @@ def _sample_environment_candidate[
     random_v: SIMD[.float32, length],
     jitter_v: SIMD[.float32, length],
     allow_transmission: SIMD[.bool, length] = SIMD[.bool, length](fill=False),
-    lighting: Optional[SpectralLightDistributionView] = {},
+    lighting: Optional[SpectralLightDistributionView[_]] = Optional[
+        SpectralLightDistributionView[]
+    ](),
 ) -> _DirectLightSample[length]:
     ref data = world.scene_data()
     var alias_count = len(data.environment_alias_probabilities())
+    var scene_probabilities = (
+        data.environment_alias_probabilities().unsafe_ptr()
+    )
+    var scene_aliases = data.environment_alias_indices().unsafe_ptr()
     var probabilities = (
-        data.environment_alias_probabilities()
-        .unsafe_ptr()
-        .unsafe_origin_cast[ImmUntrackedOrigin]()
+        lighting.value().environment_probabilities if lighting else scene_probabilities
     )
     var aliases = (
-        data.environment_alias_indices()
-        .unsafe_ptr()
-        .unsafe_origin_cast[ImmUntrackedOrigin]()
+        lighting.value().environment_aliases if lighting else scene_aliases
     )
     if lighting:
         alias_count = Int(lighting.value().environment_count)
-        probabilities = lighting.value().environment_probabilities
-        aliases = lighting.value().environment_aliases
     var local_direction: Vec3[.float32, .LOCAL, length]
     if alias_count > 0:
         var draw = draw_alias_column(random_u, alias_count)
@@ -296,7 +296,9 @@ def _sample_direct_light_candidate[
     mut rng: Rng[length],
     active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
     allow_transmission: SIMD[.bool, length] = SIMD[.bool, length](fill=False),
-    lighting: Optional[SpectralLightDistributionView] = {},
+    lighting: Optional[SpectralLightDistributionView[_]] = Optional[
+        SpectralLightDistributionView[]
+    ](),
 ) -> _DirectLightSample[length]:
     """Select and sample emitters across a packet; scalar is width one."""
     ref data = world.scene_data()

@@ -22,7 +22,7 @@ from bajo.rt.sensor import canon_sensor_sample
 
 def benchmark[
     width: SIMDLength
-](rgb: RgbSpectrumView, curves: PiecewiseSpectrumView) raises:
+](rgb: RgbSpectrumView[_], curves: PiecewiseSpectrumView[_]) raises:
     comptime count = 4096
     var colors = List[Vec3[.float32, .WORLD, width]]()
     var wavelengths = List[SampledWavelengths[width]]()

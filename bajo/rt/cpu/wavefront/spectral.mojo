@@ -87,7 +87,7 @@ def _environment[
     width: SIMDLength, world_width: SIMDLength, instance_width: SIMDLength
 ](
     world: CpuScene[world_width, instance_width],
-    spectra: SpectrumSourcesView,
+    spectra: SpectrumSourcesView[_],
     direction: Vec3[.float32, .WORLD, width],
     wavelengths: SampledWavelengths[width],
 ) -> SampledSpectrum[width]:
@@ -137,7 +137,7 @@ def _absorption[
     width: SIMDLength, world_width: SIMDLength, instance_width: SIMDLength
 ](
     world: CpuScene[world_width, instance_width],
-    spectra: SpectrumSourcesView,
+    spectra: SpectrumSourcesView[_],
     ids: SIMD[.uint32, width],
     distance: SIMD[.float32, width],
     wavelengths: SampledWavelengths[width],
@@ -183,8 +183,8 @@ def _shade[
     settings: RenderSettings,
     sampling: SamplingConfig,
     world: CpuScene[world_width, instance_width],
-    spectra: SpectrumSourcesView,
-    lighting: SpectralLightDistributionView,
+    spectra: SpectrumSourcesView[_],
+    lighting: SpectralLightDistributionView[_],
     packet: PathPacket[width],
     ray: Ray[.float32, .WORLD, width],
     hit: SurfaceHit[width],
@@ -386,8 +386,8 @@ def trace_spectral_packets[
     settings: RenderSettings,
     sampling: SamplingConfig,
     world: CpuScene[world_width, instance_width],
-    spectra: SpectrumSourcesView,
-    lighting: SpectralLightDistributionView,
+    spectra: SpectrumSourcesView[_],
+    lighting: SpectralLightDistributionView[_],
     mut state: SpectralSampleState,
     mut paths: PacketPathQueue[width],
     mut next_paths: PacketPathQueue[width],

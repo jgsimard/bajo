@@ -22,7 +22,7 @@ from bajo.rt.gpu.views import GpuRtSceneView
 def _spectra_kernel[
     width: SIMDLength, _device: Bool = True
 ](
-    table: RgbSpectrumView,
+    table: RgbSpectrumView[],
     film: FilmResponse,
     output: Pointer[Float32, MutAnyOrigin],
 ):
@@ -81,7 +81,7 @@ def _spectra_kernel[
 
 def _reference_kernel[
     _device: Bool = True
-](table: RgbSpectrumView, output: Pointer[Float32, MutAnyOrigin]):
+](table: RgbSpectrumView[], output: Pointer[Float32, MutAnyOrigin]):
     var index = Int(global_idx.x)
     if index >= 12:
         return

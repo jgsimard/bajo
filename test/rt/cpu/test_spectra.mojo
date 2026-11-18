@@ -469,7 +469,7 @@ def test_piecewise_packets_match_linear_reference_with_mixed_lengths_and_masks()
 
 def _check_dense_lookup_packets[
     width: SIMDLength
-](table: RgbSpectrumView) raises:
+](table: RgbSpectrumView[_]) raises:
     ref observer = global_constant[CIE_XYZ]()
     ref sensor = global_constant[CANON_RESPONSE]()
     var inputs: Array[Float32, 16] = [
@@ -527,7 +527,9 @@ def test_dense_lookup_packets_mask_invalid_wavelengths_before_gathers() raises:
     _ = owner^
 
 
-def _check_rgb_lookup_packets[width: SIMDLength](table: RgbSpectrumView) raises:
+def _check_rgb_lookup_packets[
+    width: SIMDLength
+](table: RgbSpectrumView[_]) raises:
     for batch in range(12):
         var rgb = Vec3[.float32, .WORLD, width](0)
         for lane in range(Int(width)):
@@ -568,7 +570,9 @@ def test_rgb_lookup_packets_preserve_gray_lanes_and_axis_ties() raises:
     _ = owner^
 
 
-def _check_source_packets[width: SIMDLength](view: SpectrumSourcesView) raises:
+def _check_source_packets[
+    width: SIMDLength
+](view: SpectrumSourcesView[_]) raises:
     for batch in range(8):
         var ids = SIMD[.uint32, width](NO_SPECTRUM)
         var active = SIMD[.bool, width](fill=False)

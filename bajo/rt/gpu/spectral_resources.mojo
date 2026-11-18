@@ -27,7 +27,7 @@ from bajo.rt.spectral_light_distribution import (
 
 @fieldwise_init
 struct GpuSpectralSceneView(DevicePassable, TrivialRegisterPassable):
-    var sources: SpectrumSourcesView
+    var sources: SpectrumSourcesView[]
     var lambertians: ImmPointer[UInt32, ImmUntrackedOrigin]
     var metals: ImmPointer[UInt32, ImmUntrackedOrigin]
     var coated: ImmPointer[UInt32, ImmUntrackedOrigin]
@@ -38,7 +38,7 @@ struct GpuSpectralSceneView(DevicePassable, TrivialRegisterPassable):
     var environment: UInt32
     var dielectrics: ImmPointer[UInt32, ImmUntrackedOrigin]
     var dielectric_dispersive: ImmPointer[UInt32, ImmUntrackedOrigin]
-    var lighting: SpectralLightDistributionView
+    var lighting: SpectralLightDistributionView[]
 
     comptime device_type: AnyType = Self
 
@@ -210,7 +210,7 @@ struct GpuSpectralResources:
             )
 
     def view(
-        self, curves: PiecewiseSpectrumView
+        self, curves: PiecewiseSpectrumView[]
     ) -> Optional[GpuSpectralSceneView]:
         __guard case .Some(ref device) = self.device else:
             return {}

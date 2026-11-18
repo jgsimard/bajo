@@ -49,6 +49,8 @@ from bajo.rt.cpu.opacity import (
     trace_opacity_triangles,
     trace_opacity_instances,
     trace_opacity_spheres,
+    trace_opacity_triangles_packet,
+    trace_opacity_instances_packet,
 )
 from bajo.rt.material_storage import pack_coated_materials
 from bajo.rt.opacity import (
@@ -58,7 +60,8 @@ from bajo.rt.opacity import (
 )
 
 
-def _triangle_instance_shading[
+@inline(.always)
+def _coherent_triangle_instance_shading[
     length: SIMDLength = 1
 ](
     data: SceneData,
@@ -68,47 +71,15 @@ def _triangle_instance_shading[
     hit_v: SIMD[.float32, length],
     geometric_normal: Vec3[.float32, .WORLD, length],
     active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+    first: Int = 0,
 ) -> Tuple[
     Vec3[.float32, .WORLD, length],
     SIMD[.float32, length],
     SIMD[.float32, length],
 ]:
-    """Interpolate attributes across rays, sharing the scalar width-one math."""
     var outward_normal = geometric_normal
     var texture_u = active.select(hit_u + hit_v, 0.0)
     var texture_v = active.select(hit_v, 0.0)
-    if not active.reduce_or():
-        return (outward_normal, texture_u, texture_v)
-    var first = 0
-    comptime if length > 1:
-        var bits = UInt64(pack_bits(active))
-        first = Int(count_trailing_zeros(bits))
-        # Coherent packets share attribute buffers and one inverse transform.
-        # Mixed instances stay linear and reuse this same kernel at width one.
-        if (
-            bits.is_power_of_two()
-            or not (~active | instance_idx.eq(instance_idx[first])).reduce_and()
-        ):
-            for lane in range(Int(length)):
-                if active[lane]:
-                    var shading = _triangle_instance_shading(
-                        data,
-                        instance_idx[lane],
-                        triangle_idx[lane],
-                        hit_u[lane],
-                        hit_v[lane],
-                        Vec3f32[.WORLD](
-                            geometric_normal.x[lane],
-                            geometric_normal.y[lane],
-                            geometric_normal.z[lane],
-                        ),
-                    )
-                    outward_normal.x[lane] = shading[0].x
-                    outward_normal.y[lane] = shading[0].y
-                    outward_normal.z[lane] = shading[0].z
-                    texture_u[lane] = shading[1]
-                    texture_v[lane] = shading[2]
-            return (outward_normal, texture_u, texture_v)
     ref instance = data.triangle_instances()[Int(instance_idx[first])]
     var mesh_idx = Int(instance.blas_idx)
     # Inactive lanes may contain miss sentinels, never valid gather indices.
@@ -173,6 +144,92 @@ def _triangle_instance_shading[
             0.0,
         )
     return (outward_normal, texture_u, texture_v)
+
+
+@inline(.always)
+def _triangle_instance_shading[
+    length: SIMDLength = 1
+](
+    data: SceneData,
+    instance_idx: SIMD[.uint32, length],
+    triangle_idx: SIMD[.uint32, length],
+    hit_u: SIMD[.float32, length],
+    hit_v: SIMD[.float32, length],
+    geometric_normal: Vec3[.float32, .WORLD, length],
+    active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
+) -> Tuple[
+    Vec3[.float32, .WORLD, length],
+    SIMD[.float32, length],
+    SIMD[.float32, length],
+]:
+    """Interpolate attributes across rays, sharing the scalar width-one math."""
+    var outward_normal = geometric_normal
+    var texture_u = active.select(hit_u + hit_v, 0.0)
+    var texture_v = active.select(hit_v, 0.0)
+    if not active.reduce_or():
+        return (outward_normal, texture_u, texture_v)
+    var first = 0
+    comptime if length > 1:
+        var bits = UInt64(pack_bits(active))
+        first = Int(count_trailing_zeros(bits))
+        # Coherent packets share attribute buffers and one inverse transform.
+        # Mixed packets retain SIMD interpolation within each instance group.
+        if (
+            bits.is_power_of_two()
+            or not (~active | instance_idx.eq(instance_idx[first])).reduce_and()
+        ):
+            var pending = active
+            while pending.reduce_or():
+                var lane = Int(count_trailing_zeros(pack_bits(pending)))
+                var group = pending & instance_idx.eq(instance_idx[lane])
+                var peers = group
+                peers[lane] = False
+                if not peers.reduce_or():
+                    var shading = _triangle_instance_shading(
+                        data,
+                        instance_idx[lane],
+                        triangle_idx[lane],
+                        hit_u[lane],
+                        hit_v[lane],
+                        Vec3f32[.WORLD](
+                            geometric_normal.x[lane],
+                            geometric_normal.y[lane],
+                            geometric_normal.z[lane],
+                        ),
+                    )
+                    outward_normal.x[lane] = shading[0].x
+                    outward_normal.y[lane] = shading[0].y
+                    outward_normal.z[lane] = shading[0].z
+                    texture_u[lane] = shading[1]
+                    texture_v[lane] = shading[2]
+                else:
+                    var shading = _coherent_triangle_instance_shading(
+                        data,
+                        instance_idx,
+                        triangle_idx,
+                        hit_u,
+                        hit_v,
+                        geometric_normal,
+                        group,
+                        lane,
+                    )
+                    outward_normal = Vec3.select(
+                        group, shading[0], outward_normal
+                    )
+                    texture_u = group.select(shading[1], texture_u)
+                    texture_v = group.select(shading[2], texture_v)
+                pending &= ~group
+            return (outward_normal, texture_u, texture_v)
+    return _coherent_triangle_instance_shading(
+        data,
+        instance_idx,
+        triangle_idx,
+        hit_u,
+        hit_v,
+        geometric_normal,
+        active,
+        first,
+    )
 
 
 def _blas_occluded[
@@ -406,31 +463,43 @@ struct CpuScene[
         """Trace visibility in geometry order, skipping already blocked lanes.
         """
         var result = SIMD[.bool, length](fill=False)
-        if len(self._scene.opacity().records):
-            for lane in range(Int(length)):
-                if valid[lane]:
-                    var ray = Rayf32[.WORLD](
-                        Point3f32[.WORLD](
-                            rays.o.x[lane], rays.o.y[lane], rays.o.z[lane]
-                        ),
-                        Vec3f32[.WORLD](
-                            rays.d.x[lane], rays.d.y[lane], rays.d.z[lane]
-                        ),
-                        rays.t_min[lane],
-                        rays.t_max[lane],
-                    )
-                    result[lane] = self._occluded_opacity(ray)
-            return result
         var active = valid
         if not active.reduce_or():
             return result
         if self.sphere_bvh:
-            result |= _blas_occluded(self.sphere_bvh.value(), rays, active)
+            if len(self._scene.opacity().records):
+                result |= (
+                    trace_opacity_spheres[
+                        Self.world_bvh_width, Self.world_bvh_width, .ANY_HIT
+                    ](self._scene, self.sphere_bvh.value(), rays, active).t.eq(
+                        0
+                    )
+                    & active
+                )
+            else:
+                result |= _blas_occluded(self.sphere_bvh.value(), rays, active)
             active &= ~result
         if not active.reduce_or():
             return result
         if self.triangle_bvh:
-            result |= _blas_occluded(self.triangle_bvh.value(), rays, active)
+            if len(self._scene.opacity().records):
+                result |= (
+                    trace_opacity_triangles_packet[
+                        Self.world_bvh_width,
+                        Self.world_bvh_width,
+                        .ANY_HIT,
+                        length,
+                    ](
+                        self._scene, self.triangle_bvh.value(), rays, active
+                    ).t.eq(
+                        0
+                    )
+                    & active
+                )
+            else:
+                result |= _blas_occluded(
+                    self.triangle_bvh.value(), rays, active
+                )
             active &= ~result
         if (
             active.reduce_or()
@@ -447,6 +516,21 @@ struct CpuScene[
         rays: Ray[.float32, .WORLD, length],
         valid: SIMD[.bool, length],
     ) -> SIMD[.bool, length]:
+        if len(self._scene.opacity().records):
+            return valid & trace_opacity_instances_packet[
+                Self.instance_bvh_width,
+                Self.instance_bvh_width,
+                .ANY_HIT,
+                length,
+            ](
+                self._scene,
+                self.triangle_tlas.value(),
+                self.triangle_mesh_blases.value(),
+                rays,
+                valid,
+            ).t.eq(
+                0
+            )
         comptime if length == 1:
             var hit = self.triangle_tlas.value().trace_blases[
                 Self.instance_bvh_width,
@@ -460,29 +544,6 @@ struct CpuScene[
                 Self.instance_bvh_width,
                 length,
             ](rays, self.triangle_mesh_blases.value(), valid)
-
-    def _occluded_opacity(self, ray: Rayf32[.WORLD]) -> Bool:
-        if (
-            self.sphere_bvh
-            and trace_opacity_spheres[.ANY_HIT](self._scene, ray).is_occluded()
-        ):
-            return True
-        if self.triangle_bvh:
-            if trace_opacity_triangles[
-                Self.world_bvh_width, Self.world_bvh_width, .ANY_HIT
-            ](self._scene, self.triangle_bvh.value(), ray).is_occluded():
-                return True
-        if self.triangle_tlas and self.triangle_mesh_blases:
-            if trace_opacity_instances[
-                Self.instance_bvh_width, Self.instance_bvh_width, .ANY_HIT
-            ](
-                self._scene,
-                self.triangle_tlas.value(),
-                self.triangle_mesh_blases.value(),
-                ray,
-            ).is_occluded():
-                return True
-        return False
 
     def _trace_closest(self, ray: Rayf32[.WORLD]) -> _WorldHit:
         var closest = self._trace_geometry[.SPHERE](ray)
@@ -529,23 +590,6 @@ struct CpuScene[
         rays: Ray[.float32, .WORLD, length],
         valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
     ) -> SurfaceHit[length]:
-        if len(self._scene.opacity().records):
-            var result = SurfaceHit[length](rays.t_max)
-            for lane in range(Int(length)):
-                if valid[lane]:
-                    var ray = Rayf32[.WORLD](
-                        Point3f32[.WORLD](
-                            rays.o.x[lane], rays.o.y[lane], rays.o.z[lane]
-                        ),
-                        Vec3f32[.WORLD](
-                            rays.d.x[lane], rays.d.y[lane], rays.d.z[lane]
-                        ),
-                        rays.t_min[lane],
-                        rays.t_max[lane],
-                    )
-                    var hit = self._trace_closest(ray)
-                    result.set(lane, hit.surface)
-            return result^
         comptime if length == 1:
             if not valid[0]:
                 return SurfaceHit[length](rays.t_max)
@@ -566,8 +610,6 @@ struct CpuScene[
         valid: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
     ) -> SurfaceHit[length]:
         """Trace using an explicit compile-time traversal configuration."""
-        if len(self._scene.opacity().records):
-            return self.trace_surface(rays, valid)
         comptime if length == 1:
             return self.trace_surface(rays, valid)
         else:
@@ -789,21 +831,41 @@ struct CpuScene[
         comptime assert length > 1
         var result = SurfaceHit[length](rays.t_max)
         if self.sphere_bvh:
-            var hits = trace_blas_set_packet[
-                Self.world_bvh_width,
-                Self.world_bvh_width,
-                length,
-                Frame.WORLD,
-            ](self.sphere_bvh.value(), UInt32(0), rays, valid)
+            var hits: Hit[.WORLD, length]
+            if len(self._scene.opacity().records):
+                hits = trace_opacity_spheres[
+                    Self.world_bvh_width, Self.world_bvh_width, .CLOSEST_HIT
+                ](self._scene, self.sphere_bvh.value(), rays, valid)
+            else:
+                hits = trace_blas_set_packet[
+                    Self.world_bvh_width,
+                    Self.world_bvh_width,
+                    length,
+                    Frame.WORLD,
+                ](self.sphere_bvh.value(), UInt32(0), rays, valid)
             result = self._surface_from_hit[.SPHERE](rays, hits, valid)
 
         if self.triangle_bvh:
             var bounded_triangles = Ray[.float32, .WORLD, length](
                 rays.o, rays.d, rays.t_min, result.t
             )
-            var hits = self._trace_world_triangle_packet[
-                length, traversal_mode, *adaptive_packet_sizes
-            ](bounded_triangles, valid)
+            var hits: Hit[.WORLD, length]
+            if len(self._scene.opacity().records):
+                hits = trace_opacity_triangles_packet[
+                    Self.world_bvh_width,
+                    Self.world_bvh_width,
+                    .CLOSEST_HIT,
+                    length,
+                ](
+                    self._scene,
+                    self.triangle_bvh.value(),
+                    bounded_triangles,
+                    valid,
+                )
+            else:
+                hits = self._trace_world_triangle_packet[
+                    length, traversal_mode, *adaptive_packet_sizes
+                ](bounded_triangles, valid)
             _merge_surface_hit(
                 result,
                 self._surface_from_hit[.TRIANGLE](
@@ -815,11 +877,24 @@ struct CpuScene[
             var bounded_rays = Ray[.float32, .WORLD, length](
                 rays.o, rays.d, rays.t_min, result.t
             )
-            var hits = self.triangle_tlas.value().trace_blases_packet[
-                Self.instance_bvh_width,
-                Self.instance_bvh_width,
-                length,
-            ](bounded_rays, self.triangle_mesh_blases.value(), valid)
+            var hits: Hit[.WORLD, length]
+            if len(self._scene.opacity().records):
+                hits = trace_opacity_instances_packet[
+                    Self.instance_bvh_width,
+                    Self.instance_bvh_width,
+                    .CLOSEST_HIT,
+                    length,
+                ](
+                    self._scene,
+                    self.triangle_tlas.value(),
+                    self.triangle_mesh_blases.value(),
+                    bounded_rays,
+                    valid,
+                )
+            else:
+                hits = self.triangle_tlas.value().trace_blases_packet[
+                    Self.instance_bvh_width, Self.instance_bvh_width, length
+                ](bounded_rays, self.triangle_mesh_blases.value(), valid)
             _merge_surface_hit(
                 result,
                 self._surface_from_hit[.TRIANGLE_INSTANCE](
@@ -837,7 +912,9 @@ struct CpuScene[
             __guard case .Some(ref sphere_bvh) = self.sphere_bvh else:
                 return _WorldHit.miss(ray.t_max)
             if len(self._scene.opacity().records):
-                hits = trace_opacity_spheres[.CLOSEST_HIT](self._scene, ray)
+                hits = trace_opacity_spheres[
+                    Self.world_bvh_width, Self.world_bvh_width, .CLOSEST_HIT
+                ](self._scene, sphere_bvh, ray)
             else:
                 hits = trace_blas_set[
                     Self.world_bvh_width,

@@ -2,6 +2,7 @@
 
 from std.builtin.globals import global_constant
 from std.memory import bitcast
+from std.math import floor
 from std.testing import (
     TestSuite,
     assert_almost_equal,
@@ -11,6 +12,7 @@ from std.testing import (
 from bajo.core.color import Color
 from bajo.core.vec import Vec3
 from bajo.core.cie_data import CIE_XYZ
+from bajo.core.sensor_data import CANON_RESPONSE
 from bajo.core.sampled_spectrum import (
     SampledSpectrum,
     SampledWavelengths,
@@ -23,6 +25,14 @@ from bajo.core.sampled_spectrum import (
 from bajo.core.rgb_spectrum import (
     RgbSpectrumTable,
     RgbSpectrumView,
+    RGB_SPECTRUM_D65_OFFSET,
+)
+from bajo.rt.sensor import canon_sensor_sample
+from bajo.rt.spectrum_sources import (
+    SpectrumSource,
+    PackedSpectrumSources,
+    SpectrumSourcesView,
+    NO_SPECTRUM,
 )
 from bajo.rt.film import FilmResponse
 from bajo.parser.pbrt import parse_pbrt
@@ -362,6 +372,277 @@ def test_packed_optical_curves_preserve_original_samples_and_mixed_lane_ids() ra
     assert_equal(fallback.average()[0], Float32(1.4))
     _ = empty_owner^
     _ = owner^
+
+
+def _linear_curve_reference(
+    samples: ImmSpan[Float32, _], nm: Float32
+) -> Float32:
+    if not (nm >= samples[0] and nm <= samples[len(samples) - 2]):
+        return 0
+    if nm == samples[len(samples) - 2]:
+        return samples[len(samples) - 1]
+    for i in range(2, len(samples), 2):
+        if nm < samples[i]:
+            var t = (nm - samples[i - 2]) / (samples[i] - samples[i - 2])
+            return samples[i - 1] * (1 - t) + samples[i + 1] * t
+    return 0
+
+
+def _check_piecewise_packets[width: SIMDLength]() raises:
+    var curves = List[PiecewiseLinearSpectrum]()
+    for count in [1, 2, 3, 4, 5, 6, 10, 17, 33, 65]:
+        var pairs = List[Float32]()
+        for i in range(count):
+            pairs.append(360 + Float32(i * i))
+            pairs.append(Float32((i * 7 + count) % 19) / 8)
+        curves.append(PiecewiseLinearSpectrum(pairs^))
+    for curve in curves:
+        for pair in range(0, len(curve.samples), 2):
+            assert_equal(
+                curve.evaluate(SIMD[.float32, width](curve.samples[pair])),
+                SIMD[.float32, width](curve.samples[pair + 1]),
+            )
+    var owner = PiecewiseSpectrumTable(curves)
+    var table = owner.view()
+    for batch in range(20):
+        var ids = SIMD[.uint32, width](0)
+        var nm = SIMD[.float32, width](0)
+        var fallback = SIMD[.float32, width](0)
+        for lane in range(Int(width)):
+            var index = batch * Int(width) + lane
+            var choice = index % (len(curves) + 2)
+            ids[lane] = UInt32(choice) if choice <= len(curves) else UInt32.MAX
+            fallback[lane] = -Float32(index + 1)
+            nm[lane] = Float32(359.5) + Float32(index % 140) * 3
+            if index % 5 == 0:
+                nm[lane] = 360
+            elif index % 5 == 1:
+                nm[lane] = 361
+            elif index % 5 == 2:
+                nm[lane] = bitcast[.float32](UInt32(0x7FC00000))
+            elif index % 5 == 3:
+                nm[lane] = bitcast[.float32](UInt32(0x7F800000))
+        var wavelengths = SampledWavelengths[width](
+            SampledSpectrum[width](nm, nm + 0.25, nm + 1, nm + 4096),
+            SampledSpectrum[width](1),
+        )
+        var actual = table.sample(ids, wavelengths, fallback)
+        comptime for channel in range(4):
+            for lane in range(Int(width)):
+                var expected = fallback[lane]
+                if ids[lane] < UInt32(len(curves)):
+                    expected = _linear_curve_reference(
+                        curves[Int(ids[lane])].samples,
+                        wavelengths.lambda_nm[channel][lane],
+                    )
+                assert_almost_equal(actual[channel][lane], expected, atol=1e-6)
+        for curve in curves:
+            var value = curve.evaluate(nm)
+            for lane in range(Int(width)):
+                assert_almost_equal(
+                    value[lane],
+                    _linear_curve_reference(curve.samples, nm[lane]),
+                    atol=1e-6,
+                )
+    var missing = table.sample(
+        SIMD[.uint32, width](UInt32.MAX),
+        reference_wavelengths[width](),
+        SIMD[.float32, width](1.4),
+    )
+    assert_equal(missing.s0, SIMD[.float32, width](1.4))
+    var empty = List[PiecewiseLinearSpectrum]()
+    var empty_table = PiecewiseSpectrumTable(empty)
+    assert_equal(
+        empty_table.view()
+        .sample(SIMD[.uint32, width](0), reference_wavelengths[width](), 1.4)
+        .s3,
+        SIMD[.float32, width](1.4),
+    )
+    _ = empty_table^
+    _ = owner^
+
+
+def test_piecewise_packets_match_linear_reference_with_mixed_lengths_and_masks() raises:
+    comptime for width in [1, 2, 4, 8, 16, 32]:
+        _check_piecewise_packets[width]()
+
+
+def _check_dense_lookup_packets[
+    width: SIMDLength
+](table: RgbSpectrumView) raises:
+    ref observer = global_constant[CIE_XYZ]()
+    ref sensor = global_constant[CANON_RESPONSE]()
+    var inputs: Array[Float32, 16] = [
+        359.49,
+        359.5,
+        360,
+        360.49,
+        360.5,
+        550.49,
+        550.5,
+        829.5,
+        830,
+        830.4999,
+        830.5,
+        bitcast[.float32](UInt32(0x7FC00000)),
+        bitcast[.float32](UInt32(0x7F800000)),
+        bitcast[.float32](UInt32(0xFF800000)),
+        1e30,
+        -1e30,
+    ]
+    for first in range(0, 32, Int(width)):
+        var nm = SIMD[.float32, width](0)
+        for lane in range(Int(width)):
+            nm[lane] = inputs[(first + lane) % len(inputs)]
+        var cie = cie_xyz(nm)
+        var d65 = table.illuminant(nm)
+        var wavelengths = SampledWavelengths[width](
+            SampledSpectrum[width](nm), SampledSpectrum[width](1)
+        )
+        var canon = canon_sensor_sample(SampledSpectrum[width](1), wavelengths)
+        for lane in range(Int(width)):
+            var expected_cie = Color(0)
+            var expected_canon = Color(0)
+            var expected_d65 = Float32(0)
+            if nm[lane] >= 359.5 and nm[lane] < 830.5:
+                var index = Int(floor(nm[lane] + 0.5)) - 360
+                if index >= 0 and index < len(observer):
+                    expected_cie = observer[index]
+                expected_d65 = table.data[
+                    unsafe_offset=RGB_SPECTRUM_D65_OFFSET
+                    + min(max(index, 0), 470)
+                ]
+            if nm[lane] >= 360 and nm[lane] <= 830:
+                expected_canon = sensor[Int(floor(nm[lane] + 0.5)) - 360]
+            for channel in range(3):
+                assert_equal(cie[channel][lane], expected_cie[channel])
+                assert_equal(canon[channel][lane], expected_canon[channel])
+            assert_equal(d65[lane], expected_d65)
+
+
+def test_dense_lookup_packets_mask_invalid_wavelengths_before_gathers() raises:
+    var owner = RgbSpectrumTable.read_default()
+    comptime for width in [1, 2, 4, 8, 16, 32]:
+        _check_dense_lookup_packets[width](owner.view())
+    _ = owner^
+
+
+def _check_rgb_lookup_packets[width: SIMDLength](table: RgbSpectrumView) raises:
+    for batch in range(12):
+        var rgb = Vec3[.float32, .WORLD, width](0)
+        for lane in range(Int(width)):
+            var index = batch * Int(width) + lane
+            rgb.x[lane] = Float32((index * 13) % 257) / 256
+            rgb.y[lane] = Float32((index * 37) % 257) / 256
+            rgb.z[lane] = Float32((index * 71) % 257) / 256
+            if index % 7 < 3:
+                var gray = Float32(index % 7) / 2
+                rgb.x[lane] = gray
+                rgb.y[lane] = gray
+                rgb.z[lane] = gray
+            elif index % 7 == 3:
+                rgb.y[lane] = rgb.x[lane]
+            elif index % 7 == 4:
+                rgb.z[lane] = rgb.x[lane]
+            elif index % 7 == 5:
+                rgb.z[lane] = rgb.y[lane]
+        var wavelengths = reference_wavelengths[width]()
+        for kind in range(3):
+            var actual = table.sample(rgb, wavelengths, UInt32(kind))
+            for lane in range(Int(width)):
+                var scalar = table.sample(
+                    Color(rgb.x[lane], rgb.y[lane], rgb.z[lane]),
+                    wavelengths.get(lane),
+                    UInt32(kind),
+                )
+                comptime for channel in range(4):
+                    assert_almost_equal(
+                        actual[channel][lane], scalar[channel], atol=2e-6
+                    )
+
+
+def test_rgb_lookup_packets_preserve_gray_lanes_and_axis_ties() raises:
+    var owner = RgbSpectrumTable.read_default()
+    comptime for width in [1, 2, 4, 8, 16, 32]:
+        _check_rgb_lookup_packets[width](owner.view())
+    _ = owner^
+
+
+def _check_source_packets[width: SIMDLength](view: SpectrumSourcesView) raises:
+    for batch in range(8):
+        var ids = SIMD[.uint32, width](NO_SPECTRUM)
+        var active = SIMD[.bool, width](fill=False)
+        var samples = SIMD[.float32, width](0)
+        for lane in range(Int(width)):
+            var index = batch * Int(width) + lane
+            ids[lane] = UInt32(index % (Int(view.count) + 2))
+            active[lane] = index % 4 != 1
+            if batch == 5:
+                ids[lane] = 6
+            elif batch == 6:
+                ids[lane] = UInt32(5 + lane % 2)
+            elif batch == 7:
+                active[lane] = False
+                ids[lane] = NO_SPECTRUM
+            samples[lane] = (Float32(index % 61) + 0.5) / 61
+        var wavelengths = SampledWavelengths[width].visible(samples)
+        var fallback = SampledSpectrum[width](0.1, 0.2, 0.3, 0.4)
+        for role in range(3):
+            var actual = view.sample_packet(
+                ids, wavelengths, UInt32(role), active, fallback
+            )
+            for lane in range(Int(width)):
+                var expected = fallback.get(lane)
+                if active[lane] and ids[lane] < view.count:
+                    expected = view.sample(
+                        ids[lane], wavelengths.get(lane), UInt32(role)
+                    )
+                for channel in range(4):
+                    assert_almost_equal(
+                        actual[channel][lane],
+                        expected[channel],
+                        atol=2e-6,
+                        rtol=2e-5,
+                    )
+        var emission = view.emission_packet(ids, wavelengths, active)
+        for lane in range(Int(width)):
+            var expected = SampledSpectrum[1]()
+            if active[lane] and ids[lane] < view.count:
+                expected = view.emission(ids[lane], wavelengths.get(lane))
+            for channel in range(4):
+                assert_almost_equal(
+                    emission[channel][lane],
+                    expected[channel],
+                    atol=2e-6,
+                    rtol=2e-5,
+                )
+
+
+def test_spectral_source_packets_preserve_mixed_products_roles_and_masks() raises:
+    var rgb = RgbSpectrumTable.read_default()
+    var curves = List[PiecewiseLinearSpectrum]()
+    curves.append(
+        PiecewiseLinearSpectrum([360, 0.3, 475, 0.8, 650, 0.5, 830, 0.1])
+    )
+    var table = PiecewiseSpectrumTable(curves)
+    var sources: List[SpectrumSource] = [
+        SpectrumSource.rgb(Color(0.2, 0.6, 0.8)),
+        SpectrumSource.constant(0.7),
+        SpectrumSource.curve(0),
+        SpectrumSource.blackbody(5500),
+        SpectrumSource.product(0, 1),
+        SpectrumSource.product(2, 3),
+        SpectrumSource.product(4, 5),
+        SpectrumSource.constant(0),
+    ]
+    var packed = PackedSpectrumSources(sources)
+    packed.prepare_photometric(table.view())
+    var view = packed.view(table.view(), rgb.view())
+    comptime for width in [1, 2, 4, 8, 16, 32]:
+        _check_source_packets[width](view)
+    _ = packed^
+    _ = table^
+    _ = rgb^
 
 
 def run_tests[_discovery: Bool = True]() raises:

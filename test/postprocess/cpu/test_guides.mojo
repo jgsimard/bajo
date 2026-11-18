@@ -84,5 +84,29 @@ def test_flat_wall_hit_roundoff_does_not_stop_denoising() raises:
     assert_true(after < before * 0.25)
 
 
+def _check_packet_guides[
+    packet: SIMDLength
+](world: CpuScene[16, 16], camera: Camera) raises:
+    var expected = make_cpu_denoise_guides[16, 16, 1](world, camera, 17, 9)
+    var actual = make_cpu_denoise_guides[16, 16, packet](world, camera, 17, 9)
+    for i in range(17 * 9):
+        assert_equal(actual.surfaces[i], expected.surfaces[i])
+        for field in range(GuideLayout.STRIDE):
+            assert_almost_equal(
+                actual.fields[i * GuideLayout.STRIDE + field],
+                expected.fields[i * GuideLayout.STRIDE + field],
+                atol=2e-4,
+            )
+
+
+def test_packet_guides_match_scalar_with_cutouts_background_and_partial_tails() raises:
+    var world = cutout_world()
+    var camera = Camera.from_vfov(
+        Point3W(0, 0, 3), Point3W(0), Vec3W(0, 1, 0), 60, 3, 0.1
+    )
+    comptime for width in [4, 8, 16, 32]:
+        _check_packet_guides[width](world, camera)
+
+
 def run_tests[_discovery: Bool = True]() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

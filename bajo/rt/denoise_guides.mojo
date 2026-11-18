@@ -1,6 +1,6 @@
 """Shared deterministic guide-ray construction and surface encoding."""
 
-from bajo.core import Camera, Point3f32, Vec3f32, Rayf32, dot
+from bajo.core import Camera, Point3, Vec3, Ray, dot
 from bajo.core.color import Color
 from bajo.core.numerics import FLOAT32_GAMMA
 from bajo.rt.rays import make_camera_ray_from_samples
@@ -10,13 +10,15 @@ from bajo.rt.material_types import MaterialKind
 from bajo.postprocess.samples import DenoiseComponent
 
 
-def denoise_guide_ray(
-    camera: Camera, index: Int, width: Int, height: Int
-) -> Rayf32[.WORLD]:
+def denoise_guide_ray[
+    length: SIMDLength = 1
+](camera: Camera, index: SIMD[.int, length], width: Int, height: Int) -> Ray[
+    .float32, .WORLD, length
+]:
     return make_camera_ray_from_samples(
         camera,
-        Float32(index % width),
-        Float32(index // width),
+        (index % width).cast[.float32](),
+        (index // width).cast[.float32](),
         Float32(width),
         Float32(height),
         Float32(0.5),
@@ -26,62 +28,63 @@ def denoise_guide_ray(
     )
 
 
-def store_denoise_guide(
+def store_denoise_guide[
+    length: SIMDLength = 1
+](
     fields: MutPointer[Float32, _],
-    index: Int,
-    position: Point3f32[.WORLD],
-    normal: Vec3f32[.WORLD],
-    albedo: Color,
+    index: SIMD[.int, length],
+    position: Point3[.float32, .WORLD, length],
+    normal: Vec3[.float32, .WORLD, length],
+    albedo: Vec3[.float32, .WORLD, length],
     camera: Camera,
     height: Int,
-    geometric_normal: Vec3f32[.WORLD],
+    geometric_normal: Vec3[.float32, .WORLD, length],
+    active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
 ):
-    var first = index * GuideLayout.STRIDE
-    comptime for channel in range(3):
-        fields[unsafe_offset=first + channel] = position[channel]
-        fields[unsafe_offset=first + GuideLayout.NORMAL + channel] = normal[
-            channel
-        ]
-        fields[unsafe_offset=first + GuideLayout.ALBEDO + channel] = albedo[
-            channel
-        ]
-    var depth = abs(dot(position - camera.origin, camera.forward))
-    fields[unsafe_offset=first + GuideLayout.FOOTPRINT] = max(
-        2 * depth * camera.fov_scale / Float32(height),
-        1e-6,
-    )
-
-    fields[unsafe_offset=first + GuideLayout.DEPTH] = depth
-    # Analytic planar depth fwidth, in raster pixels, as required by SVGF.
+    var displacement = position - camera.origin.broadcast[length]()
+    var forward = camera.forward.broadcast[length]()
+    var depth = abs(dot(displacement, forward))
+    var footprint = max(2 * depth * camera.fov_scale / Float32(height), 1e-6)
     var denominator = max(
-        abs(dot(geometric_normal, position - camera.origin)), Float32(1e-8)
+        abs(dot(geometric_normal, displacement)), Float32(1e-8)
     )
-    fields[unsafe_offset=first + GuideLayout.DEPTH_FWIDTH] = (
+    var derivative = (
         2
         * depth
         * depth
         * camera.fov_scale
         / Float32(height)
         * (
-            abs(dot(geometric_normal, camera.right))
-            + abs(dot(geometric_normal, camera.up))
+            abs(dot(geometric_normal, camera.right.broadcast[length]()))
+            + abs(dot(geometric_normal, camera.up.broadcast[length]()))
         )
         / denominator
     )
-    # SVGF's raster G-buffer does not have ray/triangle hit-point roundoff.
-    # Bound that Float32 uncertainty before passing a depth derivative to the
-    # unchanged reference weights. Otherwise a frontoparallel plane with zero
-    # analytic derivative rejects neighbors differing by only one depth ULP.
+    # Bound ray/hit roundoff before applying the reference SVGF weights.
     comptime gamma8 = FLOAT32_GAMMA[8, .float32]
     var magnitude = depth
     comptime for c in range(3):
         magnitude += (abs(position[c]) + abs(camera.origin[c])) * abs(
             camera.forward[c]
         )
-    fields[unsafe_offset=first + GuideLayout.DEPTH_FWIDTH] = max(
-        fields[unsafe_offset=first + GuideLayout.DEPTH_FWIDTH],
-        2 * gamma8 * magnitude,
-    )
+    derivative = max(derivative, 2 * gamma8 * magnitude)
+    for lane in range(Int(length)):
+        if not active[lane]:
+            continue
+        var first = index[lane] * GuideLayout.STRIDE
+        comptime for channel in range(3):
+            fields[unsafe_offset=first + channel] = position[channel][lane]
+            fields[unsafe_offset=first + GuideLayout.NORMAL + channel] = normal[
+                channel
+            ][lane]
+            fields[unsafe_offset=first + GuideLayout.ALBEDO + channel] = albedo[
+                channel
+            ][lane]
+        fields[unsafe_offset=first + GuideLayout.FOOTPRINT] = footprint[lane]
+        fields[unsafe_offset=first + GuideLayout.DEPTH] = depth[lane]
+        fields[unsafe_offset=first + GuideLayout.DEPTH_FWIDTH] = derivative[
+            lane
+        ]
 
 
 def denoise_component(

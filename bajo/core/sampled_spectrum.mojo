@@ -9,6 +9,7 @@ from std.builtin.globals import global_constant
 from std.math import atanh, cosh, floor, sqrt, exp
 from bajo.core.cie_data import CIE_XYZ
 from bajo.core.vec import Vec3
+from bajo.core.tensor_layout import record_tile, gather_record_vec3
 
 comptime SPECTRUM_SAMPLES = 4
 comptime LAMBDA_MIN = Float32(360)
@@ -304,16 +305,22 @@ def cie_xyz[
 ](wavelength: SIMD[.float32, width]) -> Vec3[.float32, .WORLD, width]:
     """PBRT dense observer lookup: nearest original integer-nanometer sample."""
     ref table = global_constant[CIE_XYZ]()
-    var result = Vec3[.float32, .WORLD, width](0)
-    for lane in range(Int(width)):
-        if not (wavelength[lane] >= 359.5 and wavelength[lane] < 830.5):
-            continue
-        var rounded = Int(floor(wavelength[lane] + Float32(0.5)))
-        if rounded >= 360 and rounded <= 830:
-            result.x[lane] = table[rounded - 360].x
-            result.y[lane] = table[rounded - 360].y
-            result.z[lane] = table[rounded - 360].z
-    return result
+    var valid = wavelength.ge(359.5) & wavelength.lt(830.5)
+    comptime if width == 1:
+        if not valid[0]:
+            return Vec3[.float32, .WORLD, width](0)
+    var nm = valid.select(wavelength, 360)
+    var rounded = floor(nm + 0.5).cast[.int32]()
+    valid &= rounded.ge(360) & rounded.le(830)
+    var index = valid.select(rounded - 360, 0)
+    var records = record_tile[.float32, 3](
+        table.unsafe_ptr().unsafe_bitcast[Float32](), len(table)
+    )
+    return Vec3.select(
+        valid,
+        gather_record_vec3(records, index),
+        Vec3[.float32, .WORLD, width](0),
+    )
 
 
 @inline(.always)

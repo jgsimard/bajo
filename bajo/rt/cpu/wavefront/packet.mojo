@@ -447,19 +447,17 @@ def _trace_packets_impl[
                         wavefront_rng_material_stage(UInt32(bounce)),
                     )
                     var mix_random = material_rng.f32()
-                    for lane in range(lane_count):
-                        if mixed[lane]:
-                            surface_hits.surface.value[lane] = (
-                                world.scene_data()
-                                .surfaces()
-                                .resolve_mix(
-                                    surface_hits.surface.get(lane),
-                                    mix_random[lane],
-                                    surface_hits.uv_u[lane],
-                                    surface_hits.uv_v[lane],
-                                )
-                                .value[0]
-                            )
+                    surface_hits.surface = (
+                        world.scene_data()
+                        .surfaces()
+                        .resolve_mix_packet(
+                            surface_hits.surface,
+                            mix_random,
+                            surface_hits.uv_u,
+                            surface_hits.uv_v,
+                            mixed,
+                        )
+                    )
             if (
                 bounce == 0
                 and components

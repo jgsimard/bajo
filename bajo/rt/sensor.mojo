@@ -5,6 +5,7 @@ from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import floor
 from bajo.core import Vec3
 from bajo.core.color import Color
+from bajo.core.tensor_layout import record_tile, gather_record_vec3
 from bajo.core.cie_data import CIE_XYZ, D65
 from bajo.core.sensor_data import (
     CANON_RESPONSE,
@@ -42,15 +43,18 @@ def canon_sensor_sample[
     ref responses = global_constant[CANON_RESPONSE]()
     var result = Vec3[.float32, .WORLD, width](0)
     var weighted = radiance.safe_divide(wavelengths.pdf)
-    for lane in range(Int(width)):
-        comptime for channel in range(4):
-            var nm = wavelengths.lambda_nm[channel][lane]
-            if nm >= 360 and nm <= 830:
-                var response = responses[Int(floor(nm + 0.5)) - 360]
-                var value = weighted[channel][lane] * Float32(0.25)
-                result.x[lane] += response.x * value
-                result.y[lane] += response.y * value
-                result.z[lane] += response.z * value
+    var records = record_tile[.float32, 3](
+        responses.unsafe_ptr().unsafe_bitcast[Float32](), len(responses)
+    )
+    comptime for channel in range(4):
+        var nm = wavelengths.lambda_nm[channel]
+        var valid = nm.ge(360) & nm.le(830)
+        var index = floor(valid.select(nm, 360) + 0.5).cast[.int32]() - 360
+        var response = gather_record_vec3(records, index)
+        var value = weighted[channel] * Float32(0.25)
+        result += Vec3.select(
+            valid, response * value, Vec3[.float32, .WORLD, width](0)
+        )
     return result
 
 

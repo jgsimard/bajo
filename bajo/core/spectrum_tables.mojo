@@ -3,7 +3,7 @@
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from bajo.core.spectrum import (
     PiecewiseLinearSpectrum,
-    evaluate_piecewise_spectrum,
+    _evaluate_piecewise_spectrum,
 )
 from bajo.core.sampled_spectrum import SampledSpectrum, SampledWavelengths
 
@@ -37,19 +37,55 @@ struct PiecewiseSpectrumView(Copyable, DevicePassable, TrivialRegisterPassable):
     ) -> SampledSpectrum[width]:
         """Missing spectrum IDs use a wavelength-independent caller fallback."""
         var result = SampledSpectrum[width](fallback)
-        for lane in range(Int(width)):
-            var index = indices[lane]
-            if index >= self.count:
-                continue
-            var offset = Int(self.ranges[unsafe_offset=2 * Int(index)])
-            var size = Int(self.ranges[unsafe_offset=2 * Int(index) + 1])
-            var curve = ImmSpan(
-                unsafe_ptr=self.samples.unsafe_offset(offset), length=size
+        var valid = indices.lt(self.count)
+        if not valid.reduce_or():
+            return result
+        var descriptors = valid.select(indices, 0).cast[.int64]() * 2
+        var offsets = self.ranges.unsafe_gather(descriptors).cast[.int64]()
+        var counts = (
+            self.ranges.unsafe_gather(descriptors + 1).cast[.int64]() // 2
+        )
+        comptime if width <= 4:
+            # Small packets keep independent searches: sparse or short curves
+            # do not pay for the longest search in another path's lane.
+            comptime for lane in range(Int(width)):
+                var value = SampledSpectrum[1](fallback[lane])
+                comptime for channel in range(4):
+                    value[channel] = valid[lane].select(
+                        _evaluate_piecewise_spectrum(
+                            self.samples,
+                            SIMD[.int64, 1](offsets[lane]),
+                            SIMD[.int64, 1](counts[lane]),
+                            SIMD[.float32, 1](
+                                wavelengths.lambda_nm[channel][lane]
+                            ),
+                            SIMD[.bool, 1](valid[lane]),
+                        ),
+                        fallback[lane],
+                    )
+                result.set(lane, value)
+            return result
+        # Search all four wavelengths together, sharing loop control across
+        # channels as well as paths. Packing is resolved to shuffles at compile time.
+        var packed_nm = SIMD[.float32, 4 * width](0)
+        var packed_offsets = SIMD[.int64, 4 * width](0)
+        var packed_counts = SIMD[.int64, 4 * width](0)
+        var packed_valid = SIMD[.bool, 4 * width](fill=False)
+        comptime for channel in range(4):
+            comptime for lane in range(Int(width)):
+                packed_nm[channel * Int(width) + lane] = wavelengths.lambda_nm[
+                    channel
+                ][lane]
+                packed_offsets[channel * Int(width) + lane] = offsets[lane]
+                packed_counts[channel * Int(width) + lane] = counts[lane]
+                packed_valid[channel * Int(width) + lane] = valid[lane]
+        var values = _evaluate_piecewise_spectrum(
+            self.samples, packed_offsets, packed_counts, packed_nm, packed_valid
+        )
+        comptime for channel in range(4):
+            result[channel] = valid.select(
+                values.slice[width, offset=channel * Int(width)](), fallback
             )
-            comptime for i in range(4):
-                result[i][lane] = evaluate_piecewise_spectrum(
-                    curve, SIMD[.float32, 1](wavelengths.lambda_nm[i][lane])
-                )
         return result
 
 

@@ -90,7 +90,9 @@ struct _MaterialParameters[length: SIMDLength]:
         self.parameter = active.select(fields.unsafe_gather(offsets), 1.0)
 
     def load[
-        kind: MaterialKind, LOAD_ALBEDO: Bool = True
+        kind: MaterialKind,
+        LOAD_ALBEDO: Bool = True,
+        LOAD_CONDUCTOR: Bool = True,
     ](
         mut self,
         surfaces: SurfaceStore,
@@ -153,7 +155,7 @@ struct _MaterialParameters[length: SIMDLength]:
             if texture_albedo:
                 albedo = surfaces.sample_albedo(surface, u, v, active)
             self.albedo = Vec3.select(active, albedo, self.albedo)
-        comptime if kind == .COATED_DIFFUSE:
+        comptime if kind == .COATED_DIFFUSE and LOAD_CONDUCTOR:
             var from_reflectance = SIMD[.bool, Self.length](fill=False)
             for lane in range(Self.length):
                 if active[lane]:

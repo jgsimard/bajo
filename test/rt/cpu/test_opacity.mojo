@@ -11,13 +11,18 @@ from bajo.core import Point3f32, Vec3f32, Rayf32, Point3, Vec3, Ray
 from bajo.parser.pbrt import parse_pbrt, read_pbrt
 from bajo.parser import MemoryAssetLoader
 from bajo.rt import CpuScene, SceneBuilder
-from bajo.rt.material_types import ImageTexture, NO_TEXTURE
+from bajo.rt.material_types import ImageTexture, NO_TEXTURE, PrimitiveId
 from bajo.rt.shading_types import ShadingPoint
 from bajo.rt.cpu.lighting import _sample_direct_light_candidate
 from bajo.core.random import Rng
 from bajo.rt.cpu.rgb import render_wavefront
 from bajo.rt import Color
-from bajo.rt.opacity import Opacity, opacity_accepts, opacity_point_sample
+from bajo.rt.opacity import (
+    Opacity,
+    opacity_accepts,
+    opacity_point_sample,
+    opacity_ray_sample,
+)
 from bajo.rt.lighting import _sample_triangle_light_surface, light_sample_uv
 from test.parser.png.test_png import _encode
 
@@ -56,6 +61,7 @@ Shape "trianglemesh" "point3 P" [0 0 0 1 0 0 0 1 0]
     assert_equal(hit.surface.index()[0], UInt32(2))
     assert_equal(world.occluded(_ray())[0], True)
     assert_equal(world.occluded(_ray(1.99))[0], False)
+    _check_opacity_packet[16](world)
 
 
 def _coplanar_textured_source(two_triangles: Bool = True) -> String:
@@ -84,6 +90,7 @@ def test_coplanar_candidates_in_one_mesh_use_png_alpha() raises:
     assert_almost_equal(hit.uv_u[0], 0.75)
     assert_equal(world.occluded(_ray())[0], True)
     assert_equal(world.occluded(_ray(1.99))[0], False)
+    _check_opacity_packet[16](world)
 
 
 def test_transparent_only_instance_is_invisible_to_primary_and_shadow_packets() raises:
@@ -294,6 +301,89 @@ Shape "trianglemesh" "point3 P" [-1 -1 2 0 1 2 1 -1 2]
     # Undo the mirror and reconstruct the original triangle from its UVs.
     assert_almost_equal(-sample.point.x, -1.0 + uv[1] + 2.0 * uv[0], atol=1e-6)
     assert_almost_equal(sample.point.y, -1.0 + 2.0 * uv[1], atol=1e-6)
+
+
+def _check_opacity_packet[width: SIMDLength](world: CpuScene[4, 4]) raises:
+    var rays = Ray[.float32, .WORLD, width](
+        Point3[.float32, .WORLD, width](0),
+        Vec3[.float32, .WORLD, width](0, 0, -1),
+    )
+    var valid = SIMD[.bool, width](fill=True)
+    for lane in range(Int(width)):
+        rays.o.x[lane] = Float32(lane % 5) * 0.11 + 0.05
+        rays.o.y[lane] = 0.21
+        rays.o.z[lane] = 3
+        rays.d.z[lane] = -1 if lane % 3 else -2
+        rays.t_max[lane] = 1 if lane % 4 == 0 else 100
+        valid[lane] = lane % 7 != 1
+    var primary = world.trace_surface(rays, valid)
+    var shadow = world.occluded(rays, valid)
+    var samples = opacity_ray_sample(rays)
+    for lane in range(Int(width)):
+        var ray = Rayf32[.WORLD](
+            Point3f32[.WORLD](rays.o.x[lane], rays.o.y[lane], rays.o.z[lane]),
+            Vec3f32[.WORLD](rays.d.x[lane], rays.d.y[lane], rays.d.z[lane]),
+            rays.t_min[lane],
+            rays.t_max[lane],
+        )
+        assert_equal(samples[lane], opacity_ray_sample(ray)[0])
+        if not valid[lane]:
+            assert_equal(primary.hit[lane], False)
+            assert_equal(shadow[lane], False)
+            continue
+        var expected = world.trace_surface(ray)
+        assert_equal(primary.hit[lane], expected.hit[0])
+        assert_equal(shadow[lane], world.occluded(ray)[0])
+        if expected.hit[0]:
+            assert_almost_equal(primary.t[lane], expected.t[0], atol=2e-6)
+            assert_equal(primary.surface.value[lane], expected.surface.value[0])
+            assert_almost_equal(primary.uv_u[lane], expected.uv_u[0], atol=2e-6)
+            assert_almost_equal(
+                primary.normal.z[lane], expected.normal.z[0], atol=2e-6
+            )
+
+
+def test_opacity_packets_match_scalar_for_world_instances_spheres_and_scaled_rays() raises:
+    var parsed = parse_pbrt(
+        """WorldBegin
+Shape "sphere" "float radius" .8 "float alpha" .35
+Translate 0 0 -1
+Shape "trianglemesh" "point3 P" [-2 -2 0 2 -2 0 0 2 0] "float alpha" .6
+AttributeBegin
+Translate 0 0 -1
+Scale -1 2 .5
+Shape "trianglemesh" "point3 P" [-2 -2 0 2 -2 0 0 2 0] "point2 uv" [0 0 1 0 .5 1]
+AttributeEnd
+"""
+    )
+    var world = CpuScene[4, 4](parsed^.take_data())
+    comptime for width in [1, 4, 8, 16, 32]:
+        _check_opacity_packet[width](world)
+
+
+def test_sphere_alpha_rejects_front_root_and_accepts_back_root() raises:
+    var builder = SceneBuilder()
+    var matte = builder.add_lambertian(Color(0.5))
+    builder.add_sphere(Point3f32[.WORLD](0), 1, matte)
+    var texture = builder.surfaces.add_image_texture(
+        ImageTexture(1, 2, [1, 1, 1, 1, 1, 1], [1, 0])
+    )
+    builder.opacity.records[PrimitiveId(.SPHERE, 0).value] = Opacity(
+        1, texture, 1, 1
+    )
+    var world = CpuScene[4, 4](builder^.finish())
+    var rays = Ray[.float32, .WORLD, 8](
+        Point3[.float32, .WORLD, 8](0.70710678, 0, 2),
+        Vec3[.float32, .WORLD, 8](0, 0, -1),
+    )
+    var hit = world.trace_surface(rays)
+    for lane in range(8):
+        assert_equal(hit.hit[lane], True)
+        assert_almost_equal(hit.t[lane], Float32(2.70710678), atol=2e-6)
+    rays.t_max = 2
+    assert_equal(world.occluded(rays).reduce_or(), False)
+    rays.t_max = 3
+    assert_equal(world.occluded(rays).reduce_and(), True)
 
 
 def run_tests[_discovery: Bool = True]() raises:

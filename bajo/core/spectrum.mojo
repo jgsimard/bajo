@@ -38,23 +38,57 @@ def evaluate_piecewise_spectrum[
     .float32, length
 ]:
     """Host/device evaluation of validated, interleaved spectral samples."""
-    var result = SIMD[.float32, length](0.0)
-    var count = len(samples) // 2
-    for lane in range(Int(length)):
-        var nm = wavelength[lane]
-        if not (nm >= samples[0] and nm <= samples[len(samples) - 2]):
-            continue
-        if count == 1 or nm == samples[len(samples) - 2]:
-            result[lane] = samples[len(samples) - 1]
-            continue
-        var lo = 0
-        var hi = count - 1
-        while lo + 1 < hi:
-            var mid = (lo + hi) // 2
-            if samples[2 * mid] <= nm:
-                lo = mid
-            else:
-                hi = mid
-        var t = (nm - samples[2 * lo]) / (samples[2 * lo + 2] - samples[2 * lo])
-        result[lane] = samples[2 * lo + 1] * (1 - t) + samples[2 * lo + 3] * t
-    return result
+    return _evaluate_piecewise_spectrum(
+        samples.unsafe_ptr(),
+        SIMD[.int64, length](0),
+        SIMD[.int64, length](len(samples) // 2),
+        wavelength,
+        SIMD[.bool, length](fill=True),
+    )
+
+
+@inline(.always)
+def _evaluate_piecewise_spectrum[
+    length: SIMDLength
+](
+    samples: ImmPointer[Float32, _],
+    offsets: SIMD[.int64, length],
+    counts: SIMD[.int64, length],
+    wavelength: SIMD[.float32, length],
+    active: SIMD[.bool, length],
+) -> SIMD[.float32, length]:
+    """Evaluate independently sized packed curves with one masked search.
+
+    Active lanes reference validated, nonempty curves. Inactive lanes load
+    only word zero, which packed tables allocate even when logically empty.
+    """
+    var first = active.select(offsets, 0)
+    var count = active.select(counts, 1)
+    var last = first + 2 * (count - 1)
+    var first_nm = samples.unsafe_gather(first)
+    var last_nm = samples.unsafe_gather(last)
+    var valid = active & wavelength.ge(first_nm) & wavelength.le(last_nm)
+    if not valid.reduce_or():
+        return SIMD[.float32, length](0)
+    first = valid.select(first, 0)
+    count = valid.select(count, 1)
+    var lo = SIMD[.int64, length](0)
+    var remaining = count - 1
+    # Both halves retain ceil(remaining / 2) intervals. This overlapping
+    # search avoids per-lane upper bounds and convergence masks.
+    while remaining.gt(1).reduce_or():
+        var half = remaining // 2
+        var mid = lo + half
+        var right = samples.unsafe_gather(first + 2 * mid).le(wavelength)
+        lo += right.select(half, 0)
+        remaining -= half
+    var lower = first + 2 * lo
+    var upper = first + 2 * min(lo + 1, count - 1)
+    var lower_nm = samples.unsafe_gather(lower)
+    var upper_nm = samples.unsafe_gather(upper)
+    var low_value = samples.unsafe_gather(lower + valid.cast[.int64]())
+    var high_value = samples.unsafe_gather(upper + valid.cast[.int64]())
+    var t = (valid.select(wavelength, lower_nm) - lower_nm) / count.gt(
+        1
+    ).select(upper_nm - lower_nm, 1)
+    return valid.select(low_value * (1 - t) + high_value * t, 0)

@@ -101,6 +101,20 @@ struct SpectralLightDistributionView(DevicePassable, TrivialRegisterPassable):
             == NO_SPECTRUM else self.source_power[unsafe_offset=Int(source)]
         )
 
+    def emission_packet[
+        width: SIMDLength
+    ](
+        self,
+        sources: SIMD[.uint32, width],
+        rgb: Vec3[.float32, .WORLD, width],
+        active: SIMD[.bool, width] = SIMD[.bool, width](fill=True),
+    ) -> SIMD[.float32, width]:
+        var authored = active & sources.ne(NO_SPECTRUM)
+        var power = self.source_power.unsafe_gather(
+            authored.select(sources, 0).cast[.int64]()
+        )
+        return active.select(authored.select(power, self.importance(rgb)), 0)
+
     def environment_pdf[
         width: SIMDLength
     ](

@@ -226,31 +226,34 @@ def test_gpu_wavelengths_spectral_arithmetic_and_cie_film_match_scalar_cpu() rai
 
 
 def _optical_scene_kernel[
-    _device: Bool = True
+    width: SIMDLength, _device: Bool = True
 ](scene: GpuRtSceneView, output: Pointer[Float32, MutAnyOrigin]):
-    var index = Int(global_idx.x)
-    if index >= 256:
+    var base = Int(global_idx.x) * Int(width)
+    if base >= 256:
         return
-    var nm = Float32(360) + Float32(index) * (Float32(470) / 255)
-    var wavelengths = SampledWavelengths[1](
-        SampledSpectrum[1](nm), SampledSpectrum[1](1)
-    )
     var eta_id = scene.spectra.coated_eta_k[unsafe_offset=0]
     var k_id = scene.spectra.coated_eta_k[unsafe_offset=1]
     var glass_id = scene.spectra.dielectric_eta[unsafe_offset=0]
     var constant_id = scene.spectra.dielectric_eta[unsafe_offset=1]
-    output[unsafe_offset=index * 4] = scene.spectra.curves.sample(
-        eta_id, wavelengths
-    ).s0
-    output[unsafe_offset=index * 4 + 1] = scene.spectra.curves.sample(
-        k_id, wavelengths
-    ).s0
-    output[unsafe_offset=index * 4 + 2] = scene.spectra.curves.sample(
-        glass_id, wavelengths
-    ).s0
-    output[unsafe_offset=index * 4 + 3] = scene.spectra.curves.sample(
-        constant_id, wavelengths, SIMD[.float32, 1](1.4)
-    ).s0
+    var nm = SIMD[.float32, width](0)
+    for lane in range(Int(width)):
+        nm[lane] = Float32(360) + Float32(base + lane) * (Float32(470) / 255)
+    var wavelengths = SampledWavelengths[width](
+        SampledSpectrum[width](nm), SampledSpectrum[width](1)
+    )
+    comptime for channel in range(4):
+        var ids = SIMD[.uint32, width](0)
+        for lane in range(Int(width)):
+            var choice = (base + lane + channel) % 4
+            ids[lane] = (
+                eta_id if choice
+                == 0 else k_id if choice
+                == 1 else glass_id if choice
+                == 2 else constant_id
+            )
+        var sampled = scene.spectra.curves.sample(ids, wavelengths, 1.4).s0
+        for lane in range(Int(width)):
+            output[unsafe_offset=(base + lane) * 4 + channel] = sampled[lane]
 
 
 def test_gpu_scene_preparation_binds_original_optical_curves_and_material_ids() raises:
@@ -259,20 +262,26 @@ def test_gpu_scene_preparation_binds_original_optical_curves_and_material_ids() 
     with DeviceContext() as ctx:
         var scene = prepare_gpu_scene[kind=.SPHERES](ctx, parsed.data)
         assert_equal(scene.materials.spectra.count, UInt32(3))
-        var output = ctx.enqueue_create_buffer[.float32](256 * 4)
-        ctx.enqueue_function[_optical_scene_kernel[True]](
-            scene.view(), output, grid_dim=4, block_dim=64
-        )
-        with output.map_to_host() as values:
-            for index in range(256):
-                var nm = Float32(360) + Float32(index) * (Float32(470) / 255)
-                for curve in range(3):
-                    assert_almost_equal(
-                        values[index * 4 + curve],
-                        surfaces.optical_spectra[curve].evaluate(nm),
-                        atol=1e-6,
+        comptime for width in [1, 4, 16]:
+            var output = ctx.enqueue_create_buffer[.float32](256 * 4)
+            ctx.enqueue_function[_optical_scene_kernel[width, True]](
+                scene.view(), output, grid_dim=4, block_dim=64
+            )
+            with output.map_to_host() as values:
+                for index in range(256):
+                    var nm = Float32(360) + Float32(index) * (
+                        Float32(470) / 255
                     )
-                assert_equal(values[index * 4 + 3], Float32(1.4))
+                    for channel in range(4):
+                        var curve = (index + channel) % 4
+                        var expected = Float32(1.4)
+                        if curve < 3:
+                            expected = surfaces.optical_spectra[curve].evaluate(
+                                nm
+                            )
+                        assert_almost_equal(
+                            values[index * 4 + channel], expected, atol=1e-6
+                        )
         _ = scene^
 
 

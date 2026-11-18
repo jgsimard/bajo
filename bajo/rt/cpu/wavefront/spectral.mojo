@@ -46,6 +46,7 @@ from bajo.rt.cpu.scene import CpuScene
 from bajo.rt.cpu.spectral_bsdf import SpectralMaterialParameters
 from bajo.rt.cpu.lighting import _sample_direct_light_candidate
 from bajo.core.mappings import equal_area_sphere_to_square
+from bajo.core.tensor_layout import record_tile, gather_record_vec3
 
 
 struct SpectralSampleState:
@@ -60,25 +61,26 @@ struct SpectralSampleState:
         self.radiance = {}
         self.eta_scale = {}
 
-    def initialize(mut self, count: Int, base: Int, sampling: SamplingConfig):
-        self.wavelengths.clear()
-        self.throughput.clear()
-        self.radiance.clear()
-        self.eta_scale.clear()
-        self.wavelengths.reserve(count)
-        self.throughput.reserve(count)
-        self.radiance.reserve(count)
-        self.eta_scale.reserve(count)
-        for index in range(count):
-            var rng = path_stage_rng(sampling, UInt32(base + index), UInt32(0))
+    def initialize[
+        width: SIMDLength = 1
+    ](mut self, count: Int, base: Int, sampling: SamplingConfig):
+        self.wavelengths.resize(unsafe_uninit_length=count)
+        self.throughput.resize(unsafe_uninit_length=count)
+        self.radiance.resize(unsafe_uninit_length=count)
+        self.eta_scale.resize(unsafe_uninit_length=count)
+        for first in range(0, count, Int(width)):
+            var ids = iota[.uint32, width]() + UInt32(base + first)
+            var rng = path_stage_rng(sampling, ids, UInt32(0))
             _ = rng.f32()
             _ = rng.f32()
             _ = rng.f32()
             _ = rng.f32()
-            self.wavelengths.append(SampledWavelengths[1].visible(rng.f32()))
-            self.throughput.append(SampledSpectrum[1](1))
-            self.radiance.append(SampledSpectrum[1]())
-            self.eta_scale.append(1)
+            var wavelengths = SampledWavelengths[width].visible(rng.f32())
+            for lane in range(min(Int(width), count - first)):
+                self.wavelengths[first + lane] = wavelengths.get(lane)
+                self.throughput[first + lane] = SampledSpectrum[1](1)
+                self.radiance[first + lane] = SampledSpectrum[1]()
+                self.eta_scale[first + lane] = 1
 
 
 def _environment[
@@ -94,42 +96,40 @@ def _environment[
     var result = SampledSpectrum[width]()
     if environment.kind == .BLACK:
         return result
-    var fallback = environment_radiance(environment, data.surfaces(), direction)
-    for lane in range(Int(width)):
-        var lambda_sample = wavelengths.get(lane)
-        var value: SampledSpectrum[1]
-        if environment.spectrum == NO_SPECTRUM:
-            var rgb = Color(
-                fallback.x[lane], fallback.y[lane], fallback.z[lane]
-            )
-            if environment.kind == .IMAGE:
-                rgb = environment.scale
-            value = (
-                spectra.rgb.sample(
-                    rgb,
-                    lambda_sample,
-                    RgbSpectrumView.ILLUMINANT,
-                )
-                / CIE_Y_INTEGRAL
-            )
-        else:
-            value = spectra.emission(environment.spectrum, lambda_sample)
-        if environment.kind == .IMAGE:
-            var local = environment.world_to_light.vector(
-                Vec3[.float32, .WORLD](
-                    direction.x[lane], direction.y[lane], direction.z[lane]
-                )
-            )
-            var uv = equal_area_sphere_to_square(local)
-            var texel = (
-                data.surfaces()
-                .image_textures[Int(environment.texture_index)]
-                .sample_environment(uv.u, uv.v)
-            )
-            value = value * spectra.rgb.sample(
-                texel, lambda_sample, RgbSpectrumView.UNBOUNDED
-            )
-        result.set(lane, value)
+    if environment.spectrum != NO_SPECTRUM:
+        result = spectra.emission(environment.spectrum, wavelengths)
+    else:
+        var rgb = environment.scale.broadcast[
+            width
+        ]() if environment.kind == .IMAGE else environment_radiance(
+            environment, data.surfaces(), direction
+        )
+        result = (
+            spectra.rgb.sample(rgb, wavelengths, RgbSpectrumView.ILLUMINANT)
+            / CIE_Y_INTEGRAL
+        )
+    if environment.kind == .IMAGE:
+        ref transform = environment.world_to_light
+        var local = Vec3[.float32, .LOCAL, width](
+            transform.m00 * direction.x
+            + transform.m01 * direction.y
+            + transform.m02 * direction.z,
+            transform.m10 * direction.x
+            + transform.m11 * direction.y
+            + transform.m12 * direction.z,
+            transform.m20 * direction.x
+            + transform.m21 * direction.y
+            + transform.m22 * direction.z,
+        )
+        var uv = equal_area_sphere_to_square(local)
+        var texel = (
+            data.surfaces()
+            .image_textures[Int(environment.texture_index)]
+            .sample_environment(uv.u, uv.v)
+        )
+        result = result * spectra.rgb.sample(
+            texel, wavelengths, RgbSpectrumView.UNBOUNDED
+        )
     return result
 
 
@@ -144,27 +144,32 @@ def _absorption[
     active: SIMD[.bool, width],
 ) -> SampledSpectrum[width]:
     var result = SampledSpectrum[width](1)
+    var present = active & ids.ne(0)
+    if not present.reduce_or():
+        return result
     ref media = world.scene_data().media()
-    for lane in range(Int(width)):
-        if not active[lane] or ids[lane] == 0:
-            continue
-        var index = Int(ids[lane])
-        var lambda_sample = wavelengths.get(lane)
-        var sigma = spectra.rgb.sample(
-            media.absorption[index], lambda_sample, RgbSpectrumView.UNBOUNDED
+    var safe_ids = present.select(ids, 0).cast[.int64]()
+    var colors = record_tile[.float32, 3](
+        media.absorption.unsafe_ptr().unsafe_bitcast[Float32](),
+        len(media.absorption),
+    )
+    var sigma = spectra.rgb.sample(
+        gather_record_vec3(colors, safe_ids),
+        wavelengths,
+        RgbSpectrumView.UNBOUNDED,
+    )
+    var sources = media.spectra.unsafe_ptr().unsafe_gather(safe_ids)
+    sigma = spectra.sample_packet(
+        sources, wavelengths, RgbSpectrumView.UNBOUNDED, present, sigma
+    )
+    comptime for channel in range(4):
+        var absorbing = present & sigma[channel].gt(0)
+        var depth = absorbing.select(sigma[channel], 0) * absorbing.select(
+            distance, 0
         )
-        if media.spectra[index] != NO_SPECTRUM:
-            sigma = spectra.sample(
-                media.spectra[index], lambda_sample, RgbSpectrumView.UNBOUNDED
-            )
-        var attenuation = SampledSpectrum[1](1)
-        comptime for channel in range(4):
-            if sigma[channel] > 0:
-                var depth = sigma[channel] * distance[lane]
-                attenuation[channel] = depth.lt(80).select(
-                    exp(-min(depth, 80)), 0
-                )
-        result.set(lane, attenuation)
+        result[channel] = absorbing.select(
+            depth.lt(80).select(exp(-min(depth, 80)), 0), 1
+        )
     return result
 
 
@@ -226,34 +231,35 @@ def _shade[
         )
         if light.valid.reduce_or():
             var emission = SampledSpectrum[width]()
-            var environment = _environment(
-                world, spectra, light.direction, wavelengths
+            var finite = light.valid & ~light.is_environment
+            if finite.reduce_or():
+                var rgb = Vec3.select(
+                    finite, light.emission, Vec3[.float32, .WORLD, width](0)
+                )
+                emission = (
+                    spectra.rgb.sample(
+                        rgb, wavelengths, RgbSpectrumView.ILLUMINANT
+                    )
+                    / CIE_Y_INTEGRAL
+                )
+                var authored = finite & light.spectrum_ids.ne(NO_SPECTRUM)
+                emission = SampledSpectrum.select(
+                    authored,
+                    spectra.emission_packet(
+                        light.spectrum_ids, wavelengths, authored
+                    ),
+                    emission,
+                )
+            var environment_lanes = light.valid & light.is_environment
+            if environment_lanes.reduce_or():
+                emission = SampledSpectrum.select(
+                    environment_lanes,
+                    _environment(world, spectra, light.direction, wavelengths),
+                    emission,
+                )
+            emission = SampledSpectrum.select(
+                light.valid, emission, SampledSpectrum[width]()
             )
-            for lane in range(lane_count):
-                if not light.valid[lane]:
-                    continue
-                var lambda_sample = wavelengths.get(lane)
-                var value: SampledSpectrum[1]
-                if light.is_environment[lane]:
-                    value = environment.get(lane)
-                elif light.spectrum_ids[lane] != NO_SPECTRUM:
-                    value = spectra.emission(
-                        light.spectrum_ids[lane], lambda_sample
-                    )
-                else:
-                    value = (
-                        spectra.rgb.sample(
-                            Color(
-                                light.emission.x[lane],
-                                light.emission.y[lane],
-                                light.emission.z[lane],
-                            ),
-                            lambda_sample,
-                            RgbSpectrumView.ILLUMINANT,
-                        )
-                        / CIE_Y_INTEGRAL
-                    )
-                emission.set(lane, value)
             var shadow = spawn_surface_ray(
                 point.p, light.direction, light.shadow_t_max
             )
@@ -310,18 +316,25 @@ def _shade[
         sampled.direction,
         hit.geometric_normal,
     )
-    var eta_scales = SIMD[.float32, width](1)
+    var state_ids = mask.select(
+        packet.path_ids.cast[.int64]() - Int64(sample_base), 0
+    )
+    var eta_scales = mask.select(
+        state.eta_scale.unsafe_ptr().unsafe_gather(state_ids), 1
+    )
+    comptime if kind == .DIELECTRIC:
+        var transmitted = mask & dot(
+            sampled.direction, hit.geometric_normal
+        ).lt(0)
+        var eta2 = material.parameter * material.parameter
+        eta_scales *= transmitted.select(
+            hit.front_face.select(eta2, 1 / eta2), 1
+        )
     for lane in range(lane_count):
         if mask[lane]:
             var id = Int(packet.path_ids[lane]) - sample_base
             state.wavelengths[id] = wavelengths.get(lane)
-            comptime if kind == .DIELECTRIC:
-                if dot(sampled.direction, hit.geometric_normal)[lane] < 0:
-                    var eta = material.parameter[lane]
-                    state.eta_scale[id] *= (
-                        eta * eta if hit.front_face[lane] else 1 / (eta * eta)
-                    )
-            eta_scales[lane] = state.eta_scale[id]
+            state.eta_scale[id] = eta_scales[lane]
     if UInt32(bounce + 1) >= RUSSIAN_ROULETTE_START_DEPTH:
         var importance = wavelengths.pdf.s0.gt(0).select(continued.s0, 0)
         comptime for channel in range(1, 4):
@@ -382,7 +395,7 @@ def trace_spectral_packets[
     sample_count: Int,
     components: Optional[Pointer[UInt32, MutAnyOrigin]] = {},
 ):
-    state.initialize(sample_count, sample_base, sampling)
+    state.initialize[width](sample_count, sample_base, sampling)
     for bounce in range(settings.max_depth + 1):
         if len(paths) == 0:
             break
@@ -416,19 +429,17 @@ def trace_spectral_packets[
                 wavefront_rng_material_stage(UInt32(bounce)),
             )
             var mix_random = mix_rng.f32()
-            for lane in range(count):
-                if hit.hit[lane] and hit.surface.get(lane).kind() == .MIX:
-                    hit.surface.value[lane] = (
-                        world.scene_data()
-                        .surfaces()
-                        .resolve_mix(
-                            hit.surface.get(lane),
-                            mix_random[lane],
-                            hit.uv_u[lane],
-                            hit.uv_v[lane],
-                        )
-                        .value
-                    )
+            hit.surface = (
+                world.scene_data()
+                .surfaces()
+                .resolve_mix_packet(
+                    hit.surface,
+                    mix_random,
+                    hit.uv_u,
+                    hit.uv_v,
+                    hit.hit & active,
+                )
+            )
             if bounce == 0 and components:
                 for lane in range(count):
                     if hit.hit[lane]:
@@ -492,20 +503,10 @@ def trace_spectral_packets[
             var miss_weight = _emissive_hit_weight_from_pdf[integrator](
                 UInt32(bounce), packet.deltas, packet.bsdf_pdfs, miss_pdf
             )
-            var importance = Vec3[.float32, .WORLD, width](0)
-            for lane in range(count):
-                if hit.hit[lane]:
-                    var rgb = Color(
-                        hit.emission.x[lane],
-                        hit.emission.y[lane],
-                        hit.emission.z[lane],
-                    )
-                    var value = lighting.emission(
-                        hit.emission_spectrum[lane], rgb
-                    )
-                    importance.x[lane] = value
-                    importance.y[lane] = value
-                    importance.z[lane] = value
+            var power = lighting.emission_packet(
+                hit.emission_spectrum, hit.emission, hit.hit & active
+            )
+            var importance = Vec3[.float32, .WORLD, width](power, power, power)
             var hit_pdf = _emissive_hit_light_pdf(
                 ray.d,
                 hit.t,
@@ -517,36 +518,40 @@ def trace_spectral_packets[
             var hit_weight = _emissive_hit_weight_from_pdf[integrator](
                 UInt32(bounce), packet.deltas, packet.bsdf_pdfs, hit_pdf
             )
-            for lane in range(count):
-                var id = Int(packet.path_ids[lane]) - sample_base
-                if not hit.hit[lane]:
-                    state.radiance[id] += (
-                        beta * environment * miss_weight
-                    ).get(lane)
-                elif hit.emission_visible[lane] and (
-                    hit.front_face[lane] or hit.emission_two_sided[lane]
-                ):
-                    var emission: SampledSpectrum[1]
-                    if hit.emission_spectrum[lane] != NO_SPECTRUM:
-                        emission = spectra.emission(
-                            hit.emission_spectrum[lane], wavelengths.get(lane)
-                        )
-                    else:
-                        emission = (
-                            spectra.rgb.sample(
-                                Color(
-                                    hit.emission.x[lane],
-                                    hit.emission.y[lane],
-                                    hit.emission.z[lane],
-                                ),
-                                wavelengths.get(lane),
-                                RgbSpectrumView.ILLUMINANT,
-                            )
-                            / CIE_Y_INTEGRAL
-                        )
-                    state.radiance[id] += (
-                        beta.get(lane) * emission * hit_weight[lane]
+            var emitting = (
+                active
+                & hit.hit
+                & hit.emission_visible
+                & (hit.front_face | hit.emission_two_sided)
+            )
+            var emitted = SampledSpectrum[width]()
+            if emitting.reduce_or():
+                var rgb = Vec3.select(
+                    emitting, hit.emission, Vec3[.float32, .WORLD, width](0)
+                )
+                emitted = (
+                    spectra.rgb.sample(
+                        rgb, wavelengths, RgbSpectrumView.ILLUMINANT
                     )
+                    / CIE_Y_INTEGRAL
+                )
+                var authored = emitting & hit.emission_spectrum.ne(NO_SPECTRUM)
+                emitted = SampledSpectrum.select(
+                    authored,
+                    spectra.emission_packet(
+                        hit.emission_spectrum, wavelengths, authored
+                    ),
+                    emitted,
+                )
+            var contribution = SampledSpectrum.select(
+                hit.hit,
+                beta * emitted * hit_weight,
+                beta * environment * miss_weight,
+            )
+            for lane in range(count):
+                if not hit.hit[lane] or emitting[lane]:
+                    var id = Int(packet.path_ids[lane]) - sample_base
+                    state.radiance[id] += contribution.get(lane)
             if bounce == settings.max_depth:
                 continue
             comptime for kind in ParameterList.of[

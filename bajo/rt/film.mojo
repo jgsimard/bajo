@@ -1,5 +1,6 @@
 """Film response and sensor-space clamping of complete path samples."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from std.algorithm import vectorize
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.sys import simd_width_of
@@ -9,7 +10,6 @@ from std.utils.numerics import isfinite
 from std.memory import bitcast
 from bajo.core import dot, Vec3
 from bajo.core import Vec3f32
-from bajo.core.tensor_layout import RecordTile, record_tile
 from bajo.core.colorimetry import srgb_to_xyz_matrix
 from bajo.core.mat import inverse
 from bajo.rt.sensor import FilmSensorKind, canon_sensor_sample, sensor_to_xyz
@@ -248,14 +248,15 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
         )
 
     def _apply_block[
-        length: SIMDLength, origin: Origin[mut=True]
+        length: SIMDLength, origin: MutOrigin
     ](
         self,
-        pixels: RecordTile[.float32, 3, origin],
+        pixels: TileTensor[.float32, _, origin],
         first: Int,
         scale: Float32 = 1.0,
     ):
         """Transform `length` pixels; callers provide a complete block."""
+        comptime assert pixels.flat_rank == 2
         var color: Vec3[.float32, .WORLD, length]
         comptime if length == 1:
             color = Vec3[.float32, .WORLD, length](
@@ -292,8 +293,9 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
     ](self, pixels: MutSpan[Color, _], scale: Float32 = 1.0):
         """Apply sample scaling and film response to a CPU pixel buffer."""
         comptime assert size_of[Color]() == 3 * size_of[Float32]()
-        var view = record_tile[.float32, 3](
-            pixels.unsafe_ptr().unsafe_bitcast[Float32](), len(pixels)
+        var view = TileTensor(
+            ptr=pixels.unsafe_ptr().unsafe_bitcast[Float32](),
+            layout=row_major(Coord(len(pixels), Idx[3])),
         )
 
         def apply_block[lanes: Int](first: Int) {imm}:

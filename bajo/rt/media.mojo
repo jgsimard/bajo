@@ -1,5 +1,6 @@
 """Runtime absorption media and geometry-owned medium boundaries."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from bajo.core.optics import medium_transmittance
 from bajo.rt.spectrum_sources import NO_SPECTRUM
 
@@ -7,7 +8,7 @@ from bajo.rt.spectrum_sources import NO_SPECTRUM
 from std.sys.info import size_of
 
 from bajo.core import Vec3
-from bajo.core.tensor_layout import record_tile, gather_record_vec3
+from bajo.core.tensor_gather import gather_record_vec3
 from bajo.core.color import Color
 
 
@@ -45,9 +46,9 @@ struct SceneMedia:
         # Color is three adjacent scalar channels. Inactive IDs may be invalid;
         # vacuum row zero is always available in a validated scene.
         comptime assert size_of[Color]() == 3 * size_of[Float32]()
-        var fields = record_tile[.float32, 3](
-            self.absorption.unsafe_ptr().unsafe_bitcast[Float32](),
-            len(self.absorption),
+        var fields = TileTensor(
+            ptr=self.absorption.unsafe_ptr().unsafe_bitcast[Float32](),
+            layout=row_major(Coord(len(self.absorption), Idx[3])),
         )
         var sigma = gather_record_vec3(fields, absorbing.select(ids, 0))
         return medium_transmittance(sigma, absorbing.select(distance, 0.0))

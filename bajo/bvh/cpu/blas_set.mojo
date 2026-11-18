@@ -1,7 +1,6 @@
+from layout import Idx, TileTensor, Coord, row_major
 from std.bit import count_trailing_zeros
 from std.memory import pack_bits, bitcast
-from layout import Idx
-from bajo.core.tensor_layout import field_tile
 from std.sys.intrinsics import prefetch
 
 from bajo.bvh.constants import (
@@ -81,8 +80,11 @@ def _load_packed_triangle_leaf[
     var block_base = (
         Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
     )
-    var fields = field_tile[.float32, CPU_TRI_LEAF_PACKED_STRIDE](
-        leaves.unsafe_offset(block_base), Idx[Int(leaf_width)]
+    var fields = TileTensor(
+        ptr=leaves.unsafe_offset(block_base),
+        layout=row_major(
+            Coord(Idx[CPU_TRI_LEAF_PACKED_STRIDE], Idx[Int(leaf_width)])
+        ),
     )
     var block = TriangleLeafBlock[frame, leaf_width]()
     comptime for axis in range(3):

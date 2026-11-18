@@ -1,12 +1,11 @@
 """CPU/GPU material layouts retain field offsets and decoder semantics."""
 
-from layout import TileTensor, Coord, Idx, row_major
+from layout import TileTensor, Coord, Idx, row_major, col_major
 from bajo.rt.material_storage import (
     CoatedDiffuseLayout,
     pack_coated_materials,
     load_coated_parameters,
 )
-from bajo.core.tensor_layout import record_tile
 
 from std.memory import bitcast
 from std.testing import TestSuite, assert_equal, assert_raises
@@ -339,11 +338,13 @@ def test_coated_material_tiles_keep_the_same_logical_fields() raises:
     var surfaces = _surfaces()
     var rows = pack_coated_materials[False](surfaces)
     var columns = pack_coated_materials[True](surfaces)
-    var gpu = record_tile[.float32, CoatedDiffuseLayout.STRIDE](
-        rows.unsafe_ptr(), 5
+    var gpu = TileTensor(
+        ptr=rows.unsafe_ptr(),
+        layout=row_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE])),
     )
-    var cpu = record_tile[.float32, CoatedDiffuseLayout.STRIDE, True](
-        columns.unsafe_ptr(), 5
+    var cpu = TileTensor(
+        ptr=columns.unsafe_ptr(),
+        layout=col_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE])),
     )
     for material in range(5):
         for field in range(CoatedDiffuseLayout.STRIDE):
@@ -357,11 +358,13 @@ def _gathers[length: SIMDLength]() raises:
     var surfaces = _surfaces()
     var rows = pack_coated_materials[False](surfaces)
     var columns = pack_coated_materials[True](surfaces)
-    var gpu = record_tile[.float32, CoatedDiffuseLayout.STRIDE](
-        rows.unsafe_ptr(), 5
+    var gpu = TileTensor(
+        ptr=rows.unsafe_ptr(),
+        layout=row_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE])),
     )
-    var cpu = record_tile[.float32, CoatedDiffuseLayout.STRIDE, True](
-        columns.unsafe_ptr(), 5
+    var cpu = TileTensor(
+        ptr=columns.unsafe_ptr(),
+        layout=col_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE])),
     )
     var ids = SIMD[.uint32, length](0)
     for lane in range(Int(length)):

@@ -1,11 +1,12 @@
 """Measured sensor responses and PBRT-compatible host calibration."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from std.builtin.globals import global_constant
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import floor
 from bajo.core import Vec3
 from bajo.core.color import Color
-from bajo.core.tensor_layout import record_tile, gather_record_vec3
+from bajo.core.tensor_gather import gather_record_vec3
 from bajo.core.cie_data import CIE_XYZ, D65
 from bajo.core.sensor_data import (
     CANON_RESPONSE,
@@ -43,8 +44,9 @@ def canon_sensor_sample[
     ref responses = global_constant[CANON_RESPONSE]()
     var result = Vec3[.float32, .WORLD, width](0)
     var weighted = radiance.safe_divide(wavelengths.pdf)
-    var records = record_tile[.float32, 3](
-        responses.unsafe_ptr().unsafe_bitcast[Float32](), len(responses)
+    var records = TileTensor(
+        ptr=responses.unsafe_ptr().unsafe_bitcast[Float32](),
+        layout=row_major(Coord(len(responses), Idx[3])),
     )
     comptime for channel in range(4):
         var nm = wavelengths.lambda_nm[channel]

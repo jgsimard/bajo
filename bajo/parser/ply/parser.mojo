@@ -1,6 +1,6 @@
 """Parser for binary little-endian PLY polygon meshes."""
 
-from bajo.core.tensor_layout import record_tile
+from layout import TileTensor, Coord, Idx, row_major
 from max.algorithm import parallelize
 from std.bit import byte_swap
 from std.math import ceildiv
@@ -548,18 +548,23 @@ def _decode_common_vertices[
     ]()
     comptime normal_mask = _vertex_permutation[record_width, 3, 3, 2 * width]()
     comptime zero = SIMD[.float32, 2 * width](0)
-    var source = record_tile[.float32, record_width](
-        bytes.unsafe_ptr().unsafe_offset(data_offset).unsafe_bitcast[Float32](),
-        len(positions) // 3,
+    var source = TileTensor(
+        ptr=bytes.unsafe_ptr()
+        .unsafe_offset(data_offset)
+        .unsafe_bitcast[Float32](),
+        layout=row_major(Coord(len(positions) // 3, Idx[record_width])),
     )
-    var position_records = record_tile[.float32, 3](
-        positions.unsafe_ptr(), len(positions) // 3
+    var position_records = TileTensor(
+        ptr=positions.unsafe_ptr(),
+        layout=row_major(Coord(len(positions) // 3, Idx[3])),
     )
-    var normal_records = record_tile[.float32, 3](
-        normals.unsafe_ptr(), len(normals) // 3
+    var normal_records = TileTensor(
+        ptr=normals.unsafe_ptr(),
+        layout=row_major(Coord(len(normals) // 3, Idx[3])),
     )
-    var uv_records = record_tile[.float32, 2](
-        texcoords.unsafe_ptr(), len(texcoords) // 2
+    var uv_records = TileTensor(
+        ptr=texcoords.unsafe_ptr(),
+        layout=row_major(Coord(len(texcoords) // 2, Idx[2])),
     )
     var vertex = begin
     while (end - vertex) * record_width >= 2 * width and 3 * (

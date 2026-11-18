@@ -1,8 +1,8 @@
 """GPU opacity evaluation and filtered primitive/TLAS traversal."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from std.math import min, sqrt
 from bajo.core import Affine3f32, GeoKind, Point3f32, Rayf32, dot
-from bajo.core.tensor_layout import record_tile
 from bajo.bvh.constants import EMPTY_LANE, SPHERE_LEAF_PACKED_STRIDE, TraceMode
 from bajo.bvh.filter import TriangleHitFilter
 from bajo.bvh.types import BlasDesc, Hit
@@ -48,8 +48,9 @@ def gpu_opacity_value(
         var width = Int(view.descriptors[unsafe_offset=base + 1])
         var height = Int(view.descriptors[unsafe_offset=base + 2])
         alpha *= sample_scalar_texture_bilinear(
-            record_tile[.float32, 1](
-                view.pixels.unsafe_offset(Int(offset)), width * height
+            TileTensor(
+                ptr=view.pixels.unsafe_offset(Int(offset)),
+                layout=row_major(Coord(width * height, Idx[1])),
             ),
             width,
             height,

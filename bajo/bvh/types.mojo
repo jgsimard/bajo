@@ -1,6 +1,5 @@
+from layout import Idx, TileTensor, Coord, row_major
 from std.memory import bitcast
-from layout import Idx
-from bajo.core.tensor_layout import field_tile, record_tile
 
 from bajo.core import AABB, Affine3f32, Frame
 from bajo.bvh.constants import (
@@ -70,8 +69,9 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
     def _store_unchecked(self, hits: MutSpan[Float32, _], idx: Int):
         """Store after the caller has validated the complete Hit block."""
         comptime assert Self.length == 1
-        var records = record_tile[.float32, Self.STRIDE](
-            hits.unsafe_ptr(), len(hits) // Self.STRIDE
+        var records = TileTensor(
+            ptr=hits.unsafe_ptr(),
+            layout=row_major(Coord(len(hits) // Self.STRIDE, Idx[Self.STRIDE])),
         )
         records[idx, Self.U] = self.u[0]
         records[idx, Self.V] = self.v[0]
@@ -88,8 +88,9 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
             idx >= 0 and idx < len(hits) / Self.STRIDE,
             "Hit load is outside the input span",
         )
-        var records = record_tile[.float32, Self.STRIDE](
-            hits.unsafe_ptr(), len(hits) // Self.STRIDE
+        var records = TileTensor(
+            ptr=hits.unsafe_ptr(),
+            layout=row_major(Coord(len(hits) // Self.STRIDE, Idx[Self.STRIDE])),
         )
         return Self(
             records[idx, Self.U],
@@ -120,11 +121,13 @@ struct SphereLeafBlock[frame: Frame, width: SIMDLength](Copyable):
     def load[
         load_primitive_indices: Bool = True
     ](leaves: ImmPointer[Float32, _], block_idx: UInt32) -> Self:
-        var fields = field_tile[.float32, SPHERE_LEAF_PACKED_STRIDE](
-            leaves.unsafe_offset(
+        var fields = TileTensor(
+            ptr=leaves.unsafe_offset(
                 Int(block_idx) * SPHERE_LEAF_PACKED_STRIDE * Self.width
             ),
-            Idx[Int(Self.width)],
+            layout=row_major(
+                Coord(Idx[SPHERE_LEAF_PACKED_STRIDE], Idx[Int(Self.width)])
+            ),
         )
         var block = Self()
         block.center = Point3[.float32, Self.frame, Self.width](
@@ -140,11 +143,13 @@ struct SphereLeafBlock[frame: Frame, width: SIMDLength](Copyable):
         return block^
 
     def store(self, leaves: MutPointer[Float32, _], block_idx: UInt32):
-        var fields = field_tile[.float32, SPHERE_LEAF_PACKED_STRIDE](
-            leaves.unsafe_offset(
+        var fields = TileTensor(
+            ptr=leaves.unsafe_offset(
                 Int(block_idx) * SPHERE_LEAF_PACKED_STRIDE * Self.width
             ),
-            Idx[Int(Self.width)],
+            layout=row_major(
+                Coord(Idx[SPHERE_LEAF_PACKED_STRIDE], Idx[Int(Self.width)])
+            ),
         )
         fields.store[width=Self.width]((0, 0), self.center.x)
         fields.store[width=Self.width]((1, 0), self.center.y)
@@ -238,8 +243,11 @@ struct BlasDesc(TrivialRegisterPassable):
 
     @staticmethod
     def load(descs: ImmPointer[UInt32, _], blas_idx: UInt32) -> Self:
-        var records = record_tile[.uint32, BlasDescLayout.STRIDE](
-            descs, Int(blas_idx) + 1
+        var records = TileTensor(
+            ptr=descs,
+            layout=row_major(
+                Coord(Int(blas_idx) + 1, Idx[BlasDescLayout.STRIDE])
+            ),
         )
         return Self(
             records[Int(blas_idx), BlasDescLayout.NODE_F32_BASE],
@@ -251,8 +259,9 @@ struct BlasDesc(TrivialRegisterPassable):
         )
 
     def store(self, descs: MutPointer[UInt32, _], blas_idx: Int):
-        var records = record_tile[.uint32, BlasDescLayout.STRIDE](
-            descs, blas_idx + 1
+        var records = TileTensor(
+            ptr=descs,
+            layout=row_major(Coord(blas_idx + 1, Idx[BlasDescLayout.STRIDE])),
         )
         records[blas_idx, BlasDescLayout.NODE_F32_BASE] = self.node_f32_base
         records[blas_idx, BlasDescLayout.LEAF_F32_BASE] = self.leaf_f32_base

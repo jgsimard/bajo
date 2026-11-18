@@ -1,4 +1,6 @@
 """Material, texture, environment, and surface storage types."""
+
+from layout import TileTensor, Coord, Idx, row_major
 from bajo.core.image import ImageTexture
 from bajo.core.geometry import normal_from_slopes as bump_normal
 
@@ -16,7 +18,7 @@ from bajo.rt.spectrum_sources import SpectrumSource, NO_SPECTRUM
 from std.utils.numerics import isfinite
 
 from bajo.core import Affine3f32, Vec3
-from bajo.core.tensor_layout import record_tile, gather_record_vec3
+from bajo.core.tensor_gather import gather_record_vec3
 from bajo.bvh.constants import PrimitiveKind
 
 
@@ -797,9 +799,9 @@ struct SurfaceStore(Defaultable):
             "emissive surface index is out of range",
         )
         comptime assert size_of[Emissive]() == 3 * size_of[Float32]()
-        var records = record_tile[.float32, 3](
-            self.emissives.unsafe_ptr().unsafe_bitcast[Float32](),
-            len(self.emissives),
+        var records = TileTensor(
+            ptr=self.emissives.unsafe_ptr().unsafe_bitcast[Float32](),
+            layout=row_major(Coord(len(self.emissives), Idx[3])),
         )
         return Vec3.select(emitting, gather_record_vec3(records, ids), zero)
 

@@ -4,8 +4,11 @@ Copyright (c) 2015-2023 NVIDIA CORPORATION. See FALCOR_LICENSE.txt.
 Only the spatial stages are used. The progressive renderer supplies sample
 moments instead of SVGF's reprojected exponential temporal history.
 """
+
+from layout import TileTensor, Coord, Idx, row_major
 from std.math import abs, exp, pow, sqrt
 from bajo.core import Vec3, dot
+from bajo.core.tensor_gather import gather_record_field, gather_record_vec3
 from bajo.core.color import LUMINANCE_WEIGHTS, luminance
 from .types import GuideLayout
 from .statistics import CascadeLayout, reconstruct_component
@@ -53,15 +56,20 @@ def _reconstruct_pixel[
         Vec3[.float32, .WORLD, length](0),
         firefly,
     )
-    var first = pixel * CascadeLayout.META
-    var normalization = meta.unsafe_gather(first)
+    var metadata = TileTensor(
+        ptr=meta,
+        layout=row_major(Coord(width * height, Idx[CascadeLayout.META])),
+    )
+    var normalization = gather_record_field[0](metadata, pixel)
     var valid = normalization.gt(0)
     var denom = valid.select(normalization, 1)
     var passthrough = Vec3[.float32, .WORLD, length](0)
     comptime for channel in range(3):
         passthrough[channel] = valid.select(
             (
-                meta.unsafe_gather(first + CascadeLayout.PASSTHROUGH + channel)
+                gather_record_field[CascadeLayout.PASSTHROUGH + channel](
+                    metadata, pixel
+                )
                 / denom
             ).cast[.float32](),
             0,
@@ -72,9 +80,9 @@ def _reconstruct_pixel[
 def _filter_pixel[
     length: SIMDLength = 1
 ](
-    source: ImmPointer[Float32, _],
+    source: TileTensor[.float32, _, _],
     variance: ImmPointer[Float32, _],
-    fields: ImmPointer[Float32, _],
+    fields: TileTensor[.float32, _, _],
     surfaces: ImmPointer[UInt32, _],
     width: Int,
     height: Int,
@@ -113,33 +121,16 @@ def _filter_pixel[
 
 def _color[
     length: SIMDLength = 1
-](p: ImmPointer[Float32, _], index: SIMD[.int, length]) -> Vec3[
+](p: TileTensor[.float32, _, _], index: SIMD[.int, length]) -> Vec3[
     .float32, .WORLD, length
 ]:
-    return Vec3[.float32, .WORLD, length](
-        p.unsafe_gather(3 * index),
-        p.unsafe_gather(3 * index + 1),
-        p.unsafe_gather(3 * index + 2),
-    )
-
-
-def _guide_vec[
-    length: SIMDLength = 1
-](p: ImmPointer[Float32, _], index: SIMD[.int, length], field: Int) -> Vec3[
-    .float32, .WORLD, length
-]:
-    var offset = index * GuideLayout.STRIDE + field
-    return Vec3[.float32, .WORLD, length](
-        p.unsafe_gather(offset),
-        p.unsafe_gather(offset + 1),
-        p.unsafe_gather(offset + 2),
-    )
+    return gather_record_vec3(p, index)
 
 
 def _svgf_weight[
     length: SIMDLength = 1
 ](
-    fields: ImmPointer[Float32, _],
+    fields: TileTensor[.float32, _, _],
     p: SIMD[.int, length],
     q: SIMD[.int, length],
     distance: Float32,
@@ -149,14 +140,12 @@ def _svgf_weight[
     phi_color: SIMD[.float32, length],
     phi_normal: Float32,
 ) -> SIMD[.float32, length]:
-    var z = fields.unsafe_gather(p * GuideLayout.STRIDE + GuideLayout.DEPTH)
-    var qz = fields.unsafe_gather(q * GuideLayout.STRIDE + GuideLayout.DEPTH)
-    var derivative = fields.unsafe_gather(
-        p * GuideLayout.STRIDE + GuideLayout.DEPTH_FWIDTH
-    )
+    var z = gather_record_field[GuideLayout.DEPTH](fields, p)
+    var qz = gather_record_field[GuideLayout.DEPTH](fields, q)
+    var derivative = gather_record_field[GuideLayout.DEPTH_FWIDTH](fields, p)
     var phi_depth = max(derivative, Float32(1e-8)) * step * distance
-    var n = _guide_vec(fields, p, GuideLayout.NORMAL)
-    var qn = _guide_vec(fields, q, GuideLayout.NORMAL)
+    var n = gather_record_vec3[.WORLD, GuideLayout.NORMAL](fields, p)
+    var qn = gather_record_vec3[.WORLD, GuideLayout.NORMAL](fields, q)
     return pow(dot(n, qn).clamp(0, 1), phi_normal) * exp(
         -abs(z - qz) / max(phi_depth, Float32(1e-8))
         - abs(lp - lq) / max(phi_color, Float32(1e-10))
@@ -166,9 +155,9 @@ def _svgf_weight[
 def _bootstrap_pixel[
     length: SIMDLength = 1
 ](
-    source: ImmPointer[Float32, _],
+    source: TileTensor[.float32, _, _],
     variance: ImmPointer[Float32, _],
-    fields: ImmPointer[Float32, _],
+    fields: TileTensor[.float32, _, _],
     surfaces: ImmPointer[UInt32, _],
     width: Int,
     height: Int,
@@ -181,7 +170,7 @@ def _bootstrap_pixel[
     var center_variance = variance.unsafe_gather(p)
     var filtering = surfaces.unsafe_gather(p).ne(
         GuideLayout.MISS
-    ) & fields.unsafe_gather(p * GuideLayout.STRIDE + GuideLayout.DIFFUSE).ne(0)
+    ) & gather_record_field[GuideLayout.DIFFUSE](fields, p).ne(0)
     if samples >= 4 or not filtering.reduce_or():
         return center, center_variance
     var lp = luminance(center)
@@ -200,9 +189,7 @@ def _bootstrap_pixel[
             var valid = (
                 inside
                 & surfaces.unsafe_gather(q).ne(GuideLayout.MISS)
-                & fields.unsafe_gather(
-                    q * GuideLayout.STRIDE + GuideLayout.DIFFUSE
-                ).ne(0)
+                & gather_record_field[GuideLayout.DIFFUSE](fields, q).ne(0)
             )
             if not valid.reduce_or():
                 continue
@@ -241,8 +228,8 @@ def _bootstrap_pixel[
 def _atrous_pixel[
     length: SIMDLength = 1
 ](
-    source: ImmPointer[Float32, _],
-    fields: ImmPointer[Float32, _],
+    source: TileTensor[.float32, _, _],
+    fields: TileTensor[.float32, _, _],
     surfaces: ImmPointer[UInt32, _],
     variance: ImmPointer[Float32, _],
     width: Int,
@@ -256,7 +243,7 @@ def _atrous_pixel[
     var center_variance = variance.unsafe_gather(p)
     var filtering = surfaces.unsafe_gather(p).ne(
         GuideLayout.MISS
-    ) & fields.unsafe_gather(p * GuideLayout.STRIDE + GuideLayout.DIFFUSE).ne(0)
+    ) & gather_record_field[GuideLayout.DIFFUSE](fields, p).ne(0)
     if not filtering.reduce_or():
         return center, center_variance
     var blurred = SIMD[.float32, length](0)
@@ -288,9 +275,7 @@ def _atrous_pixel[
             var valid = (
                 inside
                 & surfaces.unsafe_gather(q).ne(GuideLayout.MISS)
-                & fields.unsafe_gather(
-                    q * GuideLayout.STRIDE + GuideLayout.DIFFUSE
-                ).ne(0)
+                & gather_record_field[GuideLayout.DIFFUSE](fields, q).ne(0)
             )
             if not valid.reduce_or():
                 continue
@@ -329,10 +314,10 @@ def _atrous_pixel[
 
 def _albedo[
     length: SIMDLength = 1
-](fields: ImmPointer[Float32, _], i: SIMD[.int, length]) -> Vec3[
+](fields: TileTensor[.float32, _, _], i: SIMD[.int, length]) -> Vec3[
     .float32, .WORLD, length
 ]:
-    var a = _guide_vec(fields, i, GuideLayout.ALBEDO)
+    var a = gather_record_vec3[.WORLD, GuideLayout.ALBEDO](fields, i)
     return Vec3[.float32, .WORLD, length](
         max(a.x, Float32(0.001)),
         max(a.y, Float32(0.001)),

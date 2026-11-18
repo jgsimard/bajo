@@ -4,12 +4,13 @@ Sampling conventions follow PBRT v4: four cyclically stratified visible
 wavelengths, per-wavelength PDFs, and explicit secondary termination.
 """
 
+from layout import TileTensor, Coord, Idx, row_major
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.builtin.globals import global_constant
 from std.math import atanh, cosh, floor, sqrt, exp
 from bajo.core.cie_data import CIE_XYZ
 from bajo.core.vec import Vec3
-from bajo.core.tensor_layout import record_tile, gather_record_vec3
+from bajo.core.tensor_gather import gather_record_vec3
 
 comptime SPECTRUM_SAMPLES = 4
 comptime LAMBDA_MIN = Float32(360)
@@ -313,8 +314,9 @@ def cie_xyz[
     var rounded = floor(nm + 0.5).cast[.int32]()
     valid &= rounded.ge(360) & rounded.le(830)
     var index = valid.select(rounded - 360, 0)
-    var records = record_tile[.float32, 3](
-        table.unsafe_ptr().unsafe_bitcast[Float32](), len(table)
+    var records = TileTensor(
+        ptr=table.unsafe_ptr().unsafe_bitcast[Float32](),
+        layout=row_major(Coord(len(table), Idx[3])),
     )
     return Vec3.select(
         valid,

@@ -3,10 +3,8 @@
 Views borrow existing storage. Their layouts preserve the field-major queue
 ABI and record-major material ABI; constructing a view never copies records.
 """
-from bajo.core.tensor_layout import (
-    FieldTile,
-    field_tile,
-)
+
+from layout import TileTensor, Coord, Idx, row_major
 from bajo.rt.wavefront_contract import (
     WavePathFloatAbi,
     WaveShadeFloatAbi,
@@ -28,43 +26,56 @@ comptime GPU_SHADE_TZ = GPU_SHADE_TY + 1
 comptime GPU_SHADE_PLANES = GPU_SHADE_TZ + 1
 
 
-comptime GpuRtFieldTile[planes: Int, origin: Origin] = FieldTile[
-    .float32, planes, Int, origin
+comptime GpuRtPathTile[origin: Origin] = TileTensor[
+    .float32,
+    type_of(row_major(Coord(Idx[WavePathFloatAbi.PLANES], Int(0)))),
+    origin,
 ]
-comptime GpuRtPathTile[origin: Origin] = GpuRtFieldTile[
-    WavePathFloatAbi.PLANES, origin
+comptime GpuRtShadeTile[origin: Origin] = TileTensor[
+    .float32, type_of(row_major(Coord(Idx[GPU_SHADE_PLANES], Int(0)))), origin
 ]
-comptime GpuRtShadeTile[origin: Origin] = GpuRtFieldTile[
-    GPU_SHADE_PLANES, origin
+comptime GpuRtShadowTile[origin: Origin] = TileTensor[
+    .float32,
+    type_of(row_major(Coord(Idx[WaveShadowFloatAbi.PLANES], Int(0)))),
+    origin,
 ]
-comptime GpuRtShadowTile[origin: Origin] = GpuRtFieldTile[
-    WaveShadowFloatAbi.PLANES, origin
-]
-
-comptime GpuRtRadianceTile[origin: Origin] = GpuRtFieldTile[
-    WaveSampleFloatAbi.PLANES, origin
+comptime GpuRtRadianceTile[origin: Origin] = TileTensor[
+    .float32,
+    type_of(row_major(Coord(Idx[WaveSampleFloatAbi.PLANES], Int(0)))),
+    origin,
 ]
 
 
 def gpu_rt_path_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtPathTile[origin]:
-    return field_tile[.float32, WavePathFloatAbi.PLANES](fields, capacity)
+    return TileTensor(
+        ptr=fields,
+        layout=row_major(Coord(Idx[WavePathFloatAbi.PLANES], capacity)),
+    )
 
 
 def gpu_rt_shade_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtShadeTile[origin]:
-    return field_tile[.float32, GPU_SHADE_PLANES](fields, capacity)
+    return TileTensor(
+        ptr=fields, layout=row_major(Coord(Idx[GPU_SHADE_PLANES], capacity))
+    )
 
 
 def gpu_rt_shadow_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtShadowTile[origin]:
-    return field_tile[.float32, WaveShadowFloatAbi.PLANES](fields, capacity)
+    return TileTensor(
+        ptr=fields,
+        layout=row_major(Coord(Idx[WaveShadowFloatAbi.PLANES], capacity)),
+    )
 
 
 def gpu_rt_radiance_tile[
     mut: Bool, origin: Origin[mut=mut], //
 ](fields: Pointer[Float32, origin], capacity: Int) -> GpuRtRadianceTile[origin]:
-    return field_tile[.float32, WaveSampleFloatAbi.PLANES](fields, capacity)
+    return TileTensor(
+        ptr=fields,
+        layout=row_major(Coord(Idx[WaveSampleFloatAbi.PLANES], capacity)),
+    )

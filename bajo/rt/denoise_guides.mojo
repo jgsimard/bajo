@@ -1,5 +1,6 @@
 """Shared deterministic guide-ray construction and surface encoding."""
 
+from layout import TileTensor
 from bajo.core import Camera, Point3, Vec3, Ray, dot
 from bajo.core.color import Color
 from bajo.core.numerics import FLOAT32_GAMMA
@@ -29,9 +30,9 @@ def denoise_guide_ray[
 
 
 def store_denoise_guide[
-    length: SIMDLength = 1
+    origin: MutOrigin, //, length: SIMDLength = 1
 ](
-    fields: MutPointer[Float32, _],
+    fields: TileTensor[.float32, _, origin],
     index: SIMD[.int, length],
     position: Point3[.float32, .WORLD, length],
     normal: Vec3[.float32, .WORLD, length],
@@ -41,6 +42,7 @@ def store_denoise_guide[
     geometric_normal: Vec3[.float32, .WORLD, length],
     active: SIMD[.bool, length] = SIMD[.bool, length](fill=True),
 ):
+    comptime assert fields.flat_rank == 2
     var displacement = position - camera.origin.broadcast[length]()
     var forward = camera.forward.broadcast[length]()
     var depth = abs(dot(displacement, forward))
@@ -71,20 +73,14 @@ def store_denoise_guide[
     for lane in range(Int(length)):
         if not active[lane]:
             continue
-        var first = index[lane] * GuideLayout.STRIDE
+        var pixel = index[lane]
         comptime for channel in range(3):
-            fields[unsafe_offset=first + channel] = position[channel][lane]
-            fields[unsafe_offset=first + GuideLayout.NORMAL + channel] = normal[
-                channel
-            ][lane]
-            fields[unsafe_offset=first + GuideLayout.ALBEDO + channel] = albedo[
-                channel
-            ][lane]
-        fields[unsafe_offset=first + GuideLayout.FOOTPRINT] = footprint[lane]
-        fields[unsafe_offset=first + GuideLayout.DEPTH] = depth[lane]
-        fields[unsafe_offset=first + GuideLayout.DEPTH_FWIDTH] = derivative[
-            lane
-        ]
+            fields[pixel, channel] = position[channel][lane]
+            fields[pixel, GuideLayout.NORMAL + channel] = normal[channel][lane]
+            fields[pixel, GuideLayout.ALBEDO + channel] = albedo[channel][lane]
+        fields[pixel, GuideLayout.FOOTPRINT] = footprint[lane]
+        fields[pixel, GuideLayout.DEPTH] = depth[lane]
+        fields[pixel, GuideLayout.DEPTH_FWIDTH] = derivative[lane]
 
 
 def denoise_component(

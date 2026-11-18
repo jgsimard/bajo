@@ -1,5 +1,6 @@
 """Shared CPU/GPU ABI and orchestration contract for wavefront rendering."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from std.utils.numerics import max_finite
 
 from std.memory import bitcast
@@ -9,7 +10,6 @@ from bajo.core import Point3f32, Rayf32, Vec3f32
 from bajo.core.color import Color
 from bajo.rt.path_values import PathFloatField as WavePathFloatAbi, PathValues
 from bajo.rt.path_store import store_path_values
-from bajo.core.tensor_layout import field_tile
 from bajo.rt.rays import RT_RAY_T_MIN
 
 from bajo.rt.material_types import SurfaceId
@@ -357,7 +357,10 @@ def load_device_wave_path[
 ) -> DeviceWavePath:
     """Decode host/device planes, reconstructing fields absent from RT stages.
     """
-    var tile = field_tile[.float32, WavePathFloatAbi.PLANES](fields, capacity)
+    var tile = TileTensor(
+        ptr=fields,
+        layout=row_major(Coord(Idx[WavePathFloatAbi.PLANES], capacity)),
+    )
     var packed_id = path_ids[unsafe_offset=idx]
     var t_min = RT_RAY_T_MIN
     var t_max = max_finite[.float32]()
@@ -406,7 +409,10 @@ def store_device_wave_path(
     capacity: Int,
     idx: Int,
 ):
-    var tile = field_tile[.float32, WavePathFloatAbi.PLANES](fields, capacity)
+    var tile = TileTensor(
+        ptr=fields,
+        layout=row_major(Coord(Idx[WavePathFloatAbi.PLANES], capacity)),
+    )
     path_ids[unsafe_offset=idx] = (path.path_id & WAVE_PATH_ID_MASK) | (
         WAVE_PATH_DELTA_BIT if path.delta else UInt32(0)
     )
@@ -422,7 +428,10 @@ def load_device_wave_shade(
     idx: Int,
 ) -> DeviceWaveShade:
     var path_ref = path_refs[unsafe_offset=idx]
-    var tile = field_tile[.float32, WaveShadeFloatAbi.PLANES](fields, capacity)
+    var tile = TileTensor(
+        ptr=fields,
+        layout=row_major(Coord(Idx[WaveShadeFloatAbi.PLANES], capacity)),
+    )
     return DeviceWaveShade(
         path_ref & PATH_INDEX_MASK,
         tile[WaveShadeFloatAbi.NX, idx],
@@ -447,7 +456,10 @@ def store_device_wave_shade(
         path_ref |= FRONT_FACE_BIT
     path_refs[unsafe_offset=idx] = path_ref
     surface_values[unsafe_offset=idx] = work.surface_value
-    var tile = field_tile[.float32, WaveShadeFloatAbi.PLANES](fields, capacity)
+    var tile = TileTensor(
+        ptr=fields,
+        layout=row_major(Coord(Idx[WaveShadeFloatAbi.PLANES], capacity)),
+    )
     tile[WaveShadeFloatAbi.NX, idx] = work.nx
     tile[WaveShadeFloatAbi.NY, idx] = work.ny
     tile[WaveShadeFloatAbi.NZ, idx] = work.nz

@@ -5,6 +5,8 @@ second and adjacent cross moments allow reconstruction of uncertainty after
 interactive reweighting. All storage is Float64, including weighted sums.
 """
 
+from layout import TileTensor, MixedLayout, Coord, Idx, row_major
+from bajo.core.tensor_gather import gather_record_field
 from std.math import floor, log2, exp2, isfinite
 from max.algorithm import parallelize
 from .samples import DenoiseSampleBatch, DenoiseComponent
@@ -56,21 +58,6 @@ def cascade_size(value: Float32) -> Int:
     return min(CascadeLayout.MAX_BINS, cascade_bin(value) + 2)
 
 
-def _record[
-    length: SIMDLength = 1
-](bin: Int, layer: Int, pixel: SIMD[.int, length], count: Int) -> SIMD[
-    .int, length
-]:
-    var first = bin * count * CascadeLayout.LEVEL_STRIDE
-    if layer == 0:
-        return first + pixel * CascadeLayout.DIFFUSE_STRIDE
-    return (
-        first
-        + count * CascadeLayout.DIFFUSE_STRIDE
-        + pixel * CascadeLayout.GLOSSY_STRIDE
-    )
-
-
 def _covariance_index(i: Int, j: Int) -> Int:
     if i == j:
         return i
@@ -88,20 +75,22 @@ def accumulate_sample(
     weight: Float32,
     component: DenoiseComponent,
 ):
-    var m = pixel * CascadeLayout.META
+    var metadata = TileTensor(
+        ptr=meta, layout=row_major(Coord(count, Idx[CascadeLayout.META]))
+    )
     var w = Float64(weight)
-    meta[unsafe_offset=m] += w
+    metadata[pixel, 0] += w
     var y = luminance(color)
     # Inactive camera samples have a zero contribution to this component.
     # Store their squared weights directly, avoiding subtraction of two large
     # nearly equal weight sums when reconstructing a constant HDR image.
     if component != DenoiseComponent.DIFFUSE or y <= 0:
-        meta[unsafe_offset=m + CascadeLayout.INACTIVE_DIFFUSE] += w * w
+        metadata[pixel, CascadeLayout.INACTIVE_DIFFUSE] += w * w
     if component == DenoiseComponent.PASSTHROUGH or y <= 0:
         comptime for c in range(3):
-            meta[
-                unsafe_offset=m + CascadeLayout.PASSTHROUGH + c
-            ] += w * Float64(color[c])
+            metadata[pixel, CascadeLayout.PASSTHROUGH + c] += w * Float64(
+                color[c]
+            )
         return
     var bin = cascade_bin(y)
     var a = Float64(1)
@@ -109,52 +98,54 @@ def accumulate_sample(
         # Eq. 16. Below the numerical floor samples belong entirely to B0.
         a = ((cascade_scale(bin) / Float64(y) - 0.125) / 0.875).clamp(0, 1)
     var layer = Int(component.value()) - 1
+    var stride = (
+        CascadeLayout.DIFFUSE_STRIDE if layer
+        == 0 else CascadeLayout.GLOSSY_STRIDE
+    )
+    # Each level stores all diffuse records, followed by all glossy records.
+    # The required adjacent levels have already been reserved by the caller.
+    var layers = TileTensor(
+        ptr=bins.unsafe_offset(
+            0 if layer == 0 else count * CascadeLayout.DIFFUSE_STRIDE
+        ),
+        layout=MixedLayout(
+            Coord(bin + 2, count, stride),
+            Coord(count * CascadeLayout.LEVEL_STRIDE, stride, Idx[1]),
+        ),
+    )
     for part in range(2):
         var alpha = a if part == 0 else 1 - a
-        var at = _record(bin + part, layer, pixel, count)
+        var records = layers[bin + part, :, :]
         var aw = alpha * w
-        bins[unsafe_offset=at] += alpha * Float64(y)
+        records[pixel, 0] += alpha * Float64(y)
         comptime for c in range(3):
-            bins[unsafe_offset=at + CascadeLayout.RGB + c] += aw * Float64(
-                color[c]
-            )
+            records[pixel, CascadeLayout.RGB + c] += aw * Float64(color[c])
         if layer == 1:
             continue
-        if bins[unsafe_offset=at + CascadeLayout.SECOND_WEIGHT] == 0:
+        if records[pixel, CascadeLayout.SECOND_WEIGHT] == 0:
             comptime for c in range(3):
-                bins[unsafe_offset=at + CascadeLayout.ORIGIN + c] = Float64(
-                    color[c]
-                )
+                records[pixel, CascadeLayout.ORIGIN + c] = Float64(color[c])
         var q_weight = aw * aw
         var cross_weight = a * (1 - a) * w * w if part == 0 else Float64(0)
-        bins[unsafe_offset=at + CascadeLayout.SECOND_WEIGHT] += q_weight
-        bins[unsafe_offset=at + CascadeLayout.CROSS_WEIGHT] += cross_weight
+        records[pixel, CascadeLayout.SECOND_WEIGHT] += q_weight
+        records[pixel, CascadeLayout.CROSS_WEIGHT] += cross_weight
         comptime for c in range(3):
             var dc = (
-                Float64(color[c])
-                - bins[unsafe_offset=at + CascadeLayout.ORIGIN + c]
+                Float64(color[c]) - records[pixel, CascadeLayout.ORIGIN + c]
             )
-            bins[unsafe_offset=at + CascadeLayout.SECOND_OFFSET + c] += (
-                q_weight * dc
-            )
-            bins[unsafe_offset=at + CascadeLayout.CROSS_OFFSET + c] += (
-                cross_weight * dc
-            )
+            records[pixel, CascadeLayout.SECOND_OFFSET + c] += q_weight * dc
+            records[pixel, CascadeLayout.CROSS_OFFSET + c] += cross_weight * dc
         for c in range(3):
             for d in range(c, 3):
                 var dc = (
-                    Float64(color[c])
-                    - bins[unsafe_offset=at + CascadeLayout.ORIGIN + c]
+                    Float64(color[c]) - records[pixel, CascadeLayout.ORIGIN + c]
                 )
                 var dd = (
-                    Float64(color[d])
-                    - bins[unsafe_offset=at + CascadeLayout.ORIGIN + d]
+                    Float64(color[d]) - records[pixel, CascadeLayout.ORIGIN + d]
                 )
                 var k = _covariance_index(c, d)
-                bins[unsafe_offset=at + CascadeLayout.SECOND + k] += (
-                    q_weight * dc * dd
-                )
-                bins[unsafe_offset=at + CascadeLayout.CROSS + k] += (
+                records[pixel, CascadeLayout.SECOND + k] += q_weight * dc * dd
+                records[pixel, CascadeLayout.CROSS + k] += (
                     cross_weight * dc * dd
                 )
 
@@ -162,18 +153,14 @@ def accumulate_sample(
 def _sample_count[
     length: SIMDLength = 1
 ](
-    bins: ImmPointer[Float64, _],
+    bins: TileTensor[.float64, _, _],
     pixel: SIMD[.int, length],
-    count: Int,
-    layer: Int,
     bin: Int,
-    n_bins: Int,
 ) -> SIMD[.float64, length]:
+    comptime assert bins.flat_rank == 3
     var n = SIMD[.float64, length](0)
-    for j in range(max(0, bin - 1), min(n_bins, bin + 2)):
-        n += bins.unsafe_gather(
-            _record(j, layer, pixel, count)
-        ) / cascade_scale(j)
+    for j in range(max(0, bin - 1), min(Int(bins.dim[0]()), bin + 2)):
+        n += gather_record_field[0](bins[j, :, :], pixel) / cascade_scale(j)
     return n
 
 
@@ -192,7 +179,23 @@ def reconstruct_component[
     reweight: Bool,
 ) -> Tuple[Vec3[.float32, .WORLD, length], SIMD[.float32, length]]:
     var count = width * height
-    var normalization = meta.unsafe_gather(pixel * CascadeLayout.META)
+    var metadata = TileTensor(
+        ptr=meta, layout=row_major(Coord(count, Idx[CascadeLayout.META]))
+    )
+    var stride = (
+        CascadeLayout.DIFFUSE_STRIDE if layer
+        == 0 else CascadeLayout.GLOSSY_STRIDE
+    )
+    var layers = TileTensor(
+        ptr=bins.unsafe_offset(
+            0 if layer == 0 else count * CascadeLayout.DIFFUSE_STRIDE
+        ),
+        layout=MixedLayout(
+            Coord(n_bins, count, stride),
+            Coord(count * CascadeLayout.LEVEL_STRIDE, stride, Idx[1]),
+        ),
+    )
+    var normalization = gather_record_field[0](metadata, pixel)
     var valid = ~normalization.le(0)
     if not valid.reduce_or():
         return Vec3[.float32, .WORLD, length](0), SIMD[.float32, length](0)
@@ -202,10 +205,10 @@ def reconstruct_component[
     comptime luma = LUMINANCE_WEIGHTS[.float64]
     var expected = SIMD[.float64, length](0)
     for bin in range(n_bins):
-        var at = _record(bin, layer, pixel, count)
+        var records = layers[bin, :, :]
         var w = SIMD[.float64, length](1)
         if reweight and bin > 0:
-            var n = _sample_count(bins, pixel, count, layer, bin, n_bins)
+            var n = _sample_count(layers, pixel, bin)
             var neighbors = SIMD[.float64, length](0)
             var n_pixels = SIMD[.float64, length](0)
             for dy in range(-1, 2):
@@ -214,9 +217,7 @@ def reconstruct_component[
                     var y = pixel // width + dy
                     var inside = x.ge(0) & x.lt(width) & y.ge(0) & y.lt(height)
                     var q = inside.select(y * width + x, 0)
-                    neighbors += inside.select(
-                        _sample_count(bins, q, count, layer, bin, n_bins), 0
-                    )
+                    neighbors += inside.select(_sample_count(layers, q, bin), 0)
                     n_pixels += inside.cast[.float64]()
             # Sections 4.2, 4.3 and 5.3.1: kappa=kappa_min=1.
             w = max(
@@ -225,7 +226,9 @@ def reconstruct_component[
             w = neighbors.le(n_pixels).select(SIMD[.float64, length](0), w)
         weights[bin] = w
         comptime for c in range(3):
-            result[c] += w * bins.unsafe_gather(at + CascadeLayout.RGB + c)
+            result[c] += w * gather_record_field(
+                records, pixel, CascadeLayout.RGB + c
+            )
         expected = max(
             SIMD[.float64, length](0),
             (luma.x * result[0] + luma.y * result[1] + luma.z * result[2])
@@ -249,11 +252,11 @@ def reconstruct_component[
         mean += coefficients[c].cast[.float64]() * result[c] / normalization
     var squared_residual = SIMD[.float64, length](0)
     var shifted_residual = SIMD[.float64, length](0)
-    var lost_weight = meta.unsafe_gather(
-        pixel * CascadeLayout.META + CascadeLayout.INACTIVE_DIFFUSE
+    var lost_weight = gather_record_field[CascadeLayout.INACTIVE_DIFFUSE](
+        metadata, pixel
     )
     for bin in range(n_bins):
-        var at = _record(bin, layer, pixel, count)
+        var records = layers[bin, :, :]
         var r = weights[bin]
         var next_r = weights[bin + 1] if bin + 1 < n_bins else SIMD[
             .float64, length
@@ -266,15 +269,17 @@ def reconstruct_component[
         var q_second = SIMD[.float64, length](0)
         var cross_second = SIMD[.float64, length](0)
         for c in range(3):
-            origin += coefficients[c].cast[.float64]() * bins.unsafe_gather(
-                at + CascadeLayout.ORIGIN + c
+            origin += coefficients[c].cast[.float64]() * gather_record_field(
+                records, pixel, CascadeLayout.ORIGIN + c
             )
-            q_first += coefficients[c].cast[.float64]() * bins.unsafe_gather(
-                at + CascadeLayout.SECOND_OFFSET + c
+            q_first += coefficients[c].cast[.float64]() * gather_record_field(
+                records, pixel, CascadeLayout.SECOND_OFFSET + c
             )
             cross_first += coefficients[c].cast[
                 .float64
-            ]() * bins.unsafe_gather(at + CascadeLayout.CROSS_OFFSET + c)
+            ]() * gather_record_field(
+                records, pixel, CascadeLayout.CROSS_OFFSET + c
+            )
             for d in range(c, 3):
                 var k = _covariance_index(c, d)
                 var factor = (
@@ -282,15 +287,17 @@ def reconstruct_component[
                     * coefficients[d].cast[.float64]()
                     * Float64(1 if c == d else 2)
                 )
-                q_second += factor * bins.unsafe_gather(
-                    at + CascadeLayout.SECOND + k
+                q_second += factor * gather_record_field(
+                    records, pixel, CascadeLayout.SECOND + k
                 )
-                cross_second += factor * bins.unsafe_gather(
-                    at + CascadeLayout.CROSS + k
+                cross_second += factor * gather_record_field(
+                    records, pixel, CascadeLayout.CROSS + k
                 )
         var displacement = origin - mean
-        var qw = bins.unsafe_gather(at + CascadeLayout.SECOND_WEIGHT)
-        var cw = bins.unsafe_gather(at + CascadeLayout.CROSS_WEIGHT)
+        var qw = gather_record_field(
+            records, pixel, CascadeLayout.SECOND_WEIGHT
+        )
+        var cw = gather_record_field(records, pixel, CascadeLayout.CROSS_WEIGHT)
         q_second += (
             2 * displacement * q_first + displacement * displacement * qw
         )

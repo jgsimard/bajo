@@ -1,17 +1,13 @@
 """Pixel addressing, RGB sampling and bulk color-image conversion."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from max.algorithm import parallelize
 from std.builtin.globals import global_constant
 from std.math import ceildiv, floor
 from std.sys import num_logical_cores, simd_width_of
 from bajo.core import Vec3
 from bajo.core.color import _SRGB_U8_VALUES, luminance
-from bajo.core.tensor_layout import (
-    RecordTile,
-    gather_record_vec3,
-    gather_record_field,
-    record_tile,
-)
+from bajo.core.tensor_gather import gather_record_vec3, gather_record_field
 
 comptime SRGB_SIMD_WIDTH = simd_width_of[Float32]()
 comptime SRGB_CHANNELS_PER_TASK = 4 * 1024 * 1024
@@ -84,7 +80,7 @@ def image_pixel_index[
 def sample_image_texture[
     length: SIMDLength,
 ](
-    pixels: RecordTile[.float32, 3, _],
+    pixels: TileTensor[.float32, _, _],
     width: Int,
     height: Int,
     u: SIMD[.float32, length],
@@ -97,7 +93,7 @@ def sample_image_texture[
 def load_environment_texel[
     length: SIMDLength,
 ](
-    pixels: RecordTile[.float32, 3, _],
+    pixels: TileTensor[.float32, _, _],
     index: SIMD[.int64, length],
 ) -> Vec3[
     .float32, .WORLD, length
@@ -112,7 +108,7 @@ def load_environment_texel[
 def sample_environment_texture[
     length: SIMDLength,
 ](
-    pixels: RecordTile[.float32, 3, _],
+    pixels: TileTensor[.float32, _, _],
     width: Int,
     height: Int,
     u: SIMD[.float32, length],
@@ -136,7 +132,7 @@ def sample_environment_texture[
 def sample_image_texture_bilinear[
     length: SIMDLength,
 ](
-    pixels: RecordTile[.float32, 3, _],
+    pixels: TileTensor[.float32, _, _],
     width: Int,
     height: Int,
     u: SIMD[.float32, length],
@@ -171,7 +167,7 @@ def sample_image_texture_bilinear[
 def sample_scalar_texture_bilinear[
     length: SIMDLength,
 ](
-    pixels: RecordTile[.float32, 1, _],
+    pixels: TileTensor[.float32, _, _],
     width: Int,
     height: Int,
     u: SIMD[.float32, length],
@@ -235,8 +231,9 @@ struct ImageTexture:
         .float32, .WORLD, length
     ]:
         return sample_image_texture(
-            record_tile[.float32, 3](
-                self.pixels.unsafe_ptr(), self.width * self.height
+            TileTensor(
+                ptr=self.pixels.unsafe_ptr(),
+                layout=row_major(Coord(self.width * self.height, Idx[3])),
             ),
             self.width,
             self.height,
@@ -259,8 +256,9 @@ struct ImageTexture:
         .float32, .WORLD, length
     ]:
         return sample_image_texture_bilinear(
-            record_tile[.float32, 3](
-                self.pixels.unsafe_ptr(), self.width * self.height
+            TileTensor(
+                ptr=self.pixels.unsafe_ptr(),
+                layout=row_major(Coord(self.width * self.height, Idx[3])),
             ),
             self.width,
             self.height,
@@ -277,8 +275,9 @@ struct ImageTexture:
         # PBRT scalar maps use meaningful alpha, otherwise average RGB.
         if self.has_scalar_alpha:
             return sample_scalar_texture_bilinear(
-                record_tile[.float32, 1](
-                    self.alpha.unsafe_ptr(), self.width * self.height
+                TileTensor(
+                    ptr=self.alpha.unsafe_ptr(),
+                    layout=row_major(Coord(self.width * self.height, Idx[1])),
                 ),
                 self.width,
                 self.height,
@@ -296,8 +295,9 @@ struct ImageTexture:
     ]:
         """Nearest lookup in PBRT's top-to-bottom equal-area image domain."""
         return sample_environment_texture(
-            record_tile[.float32, 3](
-                self.pixels.unsafe_ptr(), self.width * self.height
+            TileTensor(
+                ptr=self.pixels.unsafe_ptr(),
+                layout=row_major(Coord(self.width * self.height, Idx[3])),
             ),
             self.width,
             self.height,

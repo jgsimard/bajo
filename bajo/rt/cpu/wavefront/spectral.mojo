@@ -1,5 +1,6 @@
 """Spectral packet transport with radiometric state owned by stable sample IDs."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from bajo.rt.denoise_guides import denoise_component
 from std.math import iota, exp
 from bajo.bvh.cpu.traversal_mode import CpuTraversalMode
@@ -46,7 +47,7 @@ from bajo.rt.cpu.scene import CpuScene
 from bajo.rt.cpu.spectral_bsdf import SpectralMaterialParameters
 from bajo.rt.cpu.lighting import _sample_direct_light_candidate
 from bajo.core.mappings import equal_area_sphere_to_square
-from bajo.core.tensor_layout import record_tile, gather_record_vec3
+from bajo.core.tensor_gather import gather_record_vec3
 
 
 struct SpectralSampleState:
@@ -149,9 +150,9 @@ def _absorption[
         return result
     ref media = world.scene_data().media()
     var safe_ids = present.select(ids, 0).cast[.int64]()
-    var colors = record_tile[.float32, 3](
-        media.absorption.unsafe_ptr().unsafe_bitcast[Float32](),
-        len(media.absorption),
+    var colors = TileTensor(
+        ptr=media.absorption.unsafe_ptr().unsafe_bitcast[Float32](),
+        layout=row_major(Coord(len(media.absorption), Idx[3])),
     )
     var sigma = spectra.rgb.sample(
         gather_record_vec3(colors, safe_ids),

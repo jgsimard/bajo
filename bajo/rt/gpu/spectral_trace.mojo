@@ -1,5 +1,6 @@
 """Surface traversal and material-hit reconstruction for spectral transport."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from bajo.bvh.types import Hit
 from bajo.rt.gpu.opacity import (
     trace_gpu_opacity_triangles,
@@ -24,7 +25,6 @@ from bajo.core.geometry import (
     orient_surface_normal,
     interpolate_triangle_attribute,
 )
-from bajo.core.tensor_layout import record_tile
 from bajo.core.color import luminance
 from bajo.rt.render_types import SamplingConfig
 from bajo.rt.material_types import (
@@ -312,9 +312,9 @@ def spectral_trace_surface[
                 )
                 var forward = inverse.inverse()
                 dpdu = forward.inv.vector(tangent)
-                var records = record_tile[.float32, 6](
-                    vertex_texcoords.unsafe_offset(Int(texcoord_offset)),
-                    triangle_idx + 1,
+                var records = TileTensor(
+                    ptr=vertex_texcoords.unsafe_offset(Int(texcoord_offset)),
+                    layout=row_major(Coord(triangle_idx + 1, Idx[6])),
                 )
                 uv_u = interpolate_triangle_attribute[2, 0](
                     records,
@@ -330,9 +330,9 @@ def spectral_trace_surface[
                 )
             var normal_offset = normal_offsets[unsafe_offset=mesh_idx]
             if normal_offset != UInt32.MAX:
-                var records = record_tile[.float32, 9](
-                    vertex_normals.unsafe_offset(Int(normal_offset)),
-                    triangle_idx + 1,
+                var records = TileTensor(
+                    ptr=vertex_normals.unsafe_offset(Int(normal_offset)),
+                    layout=row_major(Coord(triangle_idx + 1, Idx[9])),
                 )
                 var local_normal = Vec3f32[.LOCAL](
                     interpolate_triangle_attribute[3, 0](

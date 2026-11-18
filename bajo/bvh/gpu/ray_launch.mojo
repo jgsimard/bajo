@@ -1,11 +1,11 @@
 """Shared packed-ray launch ABI for GPU BVH front ends."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from max.gpu.host import DeviceBuffer
 from std.memory import bitcast
 
 from bajo.bvh.types import Hit
 from bajo.core import Frame, Point3f32, Rayf32, Vec3f32
-from bajo.core.tensor_layout import field_tile
 
 
 def validate_ray_launch(
@@ -25,7 +25,9 @@ def _load_packed_ray[
     frame: Frame,
 ](rays: ImmPointer[Float32, _], ray_count: Int, ray_idx: Int) -> Rayf32[frame]:
     # Field-major storage keeps each warp's scalar loads coalesced.
-    var fields = field_tile[.float32, Rayf32.STRIDE](rays, ray_count)
+    var fields = TileTensor(
+        ptr=rays, layout=row_major(Coord(Idx[Rayf32.STRIDE], ray_count))
+    )
     return Rayf32[frame](
         Point3f32[frame](
             fields[Rayf32.ORIGIN, ray_idx],

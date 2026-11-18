@@ -1,9 +1,10 @@
 """CPU scalar and packet BSDF setup over shared host/device shading."""
 
+from layout import TileTensor, Coord, Idx, col_major
 from std.memory import Pointer
 from std.sys.info import size_of
 from bajo.core import Vec3, Vec3f32, Rayf32, dot
-from bajo.core.tensor_layout import record_tile, gather_record_vec3
+from bajo.core.tensor_gather import gather_record_vec3
 from bajo.core.random import Rng
 from bajo.core.optics import conductor_k_from_reflectance
 from bajo.rt.material_parameters import CoatedParameters
@@ -118,9 +119,15 @@ struct _MaterialParameters[length: SIMDLength]:
                     first += 1
                 var ids = active.select(indices, indices[first])
                 var uniform = ids.eq(ids[first]).reduce_and()
-                var records = record_tile[
-                    .float32, CoatedDiffuseLayout.STRIDE, True
-                ](coated_fields.unsafe_ptr(), len(surfaces.coated_diffuses))
+                var records = TileTensor(
+                    ptr=coated_fields.unsafe_ptr(),
+                    layout=col_major(
+                        Coord(
+                            len(surfaces.coated_diffuses),
+                            Idx[CoatedDiffuseLayout.STRIDE],
+                        )
+                    ),
+                )
                 self.coated = load_coated_parameters(records, ids, uniform)
                 comptime if LOAD_ALBEDO:
                     albedo = gather_record_vec3[

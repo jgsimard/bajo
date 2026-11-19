@@ -1,5 +1,6 @@
 """Four-wavelength GPU wavefront transport and complete-sample film reduction."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from std.math import exp
 from bajo.rt.denoise_guides import denoise_component
 from max.gpu import global_idx, block_dim, grid_dim
@@ -70,17 +71,18 @@ from bajo.rt.rays import spawn_surface_ray
 
 def _emitter_source(scene: GpuRtSceneView, primitive: UInt32) -> UInt32:
     var begin = 0
+    var records = TileTensor(
+        ptr=scene.emission.keys_and_flags,
+        layout=row_major(Int(scene.emission.count), 2),
+    )
     var end = Int(scene.emission.count)
     while begin < end:
         var middle = (begin + end) // 2
-        if scene.emission.keys_and_flags[unsafe_offset=2 * middle] < primitive:
+        if records[middle, 0] < primitive:
             begin = middle + 1
         else:
             end = middle
-    if (
-        begin < Int(scene.emission.count)
-        and scene.emission.keys_and_flags[unsafe_offset=2 * begin] == primitive
-    ):
+    if begin < Int(scene.emission.count) and records[begin, 0] == primitive:
         return scene.spectral.value().emitters[unsafe_offset=begin]
     return NO_SPECTRUM
 
@@ -136,9 +138,12 @@ def _absorption(
     if medium == 0:
         return SampledSpectrum[1](1)
     var spectral = scene.spectral.value()
+    var absorption = TileTensor(
+        ptr=scene.medium_absorption, layout=row_major(Int(medium) + 1, 3)
+    )
     var source = spectral.media[unsafe_offset=Int(medium)]
     var sigma = spectral.sources.rgb.sample(
-        Color(scene.medium_absorption.unsafe_offset(3 * Int(medium))),
+        Color(absorption.ptr_at_offset((Int(medium), 0))),
         wavelengths,
         RgbSpectrumView.UNBOUNDED,
     )
@@ -258,13 +263,18 @@ def _shade[
     if not sampled.ok:
         return
     var continued = throughput * sampled.weight
-    var eta_offset = 16 * Int(state.capacity) + index
-    var eta_scale = state.fields[unsafe_offset=eta_offset]
+    var fields = TileTensor(
+        ptr=state.fields,
+        layout=row_major(
+            Coord(Idx[GpuSpectralStateView.PLANES], Int(state.capacity))
+        ),
+    )
+    var eta_scale = fields[16, index]
     comptime if kind == .DIELECTRIC:
         if dot(sampled.direction, hit.geometric_normal) < 0:
             var eta = material.parameter
             eta_scale *= eta * eta if hit.front_face else 1 / (eta * eta)
-    state.fields[unsafe_offset=eta_offset] = eta_scale
+    fields[16, index] = eta_scale
     if bounce + 1 >= RUSSIAN_ROULETTE_START_DEPTH:
         var importance = wavelengths.pdf.s0.gt(0).select(continued.s0, 0)
         comptime for channel in range(1, 4):
@@ -330,7 +340,13 @@ def spectral_initialize_kernel(
     state.store(4, index, wavelengths.pdf)
     state.store(8, index, SampledSpectrum[1](1))
     state.store(12, index, SampledSpectrum[1]())
-    state.fields[unsafe_offset=16 * Int(state.capacity) + index] = 1
+    var fields = TileTensor(
+        ptr=state.fields,
+        layout=row_major(
+            Coord(Idx[GpuSpectralStateView.PLANES], Int(state.capacity))
+        ),
+    )
+    fields[16, index] = 1
 
 
 def spectral_bounce_kernel[
@@ -530,11 +546,14 @@ def spectral_resolve_kernel(
     var pixel = global_idx.x
     if pixel >= count // spp:
         return
+    var radiance = TileTensor(
+        ptr=weights, layout=row_major(4, Int(state.capacity))
+    )
     var total = Color(0)
     var weight = Float32(0)
     for sample in range(spp):
         var index = pixel * spp + sample
-        var w = weights[unsafe_offset=3 * Int(state.capacity) + index]
+        var w = radiance[3, index]
         total += (
             film.apply_spectral_sample(
                 state.load(12, index), state.wavelengths(index)
@@ -543,9 +562,12 @@ def spectral_resolve_kernel(
         )
         weight += w
     total = total / weight if weight != 0 else Color(0)
-    var output = (Int(state.sample_base) // spp + pixel) * 3
+    var output = Int(state.sample_base) // spp + pixel
+    var resolved = TileTensor(
+        ptr=pixels, layout=row_major((Int(state.sample_base) + count) // spp, 3)
+    )
     comptime for channel in range(3):
-        pixels[unsafe_offset=output + channel] = total[channel]
+        resolved[output, channel] = total[channel]
 
 
 def spectral_capture_samples_kernel(
@@ -563,8 +585,12 @@ def spectral_capture_samples_kernel(
         state.load(12, i), state.wavelengths(i)
     )
     var id = Int(state.sample_base) + i
+    var captured = TileTensor(
+        ptr=colors, layout=row_major(Int(state.sample_base) + Int(count), 3)
+    )
     comptime for c in range(3):
-        colors[unsafe_offset=3 * id + c] = color[c]
-    output_weights[unsafe_offset=id] = weights[
-        unsafe_offset=3 * Int(state.capacity) + i
-    ]
+        captured[id, c] = color[c]
+    var radiance = TileTensor(
+        ptr=weights, layout=row_major(4, Int(state.capacity))
+    )
+    output_weights[unsafe_offset=id] = radiance[3, i]

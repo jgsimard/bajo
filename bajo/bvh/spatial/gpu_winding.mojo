@@ -1,5 +1,6 @@
 """Optional exact winding acceleration for topology-certified components."""
 
+from layout import TileTensor, row_major
 from max.gpu import global_idx, block_idx, thread_idx
 from max.gpu.primitives import block
 from max.gpu.host import DeviceContext, DeviceBuffer
@@ -33,6 +34,7 @@ def component_bounds_kernel[
     items: MutSpan[Float32, MutAnyOrigin],
     status: ImmSpan[UInt32, ImmutAnyOrigin],
 ):
+    var item_bounds = TileTensor(items, row_major(len(items) // 6, 6))
     var component = Int(global_idx.x)
     if status[0] != 0 or component >= len(offsets) - 2:
         return
@@ -42,17 +44,19 @@ def component_bounds_kernel[
             >= WINDING_COMPONENT_PARALLEL_MIN_FACES
         ):
             return
+    var vertices = TileTensor(points, row_major(len(points) // 3, 3))
+    var triangles = TileTensor(indices, row_major(len(indices) // 3, 3))
     comptime for axis in range(3):
         var lo = Float32(f32_max)
         var hi = -lo
         for slot in range(Int(offsets[component]), Int(offsets[component + 1])):
             var face = Int(faces[slot])
             comptime for corner in range(3):
-                var value = points[Int(indices[face * 3 + corner]) * 3 + axis]
+                var value = vertices[Int(triangles[face, corner]), axis]
                 lo = min(lo, value)
                 hi = max(hi, value)
-        items[component * 6 + axis] = lo
-        items[component * 6 + axis + 3] = hi
+        item_bounds[component, axis] = lo
+        item_bounds[component, axis + 3] = hi
 
 
 def component_bounds_parallel_kernel[
@@ -66,10 +70,13 @@ def component_bounds_parallel_kernel[
     status: ImmSpan[UInt32, ImmutAnyOrigin],
     large_components: ImmSpan[UInt32, ImmutAnyOrigin],
 ):
+    var output_bounds = TileTensor(output, row_major(len(output) // 6, 6))
     var component = Int(large_components[Int(block_idx.x)])
     var lane = Int(thread_idx.x)
     if component >= len(offsets) - 2 or status[0] != 0:
         return
+    var vertices = TileTensor(points, row_major(len(points) // 3, 3))
+    var triangles = TileTensor(indices, row_major(len(indices) // 3, 3))
     comptime for axis in range(3):
         var lo = Float32(f32_max)
         var hi = -lo
@@ -80,14 +87,14 @@ def component_bounds_parallel_kernel[
         ):
             var face = Int(faces[slot])
             comptime for corner in range(3):
-                var value = points[3 * Int(indices[3 * face + corner]) + axis]
+                var value = vertices[Int(triangles[face, corner]), axis]
                 lo = min(lo, value)
                 hi = max(hi, value)
         lo = block.min[block_size=block_size, broadcast=True](lo)
         hi = block.max[block_size=block_size, broadcast=True](hi)
         if lane == 0:
-            output[6 * component + axis] = lo
-            output[6 * component + axis + 3] = hi
+            output_bounds[component, axis] = lo
+            output_bounds[component, axis + 3] = hi
 
 
 def component_bounds_tiles_kernel[
@@ -101,29 +108,33 @@ def component_bounds_tiles_kernel[
     status: ImmSpan[UInt32, ImmutAnyOrigin],
     tiles: ImmSpan[UInt32, ImmutAnyOrigin],
 ):
+    var output_bounds = TileTensor(output, row_major(len(output) // 6, 6))
+    var descriptors = TileTensor(tiles, row_major(len(tiles) // 3, 3))
     var tile = Int(block_idx.x)
-    var component = Int(tiles[3 * tile])
+    var component = Int(descriptors[tile, 0])
     var lane = Int(thread_idx.x)
     if component >= len(offsets) - 2 or status[0] != 0:
         return
+    var vertices = TileTensor(points, row_major(len(points) // 3, 3))
+    var triangles = TileTensor(indices, row_major(len(indices) // 3, 3))
     comptime for axis in range(3):
         var lo = Float32(f32_max)
         var hi = -lo
         for slot in range(
-            Int(tiles[3 * tile + 1]) + lane,
-            Int(tiles[3 * tile + 2]),
+            Int(descriptors[tile, 1]) + lane,
+            Int(descriptors[tile, 2]),
             block_size,
         ):
             var face = Int(faces[slot])
             comptime for corner in range(3):
-                var value = points[3 * Int(indices[3 * face + corner]) + axis]
+                var value = vertices[Int(triangles[face, corner]), axis]
                 lo = min(lo, value)
                 hi = max(hi, value)
         lo = block.min[block_size=block_size, broadcast=True](lo)
         hi = block.max[block_size=block_size, broadcast=True](hi)
         if lane == 0:
-            output[6 * tile + axis] = lo
-            output[6 * tile + axis + 3] = hi
+            output_bounds[tile, axis] = lo
+            output_bounds[tile, axis + 3] = hi
 
 
 def component_bounds_finish_tiles_kernel[
@@ -137,6 +148,8 @@ def component_bounds_finish_tiles_kernel[
 ):
     if status[0] != 0:
         return
+    var output_bounds = TileTensor(output, row_major(len(output) // 6, 6))
+    var partial_bounds = TileTensor(partials, row_major(len(partials) // 6, 6))
     var group = Int(block_idx.x)
     var component = Int(components[group])
     var lane = Int(thread_idx.x)
@@ -146,13 +159,13 @@ def component_bounds_finish_tiles_kernel[
         for tile in range(
             Int(offsets[group]) + lane, Int(offsets[group + 1]), block_size
         ):
-            lo = min(lo, partials[6 * tile + axis])
-            hi = max(hi, partials[6 * tile + axis + 3])
+            lo = min(lo, partial_bounds[tile, axis])
+            hi = max(hi, partial_bounds[tile, axis + 3])
         lo = block.min[block_size=block_size, broadcast=True](lo)
         hi = block.max[block_size=block_size, broadcast=True](hi)
         if lane == 0:
-            output[6 * component + axis] = lo
-            output[6 * component + axis + 3] = hi
+            output_bounds[component, axis] = lo
+            output_bounds[component, axis + 3] = hi
 
 
 struct GpuWindingCache[frame: Frame = .WORLD]:

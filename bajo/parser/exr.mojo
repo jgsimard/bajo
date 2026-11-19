@@ -1,5 +1,6 @@
 """Minimal OpenEXR scanline decoder for linear RGB environment maps."""
 
+from layout import Coord, Idx, TileTensor, row_major
 from std.bit import byte_swap
 from std.memory import bitcast
 from max.algorithm import parallelize
@@ -482,6 +483,7 @@ def _decode_channel[
 ) raises:
     comptime vector_width = simd_width_of[Float32]()
     var vector_end = width - width % vector_width
+    var pixels = TileTensor(output, row_major(Coord(width, Idx[3])))
     comptime offsets = iota[.int32, vector_width]() * Int32(3)
     for x in range(0, vector_end, vector_width):
         var values: SIMD[.float32, vector_width]
@@ -506,9 +508,7 @@ def _decode_channel[
                 values = bitcast[.float32](bits)
         if not isfinite(values).reduce_and():
             raise Error("OpenEXR environment contains a non-finite value")
-        output.unsafe_ptr().unsafe_offset(3 * x + lane).unsafe_scatter(
-            offsets, values
-        )
+        pixels.ptr_at_offset(Coord(x, lane)).unsafe_scatter(offsets, values)
     for x in range(vector_end, width):
         var value: Float32
         comptime if pixel_type == 1:
@@ -532,7 +532,7 @@ def _decode_channel[
                 value = bitcast[.float32](bits)
         if not isfinite(value):
             raise Error("OpenEXR environment contains a non-finite value")
-        output[3 * x + lane] = value
+        pixels[x, lane] = value
 
 
 def _decode_scanlines(

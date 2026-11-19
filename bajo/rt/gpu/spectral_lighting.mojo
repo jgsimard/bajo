@@ -1,5 +1,6 @@
 """Prepared GPU light tables and device-safe direct-light sampling."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from std.utils.numerics import max_finite
 
 from std.math import abs, pi
@@ -75,6 +76,7 @@ def sample_spectral_light[
     )
     var light_id = UInt32(Int(scene.light_count))
     var emission: Color
+    var primitive = UInt32.MAX
     var geometry: _DirectLightGeometrySample[1]
     if selection_u < environment_probability:
         var selected_pixel = 0
@@ -92,18 +94,22 @@ def sample_spectral_light[
                     lighting.environment_aliases[unsafe_offset=draw.column],
                 )
             )
-            var desc_base = GpuTextureDescLayout.STRIDE * Int(
-                scene.environment_texture_index
+            var texture_index = Int(scene.environment_texture_index)
+            var descriptors = TileTensor(
+                ptr=scene.texture_descs,
+                layout=row_major(
+                    Coord(texture_index + 1, Idx[GpuTextureDescLayout.STRIDE])
+                ),
             )
             var width = Int(
-                scene.texture_descs[
-                    unsafe_offset=desc_base + GpuTextureDescLayout.WIDTH
-                ]
+                descriptors.load[invariant=False](
+                    Coord(texture_index, GpuTextureDescLayout.WIDTH)
+                )
             )
             var height = Int(
-                scene.texture_descs[
-                    unsafe_offset=desc_base + GpuTextureDescLayout.HEIGHT
-                ]
+                descriptors.load[invariant=False](
+                    Coord(texture_index, GpuTextureDescLayout.HEIGHT)
+                )
             )
             var pixel_x = selected_pixel % width
             var pixel_y = selected_pixel / width
@@ -179,27 +185,31 @@ def sample_spectral_light[
             draw, alias_probability, lighting.aliases[unsafe_offset=draw.column]
         )
         light_id = UInt32(selected_idx)
-        var base = (
-            Int(scene.light_count) + Int(selected_idx) * GPU_RT_LIGHT.STRIDE
+        var lights = TileTensor(
+            ptr=scene.light_fields.unsafe_offset(Int(scene.light_count)),
+            layout=row_major(
+                Coord(Int(scene.light_count), Idx[GPU_RT_LIGHT.STRIDE])
+            ),
         )
+        var record = lights[Int(selected_idx), :]
         var p0 = Point3f32[.WORLD](
-            scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT.P0_X)
+            record.ptr_at_offset(Coord(GPU_RT_LIGHT.P0_X))
         )
         var surface_sample: _LightSurfaceSample[1]
         comptime match light_kind:
             case .SPHERE:
-                var radius = scene.light_fields[
-                    unsafe_offset=base + GPU_RT_LIGHT.RADIUS
-                ]
+                var radius = record.load[invariant=False](
+                    Coord(GPU_RT_LIGHT.RADIUS)
+                )
                 surface_sample = _sample_sphere_light_surface(
                     p0, radius, random_unit_vector[.WORLD](rng)
                 )
             case .TRIANGLE:
                 var p1 = Point3f32[.WORLD](
-                    scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT.P1_X)
+                    record.ptr_at_offset(Coord(GPU_RT_LIGHT.P1_X))
                 )
                 var p2 = Point3f32[.WORLD](
-                    scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT.P2_X)
+                    record.ptr_at_offset(Coord(GPU_RT_LIGHT.P2_X))
                 )
                 surface_sample = _sample_triangle_light_surface(
                     p0, p1, p2, rng.f32(), rng.f32()
@@ -209,29 +219,23 @@ def sample_spectral_light[
                     scene.light_kinds[unsafe_offset=selected_idx] & UInt32(0xF)
                 )
                 if kind == PrimitiveKind.SPHERE:
-                    var radius = scene.light_fields[
-                        unsafe_offset=base + GPU_RT_LIGHT.RADIUS
-                    ]
+                    var radius = record.load[invariant=False](
+                        Coord(GPU_RT_LIGHT.RADIUS)
+                    )
                     surface_sample = _sample_sphere_light_surface(
                         p0, radius, random_unit_vector[.WORLD](rng)
                     )
                 else:
                     var p1 = Point3f32[.WORLD](
-                        scene.light_fields.unsafe_offset(
-                            base + GPU_RT_LIGHT.P1_X
-                        )
+                        record.ptr_at_offset(Coord(GPU_RT_LIGHT.P1_X))
                     )
                     var p2 = Point3f32[.WORLD](
-                        scene.light_fields.unsafe_offset(
-                            base + GPU_RT_LIGHT.P2_X
-                        )
+                        record.ptr_at_offset(Coord(GPU_RT_LIGHT.P2_X))
                     )
                     surface_sample = _sample_triangle_light_surface(
                         p0, p1, p2, rng.f32(), rng.f32()
                     )
-        emission = Color(
-            scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT.E_X)
-        )
+        emission = Color(record.ptr_at_offset(Coord(GPU_RT_LIGHT.E_X)))
         if scene.opacity.count > 0:
             var texture_u = surface_sample.u
             var texture_v = surface_sample.v
@@ -239,25 +243,24 @@ def sample_spectral_light[
                 scene.light_kinds[unsafe_offset=selected_idx] & UInt32(0xF)
             )
             if kind != PrimitiveKind.SPHERE:
-                var uv_base = base + GPU_RT_LIGHT.UV0
                 var uv = light_sample_uv(
-                    scene.light_fields[unsafe_offset=uv_base],
-                    scene.light_fields[unsafe_offset=uv_base + 1],
-                    scene.light_fields[unsafe_offset=uv_base + 2],
-                    scene.light_fields[unsafe_offset=uv_base + 3],
-                    scene.light_fields[unsafe_offset=uv_base + 4],
-                    scene.light_fields[unsafe_offset=uv_base + 5],
+                    record.load[invariant=False](Coord(GPU_RT_LIGHT.UV0)),
+                    record.load[invariant=False](Coord(GPU_RT_LIGHT.UV0 + 1)),
+                    record.load[invariant=False](Coord(GPU_RT_LIGHT.UV0 + 2)),
+                    record.load[invariant=False](Coord(GPU_RT_LIGHT.UV0 + 3)),
+                    record.load[invariant=False](Coord(GPU_RT_LIGHT.UV0 + 4)),
+                    record.load[invariant=False](Coord(GPU_RT_LIGHT.UV0 + 5)),
                     surface_sample.u,
                     surface_sample.v,
                 )
                 texture_u = uv[0]
                 texture_v = uv[1]
-            var primitive = bitcast[.uint32](
-                scene.light_fields[unsafe_offset=base + GPU_RT_LIGHT.PRIMITIVE]
+            var opacity_primitive = bitcast[.uint32](
+                record.load[invariant=False](Coord(GPU_RT_LIGHT.PRIMITIVE))
             )
             surface_sample.valid &= opacity_accepts(
                 gpu_opacity_value(
-                    scene.opacity, primitive, texture_u, texture_v
+                    scene.opacity, opacity_primitive, texture_u, texture_v
                 ),
                 opacity_point_sample(surface_sample.point),
             )
@@ -269,15 +272,12 @@ def sample_spectral_light[
             lighting.total_weight,
             surface_kind == .DIELECTRIC,
             bitcast[.uint32](
-                scene.light_fields[unsafe_offset=base + GPU_RT_LIGHT.FLAGS]
+                record.load[invariant=False](Coord(GPU_RT_LIGHT.FLAGS))
             )
             != 0,
         )
-    var primitive = UInt32.MAX
-    if selection_u >= environment_probability:
-        var base = Int(scene.light_count) + Int(light_id) * GPU_RT_LIGHT.STRIDE
         primitive = bitcast[.uint32](
-            scene.light_fields[unsafe_offset=base + GPU_RT_LIGHT.PRIMITIVE]
+            record.load[invariant=False](Coord(GPU_RT_LIGHT.PRIMITIVE))
         )
     return SpectralLightCandidate(
         geometry.valid,

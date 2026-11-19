@@ -1,5 +1,7 @@
 """Packed original wavelength curves with the same view on host and device."""
 
+from layout import TileTensor, Coord, Idx, row_major
+from bajo.core.tensor_gather import gather_record_field
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from bajo.core.spectrum import (
     PiecewiseLinearSpectrum,
@@ -42,10 +44,13 @@ struct PiecewiseSpectrumView[origin: ImmOrigin = ImmUntrackedOrigin](
         var valid = indices.lt(self.count)
         if not valid.reduce_or():
             return result
-        var descriptors = valid.select(indices, 0).cast[.int64]() * 2
-        var offsets = self.ranges.unsafe_gather(descriptors).cast[.int64]()
+        var descriptors = TileTensor(
+            ptr=self.ranges, layout=row_major(Coord(Int(self.count), Idx[2]))
+        )
+        var ids = valid.select(indices, 0)
+        var offsets = gather_record_field[0](descriptors, ids).cast[.int64]()
         var counts = (
-            self.ranges.unsafe_gather(descriptors + 1).cast[.int64]() // 2
+            gather_record_field[1](descriptors, ids).cast[.int64]() // 2
         )
         comptime if width <= 4:
             # Small packets keep independent searches: sparse or short curves

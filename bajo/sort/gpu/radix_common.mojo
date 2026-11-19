@@ -10,7 +10,7 @@ from max.gpu.primitives import warp
 from max.gpu.sync import barrier
 from .utils import DoubleBuffer
 
-comptime ordering = Ordering.RELAXED
+comptime ordering = Ordering.relaxed
 
 
 @inline(.always)

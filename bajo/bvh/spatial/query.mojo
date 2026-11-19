@@ -5,6 +5,7 @@ node (subtree escape index, primitive ID or EMPTY_LANE for an internal node).
 Touching boundaries count as overlap. Invalid queries produce no candidates.
 """
 
+from layout import Coord, TileTensor, row_major
 from bajo.core.intersect import (
     ray_overlaps_bounds_cached,
     sphere_overlaps_bounds,
@@ -77,7 +78,8 @@ struct BoundsQuery[origin: ImmOrigin, frame: Frame](Copyable):
                 inverse[axis] = 1.0 / direction if direction != 0.0 else 0.0
         self.inverse_direction = inverse
         if self.valid:
-            self.end = nodes[Int(root) * 2]
+            var fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
+            self.end = fields[Int(root), 0]
 
     @inline(.always)
     def _begin(mut self, max_dist: Float32) -> Bool:
@@ -98,12 +100,19 @@ struct BoundsQuery[origin: ImmOrigin, frame: Frame](Copyable):
             active = (SIMD[.int, width](current) + iota[.int, width]()).lt(
                 Int(self.end)
             )
-        var ptr = self.bounds.unsafe_ptr().unsafe_offset(current * 6)
+        var bounds = TileTensor(
+            self.bounds, row_major(len(self.bounds) // 6, 6)
+        )
+        var stride = Int(bounds.layout(Coord(1, 0)))
         var lo = Point3[.float32, Self.frame, width](0.0)
         var hi = Point3[.float32, Self.frame, width](0.0)
         comptime for axis in range(3):
-            lo[axis] = strided_load(ptr.unsafe_offset(axis), 6, active)
-            hi[axis] = strided_load(ptr.unsafe_offset(axis + 3), 6, active)
+            lo[axis] = strided_load(
+                bounds.ptr_at_offset((current, axis)), stride, active
+            )
+            hi[axis] = strided_load(
+                bounds.ptr_at_offset((current, axis + 3)), stride, active
+            )
         var box = AxisAlignedBoundingBox[.float32, Self.frame, width](lo, hi)
         if self.kind == 0:
             var overlap = active
@@ -128,11 +137,12 @@ struct BoundsQuery[origin: ImmOrigin, frame: Frame](Copyable):
     @inline(.always)
     def _advance_node(mut self) -> UInt32:
         var current = Int(self.cursor)
+        var nodes = TileTensor(self.nodes, row_major(len(self.nodes) // 2, 2))
         if not self._node_overlaps[1, True](current)[0]:
-            self.cursor = self.nodes.unsafe_ptr().unsafe_load(current * 2)
+            self.cursor = nodes.load[invariant=False](Coord(current, 0))
             return EMPTY_LANE
         self.cursor += 1
-        return self.nodes.unsafe_ptr().unsafe_load(current * 2 + 1)
+        return nodes.load[invariant=False](Coord(current, 1))
 
     @inline(.always)
     def next(mut self, mut index: UInt32, max_dist: Float32 = f32_max) -> Bool:
@@ -151,6 +161,7 @@ struct BoundsQuery[origin: ImmOrigin, frame: Frame](Copyable):
     ](mut self, output: MutSpan[UInt32, _], max_dist: Float32 = f32_max) -> Int:
         if len(output) == 0 or not self._begin(max_dist):
             return 0
+        var nodes = TileTensor(self.nodes, row_major(len(self.nodes) // 2, 2))
         var count = 0
         while self.cursor < self.end and count < len(output):
             comptime if is_gpu() or width == 1:
@@ -173,15 +184,15 @@ struct BoundsQuery[origin: ImmOrigin, frame: Frame](Copyable):
                     var current = Int(self.cursor)
                     if overlaps[current - start]:
                         self.cursor += 1
-                        var primitive = self.nodes.unsafe_ptr().unsafe_load(
-                            current * 2 + 1
+                        var primitive = nodes.load[invariant=False](
+                            Coord(current, 1)
                         )
                         if primitive != EMPTY_LANE:
                             output[count] = primitive
                             count += 1
                     else:
-                        self.cursor = self.nodes.unsafe_ptr().unsafe_load(
-                            current * 2
+                        self.cursor = nodes.load[invariant=False](
+                            Coord(current, 0)
                         )
         return count
 

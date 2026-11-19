@@ -1,3 +1,4 @@
+from layout import Coord, TileTensor, col_major
 from max.algorithm import parallelize
 from std.atomic import Atomic, Ordering
 from std.math import abs, max, min, iota
@@ -82,76 +83,49 @@ struct _HplocBoundsPacket[width: SIMDLength](TrivialRegisterPassable):
 
 
 struct _HplocClusterBounds(Copyable):
-    """Padded SoA bounds cache for CPU cluster merging."""
+    """Padded SoA bounds cache for CPU cluster merging.
 
-    var min_x: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
-    var min_y: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
-    var min_z: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
-    var max_x: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
-    var max_y: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
-    var max_z: Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY]
+    Views use native-width CPU indices to avoid narrowing address arithmetic.
+    """
+
+    var values: Array[Float32, 6 * _HPLOC_PADDED_BOUNDS_CAPACITY]
 
     def __init__(out self):
-        self.min_x = Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY](
-            uninitialized=True
-        )
-        self.min_y = Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY](
-            uninitialized=True
-        )
-        self.min_z = Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY](
-            uninitialized=True
-        )
-        self.max_x = Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY](
-            uninitialized=True
-        )
-        self.max_y = Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY](
-            uninitialized=True
-        )
-        self.max_z = Array[Float32, _HPLOC_PADDED_BOUNDS_CAPACITY](
+        self.values = Array[Float32, 6 * _HPLOC_PADDED_BOUNDS_CAPACITY](
             uninitialized=True
         )
 
     def set[frame: Frame](mut self, pos: Int, bounds: AABB[frame]):
+        var fields = TileTensor[linear_idx_type=.int](
+            MutSpan(self.values), col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6]()
+        )
         var storage_pos = _HPLOC_BOUNDS_PAD + pos
-        self.min_x[storage_pos] = bounds._min.x[0]
-        self.min_y[storage_pos] = bounds._min.y[0]
-        self.min_z[storage_pos] = bounds._min.z[0]
-        self.max_x[storage_pos] = bounds._max.x[0]
-        self.max_y[storage_pos] = bounds._max.y[0]
-        self.max_z[storage_pos] = bounds._max.z[0]
+        comptime for axis in range(3):
+            fields[storage_pos, axis] = bounds._min[axis]
+            fields[storage_pos, axis + 3] = bounds._max[axis]
 
     def copy(mut self, dst: Int, src: Int):
-        var dst_pos = _HPLOC_BOUNDS_PAD + dst
-        var src_pos = _HPLOC_BOUNDS_PAD + src
-        self.min_x[dst_pos] = self.min_x[src_pos]
-        self.min_y[dst_pos] = self.min_y[src_pos]
-        self.min_z[dst_pos] = self.min_z[src_pos]
-        self.max_x[dst_pos] = self.max_x[src_pos]
-        self.max_y[dst_pos] = self.max_y[src_pos]
-        self.max_z[dst_pos] = self.max_z[src_pos]
+        var fields = TileTensor[linear_idx_type=.int](
+            MutSpan(self.values), col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6]()
+        )
+        comptime for field in range(6):
+            fields[_HPLOC_BOUNDS_PAD + dst, field] = fields[
+                _HPLOC_BOUNDS_PAD + src, field
+            ]
 
     def load[
         width: SIMDLength
     ](self, storage_pos: Int) -> _HplocBoundsPacket[width]:
+        var fields = TileTensor[linear_idx_type=.int](
+            ImmSpan(self.values), col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6]()
+        )
         return _HplocBoundsPacket[width](
-            self.min_x.unsafe_ptr()
-            .unsafe_offset(storage_pos)
-            .unsafe_load[width=width](),
-            self.min_y.unsafe_ptr()
-            .unsafe_offset(storage_pos)
-            .unsafe_load[width=width](),
-            self.min_z.unsafe_ptr()
-            .unsafe_offset(storage_pos)
-            .unsafe_load[width=width](),
-            self.max_x.unsafe_ptr()
-            .unsafe_offset(storage_pos)
-            .unsafe_load[width=width](),
-            self.max_y.unsafe_ptr()
-            .unsafe_offset(storage_pos)
-            .unsafe_load[width=width](),
-            self.max_z.unsafe_ptr()
-            .unsafe_offset(storage_pos)
-            .unsafe_load[width=width](),
+            fields.load[width=width](Coord(storage_pos, 0)),
+            fields.load[width=width](Coord(storage_pos, 1)),
+            fields.load[width=width](Coord(storage_pos, 2)),
+            fields.load[width=width](Coord(storage_pos, 3)),
+            fields.load[width=width](Coord(storage_pos, 4)),
+            fields.load[width=width](Coord(storage_pos, 5)),
         )
 
     @inline(.always)
@@ -169,13 +143,17 @@ struct _HplocClusterBounds(Copyable):
                 iota[.int, width](_HPLOC_BOUNDS_PAD + first),
                 _HPLOC_BOUNDS_PAD,
             )
+            var fields = TileTensor[linear_idx_type=.int](
+                ImmSpan(self.values),
+                col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6](),
+            )
             return _HplocBoundsPacket[width](
-                self.min_x.unsafe_ptr().unsafe_gather(positions),
-                self.min_y.unsafe_ptr().unsafe_gather(positions),
-                self.min_z.unsafe_ptr().unsafe_gather(positions),
-                self.max_x.unsafe_ptr().unsafe_gather(positions),
-                self.max_y.unsafe_ptr().unsafe_gather(positions),
-                self.max_z.unsafe_ptr().unsafe_gather(positions),
+                fields.ptr_at_offset(Coord(0, 0)).unsafe_gather(positions),
+                fields.ptr_at_offset(Coord(0, 1)).unsafe_gather(positions),
+                fields.ptr_at_offset(Coord(0, 2)).unsafe_gather(positions),
+                fields.ptr_at_offset(Coord(0, 3)).unsafe_gather(positions),
+                fields.ptr_at_offset(Coord(0, 4)).unsafe_gather(positions),
+                fields.ptr_at_offset(Coord(0, 5)).unsafe_gather(positions),
             )
 
     def initialize_padding(mut self, cluster_count: Int):
@@ -192,12 +170,10 @@ struct _HplocClusterBounds(Copyable):
             self._clear_storage(_HPLOC_BOUNDS_PAD + pos)
 
     def _clear_storage(mut self, storage_pos: Int):
-        self.min_x[storage_pos] = 0.0
-        self.min_y[storage_pos] = 0.0
-        self.min_z[storage_pos] = 0.0
-        self.max_x[storage_pos] = 0.0
-        self.max_y[storage_pos] = 0.0
-        self.max_z[storage_pos] = 0.0
+        var fields = TileTensor[linear_idx_type=.int](
+            MutSpan(self.values), col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6]()
+        )
+        _ = fields[storage_pos, :].fill(0.0)
 
 
 @fieldwise_init
@@ -487,7 +463,7 @@ def _merge_round[
         )
         var node_idx: UInt32
         comptime if parallel_build:
-            node_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
+            node_idx = Atomic.fetch_add[ordering=Ordering.relaxed](
                 next_node.unsafe_ptr(), UInt32(1)
             )
         else:
@@ -511,7 +487,7 @@ def _merge_round[
 
     var allocation_base: UInt32
     comptime if parallel_build:
-        allocation_base = Atomic.fetch_add[ordering=Ordering.RELAXED](
+        allocation_base = Atomic.fetch_add[ordering=Ordering.relaxed](
             next_node.unsafe_ptr(), UInt32(merge_count)
         )
     else:
@@ -1007,7 +983,7 @@ def _emit_hploc_node[
 
     var left_child: UInt32
     comptime if parallel:
-        left_child = Atomic.fetch_add[ordering=Ordering.RELAXED](
+        left_child = Atomic.fetch_add[ordering=Ordering.relaxed](
             next_node.unsafe_ptr(), UInt32(2)
         )
     else:

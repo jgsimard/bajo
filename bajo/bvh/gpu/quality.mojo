@@ -1,3 +1,4 @@
+from layout import Coord, Idx, TileTensor, row_major
 from bajo.bvh.constants import (
     BinaryBvhNode,
     EMPTY_LANE,
@@ -8,7 +9,6 @@ from bajo.bvh.gpu.builder.binary_layout import GpuBinaryBoundsBvh
 from bajo.bvh.wide_meta import (
     _wide_meta_count,
     _wide_meta_data,
-    _wide_node_index,
 )
 from bajo.core import AABB
 
@@ -127,10 +127,19 @@ def measure_wide_bvh_quality[
     var cursor = 0
 
     with tree.wide_nodes.map_to_host() as wide_nodes:
-        var bounds_span = Span(
-            unsafe_ptr=wide_nodes.unsafe_ptr(), length=len(wide_nodes)
+        var bounds = TileTensor(
+            wide_nodes.as_span()[
+                : tree.node_count * WideNode.CHILD_STRIDE * Int(node_width)
+            ],
+            row_major(
+                Coord(
+                    tree.node_count,
+                    Idx[WideNode.CHILD_STRIDE],
+                    Idx[Int(node_width)],
+                )
+            ),
         )
-        var nodes_u32 = wide_nodes.unsafe_ptr().unsafe_bitcast[UInt32]()
+        var metadata = bounds.bitcast[.uint32]()
 
         while cursor < len(pending):
             var node_idx = pending[cursor]
@@ -147,34 +156,30 @@ def measure_wide_bvh_quality[
             var node_bounds = AABB[.WORLD].invalid()
             var live_lanes = 0
             comptime for lane in range(node_width):
-                var meta = nodes_u32[
-                    unsafe_offset=_wide_node_index[node_width](
-                        node_idx, WideNode.META, lane
-                    )
-                ]
+                var meta = metadata[Int(node_idx), WideNode.META, lane]
                 var count = _wide_meta_count(meta)
                 if count == EMPTY_LANE:
                     continue
 
                 live_lanes += 1
                 var child_bounds = AABB[.WORLD].invalid()
-                child_bounds._min.x = bounds_span[
-                    _wide_node_index[node_width](node_idx, WideNode.MIN_X, lane)
+                child_bounds._min.x = bounds[
+                    Int(node_idx), WideNode.MIN_X, lane
                 ]
-                child_bounds._min.y = bounds_span[
-                    _wide_node_index[node_width](node_idx, WideNode.MIN_Y, lane)
+                child_bounds._min.y = bounds[
+                    Int(node_idx), WideNode.MIN_Y, lane
                 ]
-                child_bounds._min.z = bounds_span[
-                    _wide_node_index[node_width](node_idx, WideNode.MIN_Z, lane)
+                child_bounds._min.z = bounds[
+                    Int(node_idx), WideNode.MIN_Z, lane
                 ]
-                child_bounds._max.x = bounds_span[
-                    _wide_node_index[node_width](node_idx, WideNode.MAX_X, lane)
+                child_bounds._max.x = bounds[
+                    Int(node_idx), WideNode.MAX_X, lane
                 ]
-                child_bounds._max.y = bounds_span[
-                    _wide_node_index[node_width](node_idx, WideNode.MAX_Y, lane)
+                child_bounds._max.y = bounds[
+                    Int(node_idx), WideNode.MAX_Y, lane
                 ]
-                child_bounds._max.z = bounds_span[
-                    _wide_node_index[node_width](node_idx, WideNode.MAX_Z, lane)
+                child_bounds._max.z = bounds[
+                    Int(node_idx), WideNode.MAX_Z, lane
                 ]
                 node_bounds.grow(child_bounds)
                 if count == 0:

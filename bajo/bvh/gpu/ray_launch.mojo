@@ -63,9 +63,11 @@ def _store_packed_hit_vectorized[
     # A hit occupies 32 bytes, so each record preserves pointer alignment.
     # Pointer views can start at any float offset and need a scalar fallback.
     if (Int(hits) & 15) == 0:
-        var base = ray_idx * Hit.STRIDE
-        hits.unsafe_store[width=4, alignment=16](
-            base,
+        var records = TileTensor(
+            ptr=hits, layout=row_major(ray_count, Hit.STRIDE)
+        )
+        records.store[width=4, alignment=16](
+            Coord(ray_idx, 0),
             SIMD[.float32, 4](
                 hit.u[0],
                 hit.v[0],
@@ -73,8 +75,8 @@ def _store_packed_hit_vectorized[
                 bitcast[.float32](hit.inst[0]),
             ),
         )
-        hits.unsafe_store[width=4, alignment=16](
-            base + 4,
+        records.store[width=4, alignment=16](
+            Coord(ray_idx, 4),
             SIMD[.float32, 4](
                 hit.normal.x[0],
                 hit.normal.y[0],

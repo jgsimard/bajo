@@ -18,7 +18,7 @@ from bajo.rt.spectrum_sources import SpectrumSource, NO_SPECTRUM
 from std.utils.numerics import isfinite
 
 from bajo.core import Affine3f32, Vec3
-from bajo.core.tensor_gather import gather_record_vec3
+from bajo.core.tensor_gather import gather_record_vec3, gather_record_field
 from bajo.bvh.constants import PrimitiveKind
 
 
@@ -664,9 +664,13 @@ struct SurfaceStore(Defaultable):
         var amount = self.mix_amounts[index]
         var texture_index = self.mix_texture_indices[index]
         if texture_index != NO_TEXTURE:
+            var scales = TileTensor(
+                ImmSpan(self.mix_uv_scales),
+                row_major(Coord(len(self.mix_uv_scales) // 2, Idx[2])),
+            )
             amount *= self.image_textures[Int(texture_index)].sample_luminance(
-                u * self.mix_uv_scales[2 * index],
-                v * self.mix_uv_scales[2 * index + 1],
+                u * scales[index, 0],
+                v * scales[index, 1],
             )
         return amount.clamp(0.0, 1.0)
 
@@ -679,11 +683,15 @@ struct SurfaceStore(Defaultable):
     ) -> SurfaceId[1]:
         var selected = surface.copy()
         random = random.clamp(0.0, 0.99999994)
+        var children = TileTensor(
+            ImmSpan(self.mix_surfaces),
+            row_major(Coord(len(self.mix_surfaces) // 2, Idx[2])),
+        )
         while selected.kind() == .MIX:
             var index = Int(selected.index())
             var amount = self.sample_mix_amount(index, u, v)
             var branch = sample_mix_branch(amount, random)
-            selected = SurfaceId.from_raw(self.mix_surfaces[2 * index + branch])
+            selected = SurfaceId.from_raw(children[index, branch])
         return selected^
 
     def resolve_mix_packet[
@@ -710,6 +718,14 @@ struct SurfaceStore(Defaultable):
         var pending = active & (selected.value >> SURFACE_INDEX_BITS).eq(
             MaterialKind.MIX.value()
         )
+        var scales = TileTensor(
+            ImmSpan(self.mix_uv_scales),
+            row_major(Coord(len(self.mix_uv_scales) // 2, Idx[2])),
+        )
+        var children = TileTensor(
+            ImmSpan(self.mix_surfaces),
+            row_major(Coord(len(self.mix_surfaces) // 2, Idx[2])),
+        )
         while pending.reduce_or():
             var ids = pending.select(
                 selected.value & SURFACE_INDEX_MASK, 0
@@ -719,8 +735,8 @@ struct SurfaceStore(Defaultable):
                 self.mix_texture_indices.unsafe_ptr().unsafe_gather(ids),
                 NO_TEXTURE,
             )
-            var us = self.mix_uv_scales.unsafe_ptr().unsafe_gather(2 * ids)
-            var vs = self.mix_uv_scales.unsafe_ptr().unsafe_gather(2 * ids + 1)
+            var us = gather_record_field[0](scales, ids)
+            var vs = gather_record_field[1](scales, ids)
             var texel = self.sample_image_textures(textures, u * us, v * vs)
             amount = (
                 textures.ne(NO_TEXTURE)
@@ -733,8 +749,8 @@ struct SurfaceStore(Defaultable):
                 (random - amount) / second.select(Float32(1), 1 - amount),
             )
             random = pending.select(remapped, random)
-            var child = self.mix_surfaces.unsafe_ptr().unsafe_gather(
-                2 * ids + second.cast[.int64]()
+            var child = gather_record_field(
+                children, ids, second.cast[.int64]()
             )
             selected.value = pending.select(child, selected.value)
             pending = active & (selected.value >> SURFACE_INDEX_BITS).eq(

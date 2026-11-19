@@ -22,7 +22,7 @@ from bajo.rt.wavefront_contract import WAVE_COUNTER, WAVE_STATUS
 from bajo.viewer.accumulation import FrameAccumulator
 from bajo.viewer.worker import CompletedFrame
 from test.viewer.test_accumulation import _frame
-from bajo.benchmark.gpu_harness import gpu_rt_camera
+from bajo.benchmark.gpu_harness import GPU_RT_CAMERA
 from bajo.rt.film import FilmResponse
 from bajo.rt.material_types import Integrator
 
@@ -324,7 +324,9 @@ def test_gpu_preview_weights_reset_tails_and_failed_work() raises:
     with DeviceContext() as ctx:
         for count in [1, 3, 7, 17, 65, 4096]:
             var target = GpuRtRenderTarget(
-                ctx, RenderSettings(count, 1, 1, 2026, 1), gpu_rt_camera()
+                ctx,
+                RenderSettings(count, 1, 1, 2026, 1),
+                materialize[GPU_RT_CAMERA](),
             )
             var status = ctx.enqueue_create_host_buffer[.uint32](
                 WAVE_COUNTER.COUNT

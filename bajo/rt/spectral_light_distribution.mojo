@@ -9,7 +9,7 @@ from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import pi
 from bajo.core import Vec3
 from bajo.core.color import Color
-from bajo.core.colorimetry import srgb_to_xyz_matrix
+from bajo.core.colorimetry import SRGB_TO_XYZ_MATRIX
 from bajo.core.rgb_spectrum import RgbSpectrumView
 from bajo.core.sampled_spectrum import (
     SampledSpectrum,
@@ -172,7 +172,7 @@ struct SpectralLightDistribution:
         for source in data.media().spectra:
             _validate_source(source, sources.count)
         _validate_source(data.environment().spectrum, sources.count)
-        var matrix = srgb_to_xyz_matrix()
+        var matrix = materialize[SRGB_TO_XYZ_MATRIX]()
         self.environment_factors = List[Float32](
             length=ENVIRONMENT_SPECTRAL_BINS, fill=0
         )

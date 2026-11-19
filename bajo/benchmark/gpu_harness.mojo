@@ -44,14 +44,13 @@ struct GpuRtBenchResult(Copyable):
     var checksum: Float64
 
 
-def gpu_rt_camera() -> Camera:
-    return Camera.from_vfov(
-        Point3f32[.WORLD](0.0, 1.0, 3.2),
-        Point3f32[.WORLD](0.0, 1.0, -1.0),
-        Vec3f32[.WORLD](0.0, 1.0, 0.0),
-        28.0,
-        4.2,
-    )
+comptime GPU_RT_CAMERA = Camera.from_vfov(
+    Point3f32[.WORLD](0.0, 1.0, 3.2),
+    Point3f32[.WORLD](0.0, 1.0, -1.0),
+    Vec3f32[.WORLD](0.0, 1.0, 0.0),
+    28.0,
+    4.2,
+)
 
 
 def make_many_light_scene() raises -> SceneData:

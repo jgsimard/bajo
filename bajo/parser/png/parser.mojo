@@ -1,5 +1,6 @@
 """SIMD RGB PNG loading, with libpng for other formats and color transforms."""
 
+from layout import Coord, TileTensor, row_major
 from max.algorithm import parallelize
 from std.builtin.globals import global_constant
 from std.ffi import OwnedDLHandle
@@ -44,21 +45,21 @@ def _linearize_png_rows(
     var tasks = max(1, ceildiv(row_bytes * height, _SRGB_CHANNELS_PER_TASK))
 
     def convert(task: Int) {imm, mut pixels}:
+        var scanlines = TileTensor(
+            ImmSpan(raw), row_major(height, row_bytes + 1)
+        )
+        var output = TileTensor(MutSpan(pixels), row_major(height, row_bytes))
         for y in range(height * task // tasks, height * (task + 1) // tasks):
-            var source = raw.unsafe_ptr().unsafe_offset(y * (row_bytes + 1) + 1)
-            var target = pixels.unsafe_ptr().unsafe_offset(y * row_bytes)
             var end = row_bytes // _SRGB_SIMD_WIDTH * _SRGB_SIMD_WIDTH
             for x in range(0, end, _SRGB_SIMD_WIDTH):
-                var indices = (
-                    source.unsafe_offset(x)
-                    .unsafe_load[width=_SRGB_SIMD_WIDTH]()
-                    .cast[.int32]()
-                )
-                target.unsafe_offset(x).unsafe_store[width=_SRGB_SIMD_WIDTH](
-                    table.unsafe_ptr().unsafe_gather(indices)
+                var indices = scanlines.load[width=_SRGB_SIMD_WIDTH](
+                    Coord(y, x + 1)
+                ).cast[.int32]()
+                output.store[width=_SRGB_SIMD_WIDTH](
+                    Coord(y, x), table.unsafe_ptr().unsafe_gather(indices)
                 )
             for x in range(end, row_bytes):
-                target[unsafe_offset=x] = table[Int(source[unsafe_offset=x])]
+                output[y, x] = table[Int(scanlines[y, x + 1])]
 
     if tasks > 1:
         parallelize(convert, tasks, min(num_logical_cores(), tasks))

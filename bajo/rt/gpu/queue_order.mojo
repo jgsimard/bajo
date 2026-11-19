@@ -96,7 +96,7 @@ def gpu_rt_queue_order_group[
         leader = UInt32(count_trailing_zeros(peers))
     var offset = UInt32(0)
     if valid and UInt32(lane) == leader:
-        offset = Atomic.fetch_add[ordering=Ordering.RELAXED](
+        offset = Atomic.fetch_add[ordering=Ordering.relaxed](
             scratch.bins.unsafe_offset(Int(key)), UInt32(pop_count(peers))
         )
     comptime if scatter:

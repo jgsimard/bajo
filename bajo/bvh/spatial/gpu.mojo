@@ -6,6 +6,7 @@ Synchronous wrappers check validation status; enqueue/graph APIs require the
 caller to serialize updates/queries and inspect status after completion.
 """
 
+from layout import TileTensor, row_major
 from max.gpu.host import (
     DeviceContext,
     DeviceBuffer,
@@ -95,10 +96,11 @@ struct GpuSpatialBoundsBvh[frame: Frame = .WORLD]:
         ctx.synchronize()
         self.host.refit(boxes)
         with self.update_items.map_to_host() as data:
+            var records = TileTensor(data.as_span(), row_major(len(boxes), 6))
             for item in range(len(boxes)):
                 for axis in range(3):
-                    data[item * 6 + axis] = boxes[item]._min[axis]
-                    data[item * 6 + axis + 3] = boxes[item]._max[axis]
+                    records[item, axis] = boxes[item]._min[axis]
+                    records[item, axis + 3] = boxes[item]._max[axis]
         self.refit_device(ctx, self.update_items)
 
     def rebuild(

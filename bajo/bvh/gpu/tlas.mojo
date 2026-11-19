@@ -432,7 +432,7 @@ def _trace_tlas_rays_kernel[
             # An explicit reload avoids keeping the input index alive through
             # traversal. Relaxed loads add no ordering requirement here.
             output_index = Int(
-                Atomic.load[ordering=Ordering.RELAXED](
+                Atomic.load[ordering=Ordering.relaxed](
                     output_indices.unsafe_offset(index).unsafe_mut_cast[True]()
                 )
             )

@@ -5,6 +5,7 @@ block. Independent subtrees preserve complete coverage and original face IDs.
 The result is broadcast to every lane; callers publish outputs in one lane.
 """
 
+from layout import Coord, TileTensor, row_major
 from max.gpu import thread_idx, block_dim
 from max.gpu.primitives import block, warp
 from std.math import min, max
@@ -56,11 +57,11 @@ struct BlockMeshQueryView[
             return EMPTY_LANE
         var lane = Int(thread_idx.x)
         var node = root
+        var fields = TileTensor(
+            self.view.bvh.nodes, row_major(len(self.view.bvh.nodes) // 2, 2)
+        )
         comptime for depth in range(5):
-            if (
-                self.view.bvh.nodes.unsafe_ptr().unsafe_load(Int(node) * 2 + 1)
-                != EMPTY_LANE
-            ):
+            if fields.load[invariant=False](Coord(Int(node), 1)) != EMPTY_LANE:
                 # A short subtree belongs to exactly one lane, including counts.
                 return (
                     node if (lane & ((1 << (5 - depth)) - 1))
@@ -68,7 +69,7 @@ struct BlockMeshQueryView[
                 )
             var left = node + 1
             node = (
-                self.view.bvh.nodes.unsafe_ptr().unsafe_load(Int(left) * 2) if (
+                fields.load[invariant=False](Coord(Int(left), 0)) if (
                     lane & (1 << (4 - depth))
                 )
                 != 0 else left

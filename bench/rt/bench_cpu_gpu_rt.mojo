@@ -28,7 +28,7 @@ from bajo.benchmark.gpu_harness import (
     NODE_WIDTH,
     RNG_SEED,
     SAMPLES_PER_PIXEL,
-    gpu_rt_camera,
+    GPU_RT_CAMERA,
     gpu_rt_checksum,
     make_many_light_scene,
 )
@@ -211,7 +211,7 @@ def main() raises:
     var settings = RenderSettings(
         IMAGE_WIDTH, IMAGE_HEIGHT, SAMPLES_PER_PIXEL, RNG_SEED, MAX_DEPTH
     )
-    var camera = gpu_rt_camera()
+    var camera = materialize[GPU_RT_CAMERA]()
     var world = CpuScene[16, 16](make_cornell_scene())
     var sample_count = IMAGE_WIDTH * IMAGE_HEIGHT * SAMPLES_PER_PIXEL
     print("CPU/GPU RT comparison")

@@ -4,6 +4,7 @@ Algorithm reference: pbrt-v4 filters.h/.cpp and util/sampling.h (Apache-2.0).
 The Gaussian table uses the authored radius at int(32 * radius) cells per axis.
 """
 
+from layout import TileTensor, row_major
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import abs, exp, pi, sqrt
 from std.utils.numerics import isfinite
@@ -142,24 +143,29 @@ struct FilterView(Copyable, DevicePassable, ImplicitlyCopyable, Writable):
     def get_type_name() -> String:
         return "FilterView"
 
-    def _cell(self, cdf_base: Int, count: Int, u: Float32) -> Int:
-        var data = self.data.value()
+    def _cell(
+        self, cdf: TileTensor[.float32, _, _], count: Int, u: Float32
+    ) -> Int:
         var lo = 0
         var hi = count
         while lo + 1 < hi:
             var mid = (lo + hi) // 2
-            if data[unsafe_offset=cdf_base + mid] <= u:
+            if cdf[mid] <= u:
                 lo = mid
             else:
                 hi = mid
         return lo
 
     def _position(
-        self, base: Int, cell: Int, count: Int, u: Float32, radius: Float32
+        self,
+        cdf: TileTensor[.float32, _, _],
+        cell: Int,
+        count: Int,
+        u: Float32,
+        radius: Float32,
     ) -> Float32:
-        var data = self.data.value()
-        var low = data[unsafe_offset=base + cell]
-        var delta = data[unsafe_offset=base + cell + 1] - low
+        var low = cdf[cell]
+        var delta = cdf[cell + 1] - low
         var t = (
             Float32(cell) + (u - low) / (delta if delta > 0 else Float32(1))
         ) / Float32(count)
@@ -193,14 +199,23 @@ struct FilterView(Copyable, DevicePassable, ImplicitlyCopyable, Writable):
         var conditional = rows + ny
         var values = conditional + ny * (nx + 1)
         var data = self.data.value()
+        var marginal = TileTensor(
+            ptr=data.unsafe_offset(1), layout=row_major(ny + 1)
+        )
+        var cdfs = TileTensor(
+            ptr=data.unsafe_offset(conditional), layout=row_major(ny, nx + 1)
+        )
+        var weights = TileTensor(
+            ptr=data.unsafe_offset(values), layout=row_major(ny, nx)
+        )
         var total = data[unsafe_offset=0]
         for lane in range(Int(width)):
-            var y = self._cell(1, ny, v[lane])
-            var base = conditional + y * (nx + 1)
-            var x = self._cell(base, nx, u[lane])
-            result.pixel_u[lane] = self._position(base, x, nx, u[lane], rx)
-            result.pixel_v[lane] = self._position(1, y, ny, v[lane], ry)
-            var f = data[unsafe_offset=values + y * nx + x]
+            var y = self._cell(marginal, ny, v[lane])
+            var cdf = cdfs[y, :]
+            var x = self._cell(cdf, nx, u[lane])
+            result.pixel_u[lane] = self._position(cdf, x, nx, u[lane], rx)
+            result.pixel_v[lane] = self._position(marginal, y, ny, v[lane], ry)
+            var f = weights[y, x]
             var row = data[unsafe_offset=rows + y]
             var pdf = (f / row) * (
                 row / total
@@ -231,32 +246,38 @@ struct FilterSampler:
         var conditional = rows + ny
         var values = conditional + ny * (nx + 1)
         self.data.resize(values + nx * ny, fill=0)
+        var data = TileTensor(MutSpan(self.data), row_major(len(self.data)))
+        var cdfs = TileTensor(
+            ptr=data.ptr_at_offset((conditional,)), layout=row_major(ny, nx + 1)
+        )
+        var weights = TileTensor(
+            ptr=data.ptr_at_offset((values,)), layout=row_major(ny, nx)
+        )
         for y in range(ny):
             var ty = (Float32(y) + 0.5) / Float32(ny)
             var py = (1 - ty) * (-config.y_radius) + ty * config.y_radius
-            var base = conditional + y * (nx + 1)
             for x in range(nx):
                 var tx = (Float32(x) + 0.5) / Float32(nx)
                 var px = (1 - tx) * (-config.x_radius) + tx * config.x_radius
                 var f = config.evaluate(px, py)
-                self.data[values + y * nx + x] = f
-                self.data[base + x + 1] = self.data[base + x] + f * (
+                weights[y, x] = f
+                cdfs[y, x + 1] = cdfs[y, x] + f * (
                     2 * config.x_radius
                 ) / Float32(nx)
-            var integral = self.data[base + nx]
-            self.data[rows + y] = integral
+            var integral = cdfs[y, nx]
+            data[rows + y] = integral
             for x in range(1, nx + 1):
-                self.data[base + x] = self.data[
-                    base + x
-                ] / integral if integral > 0 else Float32(x) / Float32(nx)
-            self.data[1 + y + 1] = self.data[1 + y] + integral * (
+                cdfs[y, x] = cdfs[y, x] / integral if integral > 0 else Float32(
+                    x
+                ) / Float32(nx)
+            data[1 + y + 1] = data[1 + y] + integral * (
                 2 * config.y_radius
             ) / Float32(ny)
-        self.data[0] = self.data[1 + ny]
-        if not isfinite(self.data[0]) or self.data[0] <= 0:
+        data[0] = data[1 + ny]
+        if not isfinite(data[0]) or data[0] <= 0:
             raise Error("Gaussian filter has no finite positive table mass")
         for y in range(1, ny + 1):
-            self.data[1 + y] /= self.data[0]
+            data[1 + y] /= data[0]
 
     def view(self) -> FilterView:
         """Borrow tables without tracking their lifetime; retain this owner."""

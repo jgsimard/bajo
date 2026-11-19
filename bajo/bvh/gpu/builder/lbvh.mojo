@@ -205,10 +205,10 @@ def _lbvh_delta(
 def _lbvh_atomic_exchange(
     ptr: MutPointer[UInt32, _], desired: UInt32
 ) -> UInt32:
-    var expected = Atomic.load[ordering=Ordering.ACQUIRE](ptr)
+    var expected = Atomic.load[ordering=Ordering.acquire](ptr)
     while not Atomic.compare_exchange[
-        success_ordering=Ordering.ACQUIRE_RELEASE,
-        failure_ordering=Ordering.ACQUIRE,
+        success_ordering=Ordering.acquire_release,
+        failure_ordering=Ordering.acquire,
     ](ptr, expected, desired):
         pass
     return expected
@@ -304,7 +304,7 @@ def build_lbvh_topology_and_bounds_kernel(
         _write_child_bounds(node_bounds, parent, attach_on_left, bounds)
         _lbvh_set_parent(current_encoded, parent, node_meta, leaf_parent)
 
-        fence[ordering=Ordering.SEQUENTIAL]()
+        fence[ordering=Ordering.sequential]()
         var endpoint = UInt32(range_left if attach_on_left else range_right)
         var other_endpoint = _lbvh_atomic_exchange(
             arrival_slots.unsafe_ptr().unsafe_offset(Int(parent)), endpoint

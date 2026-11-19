@@ -29,7 +29,7 @@ from .radix_common import (
 )
 from .validation import require_sort_capacity
 
-comptime ordering = Ordering.RELAXED
+comptime ordering = Ordering.relaxed
 
 # Two state bits distinguish missing, reduction, and inclusive descriptors.
 # Each word carries 16 count bits, retaining the full UInt32 range.
@@ -63,15 +63,15 @@ def publish_split_histogram[
             # immutable value; a late owner must preserve an inclusive state.
             var expected = UInt32(0)
             _ = Atomic.compare_exchange[
-                success_ordering=Ordering.RELAXED,
-                failure_ordering=Ordering.RELAXED,
+                success_ordering=Ordering.relaxed,
+                failure_ordering=Ordering.relaxed,
             ](destination, expected, encoded)
         else:
             # Only the owner promotes to inclusive. One paired atomic store
             # avoids a CAS retry leaving half a prefix unpublished when that
             # owner's subgroup is subsequently starved.
             comptime assert STATE == SPLIT_INCLUSIVE
-            Atomic.store[ordering=Ordering.RELAXED](destination, encoded)
+            Atomic.store[ordering=Ordering.relaxed](destination, encoded)
 
 
 @inline(.always)
@@ -105,8 +105,8 @@ def fallback_lookback[
                 var address = pass_hist.unsafe_offset(
                     (lookback * RADIX + tid) * 2
                 )
-                var low = Atomic.load[ordering=Ordering.RELAXED](address)
-                var high = Atomic.load[ordering=Ordering.RELAXED](
+                var low = Atomic.load[ordering=Ordering.relaxed](address)
+                var high = Atomic.load[ordering=Ordering.relaxed](
                     address.unsafe_offset(1)
                 )
                 var state = low & SPLIT_STATE_MASK

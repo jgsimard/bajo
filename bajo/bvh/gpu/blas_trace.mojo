@@ -1,11 +1,11 @@
 """Compile-time-selected traversal for typed GPU BLAS storage."""
 
+from layout import Coord, Idx, TileTensor, row_major
 from bajo.bvh.constants import TraceMode, WideNode
 from bajo.bvh.gpu.blas_storage import GpuBvhLayout
 from bajo.bvh.gpu.trace import GpuLeafFn, trace_bounds_bvh
 from bajo.bvh.gpu.triangle_trace import trace_cwbvh8_triangles
 from bajo.bvh.types import BlasDesc, Hit
-from bajo.bvh.wide_meta import _wide_node_base
 from bajo.core import Frame, Point3f32, Rayf32
 from bajo.core.intersect import intersect_ray_aabb_rcp
 
@@ -80,16 +80,26 @@ def trace_gpu_blas_descriptor[
     comptime if layout == .WIDE:
         if descriptor.leaf_block_count == UInt32(1):
             var hit = Hit[frame].miss(ray.t_max)
-            var base = _wide_node_base[node_width](descriptor.root_idx)
+            var root = Int(descriptor.root_idx)
+            var fields = TileTensor(
+                ptr=nodes,
+                layout=row_major(
+                    Coord(
+                        root + 1,
+                        Idx[WideNode.CHILD_STRIDE],
+                        Idx[Int(node_width)],
+                    )
+                ),
+            )
             var bmin = Point3f32[frame](
-                nodes[unsafe_offset=base + WideNode.MIN_X * node_width],
-                nodes[unsafe_offset=base + WideNode.MIN_Y * node_width],
-                nodes[unsafe_offset=base + WideNode.MIN_Z * node_width],
+                fields.load[invariant=False](Coord(root, WideNode.MIN_X, 0)),
+                fields.load[invariant=False](Coord(root, WideNode.MIN_Y, 0)),
+                fields.load[invariant=False](Coord(root, WideNode.MIN_Z, 0)),
             )
             var bmax = Point3f32[frame](
-                nodes[unsafe_offset=base + WideNode.MAX_X * node_width],
-                nodes[unsafe_offset=base + WideNode.MAX_Y * node_width],
-                nodes[unsafe_offset=base + WideNode.MAX_Z * node_width],
+                fields.load[invariant=False](Coord(root, WideNode.MAX_X, 0)),
+                fields.load[invariant=False](Coord(root, WideNode.MAX_Y, 0)),
+                fields.load[invariant=False](Coord(root, WideNode.MAX_Z, 0)),
             )
             if not intersect_ray_aabb_rcp(
                 ray.o, ray.reciprocal_direction(), bmin, bmax, ray.t_max

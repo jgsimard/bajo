@@ -1,3 +1,4 @@
+from layout import TileTensor, Coord, Idx, row_major
 from max.algorithm import parallelize
 from bajo.bvh.cpu.parallel import _worker_count
 from std.bit import count_trailing_zeros
@@ -292,23 +293,17 @@ def _packet_scalar_rays[
     reciprocal_direction: Vec3[.float32, .WORLD, length],
 ) -> Array[Float32, 10 * length]:
     var scalar_rays = Array[Float32, 10 * length](uninitialized=True)
-    comptime for lane in range(length):
-        scalar_rays.unsafe_get(0 * Int(length) + lane) = rays.o.x[lane]
-        scalar_rays.unsafe_get(1 * Int(length) + lane) = rays.o.y[lane]
-        scalar_rays.unsafe_get(2 * Int(length) + lane) = rays.o.z[lane]
-        scalar_rays.unsafe_get(3 * Int(length) + lane) = rays.d.x[lane]
-        scalar_rays.unsafe_get(4 * Int(length) + lane) = rays.d.y[lane]
-        scalar_rays.unsafe_get(5 * Int(length) + lane) = rays.d.z[lane]
-        scalar_rays.unsafe_get(6 * Int(length) + lane) = rays.t_min[lane]
-        scalar_rays.unsafe_get(7 * Int(length) + lane) = reciprocal_direction.x[
-            lane
-        ]
-        scalar_rays.unsafe_get(8 * Int(length) + lane) = reciprocal_direction.y[
-            lane
-        ]
-        scalar_rays.unsafe_get(9 * Int(length) + lane) = reciprocal_direction.z[
-            lane
-        ]
+    var fields = TileTensor(Span(scalar_rays), row_major[10, Int(length)]())
+    fields.store[width=length]((0, 0), rays.o.x)
+    fields.store[width=length]((1, 0), rays.o.y)
+    fields.store[width=length]((2, 0), rays.o.z)
+    fields.store[width=length]((3, 0), rays.d.x)
+    fields.store[width=length]((4, 0), rays.d.y)
+    fields.store[width=length]((5, 0), rays.d.z)
+    fields.store[width=length]((6, 0), rays.t_min)
+    fields.store[width=length]((7, 0), reciprocal_direction.x)
+    fields.store[width=length]((8, 0), reciprocal_direction.y)
+    fields.store[width=length]((9, 0), reciprocal_direction.z)
     return scalar_rays^
 
 
@@ -680,22 +675,26 @@ struct CpuTlas[
         var block_ptr = blases.leaves.unsafe_ptr().unsafe_offset(
             Int(desc.leaf_f32_base)
         )
-        var block_u32 = block_ptr.unsafe_bitcast[UInt32]()
-        var prim_idx = block_u32[unsafe_offset=3 * blas_leaf_width]
+        var fields = TileTensor(
+            ptr=block_ptr,
+            layout=row_major(Coord(Idx[10], Idx[Int(blas_leaf_width)])),
+        )
+        var ids = fields.bitcast[.uint32]()
+        var prim_idx = ids[3, 0]
         var v0 = Point3[.float32, .LOCAL](
-            block_ptr[unsafe_offset=0 * blas_leaf_width],
-            block_ptr[unsafe_offset=1 * blas_leaf_width],
-            block_ptr[unsafe_offset=2 * blas_leaf_width],
+            fields[0, 0],
+            fields[1, 0],
+            fields[2, 0],
         )
         var e1 = Vec3[.float32, .LOCAL](
-            block_ptr[unsafe_offset=4 * blas_leaf_width],
-            block_ptr[unsafe_offset=5 * blas_leaf_width],
-            block_ptr[unsafe_offset=6 * blas_leaf_width],
+            fields[4, 0],
+            fields[5, 0],
+            fields[6, 0],
         )
         var e2 = Vec3[.float32, .LOCAL](
-            block_ptr[unsafe_offset=7 * blas_leaf_width],
-            block_ptr[unsafe_offset=8 * blas_leaf_width],
-            block_ptr[unsafe_offset=9 * blas_leaf_width],
+            fields[7, 0],
+            fields[8, 0],
+            fields[9, 0],
         )
         var hit = Hit[.WORLD, length].miss(rays.t_max)
         var reciprocal_direction = rays.reciprocal_direction()
@@ -887,7 +886,9 @@ struct CpuTlas[
 
         var closest_t = hit.t.to_array()
         var scalar_rays = _packet_scalar_rays(rays, reciprocal_direction)
-        var scalar_rays_ptr = scalar_rays.unsafe_ptr()
+        var scalar_ray_fields = TileTensor(
+            ImmSpan(scalar_rays), row_major[10, Int(length)]()
+        )
         var result_u = hit.u.to_array()
         var result_v = hit.v.to_array()
         var result_prim = hit.prim.to_array()
@@ -900,7 +901,7 @@ struct CpuTlas[
         def consume_candidates() {
             self,
             blases,
-            scalar_rays_ptr,
+            scalar_ray_fields,
             candidate_tasks,
             candidate_count,
             mut closest_t,
@@ -928,28 +929,16 @@ struct CpuTlas[
                     bits &= bits - 1
                     var ray = Rayf32[.WORLD](
                         Point3[.float32, .WORLD](
-                            scalar_rays_ptr[
-                                unsafe_offset=0 * Int(length) + lane
-                            ],
-                            scalar_rays_ptr[
-                                unsafe_offset=1 * Int(length) + lane
-                            ],
-                            scalar_rays_ptr[
-                                unsafe_offset=2 * Int(length) + lane
-                            ],
+                            scalar_ray_fields[0, lane],
+                            scalar_ray_fields[1, lane],
+                            scalar_ray_fields[2, lane],
                         ),
                         Vec3[.float32, .WORLD](
-                            scalar_rays_ptr[
-                                unsafe_offset=3 * Int(length) + lane
-                            ],
-                            scalar_rays_ptr[
-                                unsafe_offset=4 * Int(length) + lane
-                            ],
-                            scalar_rays_ptr[
-                                unsafe_offset=5 * Int(length) + lane
-                            ],
+                            scalar_ray_fields[3, lane],
+                            scalar_ray_fields[4, lane],
+                            scalar_ray_fields[5, lane],
                         ),
-                        scalar_rays_ptr[unsafe_offset=6 * Int(length) + lane],
+                        scalar_ray_fields[6, lane],
                         closest_t.unsafe_get(lane),
                     )
                     var local_ray: Rayf32[.LOCAL]
@@ -966,15 +955,9 @@ struct CpuTlas[
                             closest_t.unsafe_get(lane),
                         )
                         var local_rcp = Vec3[.float32, .LOCAL, blas_node_width](
-                            scalar_rays_ptr[
-                                unsafe_offset=7 * Int(length) + lane
-                            ],
-                            scalar_rays_ptr[
-                                unsafe_offset=8 * Int(length) + lane
-                            ],
-                            scalar_rays_ptr[
-                                unsafe_offset=9 * Int(length) + lane
-                            ],
+                            scalar_ray_fields[7, lane],
+                            scalar_ray_fields[8, lane],
+                            scalar_ray_fields[9, lane],
                         )
                         local_hit = _trace_blas_desc_precomputed_rcp[
                             blas_node_width,
@@ -1004,15 +987,9 @@ struct CpuTlas[
                             var local_rcp = Vec3[
                                 .float32, .LOCAL, blas_node_width
                             ](
-                                scalar_rays_ptr[
-                                    unsafe_offset=7 * Int(length) + lane
-                                ],
-                                scalar_rays_ptr[
-                                    unsafe_offset=8 * Int(length) + lane
-                                ],
-                                scalar_rays_ptr[
-                                    unsafe_offset=9 * Int(length) + lane
-                                ],
+                                scalar_ray_fields[7, lane],
+                                scalar_ray_fields[8, lane],
+                                scalar_ray_fields[9, lane],
                             )
                             local_hit = _trace_blas_desc_precomputed_rcp[
                                 blas_node_width,
@@ -1220,14 +1197,16 @@ struct CpuTlas[
             return valid & hit.t.eq(0.0)
 
         var any_scalar_rays = _packet_scalar_rays(rays, reciprocal_direction)
-        var any_scalar_rays_ptr = any_scalar_rays.unsafe_ptr()
+        var any_scalar_ray_fields = TileTensor(
+            ImmSpan(any_scalar_rays), row_major[10, Int(length)]()
+        )
 
         @inline(.never)
         def consume_any_candidates() {
             self,
             blases,
             rays,
-            any_scalar_rays_ptr,
+            any_scalar_ray_fields,
             any_candidate_tasks,
             any_candidate_count,
             mut hit,
@@ -1251,45 +1230,25 @@ struct CpuTlas[
                         bits &= bits - 1
                         var local_ray = Rayf32[.LOCAL](
                             Point3[.float32, .LOCAL](
-                                any_scalar_rays_ptr[
-                                    unsafe_offset=0 * Int(length) + lane
-                                ]
+                                any_scalar_ray_fields[0, lane]
                                 + hot_inst.inv_transform.tx,
-                                any_scalar_rays_ptr[
-                                    unsafe_offset=1 * Int(length) + lane
-                                ]
+                                any_scalar_ray_fields[1, lane]
                                 + hot_inst.inv_transform.ty,
-                                any_scalar_rays_ptr[
-                                    unsafe_offset=2 * Int(length) + lane
-                                ]
+                                any_scalar_ray_fields[2, lane]
                                 + hot_inst.inv_transform.tz,
                             ),
                             Vec3[.float32, .LOCAL](
-                                any_scalar_rays_ptr[
-                                    unsafe_offset=3 * Int(length) + lane
-                                ],
-                                any_scalar_rays_ptr[
-                                    unsafe_offset=4 * Int(length) + lane
-                                ],
-                                any_scalar_rays_ptr[
-                                    unsafe_offset=5 * Int(length) + lane
-                                ],
+                                any_scalar_ray_fields[3, lane],
+                                any_scalar_ray_fields[4, lane],
+                                any_scalar_ray_fields[5, lane],
                             ),
-                            any_scalar_rays_ptr[
-                                unsafe_offset=6 * Int(length) + lane
-                            ],
+                            any_scalar_ray_fields[6, lane],
                             hit.t[lane],
                         )
                         var local_rcp = Vec3[.float32, .LOCAL, blas_node_width](
-                            any_scalar_rays_ptr[
-                                unsafe_offset=7 * Int(length) + lane
-                            ],
-                            any_scalar_rays_ptr[
-                                unsafe_offset=8 * Int(length) + lane
-                            ],
-                            any_scalar_rays_ptr[
-                                unsafe_offset=9 * Int(length) + lane
-                            ],
+                            any_scalar_ray_fields[7, lane],
+                            any_scalar_ray_fields[8, lane],
+                            any_scalar_ray_fields[9, lane],
                         )
                         var local_hit = _trace_blas_set_precomputed_rcp[
                             blas_node_width,

@@ -1,5 +1,6 @@
 """Prepared GPU light tables and device-safe direct-light sampling."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from std.utils.numerics import max_finite
 
 from std.math import abs, pi
@@ -82,6 +83,16 @@ struct GpuRtLights:
             "GPU RT alias table supports fewer than 2^28 lights",
         )
         fields.extend(Span(world.lights().alias_probabilities))
+        fields.resize(
+            unsafe_uninit_length=len(world.lights().records)
+            * (GPU_RT_LIGHT.STRIDE + 1)
+        )
+        var records = TileTensor(
+            ptr=fields.unsafe_ptr().unsafe_offset(len(world.lights().records)),
+            layout=row_major(
+                Coord(len(world.lights().records), Idx[GPU_RT_LIGHT.STRIDE])
+            ),
+        )
         var uniform_kind = PrimitiveKind.UNKNOWN
         var homogeneous = True
         for light_idx, light in enumerate(world.lights().records):
@@ -99,32 +110,26 @@ struct GpuRtLights:
                 (world.lights().alias_indices[light_idx] << UInt32(4))
                 | kind.value()
             )
-            fields.append(light.p0.x)
-            fields.append(light.p0.y)
-            fields.append(light.p0.z)
-            fields.append(light.p1.x)
-            fields.append(light.p1.y)
-            fields.append(light.p1.z)
-            fields.append(light.p2.x)
-            fields.append(light.p2.y)
-            fields.append(light.p2.z)
-            fields.append(light.radius)
-            fields.append(radiance.x)
-            fields.append(radiance.y)
-            fields.append(radiance.z)
-            fields.append(world.lights().alias_probabilities[light_idx])
-            fields.extend(
-                [
-                    light.uv0_u,
-                    light.uv0_v,
-                    light.uv1_u,
-                    light.uv1_v,
-                    light.uv2_u,
-                    light.uv2_v,
-                ]
+            var record = records[light_idx, :]
+            comptime for axis in range(3):
+                record[GPU_RT_LIGHT.P0_X + axis] = light.p0[axis]
+                record[GPU_RT_LIGHT.P1_X + axis] = light.p1[axis]
+                record[GPU_RT_LIGHT.P2_X + axis] = light.p2[axis]
+                record[GPU_RT_LIGHT.E_X + axis] = radiance[axis]
+            record[GPU_RT_LIGHT.RADIUS] = light.radius
+            record[
+                GPU_RT_LIGHT.ALIAS_PROBABILITY
+            ] = world.lights().alias_probabilities[light_idx]
+            record[GPU_RT_LIGHT.UV0] = light.uv0_u
+            record[GPU_RT_LIGHT.UV0 + 1] = light.uv0_v
+            record[GPU_RT_LIGHT.UV0 + 2] = light.uv1_u
+            record[GPU_RT_LIGHT.UV0 + 3] = light.uv1_v
+            record[GPU_RT_LIGHT.UV0 + 4] = light.uv2_u
+            record[GPU_RT_LIGHT.UV0 + 5] = light.uv2_v
+            record[GPU_RT_LIGHT.PRIMITIVE] = bitcast[.float32](
+                light.primitive.value
             )
-            fields.append(bitcast[.float32](light.primitive.value))
-            fields.append(bitcast[.float32](light.flags))
+            record[GPU_RT_LIGHT.FLAGS] = bitcast[.float32](light.flags)
         self.kinds = _upload_nonempty(ctx, kinds)
         self.fields = _upload_nonempty(ctx, fields)
         self.count = len(world.lights().records)
@@ -198,15 +203,17 @@ def _sample_direct_light_candidate[
     if surface_kind == .EMISSIVE:
         return GpuDirectLightSample.make_empty()
     if surface_kind == .DIELECTRIC:
-        var base = GpuDielectricLayout.STRIDE * Int(
-            SurfaceId.index_from_raw(surface_value)
+        var index = Int(SurfaceId.index_from_raw(surface_value))
+        var material = TileTensor(
+            ptr=scene.dielectrics,
+            layout=row_major(Coord(index + 1, Idx[GpuDielectricLayout.STRIDE])),
         )
         if (
-            scene.dielectrics[
-                unsafe_offset=base + GpuDielectricLayout.ROUGHNESS
-            ]
+            material.load[invariant=False](
+                (index, GpuDielectricLayout.ROUGHNESS)
+            )
             < 1.0e-3
-            or scene.dielectrics[unsafe_offset=base + GpuDielectricLayout.ETA]
+            or material.load[invariant=False]((index, GpuDielectricLayout.ETA))
             == 1.0
         ):
             return GpuDirectLightSample.make_empty()
@@ -214,11 +221,13 @@ def _sample_direct_light_candidate[
     comptime if not coated_pass:
         if surface_kind == .METAL:
             # Delta mirrors cannot contribute to a sampled direct-light ray.
-            var material_base = GpuMetalLayout.STRIDE * Int(
-                SurfaceId.index_from_raw(surface_value)
+            var index = Int(SurfaceId.index_from_raw(surface_value))
+            var material = TileTensor(
+                ptr=scene.metals,
+                layout=row_major(Coord(index + 1, Idx[GpuMetalLayout.STRIDE])),
             )
             if (
-                scene.metals[unsafe_offset=material_base + GpuMetalLayout.FUZZ]
+                material.load[invariant=False]((index, GpuMetalLayout.FUZZ))
                 <= METAL_DELTA_FUZZ_THRESHOLD
             ):
                 return GpuDirectLightSample.make_empty()
@@ -249,18 +258,22 @@ def _sample_direct_light_candidate[
                     scene.environment_alias_indices[unsafe_offset=draw.column],
                 )
             )
-            var desc_base = GpuTextureDescLayout.STRIDE * Int(
-                scene.environment_texture_index
+            var texture_index = Int(scene.environment_texture_index)
+            var descriptors = TileTensor(
+                ptr=scene.texture_descs,
+                layout=row_major(
+                    Coord(texture_index + 1, Idx[GpuTextureDescLayout.STRIDE])
+                ),
             )
             var width = Int(
-                scene.texture_descs[
-                    unsafe_offset=desc_base + GpuTextureDescLayout.WIDTH
-                ]
+                descriptors.load[invariant=False](
+                    Coord(texture_index, GpuTextureDescLayout.WIDTH)
+                )
             )
             var height = Int(
-                scene.texture_descs[
-                    unsafe_offset=desc_base + GpuTextureDescLayout.HEIGHT
-                ]
+                descriptors.load[invariant=False](
+                    Coord(texture_index, GpuTextureDescLayout.HEIGHT)
+                )
             )
             var pixel_x = selected_pixel % width
             var pixel_y = selected_pixel / width
@@ -332,27 +345,31 @@ def _sample_direct_light_candidate[
             draw, alias_probability, packed_column >> UInt32(4)
         )
         light_id = UInt32(selected_idx)
-        var base = (
-            Int(scene.light_count) + Int(selected_idx) * GPU_RT_LIGHT.STRIDE
+        var lights = TileTensor(
+            ptr=scene.light_fields.unsafe_offset(Int(scene.light_count)),
+            layout=row_major(
+                Coord(Int(scene.light_count), Idx[GPU_RT_LIGHT.STRIDE])
+            ),
         )
+        var record = lights[Int(selected_idx), :]
         var p0 = Point3f32[.WORLD](
-            scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT.P0_X)
+            record.ptr_at_offset(Coord(GPU_RT_LIGHT.P0_X))
         )
         var surface_sample: _LightSurfaceSample[1]
         comptime match light_kind:
             case .SPHERE:
-                var radius = scene.light_fields[
-                    unsafe_offset=base + GPU_RT_LIGHT.RADIUS
-                ]
+                var radius = record.load[invariant=False](
+                    Coord(GPU_RT_LIGHT.RADIUS)
+                )
                 surface_sample = _sample_sphere_light_surface(
                     p0, radius, random_unit_vector[.WORLD](rng)
                 )
             case .TRIANGLE:
                 var p1 = Point3f32[.WORLD](
-                    scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT.P1_X)
+                    record.ptr_at_offset(Coord(GPU_RT_LIGHT.P1_X))
                 )
                 var p2 = Point3f32[.WORLD](
-                    scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT.P2_X)
+                    record.ptr_at_offset(Coord(GPU_RT_LIGHT.P2_X))
                 )
                 surface_sample = _sample_triangle_light_surface(
                     p0, p1, p2, rng.f32(), rng.f32()
@@ -362,29 +379,23 @@ def _sample_direct_light_candidate[
                     scene.light_kinds[unsafe_offset=selected_idx] & UInt32(0xF)
                 )
                 if kind == PrimitiveKind.SPHERE:
-                    var radius = scene.light_fields[
-                        unsafe_offset=base + GPU_RT_LIGHT.RADIUS
-                    ]
+                    var radius = record.load[invariant=False](
+                        Coord(GPU_RT_LIGHT.RADIUS)
+                    )
                     surface_sample = _sample_sphere_light_surface(
                         p0, radius, random_unit_vector[.WORLD](rng)
                     )
                 else:
                     var p1 = Point3f32[.WORLD](
-                        scene.light_fields.unsafe_offset(
-                            base + GPU_RT_LIGHT.P1_X
-                        )
+                        record.ptr_at_offset(Coord(GPU_RT_LIGHT.P1_X))
                     )
                     var p2 = Point3f32[.WORLD](
-                        scene.light_fields.unsafe_offset(
-                            base + GPU_RT_LIGHT.P2_X
-                        )
+                        record.ptr_at_offset(Coord(GPU_RT_LIGHT.P2_X))
                     )
                     surface_sample = _sample_triangle_light_surface(
                         p0, p1, p2, rng.f32(), rng.f32()
                     )
-        emission = Color(
-            scene.light_fields.unsafe_offset(base + GPU_RT_LIGHT.E_X)
-        )
+        emission = Color(record.ptr_at_offset(Coord(GPU_RT_LIGHT.E_X)))
         if scene.opacity.count > 0:
             var texture_u = surface_sample.u
             var texture_v = surface_sample.v
@@ -392,21 +403,20 @@ def _sample_direct_light_candidate[
                 scene.light_kinds[unsafe_offset=selected_idx] & UInt32(0xF)
             )
             if kind != PrimitiveKind.SPHERE:
-                var uv_base = base + GPU_RT_LIGHT.UV0
                 var uv = light_sample_uv(
-                    scene.light_fields[unsafe_offset=uv_base],
-                    scene.light_fields[unsafe_offset=uv_base + 1],
-                    scene.light_fields[unsafe_offset=uv_base + 2],
-                    scene.light_fields[unsafe_offset=uv_base + 3],
-                    scene.light_fields[unsafe_offset=uv_base + 4],
-                    scene.light_fields[unsafe_offset=uv_base + 5],
+                    record.load[invariant=False](Coord(GPU_RT_LIGHT.UV0)),
+                    record.load[invariant=False](Coord(GPU_RT_LIGHT.UV0 + 1)),
+                    record.load[invariant=False](Coord(GPU_RT_LIGHT.UV0 + 2)),
+                    record.load[invariant=False](Coord(GPU_RT_LIGHT.UV0 + 3)),
+                    record.load[invariant=False](Coord(GPU_RT_LIGHT.UV0 + 4)),
+                    record.load[invariant=False](Coord(GPU_RT_LIGHT.UV0 + 5)),
                     surface_sample.u,
                     surface_sample.v,
                 )
                 texture_u = uv[0]
                 texture_v = uv[1]
             var primitive = bitcast[.uint32](
-                scene.light_fields[unsafe_offset=base + GPU_RT_LIGHT.PRIMITIVE]
+                record.load[invariant=False](Coord(GPU_RT_LIGHT.PRIMITIVE))
             )
             surface_sample.valid &= opacity_accepts(
                 gpu_opacity_value(
@@ -422,7 +432,7 @@ def _sample_direct_light_candidate[
             scene.total_light_weight,
             surface_kind == .DIELECTRIC,
             bitcast[.uint32](
-                scene.light_fields[unsafe_offset=base + GPU_RT_LIGHT.FLAGS]
+                record.load[invariant=False](Coord(GPU_RT_LIGHT.FLAGS))
             )
             != 0,
         )
@@ -433,16 +443,23 @@ def _sample_direct_light_candidate[
     var bsdf_pdf = Float32(0.0)
     match surface_kind:
         case .DIELECTRIC:
-            var base = GpuDielectricLayout.STRIDE * material_idx
+            var material = TileTensor(
+                ptr=scene.dielectrics,
+                layout=row_major(
+                    Coord(material_idx + 1, Idx[GpuDielectricLayout.STRIDE])
+                ),
+            )
             var evaluation = _evaluate_material[.DIELECTRIC, 1](
                 incoming_ray.d,
                 normal,
                 Color(0.0),
-                scene.dielectrics[unsafe_offset=base + GpuDielectricLayout.ETA],
+                material.load[invariant=False](
+                    (material_idx, GpuDielectricLayout.ETA)
+                ),
                 geometry.direction,
-                scene.dielectrics[
-                    unsafe_offset=base + GpuDielectricLayout.ROUGHNESS
-                ],
+                material.load[invariant=False](
+                    (material_idx, GpuDielectricLayout.ROUGHNESS)
+                ),
                 front_face,
             )
             value = evaluation.value
@@ -476,18 +493,23 @@ def _sample_direct_light_candidate[
                 return GpuDirectLightSample.make_empty()
         case .METAL:
             comptime if not coated_pass:
-                var material_base = GpuMetalLayout.STRIDE * material_idx
+                var material = TileTensor(
+                    ptr=scene.metals,
+                    layout=row_major(
+                        Coord(material_idx + 1, Idx[GpuMetalLayout.STRIDE])
+                    ),
+                )
                 var evaluation = _evaluate_material[.METAL, 1](
                     incoming_ray.d,
                     normal,
                     Color(
-                        scene.metals.unsafe_offset(
-                            material_base + GpuMetalLayout.ALBEDO
+                        material.ptr_at_offset(
+                            (material_idx, GpuMetalLayout.ALBEDO)
                         )
                     ),
-                    scene.metals[
-                        unsafe_offset=material_base + GpuMetalLayout.FUZZ
-                    ],
+                    material.load[invariant=False](
+                        (material_idx, GpuMetalLayout.FUZZ)
+                    ),
                     geometry.direction,
                 )
                 value = evaluation.value

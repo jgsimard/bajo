@@ -4,6 +4,7 @@ Noninterlaced grayscale, RGB, indexed, grayscale-alpha and RGBA images retain
 their actual samples. PNG encoding metadata never changes normal/mask data.
 """
 
+from layout import Coord, Idx, TileTensor, row_major
 from std.math import abs
 from bajo.parser.checksum import crc32
 from bajo.parser.deflate import inflate_zlib
@@ -29,16 +30,16 @@ def _unfilter_data(
     mut raw: List[UInt8], row_bytes: Int, height: Int, bpp: Int
 ) raises:
     var stride = row_bytes + 1
+    var scanlines = TileTensor(MutSpan(raw), row_major(height, stride))
     for y in range(height):
-        var start = y * stride + 1
-        var filter = raw[y * stride]
+        var filter = scanlines[y, 0]
         if filter > 4:
             raise Error("invalid PNG data filter type")
         for x in range(row_bytes):
-            var left = Int(raw[start + x - bpp]) if x >= bpp else 0
-            var up = Int(raw[start + x - stride]) if y else 0
+            var left = Int(scanlines[y, x + 1 - bpp]) if x >= bpp else 0
+            var up = Int(scanlines[y - 1, x + 1]) if y else 0
             var upper_left = (
-                Int(raw[start + x - stride - bpp]) if y and x >= bpp else 0
+                Int(scanlines[y - 1, x + 1 - bpp]) if y and x >= bpp else 0
             )
             var predictor: Int
             match filter:
@@ -60,7 +61,7 @@ def _unfilter_data(
                     )
                 case _:
                     raise Error("invalid PNG data filter type")
-            raw[start + x] += UInt8(predictor)
+            scanlines[y, x + 1] += UInt8(predictor)
 
 
 def parse_data_png(bytes: ImmSpan[UInt8, _]) raises -> ImageTexture:
@@ -186,6 +187,12 @@ def parse_data_png(bytes: ImmSpan[UInt8, _]) raises -> ImageTexture:
         length=width * height if has_alpha else 0, fill=1.0
     )
     var maximum = (1 << depth) - 1
+    var output = TileTensor(
+        MutSpan(pixels), row_major(Coord(width * height, Idx[3]))
+    )
+    var palette_rgb = TileTensor(
+        ImmSpan(palette), row_major(Coord(len(palette) // 3, Idx[3]))
+    )
     for y in range(height):
         var row = y * stride + 1
         for x in range(width):
@@ -209,14 +216,14 @@ def parse_data_png(bytes: ImmSpan[UInt8, _]) raises -> ImageTexture:
                 if index >= len(palette) // 3:
                     raise Error("PNG data image palette index is out of range")
                 for channel in range(3):
-                    pixels[3 * pixel + channel] = (
-                        Float32(palette[3 * index + channel]) / 255.0
+                    output[pixel, channel] = (
+                        Float32(palette_rgb[index, channel]) / 255.0
                     )
                 if has_alpha and index < len(transparency):
                     alpha[pixel] = Float32(transparency[index]) / 255.0
             else:
                 for channel in range(3):
-                    pixels[3 * pixel + channel] = Float32(
+                    output[pixel, channel] = Float32(
                         component[channel if color == 2 or color == 6 else 0]
                     ) / Float32(maximum)
                 if color == 4 or color == 6:

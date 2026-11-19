@@ -1,4 +1,5 @@
 """Retained progressive sums and host-ready RGBA for GPU preview consumers."""
+from layout import TileTensor, row_major
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext, DeviceBuffer, HostBuffer
 from std.math import ceildiv, fma
@@ -43,9 +44,12 @@ def _encode_preview_kernel(
     if i >= Int(count) * 3:
         return
     var linear = source[unsafe_offset=i] / divisor
-    rgba[unsafe_offset=4 * (i // 3) + i % 3] = color_to_byte(linear)
-    if i % 3 == 0:
-        rgba[unsafe_offset=4 * (i // 3) + 3] = 255
+    var pixels = TileTensor(ptr=rgba, layout=row_major(Int(count), 4))
+    var pixel = i // 3
+    var channel = i % 3
+    pixels[pixel, channel] = color_to_byte(linear)
+    if channel == 0:
+        pixels[pixel, 3] = 255
 
 
 from bajo.rt.preview_types import PreviewResult as GpuRtPreviewResult

@@ -1,5 +1,6 @@
 """Filtered triangle traversal over existing wide and compressed GPU storage."""
 
+from layout import Coord, TileTensor, row_major
 from bajo.bvh.constants import EMPTY_LANE, TRI_LEAF_PACKED_STRIDE, TraceMode
 from bajo.bvh.filter import TriangleHitFilter
 from bajo.bvh.types import Hit
@@ -34,26 +35,31 @@ def _filtered_triangle_leaf[
     mut hit: Hit[frame],
 ) -> Bool:
     var found = False
-    var base = Int(block) * TRI_LEAF_PACKED_STRIDE * width
-    var words = state.leaves.unsafe_bitcast[UInt32]()
+    var fields = TileTensor(
+        ptr=state.leaves.unsafe_offset(
+            Int(block) * TRI_LEAF_PACKED_STRIDE * width
+        ),
+        layout=row_major[TRI_LEAF_PACKED_STRIDE, Int(width)](),
+    )
+    var words = fields.bitcast[.uint32]()
     for lane in range(Int(width)):
-        var primitive = words[unsafe_offset=base + 3 * width + lane]
+        var primitive = words.load[invariant=False](Coord(3, lane))
         if primitive == EMPTY_LANE:
             continue
         var v0 = Point3f32[frame](
-            state.leaves[unsafe_offset=base + lane],
-            state.leaves[unsafe_offset=base + width + lane],
-            state.leaves[unsafe_offset=base + 2 * width + lane],
+            fields.load[invariant=False](Coord(0, lane)),
+            fields.load[invariant=False](Coord(1, lane)),
+            fields.load[invariant=False](Coord(2, lane)),
         )
         var e1 = Vec3f32[frame](
-            state.leaves[unsafe_offset=base + 4 * width + lane],
-            state.leaves[unsafe_offset=base + 5 * width + lane],
-            state.leaves[unsafe_offset=base + 6 * width + lane],
+            fields.load[invariant=False](Coord(4, lane)),
+            fields.load[invariant=False](Coord(5, lane)),
+            fields.load[invariant=False](Coord(6, lane)),
         )
         var e2 = Vec3f32[frame](
-            state.leaves[unsafe_offset=base + 8 * width + lane],
-            state.leaves[unsafe_offset=base + 9 * width + lane],
-            state.leaves[unsafe_offset=base + 10 * width + lane],
+            fields.load[invariant=False](Coord(8, lane)),
+            fields.load[invariant=False](Coord(9, lane)),
+            fields.load[invariant=False](Coord(10, lane)),
         )
         var candidate = intersect_ray_tri_edges_scaled(
             ray.o, ray.d, v0, e1, e2, hit.t, ray.t_min

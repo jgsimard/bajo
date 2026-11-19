@@ -1,4 +1,5 @@
 """Worker-owned CPU accumulation and optional spatial reconstruction."""
+from layout import Coord, Idx, TileTensor, row_major
 from bajo.core.camera import Camera
 from bajo.core.color import Color, color_to_byte
 from bajo.rt.cpu.scene import CpuScene
@@ -95,10 +96,13 @@ struct CpuPreviewAccumulator:
                 self.statistics.value(), self.guides.value(), self.workspace
             )
         var rgba = List[UInt8](length=self.width * self.height * 4, fill=255)
+        var output = TileTensor(
+            MutSpan(rgba), row_major(Coord(len(self.sums), Idx[4]))
+        )
         for i in range(len(self.sums)):
             var color = self.workspace.ping[i] if denoise else self.sums[
                 i
             ] / Float32(self.samples)
             comptime for channel in range(3):
-                rgba[4 * i + channel] = color_to_byte(color[channel])
+                output[i, channel] = color_to_byte(color[channel])
         return rgba^

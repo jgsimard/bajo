@@ -1,5 +1,6 @@
 """GPU setup of the shared four-wavelength BSDF register values."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from std.math import sqrt
 from bajo.core.color import Color
 from bajo.core.sampled_spectrum import SampledSpectrum, SampledWavelengths
@@ -39,23 +40,33 @@ def load_spectral_material[
         ImmutAnyOrigin
     ]()
     comptime if kind == .LAMBERTIAN:
-        rgb = Color(scene.lambertians.unsafe_offset(3 * index))
+        var records = TileTensor(
+            ptr=scene.lambertians, layout=row_major(Coord(index + 1, Idx[3]))
+        )
+        rgb = Color(records.ptr_at_offset((index, 0)))
         texture = scene.lambertian_texture_indices[unsafe_offset=index]
         source = spectral.lambertians[unsafe_offset=index]
     elif kind == .METAL:
-        rgb = Color(scene.metals.unsafe_offset(MetalLayout.STRIDE * index))
-        result.parameter = scene.metals[
-            unsafe_offset=MetalLayout.STRIDE * index + MetalLayout.FUZZ
-        ]
+        var records = TileTensor(
+            ptr=scene.metals,
+            layout=row_major(Coord(index + 1, Idx[MetalLayout.STRIDE])),
+        )
+        rgb = Color(records.ptr_at_offset((index, MetalLayout.ALBEDO)))
+        result.parameter = records.load[invariant=False](
+            (index, MetalLayout.FUZZ)
+        )
         source = spectral.metals[unsafe_offset=index]
     elif kind == .DIELECTRIC:
-        result.parameter = scene.dielectrics[
-            unsafe_offset=DielectricLayout.STRIDE * index + DielectricLayout.ETA
-        ]
-        result.roughness = scene.dielectrics[
-            unsafe_offset=DielectricLayout.STRIDE * index
-            + DielectricLayout.ROUGHNESS
-        ]
+        var records = TileTensor(
+            ptr=scene.dielectrics,
+            layout=row_major(Coord(index + 1, Idx[DielectricLayout.STRIDE])),
+        )
+        result.parameter = records.load[invariant=False](
+            (index, DielectricLayout.ETA)
+        )
+        result.roughness = records.load[invariant=False](
+            (index, DielectricLayout.ROUGHNESS)
+        )
         var source = spectral.dielectrics[unsafe_offset=index]
         var eta = scene.spectra.dielectric_eta[unsafe_offset=index]
         if source != NO_SPECTRUM:
@@ -83,12 +94,16 @@ def load_spectral_material[
             texture_descs,
             texture_pixels,
         )
-        rgb = Color(
-            scene.coated_diffuses.unsafe_offset(
-                CoatedDiffuseLayout.STRIDE * index
-            )
+        var records = TileTensor(
+            ptr=scene.coated_diffuses,
+            layout=row_major(Coord(index + 1, Idx[CoatedDiffuseLayout.STRIDE])),
         )
-        texture = scene.coated_diffuse_texture_indices[unsafe_offset=3 * index]
+        rgb = Color(records.ptr_at_offset((index, CoatedDiffuseLayout.ALBEDO)))
+        var textures = TileTensor(
+            ptr=scene.coated_diffuse_texture_indices,
+            layout=row_major(Coord(index + 1, Idx[3])),
+        )
+        texture = textures.load[invariant=False]((index, 0))
         source = spectral.coated[unsafe_offset=index]
         result.coated.roughness = base.roughness
         result.coated.eta = base.eta
@@ -111,8 +126,12 @@ def load_spectral_material[
         result.coated.conductor_k = spectra.rgb.sample(
             base.conductor_k, wavelengths, RgbSpectrumView.UNBOUNDED
         )
-        var eta = scene.spectra.coated_eta_k[unsafe_offset=2 * index]
-        var k = scene.spectra.coated_eta_k[unsafe_offset=2 * index + 1]
+        var optics = TileTensor(
+            ptr=scene.spectra.coated_eta_k,
+            layout=row_major(Coord(index + 1, Idx[2])),
+        )
+        var eta = optics.load[invariant=False]((index, 0))
+        var k = optics.load[invariant=False]((index, 1))
         if eta != NO_SPECTRUM:
             result.coated.conductor_eta = (
                 spectra.curves.sample(SIMD[.uint32, 1](eta), wavelengths)

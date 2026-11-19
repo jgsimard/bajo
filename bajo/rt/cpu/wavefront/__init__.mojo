@@ -335,7 +335,7 @@ def _trace_packet_batches[
         var next_chunk_ptr = next_chunk.unsafe_ptr()
 
         def worker(_worker_idx: Int) {imm}:
-            var chunk_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
+            var chunk_idx = Atomic.fetch_add[ordering=Ordering.relaxed](
                 next_chunk_ptr, 1
             )
             if chunk_idx >= chunk_count:
@@ -368,7 +368,7 @@ def _trace_packet_batches[
                     sample_colors,
                     sample_weights,
                 )
-                chunk_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
+                chunk_idx = Atomic.fetch_add[ordering=Ordering.relaxed](
                     next_chunk_ptr, 1
                 )
 

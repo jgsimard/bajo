@@ -1,3 +1,4 @@
+from layout import Coord, TileTensor, row_major
 from std.math import ceildiv, iota
 from std.time import perf_counter_ns
 from max.gpu.host import DeviceBuffer, DeviceContext
@@ -379,8 +380,12 @@ def _intersect_sphere_leaf[
     ray: Rayf32[frame],
     mut hit: Hit[frame],
 ) -> Bool:
-    var block_base = Int(leaf_block_idx) * SPHERE_LEAF_PACKED_STRIDE * width
-    var leaf_spheres_u32 = leaf_spheres.unsafe_bitcast[UInt32]()
+    var ids = TileTensor(
+        ptr=leaf_spheres.unsafe_bitcast[UInt32](),
+        layout=row_major(
+            Int(leaf_block_idx) + 1, SPHERE_LEAF_PACKED_STRIDE, Int(width)
+        ),
+    )
 
     var block = SphereLeafBlock[frame, width].load[width != 4](
         leaf_spheres, leaf_block_idx
@@ -405,8 +410,8 @@ def _intersect_sphere_leaf[
 
     comptime if mode == .CLOSEST_HIT:
         comptime if width == 4:
-            prim_indices = leaf_spheres_u32.unsafe_load[width=width](
-                block_base + 4 * width
+            prim_indices = ids.load[width=width, invariant=False](
+                Coord(Int(leaf_block_idx), 4, 0)
             )
         var _t = hit_mask.select(hit_sphere.t, f32_max)
         var min_t, lane = min_argmin(_t)
@@ -454,27 +459,24 @@ def pack_segmented_sphere_leaf_lanes_kernel[
         return
 
     var lane = lane_idx % width
-    var out_base = physical_block * SPHERE_LEAF_PACKED_STRIDE * width
+    var fields = TileTensor(
+        ptr=leaf_spheres,
+        layout=row_major(
+            Int(leaf_lane_capacity) // width,
+            SPHERE_LEAF_PACKED_STRIDE,
+            Int(width),
+        ),
+    )
+    var ids = fields.bitcast[.uint32]()
+    var records = TileTensor(
+        spheres, row_major(len(spheres) // Sphere.STRIDE, Sphere.STRIDE)
+    )
     var prim = leaf_block_indices[unsafe_offset=lane_idx]
-    var leaf_spheres_u32 = leaf_spheres.unsafe_bitcast[UInt32]()
     if prim == EMPTY_LANE:
-        leaf_spheres_u32[unsafe_offset=out_base + 4 * width + lane] = prim
+        ids[physical_block, 4, lane] = prim
         return
 
     var primitive_begin = primitive_segment_offsets.unsafe_get(segment_idx)
-    leaf_spheres_u32[unsafe_offset=out_base + 4 * width + lane] = (
-        prim - primitive_begin
-    )
-    var in_base = Int(prim) * Sphere.STRIDE
-    leaf_spheres[
-        unsafe_offset=out_base + 0 * width + lane
-    ] = spheres.unsafe_get(in_base + 0)
-    leaf_spheres[
-        unsafe_offset=out_base + 1 * width + lane
-    ] = spheres.unsafe_get(in_base + 1)
-    leaf_spheres[
-        unsafe_offset=out_base + 2 * width + lane
-    ] = spheres.unsafe_get(in_base + 2)
-    leaf_spheres[
-        unsafe_offset=out_base + 3 * width + lane
-    ] = spheres.unsafe_get(in_base + 3)
+    ids[physical_block, 4, lane] = prim - primitive_begin
+    comptime for field in range(Sphere.STRIDE):
+        fields[physical_block, field, lane] = records[Int(prim), field]

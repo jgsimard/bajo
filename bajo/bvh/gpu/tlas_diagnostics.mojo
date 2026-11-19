@@ -1,5 +1,6 @@
 """Diagnostic-only counters for nested GPU TLAS to CWBVH8 traversal."""
 
+from layout import TileTensor, row_major
 from std.math import ceildiv, min
 from max.gpu import global_idx
 from max.gpu.host import DeviceBuffer, DeviceContext
@@ -66,19 +67,21 @@ struct GpuTlasTraversalStats(TrivialRegisterPassable, Writable):
         dst: MutPointer[UInt32, _],
         ray_idx: Int,
     ):
-        var base = ray_idx * Self.STRIDE
-        dst[unsafe_offset=base + Self.TLAS_NODE_VISITS] = self.tlas_node_visits
-        dst[unsafe_offset=base + Self.TLAS_LEAVES] = self.tlas_leaves
-        dst[unsafe_offset=base + Self.BLAS_DISPATCHES] = self.blas_dispatches
-        dst[unsafe_offset=base + Self.BLAS_HITS] = self.blas_hits
-        dst[unsafe_offset=base + Self.BLAS_MISSES] = self.blas_misses
-        dst[unsafe_offset=base + Self.BLAS_NODE_VISITS] = self.blas_node_visits
-        dst[unsafe_offset=base + Self.BLAS_LEAVES] = self.blas_leaves
-        dst[unsafe_offset=base + Self.BLAS_PRIMITIVES] = self.blas_primitives
-        dst[unsafe_offset=base + Self.HIT_REPLACEMENTS] = self.hit_replacements
-        dst[unsafe_offset=base + Self.TLAS_MAX_STACK] = self.tlas_max_stack
-        dst[unsafe_offset=base + Self.BLAS_MAX_STACK] = self.blas_max_stack
-        dst[unsafe_offset=base + Self.WINNING_BLAS] = self.winning_blas
+        var records = TileTensor(
+            ptr=dst, layout=row_major(ray_idx + 1, Self.STRIDE)
+        )
+        records[ray_idx, Self.TLAS_NODE_VISITS] = self.tlas_node_visits
+        records[ray_idx, Self.TLAS_LEAVES] = self.tlas_leaves
+        records[ray_idx, Self.BLAS_DISPATCHES] = self.blas_dispatches
+        records[ray_idx, Self.BLAS_HITS] = self.blas_hits
+        records[ray_idx, Self.BLAS_MISSES] = self.blas_misses
+        records[ray_idx, Self.BLAS_NODE_VISITS] = self.blas_node_visits
+        records[ray_idx, Self.BLAS_LEAVES] = self.blas_leaves
+        records[ray_idx, Self.BLAS_PRIMITIVES] = self.blas_primitives
+        records[ray_idx, Self.HIT_REPLACEMENTS] = self.hit_replacements
+        records[ray_idx, Self.TLAS_MAX_STACK] = self.tlas_max_stack
+        records[ray_idx, Self.BLAS_MAX_STACK] = self.blas_max_stack
+        records[ray_idx, Self.WINNING_BLAS] = self.winning_blas
 
 
 @fieldwise_init
@@ -333,37 +336,44 @@ def summarize_tlas_diagnostics(
         UInt64(ray_count), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     )
     with stats.map_to_host() as mapped:
+        var records = TileTensor(
+            mapped.as_span()[: ray_count * GpuTlasTraversalStats.STRIDE],
+            row_major(ray_count, GpuTlasTraversalStats.STRIDE),
+        )
         for ray_idx in range(ray_count):
-            var base = ray_idx * GpuTlasTraversalStats.STRIDE
             out.tlas_node_visits += UInt64(
-                mapped[base + GpuTlasTraversalStats.TLAS_NODE_VISITS]
+                records[ray_idx, GpuTlasTraversalStats.TLAS_NODE_VISITS]
             )
             out.tlas_leaves += UInt64(
-                mapped[base + GpuTlasTraversalStats.TLAS_LEAVES]
+                records[ray_idx, GpuTlasTraversalStats.TLAS_LEAVES]
             )
             out.blas_dispatches += UInt64(
-                mapped[base + GpuTlasTraversalStats.BLAS_DISPATCHES]
+                records[ray_idx, GpuTlasTraversalStats.BLAS_DISPATCHES]
             )
             out.blas_hits += UInt64(
-                mapped[base + GpuTlasTraversalStats.BLAS_HITS]
+                records[ray_idx, GpuTlasTraversalStats.BLAS_HITS]
             )
             out.blas_misses += UInt64(
-                mapped[base + GpuTlasTraversalStats.BLAS_MISSES]
+                records[ray_idx, GpuTlasTraversalStats.BLAS_MISSES]
             )
             out.blas_node_visits += UInt64(
-                mapped[base + GpuTlasTraversalStats.BLAS_NODE_VISITS]
+                records[ray_idx, GpuTlasTraversalStats.BLAS_NODE_VISITS]
             )
             out.blas_leaves += UInt64(
-                mapped[base + GpuTlasTraversalStats.BLAS_LEAVES]
+                records[ray_idx, GpuTlasTraversalStats.BLAS_LEAVES]
             )
             out.blas_primitives += UInt64(
-                mapped[base + GpuTlasTraversalStats.BLAS_PRIMITIVES]
+                records[ray_idx, GpuTlasTraversalStats.BLAS_PRIMITIVES]
             )
             out.hit_replacements += UInt64(
-                mapped[base + GpuTlasTraversalStats.HIT_REPLACEMENTS]
+                records[ray_idx, GpuTlasTraversalStats.HIT_REPLACEMENTS]
             )
-            var tlas_stack = mapped[base + GpuTlasTraversalStats.TLAS_MAX_STACK]
-            var blas_stack = mapped[base + GpuTlasTraversalStats.BLAS_MAX_STACK]
+            var tlas_stack = records[
+                ray_idx, GpuTlasTraversalStats.TLAS_MAX_STACK
+            ]
+            var blas_stack = records[
+                ray_idx, GpuTlasTraversalStats.BLAS_MAX_STACK
+            ]
             if tlas_stack > out.tlas_max_stack:
                 out.tlas_max_stack = tlas_stack
             if blas_stack > out.blas_max_stack:
@@ -372,10 +382,7 @@ def summarize_tlas_diagnostics(
         for warp_base in range(0, ray_count, 32):
             var warp_end = min(warp_base + 32, ray_count)
             for lane in range(warp_base, warp_end):
-                var winner = mapped[
-                    lane * GpuTlasTraversalStats.STRIDE
-                    + GpuTlasTraversalStats.WINNING_BLAS
-                ]
+                var winner = records[lane, GpuTlasTraversalStats.WINNING_BLAS]
                 if winner == EMPTY_LANE:
                     continue
                 out.winner_lanes += 1
@@ -383,10 +390,7 @@ def summarize_tlas_diagnostics(
                 for other in range(warp_base, warp_end):
                     if (
                         other != lane
-                        and mapped[
-                            other * GpuTlasTraversalStats.STRIDE
-                            + GpuTlasTraversalStats.WINNING_BLAS
-                        ]
+                        and records[other, GpuTlasTraversalStats.WINNING_BLAS]
                         == winner
                     ):
                         shared = True

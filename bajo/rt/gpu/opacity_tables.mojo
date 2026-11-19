@@ -1,5 +1,6 @@
 """Compact scalar image and primitive-opacity tables for GPU hit filtering."""
 
+from layout import Coord, Idx, TileTensor, row_major
 from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.rt.gpu.upload import _upload_nonempty
 from bajo.rt.gpu.views import GpuOpacityView, _immut
@@ -50,14 +51,15 @@ struct GpuOpacityTables:
                     if image.has_scalar_alpha:
                         pixels.extend(ImmSpan(image.alpha))
                     else:
+                        var rgb = TileTensor(
+                            ImmSpan(image.pixels),
+                            row_major(
+                                Coord(image.width * image.height, Idx[3])
+                            ),
+                        )
                         for pixel in range(image.width * image.height):
-                            var base = 3 * pixel
                             pixels.append(
-                                (
-                                    image.pixels[base]
-                                    + image.pixels[base + 1]
-                                    + image.pixels[base + 2]
-                                )
+                                (rgb[pixel, 0] + rgb[pixel, 1] + rgb[pixel, 2])
                                 / 3.0
                             )
             descriptors.extend([offset, width, height])

@@ -95,7 +95,10 @@ def _guide_kernel[
         )
     elif hit.surface.kind() == .METAL:
         var index = Int(hit.surface.index())
-        albedo = Color(scene.metals.unsafe_offset(index * MetalLayout.STRIDE))
+        var metals = TileTensor(
+            ptr=scene.metals, layout=row_major(index + 1, MetalLayout.STRIDE)
+        )
+        albedo = Color(metals.ptr_at_offset((index, 0)))
         var texture = metal_textures[unsafe_offset=index]
         if texture != NO_TEXTURE:
             albedo = albedo_from_texture(

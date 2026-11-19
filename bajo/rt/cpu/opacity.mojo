@@ -1,5 +1,6 @@
 """Geometry-owned alpha acceptance inside CPU BLAS and TLAS traversal."""
 
+from layout import Coord, Idx, TileTensor, row_major
 from bajo.core import Normal3, Affine3, Point3, Ray, Rayf32, Vec3, dot
 from std.math import sqrt
 from bajo.rt.opacity import (
@@ -47,10 +48,21 @@ struct _CpuOpacityFilter[origin: ImmOrigin, length: SIMDLength = 1](
             if self.mesh != NO_TEXTURE:
                 ref uv = data.triangle_mesh_texcoords()[Int(self.mesh)]
                 if len(uv):
-                    var base = 6 * Int(primitive)
+                    var texcoords = TileTensor(
+                        ImmSpan(uv),
+                        row_major(Coord(len(uv) // 6, Idx[3], Idx[2])),
+                    )[Int(primitive), :, :]
                     var w = 1.0 - u - v
-                    tu = uv[base] * w + uv[base + 2] * u + uv[base + 4] * v
-                    tv = uv[base + 1] * w + uv[base + 3] * u + uv[base + 5] * v
+                    tu = (
+                        texcoords[0, 0] * w
+                        + texcoords[1, 0] * u
+                        + texcoords[2, 0] * v
+                    )
+                    tv = (
+                        texcoords[0, 1] * w
+                        + texcoords[1, 1] * u
+                        + texcoords[2, 1] * v
+                    )
             return opacity_accepts(
                 opacity.evaluate(data.surfaces(), tu, tv), self.sample[0]
             )
@@ -76,10 +88,21 @@ struct _CpuOpacityFilter[origin: ImmOrigin, length: SIMDLength = 1](
             if self.mesh != NO_TEXTURE:
                 ref uv = data.triangle_mesh_texcoords()[Int(self.mesh)]
                 if len(uv):
-                    var base = 6 * Int(primitive)
+                    var texcoords = TileTensor(
+                        ImmSpan(uv),
+                        row_major(Coord(len(uv) // 6, Idx[3], Idx[2])),
+                    )[Int(primitive), :, :]
                     var w = 1 - u - v
-                    tu = uv[base] * w + uv[base + 2] * u + uv[base + 4] * v
-                    tv = uv[base + 1] * w + uv[base + 3] * u + uv[base + 5] * v
+                    tu = (
+                        texcoords[0, 0] * w
+                        + texcoords[1, 0] * u
+                        + texcoords[2, 0] * v
+                    )
+                    tv = (
+                        texcoords[0, 1] * w
+                        + texcoords[1, 1] * u
+                        + texcoords[2, 1] * v
+                    )
             return active & opacity_accepts(
                 opacity.evaluate(
                     data.surfaces(), active.select(tu, 0), active.select(tv, 0)

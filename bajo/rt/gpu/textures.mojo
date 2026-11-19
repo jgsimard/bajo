@@ -74,7 +74,10 @@ struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
                     unsafe_offset=Int((indices >> UInt32(16)) & UInt32(255))
                 ],
             )
-        return Color(self.pixels.unsafe_offset(3 * index))
+        var texels = TileTensor(
+            ptr=self.pixels, layout=row_major(self.width * self.height, 3)
+        )
+        return Color(texels.ptr_at_offset((index, 0)))
 
     def sample(self, u: Float32, v: Float32) -> Color:
         if self.format == GpuTextureDescLayout.PALETTE_RGB8:
@@ -148,19 +151,20 @@ def _gpu_normal_map(
     texture_descs: Pointer[UInt32, ImmutAnyOrigin],
     texture_pixels: Pointer[Float32, ImmutAnyOrigin],
 ) -> Vec3f32[.WORLD]:
+    var records = TileTensor(ptr=maps, layout=row_major(count, 2))
     var begin = 0
     var end = count
     while begin < end:
         var middle = (begin + end) // 2
-        var key = maps[unsafe_offset=2 * middle]
+        var key = records[middle, 0]
         if key < surface:
             begin = middle + 1
         else:
             end = middle
-    if begin >= count or maps[unsafe_offset=2 * begin] != surface:
+    if begin >= count or records[begin, 0] != surface:
         return normal
     var texture = _GpuImageTextureView.load(
-        maps[unsafe_offset=2 * begin + 1], texture_descs, texture_pixels
+        records[begin, 1], texture_descs, texture_pixels
     )
     var outward = normal if front_face else -normal
     var result = mapped_normal(outward, tangent, texture.sample_bilinear(u, v))
@@ -189,8 +193,11 @@ def _sample_gpu_lambertian(
     texture_pixels: Pointer[Float32, ImmutAnyOrigin],
 ) -> Color:
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-    var material_base = GpuRgbMaterialLayout.STRIDE * material_idx
-    var albedo = Color(lambertians.unsafe_offset(material_base))
+    var records = TileTensor(
+        ptr=lambertians,
+        layout=row_major(material_idx + 1, GpuRgbMaterialLayout.STRIDE),
+    )
+    var albedo = Color(records.ptr_at_offset((material_idx, 0)))
     var texture_idx = texture_indices[unsafe_offset=material_idx]
     if texture_idx == NO_TEXTURE:
         return albedo
@@ -212,15 +219,21 @@ def _sample_gpu_coated_albedo(
     texture_pixels: Pointer[Float32, ImmutAnyOrigin],
 ) -> Color:
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-    var material_base = GpuCoatedDiffuseLayout.STRIDE * material_idx
-    var albedo = Color(
-        coated_diffuses.unsafe_offset(
-            material_base + GpuCoatedDiffuseLayout.ALBEDO
-        )
+    var records = TileTensor(
+        ptr=coated_diffuses,
+        layout=row_major(material_idx + 1, GpuCoatedDiffuseLayout.STRIDE),
     )
-    var texture_idx = texture_indices[
-        unsafe_offset=GpuCoatedDiffuseLayout.TEXTURE_STRIDE * material_idx
-        + GpuCoatedDiffuseLayout.ALBEDO_TEXTURE
+    var textures = TileTensor(
+        ptr=texture_indices,
+        layout=row_major(
+            material_idx + 1, GpuCoatedDiffuseLayout.TEXTURE_STRIDE
+        ),
+    )
+    var albedo = Color(
+        records.ptr_at_offset((material_idx, GpuCoatedDiffuseLayout.ALBEDO))
+    )
+    var texture_idx = textures[
+        material_idx, GpuCoatedDiffuseLayout.ALBEDO_TEXTURE
     ]
     if texture_idx == NO_TEXTURE:
         return albedo

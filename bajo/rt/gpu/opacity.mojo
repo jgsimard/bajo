@@ -41,12 +41,17 @@ def gpu_opacity_value(
             end = middle
     if begin == Int(view.count) or view.keys[unsafe_offset=begin] != key:
         return 1.0
-    var base = 3 * begin
-    var alpha = view.parameters[unsafe_offset=base]
-    var offset = view.descriptors[unsafe_offset=base]
+    var parameters = TileTensor(
+        ptr=view.parameters, layout=row_major(Int(view.count), 3)
+    )
+    var descriptors = TileTensor(
+        ptr=view.descriptors, layout=row_major(Int(view.count), 3)
+    )
+    var alpha = parameters[begin, 0]
+    var offset = descriptors[begin, 0]
     if offset != NO_TEXTURE:
-        var width = Int(view.descriptors[unsafe_offset=base + 1])
-        var height = Int(view.descriptors[unsafe_offset=base + 2])
+        var width = Int(descriptors[begin, 1])
+        var height = Int(descriptors[begin, 2])
         alpha *= sample_scalar_texture_bilinear(
             TileTensor(
                 ptr=view.pixels.unsafe_offset(Int(offset)),
@@ -54,8 +59,8 @@ def gpu_opacity_value(
             ),
             width,
             height,
-            u * view.parameters[unsafe_offset=base + 1],
-            v * view.parameters[unsafe_offset=base + 2],
+            u * parameters[begin, 1],
+            v * parameters[begin, 2],
         )
     return alpha.clamp(0.0, 1.0)
 
@@ -75,17 +80,20 @@ struct _GpuOpacityFilter(TriangleHitFilter, TrivialRegisterPassable):
         var tu = u + v
         var tv = v
         if self.texcoord_offset != NO_TEXTURE:
-            var base = Int(self.texcoord_offset) + 6 * Int(primitive)
+            var texcoords = TileTensor(
+                ptr=self.texcoords.unsafe_offset(Int(self.texcoord_offset)),
+                layout=row_major(Int(primitive) + 1, 3, 2),
+            )
             var w = 1.0 - u - v
             tu = (
-                self.texcoords[unsafe_offset=base] * w
-                + self.texcoords[unsafe_offset=base + 2] * u
-                + self.texcoords[unsafe_offset=base + 4] * v
+                texcoords[Int(primitive), 0, 0] * w
+                + texcoords[Int(primitive), 1, 0] * u
+                + texcoords[Int(primitive), 2, 0] * v
             )
             tv = (
-                self.texcoords[unsafe_offset=base + 1] * w
-                + self.texcoords[unsafe_offset=base + 3] * u
-                + self.texcoords[unsafe_offset=base + 5] * v
+                texcoords[Int(primitive), 0, 1] * w
+                + texcoords[Int(primitive), 1, 1] * u
+                + texcoords[Int(primitive), 2, 1] * v
             )
         return opacity_accepts(
             gpu_opacity_value(self.view, key, tu, tv), self.sample
@@ -218,18 +226,23 @@ def _opacity_sphere_leaf[
     mut hit: Hit[.WORLD],
 ) -> Bool:
     var found = False
-    var base = Int(block) * SPHERE_LEAF_PACKED_STRIDE * width
-    var words = state.spheres.leaves.unsafe_bitcast[UInt32]()
+    var fields = TileTensor(
+        ptr=state.spheres.leaves.unsafe_offset(
+            Int(block) * SPHERE_LEAF_PACKED_STRIDE * width
+        ),
+        layout=row_major[SPHERE_LEAF_PACKED_STRIDE, Int(width)](),
+    )
+    var words = fields.bitcast[.uint32]()
     for lane in range(min(Int(width), Int(count))):
-        var primitive = words[unsafe_offset=base + 4 * width + lane]
+        var primitive = words.load[invariant=False](Coord(4, lane))
         if primitive == EMPTY_LANE:
             continue
         var center = Point3f32[.WORLD](
-            state.spheres.leaves[unsafe_offset=base + lane],
-            state.spheres.leaves[unsafe_offset=base + width + lane],
-            state.spheres.leaves[unsafe_offset=base + 2 * width + lane],
+            fields.load[invariant=False](Coord(0, lane)),
+            fields.load[invariant=False](Coord(1, lane)),
+            fields.load[invariant=False](Coord(2, lane)),
         )
-        var radius = state.spheres.leaves[unsafe_offset=base + 3 * width + lane]
+        var radius = fields.load[invariant=False](Coord(3, lane))
         var offset = ray.o - center
         var a = dot(ray.d, ray.d)
         var b = dot(offset, ray.d)

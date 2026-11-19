@@ -559,16 +559,16 @@ def _run_render_thread[gpu_enabled: Bool](address: UInt) -> UInt:
     var state = Pointer[_WorkerState[gpu_enabled], MutUntrackedOrigin](
         unsafe_from_address=Int(address)
     )
-    while not Atomic.load[ordering=Ordering.ACQUIRE](Pointer(to=state[].stop)):
+    while not Atomic.load[ordering=Ordering.acquire](Pointer(to=state[].stop)):
         if (
-            Atomic.load[ordering=Ordering.ACQUIRE](Pointer(to=state[].status))
+            Atomic.load[ordering=Ordering.acquire](Pointer(to=state[].status))
             == 1
         ):
             try:
                 state[].render()
             except error:
                 state[].error = String(error)
-            Atomic.store[ordering=Ordering.RELEASE](
+            Atomic.store[ordering=Ordering.release](
                 Pointer(to=state[].status), UInt32(2)
             )
         else:
@@ -628,7 +628,7 @@ struct _RenderWorker[gpu_enabled: Bool]:
 
     def idle(self) -> Bool:
         return (
-            Atomic.load[ordering=Ordering.ACQUIRE](
+            Atomic.load[ordering=Ordering.acquire](
                 Pointer(to=self.state[].status)
             )
             == 0
@@ -636,7 +636,7 @@ struct _RenderWorker[gpu_enabled: Bool]:
 
     def ready(self) -> Bool:
         return (
-            Atomic.load[ordering=Ordering.ACQUIRE](
+            Atomic.load[ordering=Ordering.acquire](
                 Pointer(to=self.state[].status)
             )
             == 2
@@ -670,7 +670,7 @@ struct _RenderWorker[gpu_enabled: Bool]:
         self.state[].denoise_enabled = denoise
         self.state[].presentation_revision = presentation_revision
         self.state[].error = ""
-        Atomic.store[ordering=Ordering.RELEASE](
+        Atomic.store[ordering=Ordering.release](
             Pointer(to=self.state[].status), UInt32(1)
         )
         notify(self.state[].notification)
@@ -727,12 +727,12 @@ struct _RenderWorker[gpu_enabled: Bool]:
 
     def acknowledge(self):
         # Call only after consuming the published result/error/debug snapshot.
-        Atomic.store[ordering=Ordering.RELEASE](
+        Atomic.store[ordering=Ordering.release](
             Pointer(to=self.state[].status), UInt32(0)
         )
 
     def __deinit__(deinit self):
-        Atomic.store[ordering=Ordering.RELEASE](
+        Atomic.store[ordering=Ordering.release](
             Pointer(to=self.state[].stop), UInt32(1)
         )
         notify(self.state[].notification)

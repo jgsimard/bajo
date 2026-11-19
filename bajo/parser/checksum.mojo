@@ -3,6 +3,7 @@
 Adapted from libdeflate v1.25; see LICENSE.libdeflate in this directory.
 """
 
+from std.builtin.globals import global_constant
 from std.memory import bitcast
 from std.math import iota
 from std.sys.info import CompilationTarget
@@ -164,8 +165,8 @@ def adler32(bytes: ImmSpan[UInt8, _], initial: UInt32 = 1) -> UInt32:
         return (b << 16) | a
 
 
-def _crc32_tables() -> List[UInt32]:
-    var tables = List[UInt32](length=2048, fill=0)
+def _crc32_tables() -> Array[UInt32, 2048]:
+    var tables = Array[UInt32, 2048](fill=0)
     for i in range(256):
         var value = UInt32(i)
         for _ in range(8):
@@ -180,8 +181,11 @@ def _crc32_tables() -> List[UInt32]:
     return tables^
 
 
+comptime _CRC32_TABLES = _crc32_tables()
+
+
 def _crc32_portable(bytes: ImmSpan[UInt8, _], initial: UInt32 = 0) -> UInt32:
-    var tables = _crc32_tables()
+    ref tables = global_constant[_CRC32_TABLES]()
     var crc = ~initial
     var end = len(bytes) // 8 * 8
     for i in range(0, end, 8):

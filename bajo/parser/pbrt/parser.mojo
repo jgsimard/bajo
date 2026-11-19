@@ -32,8 +32,7 @@ from bajo.rt.media import SceneMedia
 from bajo.rt.opacity import Opacity
 from std.builtin.globals import global_constant
 from bajo.core.cie_data import CIE_XYZ
-from bajo.core.colorimetry import srgb_to_xyz_matrix
-from bajo.core.mat import inverse
+from bajo.core.colorimetry import XYZ_TO_SRGB_MATRIX
 from bajo.rt.emission import AreaEmitter
 from bajo.rt.spectrum_sources import SpectrumSource, NO_SPECTRUM
 from bajo.rt.film import FilmResponse
@@ -895,7 +894,7 @@ def _radiometric_parameter(
                     xyz += observer[nm - 360] * curve.evaluate(Float32(nm))
                 if xyz.y > 0:
                     xyz = xyz / xyz.y
-                    var matrix = inverse(srgb_to_xyz_matrix())
+                    var matrix = materialize[XYZ_TO_SRGB_MATRIX]()
                     for channel in range(3):
                         rgb[channel] = max(
                             Float32(matrix[channel][0]) * xyz.x

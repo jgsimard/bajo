@@ -20,7 +20,7 @@ from bajo.benchmark.gpu_harness import (
     RNG_SEED,
     SAMPLES_PER_PIXEL,
     bench_gpu_integrator,
-    gpu_rt_camera,
+    GPU_RT_CAMERA,
     make_many_light_scene,
     print_gpu_rt_result,
 )
@@ -149,4 +149,6 @@ def main() raises:
                 make_cornell_scene() if workload
                 == "triangles" else make_coated_scene()
             )
-            _benchmark[.TRIANGLES](ctx, world, gpu_rt_camera(), settings)
+            _benchmark[.TRIANGLES](
+                ctx, world, materialize[GPU_RT_CAMERA](), settings
+            )

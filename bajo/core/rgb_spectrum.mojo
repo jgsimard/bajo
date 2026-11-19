@@ -1,5 +1,6 @@
 """PBRT's sRGB sigmoid-polynomial reconstruction, using its original table."""
 
+from layout import TileTensor, row_major
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.builtin.globals import global_constant
 from std.memory import bitcast
@@ -89,37 +90,23 @@ struct RgbSpectrumView[origin: ImmOrigin = ImmUntrackedOrigin](
         return "RgbSpectrumView"
 
     @inline(.always)
-    def _coefficient[
-        width: SIMDLength
-    ](
-        self,
-        axis: SIMD[.int32, width],
-        x: SIMD[.int32, width],
-        y: SIMD[.int32, width],
-        z: SIMD[.int32, width],
-        channel: Int,
-    ) -> SIMD[.float32, width]:
-        var indices = 64 + ((((axis * 64) + z) * 64 + y) * 64 + x) * 3
-        return self.data.unsafe_gather(indices + Int32(channel))
-
-    @inline(.always)
     def coefficients[
         width: SIMDLength
     ](self, rgb: Vec3[.float32, .WORLD, width]) -> SigmoidPolynomial[width]:
-        comptime if width == 2 or width == 4:
-            # Short packets use SIMD over each color's adjacent coefficients;
-            # wider packets amortize gathers across independent paths instead.
-            var result = SigmoidPolynomial[width](0, 0, 0)
-            comptime for lane in range(Int(width)):
-                var scalar = self.coefficients(
-                    Vec3[.float32, .WORLD](
-                        rgb.x[lane], rgb.y[lane], rgb.z[lane]
-                    )
-                )
-                result.a[lane] = scalar.a[0]
-                result.b[lane] = scalar.b[0]
-                result.c[lane] = scalar.c[0]
-            return result
+        var result = SigmoidPolynomial[width](0, 0, 0)
+        comptime for lane in range(Int(width)):
+            var polynomial = self._color_coefficients(
+                Vec3[.float32, .WORLD](rgb.x[lane], rgb.y[lane], rgb.z[lane])
+            )
+            result.a[lane] = polynomial.a[0]
+            result.b[lane] = polynomial.b[0]
+            result.c[lane] = polynomial.c[0]
+        return result
+
+    @inline(.always)
+    def _color_coefficients(
+        self, rgb: Vec3[.float32, .WORLD]
+    ) -> SigmoidPolynomial[1]:
         var r = rgb.x
         var g = rgb.y
         var b = rgb.z
@@ -129,87 +116,60 @@ struct RgbSpectrumView[origin: ImmOrigin = ImmUntrackedOrigin](
             ).reduce_and(),
             "RGB spectral coefficients require finite values in [0, 1]",
         )
-        var gray = r.eq(g) & g.eq(b)
-        if gray.reduce_and():
-            return SigmoidPolynomial[width](0, 0, (r - 0.5) / sqrt(r * (1 - r)))
-        # Preserve PBRT's axis tie-breaking and sanitize gray lanes before
-        # divisions and gathers, including black and white in mixed packets.
-        var red = r.gt(g) & r.gt(b)
-        var green = r.le(g) & g.gt(b)
-        var axis = red.select(Int32(0), green.select(Int32(1), Int32(2)))
-        var z = gray.select(Float32(1), red.select(r, green.select(g, b)))
-        var x = red.select(g, green.select(b, r)) * 63 / z
-        var y = red.select(b, green.select(r, g)) * 63 / z
+        if r == g and g == b:
+            return SigmoidPolynomial[1](0, 0, (r - 0.5) / sqrt(r * (1 - r)))
+        # Preserve PBRT's axis tie-breaking.
+        var red = r > g and r > b
+        var green = r <= g and g > b
+        var axis = Int32(0) if red else Int32(1) if green else Int32(2)
+        var z = r if red else g if green else b
+        var x = (g if red else b if green else r) * 63 / z
+        var y = (b if red else r if green else g) * 63 / z
         var xi = min(x.cast[.int32](), 62)
         var yi = min(y.cast[.int32](), 62)
-        var lo = SIMD[.int32, width](0)
-        var hi = SIMD[.int32, width](63)
-        comptime if width == 1:
-            while lo + 1 < hi:
-                var mid = (lo + hi) // 2
-                if self.data.unsafe_gather(mid) < z:
-                    lo = mid
-                else:
-                    hi = mid
-        else:
-            comptime for _ in range(6):
-                var searching = (lo + 1).lt(hi)
-                var mid = (lo + hi) // 2
-                var right = self.data.unsafe_gather(mid).lt(z)
-                lo = (searching & right).select(mid, lo)
-                hi = (searching & ~right).select(mid, hi)
+        var z_nodes = TileTensor(ptr=self.data, layout=row_major[64]())
+        var lo = Int32(0)
+        var hi = Int32(63)
+        while lo + 1 < hi:
+            var mid = (lo + hi) // 2
+            if z_nodes[mid] < z:
+                lo = mid
+            else:
+                hi = mid
         var zi = lo
         var dx = x - xi.cast[.float32]()
         var dy = y - yi.cast[.float32]()
-        var z0 = self.data.unsafe_gather(zi)
-        var dz = (z - z0) / (self.data.unsafe_gather(zi + 1) - z0)
-        comptime if width == 1:
-            # At width one, SIMD runs across the adjacent polynomial
-            # coefficients instead, masking the fourth word of each record.
-            var base = Int(64 + ((((axis * 64) + zi) * 64 + yi) * 64 + xi) * 3)
-            var ptr = self.data.unsafe_offset(base)
-            comptime row = RGB_SPECTRUM_RESOLUTION * 3
-            comptime slab = RGB_SPECTRUM_RESOLUTION * row
-            var mask = SIMD[.bool, 4](True, True, True, False)
-            var zero = SIMD[.float32, 4](0)
-            var c = _trilinear_coefficients(
-                masked_load(ptr, mask, zero),
-                masked_load(ptr.unsafe_offset(3), mask, zero),
-                masked_load(ptr.unsafe_offset(row), mask, zero),
-                masked_load(ptr.unsafe_offset(row + 3), mask, zero),
-                masked_load(ptr.unsafe_offset(slab), mask, zero),
-                masked_load(ptr.unsafe_offset(slab + 3), mask, zero),
-                masked_load(ptr.unsafe_offset(slab + row), mask, zero),
-                masked_load(ptr.unsafe_offset(slab + row + 3), mask, zero),
-                SIMD[.float32, 4](dx[0]),
-                SIMD[.float32, 4](dy[0]),
-                SIMD[.float32, 4](dz[0]),
-            )
-            return SigmoidPolynomial[width](c[0], c[1], c[2])
-        var c = Array[SIMD[.float32, width], 3](uninitialized=True)
-        comptime for channel in range(3):
-            c[channel] = _trilinear_coefficients(
-                self._coefficient(axis, xi, yi, zi, channel),
-                self._coefficient(axis, xi + 1, yi, zi, channel),
-                self._coefficient(axis, xi, yi + 1, zi, channel),
-                self._coefficient(axis, xi + 1, yi + 1, zi, channel),
-                self._coefficient(axis, xi, yi, zi + 1, channel),
-                self._coefficient(axis, xi + 1, yi, zi + 1, channel),
-                self._coefficient(axis, xi, yi + 1, zi + 1, channel),
-                self._coefficient(axis, xi + 1, yi + 1, zi + 1, channel),
-                dx,
-                dy,
-                dz,
-            )
-        var gray_c = SIMD[.float32, width](0)
-        if gray.reduce_or():
-            var value = gray.select(r, 0.5)
-            gray_c = (value - 0.5) / sqrt(value * (1 - value))
-        return SigmoidPolynomial[width](
-            gray.select(Float32(0), c[0]),
-            gray.select(Float32(0), c[1]),
-            gray.select(gray_c, c[2]),
+        var z0 = z_nodes[zi]
+        var dz = (z - z0) / (z_nodes[zi + 1] - z0)
+        var coefficients = TileTensor[linear_idx_type=.int32](
+            ptr=self.data.unsafe_offset(64),
+            layout=row_major[3, 64, 64, 64, 3](),
         )
+        var cube = coefficients[
+            Int(axis),
+            Int(zi) : Int(zi) + 2,
+            Int(yi) : Int(yi) + 2,
+            Int(xi) : Int(xi) + 2,
+            :,
+        ]
+        # Interpolate the three coefficients together without reading the
+        # fourth word beyond a coefficient record.
+        var mask = SIMD[.bool, 4](True, True, True, False)
+        var zero = SIMD[.float32, 4](0)
+        var c = _trilinear_coefficients(
+            masked_load(cube.ptr_at_offset((0, 0, 0, 0)), mask, zero),
+            masked_load(cube.ptr_at_offset((0, 0, 1, 0)), mask, zero),
+            masked_load(cube.ptr_at_offset((0, 1, 0, 0)), mask, zero),
+            masked_load(cube.ptr_at_offset((0, 1, 1, 0)), mask, zero),
+            masked_load(cube.ptr_at_offset((1, 0, 0, 0)), mask, zero),
+            masked_load(cube.ptr_at_offset((1, 0, 1, 0)), mask, zero),
+            masked_load(cube.ptr_at_offset((1, 1, 0, 0)), mask, zero),
+            masked_load(cube.ptr_at_offset((1, 1, 1, 0)), mask, zero),
+            SIMD[.float32, 4](dx),
+            SIMD[.float32, 4](dy),
+            SIMD[.float32, 4](dz),
+        )
+        return SigmoidPolynomial[1](c[0], c[1], c[2])
 
     @inline(.always)
     def illuminant[

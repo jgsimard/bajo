@@ -1,5 +1,6 @@
 """Owning indexed mesh for shared CPU/GPU spatial queries."""
 
+from layout import Coord, Idx, TileTensor, row_major
 from std.sys.info import size_of
 from max.algorithm import parallelize
 from bajo.bvh.cpu.parallel import _worker_count
@@ -198,10 +199,28 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
         comptime if not update_bounds:
             if not has_cache:
                 return
-        var points = self.points.unsafe_ptr()
-        var indices = self.indices.unsafe_ptr()
-        var packed = self.packed_triangles.unsafe_ptr()
-        var boxes = self.bvh.item_bounds.unsafe_ptr().unsafe_bitcast[Float32]()
+        var points = TileTensor(
+            ImmSpan(self.points), row_major(len(self.points) // 3, 3)
+        )
+        var indices = TileTensor(
+            ImmSpan(self.indices), row_major(len(self.indices) // 3, 3)
+        )
+        var packed = TileTensor(
+            MutSpan(self.packed_triangles),
+            row_major(
+                Coord(
+                    len(self.packed_triangles) // (9 * Self.storage_width),
+                    Idx[3],
+                    Idx[3],
+                    Idx[Int(Self.storage_width)],
+                )
+            ),
+        )
+        comptime assert size_of[AABB[Self.frame]]() == 6 * size_of[Float32]()
+        var boxes = TileTensor(
+            ptr=self.bvh.item_bounds.unsafe_ptr().unsafe_bitcast[Float32](),
+            layout=row_major(len(self.bvh.item_bounds), 6),
+        )
         var slots = self.winding.face_slots.unsafe_ptr()
         var components = self.winding.face_components.unsafe_ptr()
         var winding_boxes = self.winding.bvh.item_bounds.unsafe_ptr()
@@ -211,12 +230,15 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
                     Self.frame
                 ].invalid()
         for face in range(begin, end):
-            var av = Int(indices.unsafe_load(face * 3)) * 3
-            var bv = Int(indices.unsafe_load(face * 3 + 1)) * 3
-            var cv = Int(indices.unsafe_load(face * 3 + 2)) * 3
-            var a = Point3f32[Self.frame](points.unsafe_offset(av))
-            var b = Point3f32[Self.frame](points.unsafe_offset(bv))
-            var c = Point3f32[Self.frame](points.unsafe_offset(cv))
+            var a = Point3f32[Self.frame](
+                points.ptr_at_offset((Int(indices[face, 0]), 0))
+            )
+            var b = Point3f32[Self.frame](
+                points.ptr_at_offset((Int(indices[face, 1]), 0))
+            )
+            var c = Point3f32[Self.frame](
+                points.ptr_at_offset((Int(indices[face, 2]), 0))
+            )
             if has_cache:
                 var slot = Int(slots.unsafe_load(face))
                 var block = slot // Self.storage_width
@@ -224,17 +246,12 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
                 comptime for corner in range(3):
                     var vertex = a if corner == 0 else b if corner == 1 else c
                     comptime for axis in range(3):
-                        packed.unsafe_store(
-                            block * 9 * Self.storage_width
-                            + (corner * 3 + axis) * Self.storage_width
-                            + lane,
-                            vertex[axis],
-                        )
+                        packed[block, corner, axis, lane] = vertex[axis]
             comptime if update_bounds:
                 var box = AABB[Self.frame](a, b, c)
                 comptime for axis in range(3):
-                    boxes.unsafe_store(face * 6 + axis, box._min[axis])
-                    boxes.unsafe_store(face * 6 + axis + 3, box._max[axis])
+                    boxes[face, axis] = box._min[axis]
+                    boxes[face, axis + 3] = box._max[axis]
                 if has_cache:
                     var component = components.unsafe_load(face)
                     if component != EMPTY_LANE:
@@ -251,10 +268,28 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
         comptime if not update_bounds:
             if not has_cache:
                 return
-        var points = self.points.unsafe_ptr()
-        var indices = self.indices.unsafe_ptr()
-        var packed = self.packed_triangles.unsafe_ptr()
-        var boxes = self.bvh.item_bounds.unsafe_ptr().unsafe_bitcast[Float32]()
+        var points = TileTensor(
+            ImmSpan(self.points), row_major(len(self.points) // 3, 3)
+        )
+        var indices = TileTensor(
+            ImmSpan(self.indices), row_major(len(self.indices) // 3, 3)
+        )
+        var packed = TileTensor(
+            MutSpan(self.packed_triangles),
+            row_major(
+                Coord(
+                    len(self.packed_triangles) // (9 * Self.storage_width),
+                    Idx[3],
+                    Idx[3],
+                    Idx[Int(Self.storage_width)],
+                )
+            ),
+        )
+        comptime assert size_of[AABB[Self.frame]]() == 6 * size_of[Float32]()
+        var boxes = TileTensor(
+            ptr=self.bvh.item_bounds.unsafe_ptr().unsafe_bitcast[Float32](),
+            layout=row_major(len(self.bvh.item_bounds), 6),
+        )
         var slots = self.winding.face_slots.unsafe_ptr()
         var components = self.winding.face_components.unsafe_ptr()
         var winding_boxes = partials.unsafe_ptr()
@@ -264,12 +299,15 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
                     Self.frame
                 ].invalid()
         for face in range(begin, end):
-            var av = Int(indices.unsafe_load(face * 3)) * 3
-            var bv = Int(indices.unsafe_load(face * 3 + 1)) * 3
-            var cv = Int(indices.unsafe_load(face * 3 + 2)) * 3
-            var a = Point3f32[Self.frame](points.unsafe_offset(av))
-            var b = Point3f32[Self.frame](points.unsafe_offset(bv))
-            var c = Point3f32[Self.frame](points.unsafe_offset(cv))
+            var a = Point3f32[Self.frame](
+                points.ptr_at_offset((Int(indices[face, 0]), 0))
+            )
+            var b = Point3f32[Self.frame](
+                points.ptr_at_offset((Int(indices[face, 1]), 0))
+            )
+            var c = Point3f32[Self.frame](
+                points.ptr_at_offset((Int(indices[face, 2]), 0))
+            )
             if has_cache:
                 var slot = Int(slots.unsafe_load(face))
                 var block = slot // Self.storage_width
@@ -277,17 +315,12 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
                 comptime for corner in range(3):
                     var vertex = a if corner == 0 else b if corner == 1 else c
                     comptime for axis in range(3):
-                        packed.unsafe_store(
-                            block * 9 * Self.storage_width
-                            + (corner * 3 + axis) * Self.storage_width
-                            + lane,
-                            vertex[axis],
-                        )
+                        packed[block, corner, axis, lane] = vertex[axis]
             comptime if update_bounds:
                 var box = AABB[Self.frame](a, b, c)
                 comptime for axis in range(3):
-                    boxes.unsafe_store(face * 6 + axis, box._min[axis])
-                    boxes.unsafe_store(face * 6 + axis + 3, box._max[axis])
+                    boxes[face, axis] = box._min[axis]
+                    boxes[face, axis + 3] = box._max[axis]
                 if has_cache:
                     var component = components.unsafe_load(face)
                     if component != EMPTY_LANE:

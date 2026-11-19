@@ -244,18 +244,22 @@ def _trace_triangle_leaf_block[
                 prim_field = 3
                 e1_field = 4
                 e2_field = 7
-            var block_u32 = block_ptr.unsafe_bitcast[UInt32]()
-            hit.prim = block_u32[unsafe_offset=prim_field * Int(width) + lane]
+            var fields = TileTensor(
+                ptr=block_ptr,
+                layout=row_major(Coord(Idx[10], Idx[Int(width)])),
+            )
+            var ids = fields.bitcast[.uint32]()
+            hit.prim = ids[prim_field, lane]
             hit.inst = EMPTY_LANE
             var e1 = Vec3f32[frame](
-                block_ptr[unsafe_offset=(e1_field + 0) * Int(width) + lane],
-                block_ptr[unsafe_offset=(e1_field + 1) * Int(width) + lane],
-                block_ptr[unsafe_offset=(e1_field + 2) * Int(width) + lane],
+                fields[e1_field + 0, lane],
+                fields[e1_field + 1, lane],
+                fields[e1_field + 2, lane],
             )
             var e2 = Vec3f32[frame](
-                block_ptr[unsafe_offset=(e2_field + 0) * Int(width) + lane],
-                block_ptr[unsafe_offset=(e2_field + 1) * Int(width) + lane],
-                block_ptr[unsafe_offset=(e2_field + 2) * Int(width) + lane],
+                fields[e2_field + 0, lane],
+                fields[e2_field + 1, lane],
+                fields[e2_field + 2, lane],
             )
             var geometric_normal = cross(e1, e2)
             hit.normal = Normal3f32[frame](
@@ -761,7 +765,7 @@ struct _TriangleBuild[
                         first_item: UInt32, item_count: UInt32
                     ) {imm, mut leaf_ranges, mut next_leaf} -> UInt32:
                         var block_idx = Atomic.fetch_add[
-                            ordering=Ordering.RELAXED
+                            ordering=Ordering.relaxed
                         ](next_leaf.unsafe_ptr(), UInt32(1))
                         leaf_ranges[Int(block_idx)] = WideLeafRange(
                             first_item, item_count

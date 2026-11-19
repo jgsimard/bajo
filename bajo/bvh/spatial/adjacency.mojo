@@ -4,6 +4,7 @@ Packed storage contains vertex/face counts, CSR offsets and face IDs, then one
 leaf location per face in the global tree and one in its optional group tree.
 Leaf locations change on rebuild; incidence is independent of vertex positions.
 """
+from layout import TileTensor, row_major
 from max.gpu import global_idx
 from bajo.bvh.constants import EMPTY_LANE
 from .query import BoundsQuery
@@ -13,13 +14,14 @@ from bajo.core import Frame
 def update_adjacency_leaf(
     nodes: ImmSpan[UInt32, _], data: MutSpan[UInt32, _], node: Int
 ):
-    var face = nodes[node * 2 + 1]
+    var node_fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
+    var face = node_fields[node, 1]
     if face == EMPTY_LANE:
         return
     var vertices = Int(data[0])
     var faces = Int(data[1])
     var base = 3 + vertices + Int(data[2 + vertices])
-    if node >= Int(nodes[0]):
+    if node >= Int(node_fields[0, 0]):
         base += faces
     data[base + Int(face)] = UInt32(node)
 
@@ -44,15 +46,16 @@ def build_adjacency(
     indices: ImmSpan[UInt32, _], vertices: Int, nodes: ImmSpan[UInt32, _]
 ) -> List[UInt32]:
     var faces = len(indices) // 3
+    var triangles = TileTensor(indices, row_major(faces, 3))
     var data = List[UInt32](length=3 + vertices, fill=0)
     data[0] = UInt32(vertices)
     data[1] = UInt32(faces)
     for face in range(faces):
         for corner in range(3):
-            var vertex = indices[face * 3 + corner]
+            var vertex = triangles[face, corner]
             var first = True
             for previous in range(corner):
-                first &= vertex != indices[face * 3 + previous]
+                first &= vertex != triangles[face, previous]
             if first:
                 data[3 + Int(vertex)] += 1
     for vertex in range(vertices):
@@ -62,10 +65,10 @@ def build_adjacency(
     var cursors = List(Span(data)[2 : 2 + vertices])
     for face in range(faces):
         for corner in range(3):
-            var vertex = indices[face * 3 + corner]
+            var vertex = triangles[face, corner]
             var first = True
             for previous in range(corner):
-                first &= vertex != indices[face * 3 + previous]
+                first &= vertex != triangles[face, previous]
             if first:
                 var slot = Int(vertex)
                 data[3 + vertices + Int(cursors[slot])] = UInt32(face)

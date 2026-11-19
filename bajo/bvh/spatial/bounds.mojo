@@ -1,5 +1,6 @@
 """Owning spatial BVH with original item IDs and independent group roots."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from bajo.core.numerics import finite_f32_min, finite_f32_max
 from bajo.core.aabb import finite_box_properties, bounds_have_subnormal
 
@@ -580,16 +581,19 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
             return result
 
     def _node_bounds(self, index: Int) -> AABB[Self.frame]:
-        var base = index * 6
-        var bounds = self.bounds.unsafe_ptr()
-        return AABB[Self.frame].load6(bounds, base)
+        var bounds = TileTensor(
+            ImmSpan(self.bounds),
+            row_major(Coord(len(self.bounds) // 6, Idx[6])),
+        )
+        return AABB[Self.frame].load6(bounds.ptr_at_offset((index, 0)))
 
     def _store_bounds(mut self, index: Int, box: AABB[Self.frame]):
-        var base = index * 6
-        var bounds = self.bounds.unsafe_ptr()
+        var bounds = TileTensor(
+            Span(self.bounds), row_major(Coord(len(self.bounds) // 6, Idx[6]))
+        )
         comptime for axis in range(3):
-            bounds.unsafe_store(base + axis, box._min[axis])
-            bounds.unsafe_store(base + axis + 3, box._max[axis])
+            bounds[index, axis] = box._min[axis]
+            bounds[index, axis + 3] = box._max[axis]
 
     def _validate_update(
         self, boxes: ImmSpan[AABB[Self.frame], _]
@@ -629,25 +633,25 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
         width: SIMDLength = REFIT_WIDTH, precise: Bool = True
     ](mut self):
         """Refit from already validated owned item bounds; no allocation."""
-        var item_floats = self.item_bounds.unsafe_ptr().unsafe_bitcast[
-            Float32
-        ]()
-        var bounds = self.bounds.unsafe_ptr()
-        var nodes = self.nodes.unsafe_ptr()
+        var items = TileTensor(
+            ptr=self.item_bounds.unsafe_ptr().unsafe_bitcast[Float32](),
+            layout=row_major(Coord(len(self.item_bounds), Idx[6])),
+        )
+        var bounds = TileTensor(
+            MutSpan(self.bounds),
+            row_major(Coord(len(self.bounds) // 6, Idx[6])),
+        )
+        var nodes = TileTensor(
+            ImmSpan(self.nodes), row_major(Coord(len(self.nodes) // 2, Idx[2]))
+        )
         for node in range(len(self.nodes) // 2 - 1, -1, -1):
-            var primitive = nodes.unsafe_load(node * 2 + 1)
-            var output = node * 6
+            var primitive = nodes[node, 1]
             if primitive != EMPTY_LANE:
-                var input = Int(primitive) * 6
-                bounds.unsafe_store[width=4](
-                    output, item_floats.unsafe_load[width=4](input)
-                )
-                bounds.unsafe_store[width=2](
-                    output + 4, item_floats.unsafe_load[width=2](input + 4)
-                )
+                var output = bounds[node, :]
+                output.copy_from(items[Int(primitive), :])
             else:
                 var left = node + 1
-                var right = Int(nodes.unsafe_load(left * 2))
+                var right = Int(nodes[left, 0])
                 comptime for chunk in range((6 + width - 1) // width):
                     var a = SIMD[.float32, width](0.0)
                     var b = SIMD[.float32, width](0.0)
@@ -655,8 +659,8 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
                     comptime for lane in range(width):
                         comptime index = chunk * width + lane
                         comptime if index < 6:
-                            a[lane] = bounds.unsafe_load(left * 6 + index)
-                            b[lane] = bounds.unsafe_load(right * 6 + index)
+                            a[lane] = bounds[left, index]
+                            b[lane] = bounds[right, index]
                             lower_mask[lane] = index < 3
                     var merged: SIMD[.float32, width]
                     comptime if precise:
@@ -666,15 +670,15 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
                     else:
                         merged = lower_mask.select(min(a, b), max(a, b))
                     comptime if (chunk + 1) * width <= 6:
-                        bounds.unsafe_store[width=width](
-                            output + chunk * width, merged
+                        bounds.store[width=width, alignment=4](
+                            Coord(node, chunk * width), merged
                         )
                     else:
                         comptime for lane in range(width):
                             comptime if chunk * width + lane < 6:
-                                bounds.unsafe_store(
-                                    output + chunk * width + lane, merged[lane]
-                                )
+                                bounds[node, chunk * width + lane] = merged[
+                                    lane
+                                ]
 
     def rebuild(mut self, boxes: ImmSpan[AABB[Self.frame], _]) raises:
         """Rebuild topology while retaining published buffer addresses.

@@ -1,28 +1,9 @@
 """Borrowed field/lane TileTensor views of homogeneous CPU SIMD packets."""
 
-from layout import Coord, Idx, TileTensor, row_major
+from layout import Coord, TensorLayout, TileTensor
 from std.sys.intrinsics import compressed_store
 from std.bit import count_trailing_zeros
 from std.memory import pack_bits
-
-
-comptime PacketFloatTile[
-    fields: Int, length: SIMDLength, origin: Origin
-] = TileTensor[
-    .float32, type_of(row_major(Coord(Idx[fields], Idx[Int(length)]))), origin
-]
-
-
-@inline(.always)
-def packet_float_tile[
-    mut: Bool, origin: Origin[mut=mut], //, fields: Int, length: SIMDLength
-](storage: Pointer[SIMD[.float32, length], origin]) -> PacketFloatTile[
-    fields, length, origin
-]:
-    return TileTensor(
-        ptr=storage.unsafe_bitcast[Float32](),
-        layout=row_major(Coord(Idx[fields], Idx[Int(length)])),
-    )
 
 
 @inline(.always)
@@ -46,30 +27,15 @@ def packet_float_field[
 
 
 @inline(.always)
-def copy_packet_float_lane[
-    destination_origin: MutOrigin,
-    //,
-    fields: Int,
-    length: SIMDLength,
-](
-    source: PacketFloatTile[fields, length, _],
-    destination: PacketFloatTile[fields, length, destination_origin],
-    source_lane: Int,
-    destination_lane: Int,
-):
-    comptime for field in range(fields):
-        destination[field, destination_lane] = source[field, source_lane]
-
-
-@inline(.always)
 def compact_packet_floats[
     destination_origin: MutOrigin,
+    Layout: TensorLayout,
     //,
     fields: Int,
     length: SIMDLength,
 ](
-    source: PacketFloatTile[fields, length, _],
-    destination: PacketFloatTile[fields, length, destination_origin],
+    source: TileTensor[.float32, Layout, _],
+    destination: TileTensor[.float32, Layout, destination_origin],
     selected: SIMD[.bool, length],
     destination_lane: Int,
 ):
@@ -79,13 +45,13 @@ def compact_packet_floats[
     LLVM supplies a portable lowering; AVX-512 targets use compressed stores.
     """
     comptime assert length > 1
+    comptime assert Layout.rank == 2 and Layout.flat_rank == 2
+    comptime assert type_of(destination).flat_rank == 2
     comptime for field in range(fields):
         var values = source.load[width=length]((field, 0))
         compressed_store(
             values,
-            destination.ptr.unsafe_offset(
-                Int(destination.layout(Coord(field, destination_lane)))
-            ),
+            destination.ptr_at_offset(Coord(field, destination_lane)),
             selected,
         )
 

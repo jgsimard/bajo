@@ -1,5 +1,6 @@
 """GPU surface routing, BSDF shading, and path continuation."""
 
+from layout import TileTensor, row_major
 from std.memory import bitcast
 from max.gpu import block_dim, global_idx, grid_dim
 from std.math import ceildiv
@@ -139,9 +140,12 @@ def _append_direct_light_shadow(
     if not direct.valid:
         return
     if path.medium_id != 0:
-        var base = 3 * Int(path.medium_id)
+        var medium = Int(path.medium_id)
+        var absorption = TileTensor(
+            ptr=scene.medium_absorption, layout=row_major(medium + 1, 3)
+        )
         direct.contribution *= medium_transmittance(
-            Color(scene.medium_absorption.unsafe_offset(base)),
+            Color(absorption.ptr_at_offset((medium, 0))),
             direct.shadow_t_max,
         )
     var shadow = spawn_surface_ray(point, direct.direction, direct.shadow_t_max)
@@ -396,8 +400,13 @@ def _route_surface_hit[
         case .EMISSIVE:
             if front_face and emission_visible:
                 var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-                var base = GpuRgbMaterialLayout.STRIDE * material_idx
-                var radiance = Color(emissives.unsafe_offset(base))
+                var records = TileTensor(
+                    ptr=emissives,
+                    layout=row_major(
+                        material_idx + 1, GpuRgbMaterialLayout.STRIDE
+                    ),
+                )
+                var radiance = Color(records.ptr_at_offset((material_idx, 0)))
                 var light_pdf = Float32(0.0)
                 comptime if integrator == .MIS:
                     if bounce > 0 and not path.delta:
@@ -524,30 +533,34 @@ def _gpu_rt_shade_one[
 
     comptime match MATERIAL_KIND:
         case .LAMBERTIAN:
-            var base = GpuRgbMaterialLayout.STRIDE * material_idx
-            albedo = Color(material_data.unsafe_offset(base))
+            var records = TileTensor(
+                ptr=material_data,
+                layout=row_major(material_idx + 1, GpuRgbMaterialLayout.STRIDE),
+            )
+            albedo = Color(records.ptr_at_offset((material_idx, 0)))
             random_u = rng.f32()
             random_v = rng.f32()
         case .METAL:
-            var base = GpuMetalLayout.STRIDE * material_idx
-            albedo = Color(
-                material_data.unsafe_offset(base + GpuMetalLayout.ALBEDO)
+            var records = TileTensor(
+                ptr=material_data,
+                layout=row_major(material_idx + 1, GpuMetalLayout.STRIDE),
             )
-            parameter = material_data[unsafe_offset=base + GpuMetalLayout.FUZZ]
+            albedo = Color(
+                records.ptr_at_offset((material_idx, GpuMetalLayout.ALBEDO))
+            )
+            parameter = records[material_idx, GpuMetalLayout.FUZZ]
             if parameter > METAL_DELTA_FUZZ_THRESHOLD:
                 random_u = rng.f32()
                 random_v = rng.f32()
         case _:
-            parameter = material_data[
-                unsafe_offset=GpuDielectricLayout.STRIDE * material_idx
-                + GpuDielectricLayout.ETA
-            ]
+            var records = TileTensor(
+                ptr=material_data,
+                layout=row_major(material_idx + 1, GpuDielectricLayout.STRIDE),
+            )
+            parameter = records[material_idx, GpuDielectricLayout.ETA]
             var ri = Float32(1.0) / parameter if work.front_face else parameter
             var geometry = dielectric_geometry(ray_direction, normal, ri)
-            roughness = material_data[
-                unsafe_offset=GpuDielectricLayout.STRIDE * material_idx
-                + GpuDielectricLayout.ROUGHNESS
-            ]
+            roughness = records[material_idx, GpuDielectricLayout.ROUGHNESS]
             var rough = roughness >= 1.0e-3 and parameter != 1.0
             if geometry.transmitted_sine <= 1.0 or rough:
                 random_u = rng.f32()

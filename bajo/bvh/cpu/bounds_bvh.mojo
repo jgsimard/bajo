@@ -1,3 +1,4 @@
+from layout import Coord, Idx, TileTensor, row_major
 from max.algorithm import parallelize
 from std.atomic import Atomic, Ordering
 
@@ -68,7 +69,7 @@ struct _WideCollapseDp:
 
     For binary node n and k in [1, width]:
 
-        costs[n * width + k - 1]
+        costs[n, k - 1]
 
     is the minimum downstream wide-node SAH numerator when subtree n
     occupies exactly k lanes in its parent's wide node.
@@ -234,11 +235,18 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         mut dp: _WideCollapseDp,
     ):
         var node_i = Int(bin_idx)
-        var base = node_i * Int(Self.width)
+        var costs = TileTensor(
+            MutSpan(dp.costs),
+            row_major(Coord(len(dp.best_slots), Idx[Self.width])),
+        )
+        var splits = TileTensor(
+            MutSpan(dp.splits),
+            row_major(Coord(len(dp.best_slots), Idx[Self.width])),
+        )
         ref node = bvh.nodes[node_i]
 
         if node.is_leaf():
-            dp.costs[base] = 0.0
+            costs[node_i, 0] = 0.0
             dp.best_slots[node_i] = UInt8(1)
             dp.max_slots[node_i] = UInt8(1)
             return
@@ -248,8 +256,6 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
 
         var left_i = Int(left_idx)
         var right_i = Int(right_idx)
-        var left_base = left_i * Int(Self.width)
-        var right_base = right_i * Int(Self.width)
 
         var left_max = Int(dp.max_slots[left_i])
         var right_max = Int(dp.max_slots[right_i])
@@ -277,8 +283,8 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
             for left_slots in range(first_left_slots, last_left_slots + 1):
                 var right_slots = k - left_slots
                 var candidate_cost = (
-                    dp.costs[left_base + left_slots - 1]
-                    + dp.costs[right_base + right_slots - 1]
+                    costs[left_i, left_slots - 1]
+                    + costs[right_i, right_slots - 1]
                 )
 
                 if candidate_cost < best_cost:
@@ -289,8 +295,8 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                 best_left_slots > 0,
                 "wide-collapse DP could not find a valid slot split",
             )
-            dp.costs[base + k - 1] = best_cost
-            dp.splits[base + k - 1] = UInt8(best_left_slots)
+            costs[node_i, k - 1] = best_cost
+            splits[node_i, k - 1] = UInt8(best_left_slots)
 
         # k == 1: keep this binary node as one parent lane. It therefore
         # becomes a wide internal node itself. Choose the best arity for that
@@ -299,16 +305,16 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         # Start from the largest feasible arity so exact ties prefer fuller
         # nodes rather than introducing unnecessary under-filled nodes.
         var best_k = subtree_max
-        var best_children_cost = dp.costs[base + best_k - 1]
+        var best_children_cost = costs[node_i, best_k - 1]
 
         for k in range(2, subtree_max):
-            var candidate_cost = dp.costs[base + k - 1]
+            var candidate_cost = costs[node_i, k - 1]
             if candidate_cost < best_children_cost:
                 best_children_cost = candidate_cost
                 best_k = k
 
         dp.best_slots[node_i] = UInt8(best_k)
-        dp.costs[base] = node.surface_area() + best_children_cost
+        costs[node_i, 0] = node.surface_area() + best_children_cost
 
     @staticmethod
     def _dp_frontier(
@@ -320,6 +326,10 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         var pool = Array[UInt32, Self.width](fill=bin_idx)
         var slot_budget = Array[UInt8, Self.width](fill=UInt8(1))
         var p_size = 1
+        var splits = TileTensor(
+            ImmSpan(dp.splits),
+            row_major(Coord(len(dp.best_slots), Idx[Self.width])),
+        )
 
         ref root = bvh.nodes[Int(bin_idx)]
         if not root.is_leaf():
@@ -347,8 +357,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                 "wide-collapse DP assigned multiple slots to a leaf",
             )
 
-            var split_idx = candidate_i * Int(Self.width) + slots - 1
-            var left_slots = Int(dp.splits[split_idx])
+            var left_slots = Int(splits[candidate_i, slots - 1])
             var right_slots = slots - left_slots
 
             debug_assert["safe", _use_compiler_assume=True](
@@ -516,7 +525,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
                 ref binary_node = bvh.nodes[Int(pool[lane])]
                 if not binary_node.is_leaf():
                     var child_wide_idx = Atomic.fetch_add[
-                        ordering=Ordering.RELAXED
+                        ordering=Ordering.relaxed
                     ](next_node, UInt32(1))
                     node.data[lane] = encode_internal_ref(child_wide_idx)
                     self._collapse_parallel_subtree(

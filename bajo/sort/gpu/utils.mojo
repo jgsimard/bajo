@@ -89,7 +89,7 @@ def warp_level_multi_split[
         if bits == 0:
             var digit = Int((key >> radix_shift) & RADIX_MASK)
             var count = UInt32(pop_count(warp_flags))
-            pre_increment_val = Atomic.fetch_add[ordering=Ordering.RELAXED](
+            pre_increment_val = Atomic.fetch_add[ordering=Ordering.relaxed](
                 s_warp_hist_ptr.unsafe_offset(digit), count
             )
 

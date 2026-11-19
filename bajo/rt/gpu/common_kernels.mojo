@@ -1,5 +1,6 @@
 """Geometry-independent GPU RT kernels."""
 
+from layout import TileTensor, row_major
 from max.gpu import global_idx
 
 from bajo.core.camera import Camera
@@ -206,9 +207,12 @@ def _gpu_rt_resolve_pixel[
     var scale = Float32(1.0) / weight_sum if weight_sum != 0 else Float32(0.0)
     var output_idx = pixel_base + pixel_idx
     var color = Color(red * scale, green * scale, blue * scale)
-    pixels[unsafe_offset=3 * output_idx + 0] = color.x
-    pixels[unsafe_offset=3 * output_idx + 1] = color.y
-    pixels[unsafe_offset=3 * output_idx + 2] = color.z
+    var output = TileTensor(
+        ptr=pixels, layout=row_major(pixel_base + pixel_count, 3)
+    )
+    output[output_idx, 0] = color.x
+    output[output_idx, 1] = color.y
+    output[output_idx, 2] = color.z
 
 
 def gpu_rt_resolve_kernel(
@@ -271,6 +275,9 @@ def gpu_rt_capture_samples_kernel(
         )
     )
     var id = Int(sample_base) + i
+    var output = TileTensor(
+        ptr=colors, layout=row_major(Int(sample_base) + Int(count), 3)
+    )
     comptime for c in range(3):
-        colors[unsafe_offset=3 * id + c] = color[c]
+        output[id, c] = color[c]
     weights[unsafe_offset=id] = radiance[(WaveSampleFloatAbi.FILTER_WEIGHT, i)]

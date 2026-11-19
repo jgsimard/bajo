@@ -15,7 +15,7 @@ from bajo.core.sensor_data import (
 )
 from bajo.core.sampled_spectrum import SampledSpectrum, SampledWavelengths
 from bajo.core.mat import Mat, inverse
-from bajo.core.colorimetry import srgb_to_xyz_matrix
+from bajo.core.colorimetry import SRGB_TO_XYZ_MATRIX
 from bajo.rt.spectrum_sources import blackbody_spectrum
 
 
@@ -144,7 +144,7 @@ def sensor_to_xyz(
             -0.0685,
             1.0296,
         )
-        var target = srgb_to_xyz_matrix()
+        var target = materialize[SRGB_TO_XYZ_MATRIX]()
         var scales = Array[Float64, 3](fill=0)
         for row in range(3):
             var source_lms = Float64(0)

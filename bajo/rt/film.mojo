@@ -10,8 +10,7 @@ from std.utils.numerics import isfinite
 from std.memory import bitcast
 from bajo.core import dot, Vec3
 from bajo.core import Vec3f32
-from bajo.core.colorimetry import srgb_to_xyz_matrix
-from bajo.core.mat import inverse
+from bajo.core.colorimetry import SRGB_TO_XYZ_MATRIX, XYZ_TO_SRGB_MATRIX
 from bajo.rt.sensor import FilmSensorKind, canon_sensor_sample, sensor_to_xyz
 from bajo.core.sampled_spectrum import (
     SampledSpectrum,
@@ -98,8 +97,8 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
         self.output_green = green
         self.output_blue = blue
 
-    def use_cie1931(mut self) raises:
-        var matrix = srgb_to_xyz_matrix()
+    def use_cie1931(mut self):
+        var matrix = materialize[SRGB_TO_XYZ_MATRIX]()
         self.sensor_red = Color(
             Float32(matrix[0][0]), Float32(matrix[0][1]), Float32(matrix[0][2])
         )
@@ -109,7 +108,7 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
         self.sensor_blue = Color(
             Float32(matrix[2][0]), Float32(matrix[2][1]), Float32(matrix[2][2])
         )
-        var rgb = inverse(matrix)
+        var rgb = materialize[XYZ_TO_SRGB_MATRIX]()
         self.xyz_red = Color(
             Float32(rgb[0][0]), Float32(rgb[0][1]), Float32(rgb[0][2])
         )
@@ -137,7 +136,7 @@ struct FilmResponse(Copyable, DevicePassable, Writable):
         var calibration = sensor_to_xyz(
             self.sensor_kind, self.white_balance_temperature
         )
-        var output = inverse(srgb_to_xyz_matrix())
+        var output = materialize[XYZ_TO_SRGB_MATRIX]()
         var rows = Array[Color, 3](fill=Color(0))
         for row in range(3):
             for column in range(3):

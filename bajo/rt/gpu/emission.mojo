@@ -1,5 +1,6 @@
 """Geometry-owned GPU emission lookup; scattering keeps its original surface."""
 
+from layout import TileTensor, row_major
 from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.core.color import Color
 from bajo.rt.material_types import SurfaceId
@@ -47,29 +48,34 @@ struct GpuAreaEmitter(TrivialRegisterPassable):
 def gpu_emitter(
     scene: GpuRtSceneView, primitive: UInt32, surface: UInt32
 ) -> GpuAreaEmitter:
+    var records = TileTensor(
+        ptr=scene.emission.keys_and_flags,
+        layout=row_major(Int(scene.emission.count), 2),
+    )
+    var radiances = TileTensor(
+        ptr=scene.emission.radiance,
+        layout=row_major(Int(scene.emission.count), 3),
+    )
     var begin = 0
     var end = Int(scene.emission.count)
     while begin < end:
         var middle = (begin + end) // 2
-        if scene.emission.keys_and_flags[unsafe_offset=2 * middle] < primitive:
+        if records[middle, 0] < primitive:
             begin = middle + 1
         else:
             end = middle
-    if (
-        begin < Int(scene.emission.count)
-        and scene.emission.keys_and_flags[unsafe_offset=2 * begin] == primitive
-    ):
+    if begin < Int(scene.emission.count) and records[begin, 0] == primitive:
         return GpuAreaEmitter(
-            Color(scene.emission.radiance.unsafe_offset(3 * begin)),
-            scene.emission.keys_and_flags[unsafe_offset=2 * begin + 1] != 0,
+            Color(radiances.ptr_at_offset((begin, 0))),
+            records[begin, 1] != 0,
         )
     if SurfaceId.kind_from_raw(surface) == .EMISSIVE:
+        var index = Int(SurfaceId.index_from_raw(surface))
+        var emissives = TileTensor(
+            ptr=scene.emissives, layout=row_major(index + 1, 3)
+        )
         return GpuAreaEmitter(
-            Color(
-                scene.emissives.unsafe_offset(
-                    3 * Int(SurfaceId.index_from_raw(surface))
-                )
-            ),
+            Color(emissives.ptr_at_offset((index, 0))),
             False,
         )
     return GpuAreaEmitter(Color(0.0), False)

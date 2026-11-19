@@ -1,5 +1,6 @@
 """GPU triangle intersection kernels and traversal implementations."""
 
+from layout import TileTensor, Coord, Idx, row_major
 from std.bit import log2_floor, pop_count
 from std.math import max
 from std.memory import bitcast
@@ -185,28 +186,30 @@ def _intersect_triangle_leaf[
 ) -> Bool:
     var any_hit = False
     var block_base = Int(leaf_block_idx) * TRI_LEAF_PACKED_STRIDE * width
-    var leaf_vertices_u32 = leaf_vertices.unsafe_bitcast[UInt32]()
+    var fields = TileTensor(
+        ptr=leaf_vertices.unsafe_offset(block_base),
+        layout=row_major(Coord(Idx[TRI_LEAF_PACKED_STRIDE], Idx[Int(width)])),
+    )
+    var ids = fields.bitcast[.uint32]()
 
     comptime for lane in range(width):
-        var prim = leaf_vertices_u32[
-            unsafe_offset=block_base + 3 * width + lane
-        ]
+        var prim = ids.load[invariant=False]((3, lane))
         if prim == EMPTY_LANE:
             continue
         var v0 = Point3f32[frame](
-            leaf_vertices[unsafe_offset=block_base + 0 * width + lane],
-            leaf_vertices[unsafe_offset=block_base + 1 * width + lane],
-            leaf_vertices[unsafe_offset=block_base + 2 * width + lane],
+            fields.load[invariant=False]((0, lane)),
+            fields.load[invariant=False]((1, lane)),
+            fields.load[invariant=False]((2, lane)),
         )
         var e1 = Vec3f32[frame](
-            leaf_vertices[unsafe_offset=block_base + 4 * width + lane],
-            leaf_vertices[unsafe_offset=block_base + 5 * width + lane],
-            leaf_vertices[unsafe_offset=block_base + 6 * width + lane],
+            fields.load[invariant=False]((4, lane)),
+            fields.load[invariant=False]((5, lane)),
+            fields.load[invariant=False]((6, lane)),
         )
         var e2 = Vec3f32[frame](
-            leaf_vertices[unsafe_offset=block_base + 8 * width + lane],
-            leaf_vertices[unsafe_offset=block_base + 9 * width + lane],
-            leaf_vertices[unsafe_offset=block_base + 10 * width + lane],
+            fields.load[invariant=False]((8, lane)),
+            fields.load[invariant=False]((9, lane)),
+            fields.load[invariant=False]((10, lane)),
         )
 
         # Any-hit only needs the candidate mask, so it can always stay in
@@ -281,10 +284,20 @@ def _intersect_cwbvh_triangle[
     mut hit: Hit[frame],
 ) -> Bool:
     """Intersect one aligned e1/e2/v0 CWBVH triangle record."""
-    var base = Int(triangle_idx) * CWBVH_TRIANGLE_WORDS
-    var e1_record = triangles.unsafe_load[width=4, alignment=16](base)
-    var e2_record = triangles.unsafe_load[width=4, alignment=16](base + 4)
-    var v0_record = triangles.unsafe_load[width=4, alignment=16](base + 8)
+    comptime assert CWBVH_TRIANGLE_WORDS == 12
+    var records = TileTensor(
+        ptr=triangles,
+        layout=row_major(Coord(Int(triangle_idx) + 1, Idx[3], Idx[4])),
+    )
+    var e1_record = records.load[width=4, alignment=16, invariant=False](
+        (Int(triangle_idx), 0, 0)
+    )
+    var e2_record = records.load[width=4, alignment=16, invariant=False](
+        (Int(triangle_idx), 1, 0)
+    )
+    var v0_record = records.load[width=4, alignment=16, invariant=False](
+        (Int(triangle_idx), 2, 0)
+    )
     var e1 = Vec3f32[frame](
         e1_record[0],
         e1_record[1],
@@ -329,10 +342,15 @@ def _intersect_cwbvh_indexed_triangle[
     mut hit: Hit[frame],
 ) -> Bool:
     var prim = primitive_ids[unsafe_offset=Int(triangle_idx)]
-    var base = Int(prim) * TRI_LEAF_VERTEX_STRIDE
-    var v0 = Point3f32[frame](vertices.unsafe_offset(base))
-    var e1 = Point3f32[frame](vertices.unsafe_offset(base + 3)) - v0
-    var e2 = Point3f32[frame](vertices.unsafe_offset(base + 6)) - v0
+    comptime assert TRI_LEAF_VERTEX_STRIDE == 9
+    var triangles = TileTensor(
+        ptr=vertices,
+        layout=row_major(Coord(Int(prim) + 1, Idx[3], Idx[3])),
+    )
+    var triangle = triangles[Int(prim), :, :]
+    var v0 = Point3f32[frame](triangle.ptr_at_offset((0, 0)))
+    var e1 = Point3f32[frame](triangle.ptr_at_offset((1, 0))) - v0
+    var e2 = Point3f32[frame](triangle.ptr_at_offset((2, 0))) - v0
     comptime if mode == .ANY_HIT:
         return intersect_ray_tri_edges_any[frame](ray, v0, e1, e2, hit.t)
     var scaled_hit = intersect_ray_tri_edges_scaled(
@@ -508,10 +526,20 @@ def _intersect_cwbvh_triangle_filtered[
     mut hit: Hit[frame],
     ref filter: Filter,
 ) -> Bool:
-    var base = Int(triangle_idx) * CWBVH_TRIANGLE_WORDS
-    var e1_record = triangles.unsafe_load[width=4, alignment=16](base)
-    var e2_record = triangles.unsafe_load[width=4, alignment=16](base + 4)
-    var v0_record = triangles.unsafe_load[width=4, alignment=16](base + 8)
+    comptime assert CWBVH_TRIANGLE_WORDS == 12
+    var records = TileTensor(
+        ptr=triangles,
+        layout=row_major(Coord(Int(triangle_idx) + 1, Idx[3], Idx[4])),
+    )
+    var e1_record = records.load[width=4, alignment=16, invariant=False](
+        (Int(triangle_idx), 0, 0)
+    )
+    var e2_record = records.load[width=4, alignment=16, invariant=False](
+        (Int(triangle_idx), 1, 0)
+    )
+    var v0_record = records.load[width=4, alignment=16, invariant=False](
+        (Int(triangle_idx), 2, 0)
+    )
     var e1 = Vec3f32[frame](e1_record[0], e1_record[1], e1_record[2])
     var e2 = Vec3f32[frame](e2_record[0], e2_record[1], e2_record[2])
     var v0 = Point3f32[frame](v0_record[0], v0_record[1], v0_record[2])

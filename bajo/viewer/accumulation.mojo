@@ -1,5 +1,6 @@
 """Owned progressive pixels and generation tracking for the native viewer."""
 
+from layout import Coord, TileTensor, row_major
 from std.sys.info import size_of
 
 from bajo.core.color import Color, color_to_byte
@@ -62,7 +63,9 @@ struct FrameAccumulator(Defaultable):
         comptime assert size_of[Color]() == 3 * size_of[Float32]()
         var source = frame.pixels.unsafe_ptr().unsafe_bitcast[Float32]()
         var linear = self.linear.unsafe_ptr().unsafe_bitcast[Float32]()
-        var rgba = self.rgba.unsafe_ptr()
+        var rgba = TileTensor(
+            MutSpan(self.rgba), row_major(len(self.linear), 4)
+        )
         var pixel = 0
         # Six remaining pixels bound both 16-float loads. Only the first
         # twelve lanes are stored, so each group of four pixels accumulates
@@ -88,15 +91,13 @@ struct FrameAccumulator(Defaultable):
             var packed = rgb.shuffle[
                 0, 1, 2, 16, 3, 4, 5, 16, 6, 7, 8, 16, 9, 10, 11, 16
             ](SIMD[.uint8, 16](255))
-            rgba.unsafe_offset(pixel * 4).unsafe_store[width=16, alignment=1](
-                packed
-            )
+            rgba.store[width=16, alignment=1](Coord(pixel, 0), packed)
             pixel += 4
         for index in range(pixel, len(self.linear)):
             self.linear[index] += frame.pixels[index] * batch_samples
             var color = self.linear[index] / total_samples
-            self.rgba[4 * index] = color_to_byte(color.x)
-            self.rgba[4 * index + 1] = color_to_byte(color.y)
-            self.rgba[4 * index + 2] = color_to_byte(color.z)
-            self.rgba[4 * index + 3] = 255
+            rgba[index, 0] = color_to_byte(color.x)
+            rgba[index, 1] = color_to_byte(color.y)
+            rgba[index, 2] = color_to_byte(color.z)
+            rgba[index, 3] = 255
         return True

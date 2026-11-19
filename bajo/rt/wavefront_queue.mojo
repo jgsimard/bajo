@@ -3,17 +3,14 @@
 from std.collections import Array
 from std.math import ceildiv
 from std.sys.intrinsics import compressed_store
-from layout import Coord
+from layout import Coord, TileTensor, row_major
 from bajo.rt.path_values import PathContinuation, PathFloatField
 from bajo.rt.path_store import store_path_values
 
 from bajo.core.packet_layout import (
-    PacketFloatTile,
-    packet_float_tile,
     compact_packet_floats,
     packet_field_index,
     packet_float_field,
-    copy_packet_float_lane,
     TilePacket,
     append_masked_tile,
     append_masked_lanes,
@@ -96,11 +93,14 @@ struct PathPacket[length: SIMDLength](TilePacket):
 
     def tile(
         ref self,
-    ) -> PacketFloatTile[
-        Self.FLOAT_FIELDS, Self.length, origin_of(self.floats)
+    ) -> TileTensor[
+        .float32,
+        type_of(row_major[Self.FLOAT_FIELDS, Int(Self.length)]()),
+        origin_of(self.floats),
     ]:
-        return packet_float_tile[Self.FLOAT_FIELDS, Self.length](
-            self.floats.unsafe_ptr()
+        return TileTensor(
+            ptr=self.floats.unsafe_ptr().unsafe_bitcast[Float32](),
+            layout=row_major[Self.FLOAT_FIELDS, Int(Self.length)](),
         )
 
     @staticmethod
@@ -130,8 +130,8 @@ struct PathPacket[length: SIMDLength](TilePacket):
         mut self, source: Self, source_lane: Int, destination_lane: Int
     ):
         self.copy_metadata_lane(source, source_lane, destination_lane)
-        copy_packet_float_lane[Self.FLOAT_FIELDS, Self.length](
-            source.tile(), self.tile(), source_lane, destination_lane
+        self.tile()[:, destination_lane].copy_from(
+            source.tile()[:, source_lane]
         )
 
     def copy_float_lanes(
@@ -237,9 +237,7 @@ struct PacketPathQueue[length: SIMDLength](Sized):
             comptime for field in range(PathFloatField.VALUE_PLANES):
                 compressed_store(
                     values.float_field[field](),
-                    tile.ptr.unsafe_offset(
-                        Int(tile.layout(Coord(field, target_lane)))
-                    ),
+                    tile.ptr_at_offset(Coord(field, target_lane)),
                     selected,
                 )
 
@@ -299,11 +297,14 @@ struct ShadePacket[length: SIMDLength](TilePacket):
 
     def tile(
         ref self,
-    ) -> PacketFloatTile[
-        Self.FLOAT_FIELDS, Self.length, origin_of(self.floats)
+    ) -> TileTensor[
+        .float32,
+        type_of(row_major[Self.FLOAT_FIELDS, Int(Self.length)]()),
+        origin_of(self.floats),
     ]:
-        return packet_float_tile[Self.FLOAT_FIELDS, Self.length](
-            self.floats.unsafe_ptr()
+        return TileTensor(
+            ptr=self.floats.unsafe_ptr().unsafe_bitcast[Float32](),
+            layout=row_major[Self.FLOAT_FIELDS, Int(Self.length)](),
         )
 
     @staticmethod
@@ -393,8 +394,8 @@ struct ShadePacket[length: SIMDLength](TilePacket):
         mut self, source: Self, source_lane: Int, destination_lane: Int
     ):
         self.copy_metadata_lane(source, source_lane, destination_lane)
-        copy_packet_float_lane[Self.FLOAT_FIELDS, Self.length](
-            source.tile(), self.tile(), source_lane, destination_lane
+        self.tile()[:, destination_lane].copy_from(
+            source.tile()[:, source_lane]
         )
 
     def copy_float_lanes(

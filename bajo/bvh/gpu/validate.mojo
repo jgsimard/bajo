@@ -1,3 +1,4 @@
+from layout import TileTensor, row_major
 from max.gpu.host import DeviceBuffer
 
 from bajo.bvh.constants import (
@@ -82,12 +83,12 @@ def validate_topology(
     var internal_count = leaf_count - 1
 
     with node_meta.map_to_host() as m:
+        var records = TileTensor(m.as_span(), row_major(internal_count, 4))
         for i in range(internal_count):
-            var base = i * 4
-            var parent = UInt32(m[base + 0])
-            var left = UInt32(m[base + 1])
-            var right = UInt32(m[base + 2])
-            var fence = UInt32(m[base + 3])
+            var parent = UInt32(records[i, 0])
+            var left = UInt32(records[i, 1])
+            var right = UInt32(records[i, 2])
+            var fence = UInt32(records[i, 3])
 
             checksum += UInt64(parent)
             checksum += UInt64(left)
@@ -108,7 +109,7 @@ def validate_topology(
             else:
                 if left_idx >= UInt32(internal_count):
                     ok = False
-                elif UInt32(m[Int(left_idx) * 4 + 0]) != UInt32(i):
+                elif UInt32(records[Int(left_idx), 0]) != UInt32(i):
                     ok = False
 
             var right_is_leaf = is_leaf_ref(right)
@@ -119,7 +120,7 @@ def validate_topology(
             else:
                 if right_idx >= UInt32(internal_count):
                     ok = False
-                elif UInt32(m[Int(right_idx) * 4 + 0]) != UInt32(i):
+                elif UInt32(records[Int(right_idx), 0]) != UInt32(i):
                     ok = False
 
     with leaf_parent.map_to_host() as p:
@@ -148,8 +149,9 @@ def validate_refit_bounds(
     var checksum = UInt64(0)
 
     with node_meta.map_to_host() as m:
+        var records = TileTensor(m.as_span(), row_major(internal_count, 4))
         for i in range(internal_count):
-            var parent = UInt32(m[i * 4 + 0])
+            var parent = UInt32(records[i, 0])
             if parent == LBVH_SENTINEL:
                 root_idx = UInt32(i)
 
@@ -163,13 +165,17 @@ def validate_refit_bounds(
     var diff = Float64(1.0e30)
     if root_idx != UInt32(0xFFFFFFFF):
         with node_bounds.map_to_host() as b:
-            var rb = Int(root_idx) * 12
-            var mnx = min(Float32(b[rb + 0]), Float32(b[rb + 6]))
-            var mny = min(Float32(b[rb + 1]), Float32(b[rb + 7]))
-            var mnz = min(Float32(b[rb + 2]), Float32(b[rb + 8]))
-            var mxx = max(Float32(b[rb + 3]), Float32(b[rb + 9]))
-            var mxy = max(Float32(b[rb + 4]), Float32(b[rb + 10]))
-            var mxz = max(Float32(b[rb + 5]), Float32(b[rb + 11]))
+            var bounds = TileTensor(
+                b.as_span()[: internal_count * 12],
+                row_major(internal_count, 2, 6),
+            )
+            var root = bounds[Int(root_idx), :, :]
+            var mnx = min(root[0, 0], root[1, 0])
+            var mny = min(root[0, 1], root[1, 1])
+            var mnz = min(root[0, 2], root[1, 2])
+            var mxx = max(root[0, 3], root[1, 3])
+            var mxy = max(root[0, 4], root[1, 4])
+            var mxz = max(root[0, 5], root[1, 5])
 
             checksum += UInt64(abs(Float64(mnx)) * 1000.0)
             checksum += UInt64(abs(Float64(mny)) * 1000.0)

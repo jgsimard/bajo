@@ -742,18 +742,17 @@ struct CpuScene[
                         ref positions = self._scene.triangle_meshes()[mesh]
                         ref uvs = self._scene.triangle_mesh_texcoords()[mesh]
                         if len(uvs):
-                            var vertex = 3 * Int(hits.prim[lane])
-                            var uv = 2 * vertex
+                            var triangle = Int(hits.prim[lane])
+                            var vertex = 3 * triangle
+                            var texcoords = TileTensor(
+                                ImmSpan(uvs),
+                                row_major(Coord(len(uvs) // 6, Idx[3], Idx[2])),
+                            )
                             var tangent = triangle_uv_tangent(
                                 positions[vertex],
                                 positions[vertex + 1],
                                 positions[vertex + 2],
-                                uvs[uv],
-                                uvs[uv + 1],
-                                uvs[uv + 2],
-                                uvs[uv + 3],
-                                uvs[uv + 4],
-                                uvs[uv + 5],
+                                texcoords[triangle, :, :],
                             )
                             var world = instance.transform.vector(tangent)
                             dpdu.x[lane] = world.x

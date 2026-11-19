@@ -5,6 +5,7 @@ Rows include their leading filter byte and one accessible padding byte after
 the last row. Four-byte pixel loads preserve the overlapping fourth byte.
 """
 
+from layout import Coord, TileTensor, row_major
 from std.math import abs
 from std.memory import bitcast
 from std.sys import simd_width_of
@@ -91,23 +92,22 @@ def _average_diagonal[
     mut left: SIMD[.int16, 16],
 ):
     var stride = width * 3 + 1
+    var scanlines = TileTensor(raw, row_major(len(raw) // stride, stride))
     var packed = SIMD[.uint32, 4](0)
     comptime for row in range(4):
         var x = diagonal - row
         if steady or (x >= 0 and x < width):
-            packed[row] = (
-                raw.unsafe_ptr()
-                .unsafe_offset((first_row + row) * stride + 1 + x * 3)
-                .unsafe_bitcast[UInt32]()
-                .unsafe_load[alignment=1]()
+            packed[row] = bitcast[.uint32, 1](
+                scanlines.load[width=4, alignment=1](
+                    Coord(first_row + row, 1 + x * 3)
+                )
             )
     var above = UInt32(0)
     if steady or diagonal < width:
-        above = (
-            raw.unsafe_ptr()
-            .unsafe_offset((first_row - 1) * stride + 1 + diagonal * 3)
-            .unsafe_bitcast[UInt32]()
-            .unsafe_load[alignment=1]()
+        above = bitcast[.uint32, 1](
+            scanlines.load[width=4, alignment=1](
+                Coord(first_row - 1, 1 + diagonal * 3)
+            )
         )
     var top = bitcast[.uint8, 16](SIMD[.uint32, 4](above, 0, 0, 0)).cast[
         .int16
@@ -125,9 +125,10 @@ def _average_diagonal[
     comptime for row in range(4):
         var x = diagonal - row
         if steady or (x >= 0 and x < width):
-            raw.unsafe_ptr().unsafe_offset(
-                (first_row + row) * stride + 1 + x * 3
-            ).unsafe_bitcast[UInt32]().unsafe_store[alignment=1](output[row])
+            scanlines.store[width=4, alignment=1](
+                Coord(first_row + row, 1 + x * 3),
+                bitcast[.uint8, 4](output[row]),
+            )
 
 
 def _undo_average_four(raw: MutSpan[UInt8, _], first_row: Int, width: Int):
@@ -152,23 +153,22 @@ def _paeth_diagonal[
     mut upper_left: SIMD[.int16, 16],
 ):
     var stride = width * 3 + 1
+    var scanlines = TileTensor(raw, row_major(len(raw) // stride, stride))
     var packed = SIMD[.uint32, 4](0)
     comptime for row in range(4):
         var x = diagonal - row
         if steady or (x >= 0 and x < width):
-            packed[row] = (
-                raw.unsafe_ptr()
-                .unsafe_offset((first_row + row) * stride + 1 + x * 3)
-                .unsafe_bitcast[UInt32]()
-                .unsafe_load[alignment=1]()
+            packed[row] = bitcast[.uint32, 1](
+                scanlines.load[width=4, alignment=1](
+                    Coord(first_row + row, 1 + x * 3)
+                )
             )
     var above = UInt32(0)
     if steady or diagonal < width:
-        above = (
-            raw.unsafe_ptr()
-            .unsafe_offset((first_row - 1) * stride + 1 + diagonal * 3)
-            .unsafe_bitcast[UInt32]()
-            .unsafe_load[alignment=1]()
+        above = bitcast[.uint32, 1](
+            scanlines.load[width=4, alignment=1](
+                Coord(first_row - 1, 1 + diagonal * 3)
+            )
         )
     var top = bitcast[.uint8, 16](SIMD[.uint32, 4](above, 0, 0, 0)).cast[
         .int16
@@ -193,9 +193,10 @@ def _paeth_diagonal[
     comptime for row in range(4):
         var x = diagonal - row
         if steady or (x >= 0 and x < width):
-            raw.unsafe_ptr().unsafe_offset(
-                (first_row + row) * stride + 1 + x * 3
-            ).unsafe_bitcast[UInt32]().unsafe_store[alignment=1](output[row])
+            scanlines.store[width=4, alignment=1](
+                Coord(first_row + row, 1 + x * 3),
+                bitcast[.uint8, 4](output[row]),
+            )
 
 
 def _undo_paeth_four(raw: MutSpan[UInt8, _], first_row: Int, width: Int):

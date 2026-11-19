@@ -20,7 +20,7 @@ from std.sys.info import bit_width_of
 from .utils import circular_shift, warp_level_multi_split, DoubleBuffer
 from .validation import validate_sort_size, require_sort_capacity
 
-comptime ordering = Ordering.RELAXED
+comptime ordering = Ordering.relaxed
 comptime LANE_LOG = count_trailing_zeros(WARP_SIZE)  # 2^5 = 32 => 5
 
 

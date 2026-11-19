@@ -1,3 +1,4 @@
+from layout import row_major, stack_allocation as tile_stack_allocation
 from std.sys.info import is_nvidia_gpu
 from std.atomic import Atomic, Ordering, fence
 from std.bit import pop_count
@@ -131,7 +132,7 @@ def _hploc_arrive_parent(ptr: MutPointer[UInt32, _], desired: UInt32) -> UInt32:
     comptime AtomicU32 = Atomic[
         UInt32, scope="device" if is_nvidia_gpu() else ""
     ]
-    return AtomicU32.fetch_add[ordering=Ordering.ACQUIRE_RELEASE](
+    return AtomicU32.fetch_add[ordering=Ordering.acquire_release](
         ptr, desired + UInt32(1)
     )
 
@@ -218,27 +219,20 @@ def build_hploc_multi_wave_kernel[
     comptime AtomicU32 = Atomic[UInt32, scope=atomic_scope]
     comptime assert block_size % WARP_SIZE == 0
     comptime assert compute_leaf_counts or compact_output
-    var boxes_cache = stack_allocation[
-        block_size * AABB.STRIDE,
-        Float32,
-        address_space=AddressSpace.SHARED,
-    ]()
+    var boxes_cache = tile_stack_allocation[.float32, address_space=.SHARED](
+        row_major[block_size, AABB.STRIDE]()
+    )
     var node_indices_cache = stack_allocation[
         block_size, UInt32, address_space=AddressSpace.SHARED
     ]()
 
     def load_cached_bounds(slot: Int) {imm} -> AABB[.WORLD]:
-        var base = slot * AABB.STRIDE
-        return AABB[.WORLD].load6(boxes_cache, base)
+        return AABB[.WORLD].load6(boxes_cache.ptr_at_offset((slot, 0)))
 
     def store_cached_bounds(slot: Int, bounds: AABB[.WORLD]) {imm}:
-        var base = slot * AABB.STRIDE
-        boxes_cache[unsafe_offset=base + 0] = bounds._min.x
-        boxes_cache[unsafe_offset=base + 1] = bounds._min.y
-        boxes_cache[unsafe_offset=base + 2] = bounds._min.z
-        boxes_cache[unsafe_offset=base + 3] = bounds._max.x
-        boxes_cache[unsafe_offset=base + 4] = bounds._max.y
-        boxes_cache[unsafe_offset=base + 5] = bounds._max.z
+        comptime for axis in range(3):
+            boxes_cache[slot, axis] = bounds._min[axis]
+            boxes_cache[slot, axis + 3] = bounds._max[axis]
 
     var leaf_count = len(sorted_morton_codes)
     if leaf_count == 1:
@@ -457,7 +451,7 @@ def build_hploc_multi_wave_kernel[
                 var allocation_base = UInt32(0)
                 if lane == 0:
                     allocation_base = AtomicU32.fetch_add[
-                        ordering=Ordering.RELAXED
+                        ordering=Ordering.relaxed
                     ](
                         node_counter.unsafe_ptr().unsafe_offset(task_segment),
                         UInt32(merge_count),
@@ -554,7 +548,7 @@ def build_hploc_multi_wave_kernel[
 
             # Publish completed cluster data to other blocks on this device
             # before the task owner advertises it at its next parent.
-            fence[ordering=Ordering.SEQUENTIAL, scope=atomic_scope]()
+            fence[ordering=Ordering.sequential, scope=atomic_scope]()
 
             if task_final and lane == 0:
                 root.unsafe_get(task_segment) = cluster_idx

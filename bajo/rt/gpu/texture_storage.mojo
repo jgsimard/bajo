@@ -1,5 +1,6 @@
 """Lossless GPU image packing with exact Float32 palettes and raw fallback."""
 
+from layout import Coord, Idx, TileTensor, row_major
 from std.memory import bitcast
 from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.rt.gpu.upload import _upload_nonempty
@@ -33,6 +34,12 @@ def plan_texture_upload(surfaces: SurfaceStore) raises -> TextureUploadPlan:
         length=len(surfaces.image_textures) * TextureDescLayout.STRIDE,
         fill=0,
     )
+    var records = TileTensor(
+        MutSpan(descriptors),
+        row_major(
+            Coord(len(surfaces.image_textures), Idx[TextureDescLayout.STRIDE])
+        ),
+    )
     var packed_images = List[List[Float32]](
         capacity=len(surfaces.image_textures)
     )
@@ -44,6 +51,9 @@ def plan_texture_upload(surfaces: SurfaceStore) raises -> TextureUploadPlan:
         var pixel_count = image.width * image.height
         var format = TextureDescLayout.RGB_F32
         if pixel_count > 128:
+            var pixels = TileTensor(
+                ImmSpan(image.pixels), row_major(Coord(pixel_count, Idx[3]))
+            )
             var palette = Dict[UInt32, UInt32]()
             words = List[Float32](capacity=min(256 + pixel_count, 1024))
             words.resize(256, fill=0.0)
@@ -51,7 +61,7 @@ def plan_texture_upload(surfaces: SurfaceStore) raises -> TextureUploadPlan:
             for pixel in range(pixel_count):
                 var packed = UInt32(0)
                 comptime for channel in range(3):
-                    var value = image.pixels[3 * pixel + channel]
+                    var value = pixels[pixel, channel]
                     var bits = bitcast[.uint32](value)
                     var code: UInt32
                     if case .Some(existing) = palette.get(bits):
@@ -78,11 +88,10 @@ def plan_texture_upload(surfaces: SurfaceStore) raises -> TextureUploadPlan:
         packed_images.append(words^)
         if word_count >= Int(UInt32.MAX):
             raise Error("GPU texture storage exceeds 32-bit word offsets")
-        var base = index * TextureDescLayout.STRIDE
-        descriptors[base + TextureDescLayout.PIXEL_OFFSET] = UInt32(offset)
-        descriptors[base + TextureDescLayout.WIDTH] = UInt32(image.width)
-        descriptors[base + TextureDescLayout.HEIGHT] = UInt32(image.height)
-        descriptors[base + TextureDescLayout.FORMAT] = format
+        records[index, TextureDescLayout.PIXEL_OFFSET] = UInt32(offset)
+        records[index, TextureDescLayout.WIDTH] = UInt32(image.width)
+        records[index, TextureDescLayout.HEIGHT] = UInt32(image.height)
+        records[index, TextureDescLayout.FORMAT] = format
     return TextureUploadPlan(descriptors^, packed_images^, word_count)
 
 
@@ -90,11 +99,15 @@ def pack_texture_tables(surfaces: SurfaceStore) raises -> PackedTextureTables:
     """Materialize a plan for host-side inspection and reference checks."""
     var plan = plan_texture_upload(surfaces)
     var words = List[Float32](capacity=plan.word_count)
+    var records = TileTensor(
+        ImmSpan(plan.descriptors),
+        row_major(
+            Coord(len(surfaces.image_textures), Idx[TextureDescLayout.STRIDE])
+        ),
+    )
     for index in range(len(surfaces.image_textures)):
         if (
-            plan.descriptors[
-                index * TextureDescLayout.STRIDE + TextureDescLayout.FORMAT
-            ]
+            records[index, TextureDescLayout.FORMAT]
             == TextureDescLayout.RGB_F32
         ):
             words.extend(ImmSpan(surfaces.image_textures[index].pixels))
@@ -111,11 +124,18 @@ def upload_texture_pixels(
         return _upload_nonempty(ctx, List[Float32]())
     var staging = ctx.enqueue_create_host_buffer[.float32](plan.word_count)
     var target = ctx.enqueue_create_buffer[.float32](plan.word_count)
+    var records = TileTensor(
+        ImmSpan(plan.descriptors)[
+            : len(surfaces.image_textures) * TextureDescLayout.STRIDE
+        ],
+        row_major(
+            Coord(len(surfaces.image_textures), Idx[TextureDescLayout.STRIDE])
+        ),
+    )
     for index in range(len(surfaces.image_textures)):
-        var base = index * TextureDescLayout.STRIDE
-        var first = Int(plan.descriptors[base + TextureDescLayout.PIXEL_OFFSET])
+        var first = Int(records[index, TextureDescLayout.PIXEL_OFFSET])
         if (
-            plan.descriptors[base + TextureDescLayout.FORMAT]
+            records[index, TextureDescLayout.FORMAT]
             == TextureDescLayout.RGB_F32
         ):
             ref pixels = surfaces.image_textures[index].pixels

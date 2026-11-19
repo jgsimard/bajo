@@ -27,7 +27,7 @@ from .validation import (
     validate_onesweep_size,
 )
 
-comptime ordering = Ordering.RELAXED
+comptime ordering = Ordering.relaxed
 
 # Flags for Decoupled Look-back
 comptime FLAG_NOT_READY = 0

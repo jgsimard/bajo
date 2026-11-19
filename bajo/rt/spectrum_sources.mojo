@@ -4,6 +4,7 @@ RGB leaves are reconstructed separately: reconstructing a product of RGB
 values is not equivalent to multiplying their reconstructed spectra.
 """
 
+from layout import TileTensor, Coord, Idx, row_major
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.math import exp, pow
 from std.bit import count_trailing_zeros
@@ -113,8 +114,11 @@ struct SpectrumSourcesView[origin: ImmOrigin = ImmUntrackedOrigin](
         role: UInt32,
     ) -> SampledSpectrum[width]:
         debug_assert(index < self.count, "invalid spectrum source")
-        var begin = Int(self.ranges[unsafe_offset=2 * Int(index)])
-        var end = Int(self.ranges[unsafe_offset=2 * Int(index) + 1])
+        var ranges = TileTensor(
+            ptr=self.ranges, layout=row_major(Coord(Int(self.count), Idx[2]))
+        )
+        var begin = Int(ranges.load[invariant=False]((Int(index), 0)))
+        var end = Int(ranges.load[invariant=False]((Int(index), 1)))
         var result = SampledSpectrum[width](1)
         for offset in range(begin, end):
             var leaf = self.sources[

@@ -16,18 +16,13 @@ def triangle_uv_tangent[
     p0: Point3[.float32, frame],
     p1: Point3[.float32, frame],
     p2: Point3[.float32, frame],
-    u0: Float32,
-    v0: Float32,
-    u1: Float32,
-    v1: Float32,
-    u2: Float32,
-    v2: Float32,
+    uv: TileTensor[.float32, _, _],
 ) -> Vec3[.float32, frame]:
-    """Position derivative with respect to U; zero marks degenerate UVs."""
-    var du1 = u1 - u0
-    var dv1 = v1 - v0
-    var du2 = u2 - u0
-    var dv2 = v2 - v0
+    """Position derivative from [corner,uv]; zero marks degenerate UVs."""
+    var du1 = uv[1, 0] - uv[0, 0]
+    var dv1 = uv[1, 1] - uv[0, 1]
+    var du2 = uv[2, 0] - uv[0, 0]
+    var dv2 = uv[2, 1] - uv[0, 1]
     var determinant = du1 * dv2 - dv1 * du2
     if determinant == 0.0:
         return Vec3[.float32, frame](0.0)

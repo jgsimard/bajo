@@ -1,5 +1,6 @@
 """Refine world instance bounds from the built BLAS root frontier."""
 
+from layout import Coord, TileTensor, row_major
 from std.math import ceildiv, fma
 from max.gpu import global_idx
 from max.gpu.host import DeviceContext
@@ -41,6 +42,10 @@ def _extract_blas_root_children[
                 Int(desc.node_f32_base) + Int(desc.root_idx) * CWBVH_NODE_WORDS
             )
             var words = nodes.unsafe_bitcast[UInt32]()
+            var quantized = TileTensor(
+                ptr=words.unsafe_offset(base + CWBVH_QUANTIZED_BASE),
+                layout=row_major[6, 2](),
+            )
             var byte = (
                 words[unsafe_offset=base + CWBVH_META_BASE + lane // 4]
                 >> UInt32((lane % 4) * 8)
@@ -53,18 +58,12 @@ def _extract_blas_root_children[
                         (exponents >> UInt32(axis * 8)) & UInt32(255)
                     )
                     var origin = nodes[unsafe_offset=base + axis]
-                    var lower = words[
-                        unsafe_offset=base
-                        + CWBVH_QUANTIZED_BASE
-                        + axis * 2
-                        + lane // 4
-                    ]
-                    var upper = words[
-                        unsafe_offset=base
-                        + CWBVH_QUANTIZED_BASE
-                        + (axis + 3) * 2
-                        + lane // 4
-                    ]
+                    var lower = quantized.load[invariant=False](
+                        Coord(axis, lane // 4)
+                    )
+                    var upper = quantized.load[invariant=False](
+                        Coord(axis + 3, lane // 4)
+                    )
                     var shift = UInt32((lane % 4) * 8)
                     bounds._min[axis] = fma(
                         Float32((lower >> shift) & UInt32(255)), scale, origin
@@ -77,22 +76,24 @@ def _extract_blas_root_children[
                 Int(desc.node_f32_base)
                 + Int(desc.root_idx) * width * WideNode.CHILD_STRIDE
             )
-            var meta = nodes.unsafe_bitcast[UInt32]()[
-                unsafe_offset=base + WideNode.META * width + lane
-            ]
+            var fields = TileTensor(
+                ptr=nodes.unsafe_offset(base),
+                layout=row_major[WideNode.CHILD_STRIDE, Int(width)](),
+            )
+            var words = fields.bitcast[.uint32]()
+            var meta = words[WideNode.META, lane]
             if meta != EMPTY_LANE:
                 active = True
                 for axis in range(3):
-                    bounds._min[axis] = nodes[
-                        unsafe_offset=base + axis * width + lane
-                    ]
-                    bounds._max[axis] = nodes[
-                        unsafe_offset=base + (axis + 3) * width + lane
-                    ]
+                    bounds._min[axis] = fields[axis, lane]
+                    bounds._max[axis] = fields[axis + 3, lane]
+    var children = TileTensor(
+        ptr=output, layout=row_major(Int(count) * width, 7)
+    )
     for axis in range(3):
-        output[unsafe_offset=index * 7 + axis] = bounds._min[axis]
-        output[unsafe_offset=index * 7 + axis + 3] = bounds._max[axis]
-    output[unsafe_offset=index * 7 + 6] = Float32(1 if active else 0)
+        children[index, axis] = bounds._min[axis]
+        children[index, axis + 3] = bounds._max[axis]
+    children[index, 6] = Float32(1 if active else 0)
 
 
 def refine_gpu_instance_bounds[
@@ -137,6 +138,9 @@ def refine_gpu_instance_bounds[
         block_dim=128,
     )
     with children.map_to_host() as mapped:
+        var records = TileTensor(
+            mapped.as_span(), row_major(blases.blas_count, Int(node_width), 7)
+        )
         for instance in instances:
             if not instance.transform.mixes_axes():
                 result.append(instance.copy())
@@ -144,10 +148,11 @@ def refine_gpu_instance_bounds[
             var candidate = AABB[.WORLD].invalid()
             var complete = True
             for lane in range(node_width):
-                var base = (Int(instance.blas_idx) * node_width + lane) * 7
-                if mapped[base + 6] == 0.0:
+                if records[Int(instance.blas_idx), lane, 6] == 0.0:
                     continue
-                var bounds = AABB[.LOCAL].load6(mapped.unsafe_ptr(), base)
+                var bounds = AABB[.LOCAL].load6(
+                    records.ptr_at_offset((Int(instance.blas_idx), lane, 0))
+                )
                 if not bounds.is_valid()[0]:
                     complete = False
                     break

@@ -1,6 +1,6 @@
 """CPU scalar and packet BSDF setup over shared host/device shading."""
 
-from layout import TileTensor, Coord, Idx, col_major
+from layout import TileTensor, Coord, Idx, col_major, row_major
 from std.memory import Pointer
 from std.sys.info import size_of
 from bajo.core import Vec3, Vec3f32, Rayf32, dot
@@ -368,8 +368,12 @@ def evaluate_bsdf(
             )
         case .MIX:
             var index = Int(surface.index())
+            var children = TileTensor(
+                ImmSpan(surfaces.mix_surfaces),
+                row_major(Coord(len(surfaces.mix_surfaces) // 2, Idx[2])),
+            )
             var first = evaluate_bsdf(
-                SurfaceId.from_raw(surfaces.mix_surfaces[2 * index]),
+                SurfaceId.from_raw(children[index, 0]),
                 surfaces,
                 ray,
                 hit,
@@ -377,7 +381,7 @@ def evaluate_bsdf(
                 estimator_seed,
             )
             var second = evaluate_bsdf(
-                SurfaceId.from_raw(surfaces.mix_surfaces[2 * index + 1]),
+                SurfaceId.from_raw(children[index, 1]),
                 surfaces,
                 ray,
                 hit,
@@ -433,8 +437,12 @@ def sample_bsdf(
                 index, hit.uv_u[0], hit.uv_v[0]
             )
             var choose_second = rng.f32() < amount
+            var children = TileTensor(
+                ImmSpan(surfaces.mix_surfaces),
+                row_major(Coord(len(surfaces.mix_surfaces) // 2, Idx[2])),
+            )
             var selected = SurfaceId.from_raw(
-                surfaces.mix_surfaces[2 * index + (1 if choose_second else 0)]
+                children[index, 1 if choose_second else 0]
             )
             var sampled = sample_bsdf(
                 selected, surfaces, ray, hit, rng, estimator_seed

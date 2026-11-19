@@ -7,6 +7,7 @@ every published address, need no host geometry transfer and support capture. Reb
 root, then refits the retained balanced skeleton. Group membership stays fixed.
 """
 
+from layout import TileTensor, row_major
 from max.gpu.host import DeviceContext, DeviceBuffer
 from bajo.gpu.buffers import _device_span
 from max.gpu import global_idx, thread_idx, block_idx, block_dim, grid_dim
@@ -32,13 +33,18 @@ def refit_forest[
     bounds: MutSpan[Float32, MutAnyOrigin],
     nodes: ImmSpan[UInt32, ImmutAnyOrigin],
 ):
+    var node_fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
+    var node_bounds = TileTensor(bounds, row_major(len(bounds) // 6, 6))
     var lane = Int(thread_idx.x)
     var count = len(nodes) // 2
     for node in range(lane, count, block_size):
-        var item = nodes[node * 2 + 1]
+        var item = node_fields[node, 1]
         if item != EMPTY_LANE:
+            var item_bounds = TileTensor(
+                ptr=items.unsafe_ptr(), layout=row_major(Int(item) + 1, 6)
+            )
             comptime for axis in range(6):
-                bounds[node * 6 + axis] = items[Int(item) * 6 + axis]
+                node_bounds[node, axis] = item_bounds[Int(item), axis]
     barrier()
     # Each lane first merges complete subtrees in its contiguous node slice.
     # Reverse preorder makes children ready before their parent. No lane reads
@@ -52,18 +58,18 @@ def refit_forest[
     if sliced:
         for node in range(end - 1, begin - 1, -1):
             if (
-                nodes[node * 2 + 1] == EMPTY_LANE
-                and Int(nodes[node * 2]) <= end
+                node_fields[node, 1] == EMPTY_LANE
+                and Int(node_fields[node, 0]) <= end
             ):
                 var left = node + 1
-                var right = Int(nodes[left * 2])
+                var right = Int(node_fields[left, 0])
                 comptime for axis in range(3):
-                    bounds[node * 6 + axis] = min(
-                        bounds[left * 6 + axis], bounds[right * 6 + axis]
+                    node_bounds[node, axis] = min(
+                        node_bounds[left, axis], node_bounds[right, axis]
                     )
-                    bounds[node * 6 + axis + 3] = max(
-                        bounds[left * 6 + axis + 3],
-                        bounds[right * 6 + axis + 3],
+                    node_bounds[node, axis + 3] = max(
+                        node_bounds[left, axis + 3],
+                        node_bounds[right, axis + 3],
                     )
         barrier()
     # The retained median skeleton has ceil(log2(leaf_count)) height. Its
@@ -74,22 +80,22 @@ def refit_forest[
     while previous < UInt64(count):
         var node = begin
         while node < end:
-            var escape = Int(nodes[node * 2])
+            var escape = Int(node_fields[node, 0])
             if sliced and escape <= end:
                 # This entire subtree was already merged by this lane.
                 node = escape
                 continue
-            var span = UInt64(nodes[node * 2]) - UInt64(node)
+            var span = UInt64(node_fields[node, 0]) - UInt64(node)
             if span > previous and span <= limit:
                 var left = node + 1
-                var right = Int(nodes[left * 2])
+                var right = Int(node_fields[left, 0])
                 comptime for axis in range(3):
-                    bounds[node * 6 + axis] = min(
-                        bounds[left * 6 + axis], bounds[right * 6 + axis]
+                    node_bounds[node, axis] = min(
+                        node_bounds[left, axis], node_bounds[right, axis]
                     )
-                    bounds[node * 6 + axis + 3] = max(
-                        bounds[left * 6 + axis + 3],
-                        bounds[right * 6 + axis + 3],
+                    node_bounds[node, axis + 3] = max(
+                        node_bounds[left, axis + 3],
+                        node_bounds[right, axis + 3],
                     )
             node += step
         barrier()
@@ -119,8 +125,11 @@ def _rebuild_key[
             .unsafe_load(len(items) // 8 * 3 + Int(item))
         )
     else:
+        var item_bounds = TileTensor(
+            ptr=items.unsafe_ptr(), layout=row_major(Int(item) + 1, 6)
+        )
         return centroid_order_key(
-            items[Int(item) * 6], items[Int(item) * 6 + 3]
+            item_bounds[Int(item), 0], item_bounds[Int(item), 3]
         )
 
 
@@ -140,10 +149,11 @@ def reorder_forest[
     nodes: MutSpan[UInt32, MutAnyOrigin],
     order: MutSpan[UInt32, MutAnyOrigin],
 ):
+    var node_fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
     var lane = Int(thread_idx.x)
     var root = 0
     while root < len(nodes) // 2:
-        var end = Int(nodes[root * 2])
+        var end = Int(node_fields[root, 0])
         var count = (end - root + 1) // 2
         var padded = 1
         while padded < count:
@@ -157,13 +167,13 @@ def reorder_forest[
             # Preorder leaf i is 2*i + height - popcount(i) from the root.
             for i in range(lane, count, block_size):
                 var node = root + 2 * i + height - Int(pop_count(UInt32(i)))
-                order[root + i] = nodes[node * 2 + 1]
+                order[root + i] = node_fields[node, 1]
         else:
             for begin in range(root, end, block_size):
                 var node = begin + lane
                 var item = EMPTY_LANE
                 if node < end:
-                    item = nodes[node * 2 + 1]
+                    item = node_fields[node, 1]
                 var valid = UInt32(item != EMPTY_LANE)
                 var rank = block.prefix_sum[
                     block_size=block_size, exclusive=True
@@ -213,18 +223,18 @@ def reorder_forest[
         if perfect:
             for i in range(lane, count, block_size):
                 var node = root + 2 * i + height - Int(pop_count(UInt32(i)))
-                nodes[node * 2 + 1] = order[root + i]
+                node_fields[node, 1] = order[root + i]
         else:
             for begin in range(root, end, block_size):
                 var node = begin + lane
                 var valid = UInt32(0)
                 if node < end:
-                    valid = UInt32(nodes[node * 2 + 1] != EMPTY_LANE)
+                    valid = UInt32(node_fields[node, 1] != EMPTY_LANE)
                 var rank = block.prefix_sum[
                     block_size=block_size, exclusive=True
                 ](valid)
                 if valid != 0:
-                    nodes[node * 2 + 1] = order[root + Int(leaf_base + rank)]
+                    node_fields[node, 1] = order[root + Int(leaf_base + rank)]
                 leaf_base += block.sum[block_size=block_size, broadcast=True](
                     valid
                 )
@@ -302,14 +312,15 @@ def bounds_update_kernel[
     order: MutSpan[UInt32, MutAnyOrigin],
     status: MutSpan[UInt32, MutAnyOrigin],
 ):
+    var input_bounds = TileTensor(input, row_major(len(input) // 6, 6))
     if not _begin_single_block_update[block_size](status):
         return
     var lane = Int(thread_idx.x)
     var invalid = False
     for item in range(lane, len(input) // 6, block_size):
         comptime for axis in range(3):
-            var lo = input[item * 6 + axis]
-            var hi = input[item * 6 + axis + 3]
+            var lo = input_bounds[item, axis]
+            var hi = input_bounds[item, axis + 3]
             invalid |= not isfinite(lo) or not isfinite(hi) or lo > hi
     if block.sum[block_size=block_size, broadcast=True](UInt32(invalid)) != 0:
         return
@@ -336,6 +347,9 @@ def mesh_update_kernel[
     order: MutSpan[UInt32, MutAnyOrigin],
     status: MutSpan[UInt32, MutAnyOrigin],
 ):
+    var vertices = TileTensor(input, row_major(len(input) // 3, 3))
+    var triangles = TileTensor(indices, row_major(len(indices) // 3, 3))
+    var item_bounds = TileTensor(items, row_major(len(indices) // 3, 6))
     if not _begin_single_block_update[block_size](status):
         return
     var lane = Int(thread_idx.x)
@@ -346,14 +360,14 @@ def mesh_update_kernel[
         return
     for face in range(lane, len(indices) // 3, block_size):
         comptime for axis in range(3):
-            var lo = input[Int(indices[face * 3]) * 3 + axis]
+            var lo = vertices[Int(triangles[face, 0]), axis]
             var hi = lo
             comptime for corner in range(1, 3):
-                var value = input[Int(indices[face * 3 + corner]) * 3 + axis]
+                var value = vertices[Int(triangles[face, corner]), axis]
                 lo = min(lo, value)
                 hi = max(hi, value)
-            items[face * 6 + axis] = lo
-            items[face * 6 + axis + 3] = hi
+            item_bounds[face, axis] = lo
+            item_bounds[face, axis + 3] = hi
     for i in range(lane, len(input), block_size):
         points[i] = input[i]
     barrier()
@@ -427,17 +441,17 @@ def validate_velocity_blocks[
         var arrivals = counters.unsafe_ptr()
         var rejection = counters.unsafe_ptr().unsafe_offset(1)
         if rejected != 0:
-            AtomicU32.store[ordering=Ordering.RELAXED](rejection, UInt32(1))
-        var previous = AtomicU32.fetch_add[ordering=Ordering.ACQUIRE_RELEASE](
+            AtomicU32.store[ordering=Ordering.relaxed](rejection, UInt32(1))
+        var previous = AtomicU32.fetch_add[ordering=Ordering.acquire_release](
             arrivals, UInt32(1)
         )
         if previous == UInt32(grid_dim.x) - 1:
             # The acquire/release arrival chain observes every rejection store.
             # Only the last block publishes status; the next launch copies.
             # Reset counters after all arrivals for the next serialized update.
-            status[0] = AtomicU32.load[ordering=Ordering.RELAXED](rejection)
-            AtomicU32.store[ordering=Ordering.RELAXED](rejection, UInt32(0))
-            AtomicU32.store[ordering=Ordering.RELEASE](arrivals, UInt32(0))
+            status[0] = AtomicU32.load[ordering=Ordering.relaxed](rejection)
+            AtomicU32.store[ordering=Ordering.relaxed](rejection, UInt32(0))
+            AtomicU32.store[ordering=Ordering.release](arrivals, UInt32(0))
 
 
 def publish_velocity_blocks[
@@ -479,6 +493,7 @@ def clear_velocity_kernel(
 def _rebuild_leaf(
     nodes: ImmSpan[UInt32, ImmutAnyOrigin], root: Int, count: Int, ordinal: Int
 ) -> Int:
+    var node_fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
     if (count & (count - 1)) == 0:
         return (
             root
@@ -488,9 +503,9 @@ def _rebuild_leaf(
         )
     var node = root
     var rank = ordinal
-    while nodes[node * 2 + 1] == EMPTY_LANE:
+    while node_fields[node, 1] == EMPTY_LANE:
         var left = node + 1
-        var right = Int(nodes[left * 2])
+        var right = Int(node_fields[left, 0])
         var left_count = (right - left + 1) // 2
         if rank < left_count:
             node = left
@@ -509,13 +524,15 @@ def rebuild_tile_sort_kernel[
     output: MutSpan[UInt32, MutAnyOrigin],
     status: ImmSpan[UInt32, ImmutAnyOrigin],
 ):
+    var descriptors = TileTensor(tiles, row_major(len(tiles) // 3, 3))
+    var node_fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
     if status[0] != 0:
         return
     # Each descriptor names one independent 256-leaf tile in a retained root.
-    var tile = Int(block_idx.x) * 3
-    var root = Int(tiles[tile])
-    var count = Int(tiles[tile + 1])
-    var begin = Int(tiles[tile + 2])
+    var tile = Int(block_idx.x)
+    var root = Int(descriptors[tile, 0])
+    var count = Int(descriptors[tile, 1])
+    var begin = Int(descriptors[tile, 2])
     var lane = Int(thread_idx.x)
     var ids = stack_allocation[256, UInt32, address_space=AddressSpace.SHARED]()
     var keys = stack_allocation[
@@ -524,7 +541,7 @@ def rebuild_tile_sort_kernel[
     var item = EMPTY_LANE
     var key = UInt64.MAX
     if begin + lane < count:
-        item = nodes[_rebuild_leaf(nodes, root, count, begin + lane) * 2 + 1]
+        item = node_fields[_rebuild_leaf(nodes, root, count, begin + lane), 1]
         key = _rebuild_key[cached_keys](items, item)
     ids[unsafe_offset=lane] = item
     keys[unsafe_offset=lane] = key
@@ -565,12 +582,13 @@ def rebuild_merge_order_kernel[
     status: ImmSpan[UInt32, ImmutAnyOrigin],
     merge_width: UInt32,
 ):
+    var descriptors = TileTensor(tiles, row_major(len(tiles) // 3, 3))
     if status[0] != 0:
         return
-    var tile = Int(block_idx.x) * 3
-    var root = Int(tiles[tile])
-    var count = Int(tiles[tile + 1])
-    var i = Int(tiles[tile + 2]) + Int(thread_idx.x)
+    var tile = Int(block_idx.x)
+    var root = Int(descriptors[tile, 0])
+    var count = Int(descriptors[tile, 1])
+    var i = Int(descriptors[tile, 2]) + Int(thread_idx.x)
     if i >= count:
         return
     var width = Int(merge_width)
@@ -598,15 +616,17 @@ def publish_rebuild_order_kernel(
     nodes: MutSpan[UInt32, MutAnyOrigin],
     status: ImmSpan[UInt32, ImmutAnyOrigin],
 ):
+    var descriptors = TileTensor(tiles, row_major(len(tiles) // 3, 3))
+    var node_fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
     if status[0] != 0:
         return
-    var tile = Int(block_idx.x) * 3
-    var root = Int(tiles[tile])
-    var count = Int(tiles[tile + 1])
-    var i = Int(tiles[tile + 2]) + Int(thread_idx.x)
+    var tile = Int(block_idx.x)
+    var root = Int(descriptors[tile, 0])
+    var count = Int(descriptors[tile, 1])
+    var i = Int(descriptors[tile, 2]) + Int(thread_idx.x)
     if i < count:
         var node = _rebuild_leaf(nodes, root, count, i)
-        nodes[node * 2 + 1] = source[root + i]
+        node_fields[node, 1] = source[root + i]
 
 
 def clear_rebuild_order_kernel(order: MutSpan[UInt32, MutAnyOrigin]):
@@ -618,10 +638,11 @@ def clear_rebuild_order_kernel(order: MutSpan[UInt32, MutAnyOrigin]):
 def forest_rebuild_tiles(nodes: ImmSpan[UInt32, _]) -> List[UInt32]:
     """Retained root/count/start descriptors shared by bounds and mesh sorting.
     """
+    var node_fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
     var tiles = List[UInt32]()
     var root = 0
     while root < len(nodes) // 2:
-        var end = Int(nodes[root * 2])
+        var end = Int(node_fields[root, 0])
         var count = (end - root + 1) // 2
         for begin in range(0, count, 256):
             tiles.extend([UInt32(root), UInt32(count), UInt32(begin)])

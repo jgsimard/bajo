@@ -33,8 +33,8 @@ def _acquire_top_down_queue_lock(
 ):
     var expected = UInt32(0)
     while not Atomic.compare_exchange[
-        success_ordering=Ordering.ACQUIRE,
-        failure_ordering=Ordering.RELAXED,
+        success_ordering=Ordering.acquire,
+        failure_ordering=Ordering.relaxed,
     ](lock, expected, UInt32(1)):
         expected = UInt32(0)
 
@@ -42,7 +42,7 @@ def _acquire_top_down_queue_lock(
 def _release_top_down_queue_lock(
     lock: MutPointer[UInt32, _],
 ):
-    Atomic.store[ordering=Ordering.RELEASE](lock, UInt32(0))
+    Atomic.store[ordering=Ordering.release](lock, UInt32(0))
 
 
 struct BinaryBoundsBvh[
@@ -308,7 +308,7 @@ struct BinaryBoundsBvh[
         if source_node.item_count <= UInt32(Self.leaf_size):
             return
 
-        var left_child_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
+        var left_child_idx = Atomic.fetch_add[ordering=Ordering.relaxed](
             next_node, UInt32(2)
         )
         var child_centroid_bounds = self._split_node(

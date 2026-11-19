@@ -278,14 +278,14 @@ def _reserve_slot(
     counters: Pointer[UInt32, MutAnyOrigin], counter_idx: Int
 ) -> Int:
     return Int(
-        Atomic.fetch_add[ordering=Ordering.RELAXED](
+        Atomic.fetch_add[ordering=Ordering.relaxed](
             counters.unsafe_offset(counter_idx), UInt32(1)
         )
     )
 
 
 def _mark_status(counters: Pointer[UInt32, MutAnyOrigin], status: UInt32):
-    Atomic.store[ordering=Ordering.RELAXED](
+    Atomic.store[ordering=Ordering.relaxed](
         counters.unsafe_offset(WAVE_COUNTER.STATUS), status
     )
 

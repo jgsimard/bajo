@@ -69,8 +69,9 @@ def raster_camera(camera: Camera) -> Camera3D:
     )
 
 
-def identity_matrix() -> Matrix:
-    return Matrix(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+comptime IDENTITY_MATRIX = Matrix(
+    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1
+)
 
 
 def instance_matrix[
@@ -227,7 +228,11 @@ struct RasterScene:
                     )
                 )
                 draws.append(
-                    RasterDraw(0, identity_matrix(), Color(255, 255, 255, 255))
+                    RasterDraw(
+                        0,
+                        materialize[IDENTITY_MATRIX](),
+                        Color(255, 255, 255, 255),
+                    )
                 )
             var mesh_base = len(meshes)
             for index in range(len(data.triangle_meshes())):

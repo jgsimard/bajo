@@ -1,4 +1,5 @@
 """Ordered preorder traversal with statically specialized query callbacks."""
+from layout import Coord, TileTensor, row_major
 from std.memory import stack_allocation
 from bajo.bvh.constants import EMPTY_LANE
 
@@ -43,16 +44,17 @@ def traverse_ordered[
     # UInt32 node indices limit depth to 32; one pending sibling per level.
     var pending = stack_allocation[64, UInt32]()
     var distances = stack_allocation[64, Scalar[dtype]]()
+    var fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
     var count = 0
     var node = root
     var bound = initial_bound
     var cutoff = initial_cutoff
     while True:
         if accept(bound, cutoff):
-            var face = nodes.unsafe_ptr().unsafe_load(Int(node) * 2 + 1)
+            var face = fields.load[invariant=False](Coord(Int(node), 1))
             if face == EMPTY_LANE:
                 var left = node + 1
-                var right = nodes.unsafe_ptr().unsafe_load(Int(left) * 2)
+                var right = fields.load[invariant=False](Coord(Int(left), 0))
                 var ld, rd = children(left, right)
                 if rd > ld if furthest else rd < ld:
                     swap(left, right)

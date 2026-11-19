@@ -274,10 +274,14 @@ def _reconstruct_kernel(
         albedo,
         firefly != 0,
     )
+    var color_layout = row_major(Coord(Int(width) * Int(height), Idx[3]))
+    var ping_records = TileTensor(ptr=ping, layout=color_layout)
+    var diffuse_records = TileTensor(ptr=diffuse, layout=color_layout)
+    var residual_records = TileTensor(ptr=residual, layout=color_layout)
     comptime for c in range(3):
-        ping[unsafe_offset=i * 3 + c] = d[c] / albedo[c]
-        diffuse[unsafe_offset=i * 3 + c] = d[c]
-        residual[unsafe_offset=i * 3 + c] = g[c] + p[c]
+        ping_records[i, c] = d[c] / albedo[c]
+        diffuse_records[i, c] = d[c]
+        residual_records[i, c] = g[c] + p[c]
     variance[unsafe_offset=i] = v
 
 
@@ -319,8 +323,11 @@ def _filter_kernel(
         phi_color,
         phi_normal,
     )
+    var output_records = TileTensor(
+        ptr=output, layout=row_major(Coord(Int(width) * Int(height), Idx[3]))
+    )
     comptime for c in range(3):
-        output[unsafe_offset=i * 3 + c] = color[c]
+        output_records[i, c] = color[c]
     next_variance[unsafe_offset=i] = v
 
 

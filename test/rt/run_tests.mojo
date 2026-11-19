@@ -19,6 +19,7 @@ import test.rt.cpu.test_spectral_transport as cpu_test_spectral_transport
 import test.rt.cpu.test_crown as cpu_test_crown
 import test.rt.cpu.test_gpu_material_layout as cpu_test_gpu_material_layout
 import test.rt.cpu.test_gpu_path_continuation as cpu_test_gpu_path_continuation
+import test.rt.cpu.test_gpu_spectral_state as cpu_test_gpu_spectral_state
 import test.rt.cpu.test_instance_shading_simd as cpu_test_instance_shading_simd
 import test.rt.cpu.test_packet_inputs as cpu_test_packet_inputs
 import test.rt.cpu.test_packet_tiles as cpu_test_packet_tiles
@@ -142,6 +143,11 @@ def main() raises:
         tests.run(
             "test/rt/cpu/test_gpu_path_continuation.mojo",
             cpu_test_gpu_path_continuation.run_tests[True],
+        )
+    comptime if module_selected["cpu_test_gpu_spectral_state"]():
+        tests.run(
+            "test/rt/cpu/test_gpu_spectral_state.mojo",
+            cpu_test_gpu_spectral_state.run_tests[True],
         )
     comptime if module_selected["cpu_test_instance_shading_simd"]():
         tests.run(

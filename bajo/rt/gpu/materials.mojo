@@ -2,6 +2,7 @@
 
 from bajo.rt.gpu.spectral_resources import GpuSpectralResources
 
+from layout import TileTensor, Coord, Idx, row_major
 from std.memory import bitcast
 from max.gpu.host import DeviceBuffer, DeviceContext
 from bajo.rt.material_storage import pack_coated_materials
@@ -40,19 +41,24 @@ def _flatten_metals(world: SceneData) -> List[Float32]:
     var out = List[Float32](
         length=len(world.surfaces().metals) * GpuMetalLayout.STRIDE, fill=0.0
     )
+    var records = TileTensor(
+        Span(out),
+        row_major(
+            Coord(len(world.surfaces().metals), Idx[GpuMetalLayout.STRIDE])
+        ),
+    )
     for material_idx in range(len(world.surfaces().metals)):
         ref material = world.surfaces().metals[material_idx]
-        var base = material_idx * GpuMetalLayout.STRIDE
-        out[
-            base + GpuMetalLayout.ALBEDO + GpuRgbMaterialLayout.R
+        records[
+            material_idx, GpuMetalLayout.ALBEDO + GpuRgbMaterialLayout.R
         ] = material.albedo.x
-        out[
-            base + GpuMetalLayout.ALBEDO + GpuRgbMaterialLayout.G
+        records[
+            material_idx, GpuMetalLayout.ALBEDO + GpuRgbMaterialLayout.G
         ] = material.albedo.y
-        out[
-            base + GpuMetalLayout.ALBEDO + GpuRgbMaterialLayout.B
+        records[
+            material_idx, GpuMetalLayout.ALBEDO + GpuRgbMaterialLayout.B
         ] = material.albedo.z
-        out[base + GpuMetalLayout.FUZZ] = material.fuzz
+        records[material_idx, GpuMetalLayout.FUZZ] = material.fuzz
     return out^
 
 
@@ -91,17 +97,25 @@ def _flatten_coated_diffuse_texture_indices(world: SceneData) -> List[UInt32]:
         * GpuCoatedDiffuseLayout.TEXTURE_STRIDE,
         fill=NO_TEXTURE,
     )
+    var records = TileTensor(
+        Span(out),
+        row_major(
+            Coord(
+                len(world.surfaces().coated_diffuses),
+                Idx[GpuCoatedDiffuseLayout.TEXTURE_STRIDE],
+            )
+        ),
+    )
     for material_idx in range(len(world.surfaces().coated_diffuses)):
         ref material = world.surfaces().coated_diffuses[material_idx]
-        var base = material_idx * GpuCoatedDiffuseLayout.TEXTURE_STRIDE
-        out[
-            base + GpuCoatedDiffuseLayout.ALBEDO_TEXTURE
+        records[
+            material_idx, GpuCoatedDiffuseLayout.ALBEDO_TEXTURE
         ] = material.texture_index
-        out[
-            base + GpuCoatedDiffuseLayout.DISPLACEMENT_TEXTURE
+        records[
+            material_idx, GpuCoatedDiffuseLayout.DISPLACEMENT_TEXTURE
         ] = material.displacement_texture_index
-        out[
-            base + GpuCoatedDiffuseLayout.ROUGHNESS_TEXTURE
+        records[
+            material_idx, GpuCoatedDiffuseLayout.ROUGHNESS_TEXTURE
         ] = material.roughness_texture_index
     return out^
 

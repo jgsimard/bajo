@@ -116,15 +116,12 @@ def _load_mesh_triangle[
 ) -> Tuple[Point3f32[frame], Point3f32[frame], Point3f32[frame]]:
     # Internal traversal supplies a valid original face ID from a validated
     # mesh. Public vertex/face evaluation retains checked span access.
-    var vertices = points.unsafe_ptr()
-    var faces = indices.unsafe_ptr().unsafe_offset(Int(face) * 3)
-    var a = Int(faces.unsafe_load(0)) * 3
-    var b = Int(faces.unsafe_load(1)) * 3
-    var c = Int(faces.unsafe_load(2)) * 3
+    var vertices = TileTensor(points, row_major(len(points) // 3, 3))
+    var faces = TileTensor(indices, row_major(len(indices) // 3, 3))
     return (
-        Point3f32[frame](vertices.unsafe_offset(a)),
-        Point3f32[frame](vertices.unsafe_offset(b)),
-        Point3f32[frame](vertices.unsafe_offset(c)),
+        Point3f32[frame](vertices.ptr_at_offset((Int(faces[Int(face), 0]), 0))),
+        Point3f32[frame](vertices.ptr_at_offset((Int(faces[Int(face), 1]), 0))),
+        Point3f32[frame](vertices.ptr_at_offset((Int(faces[Int(face), 2]), 0))),
     )
 
 
@@ -332,14 +329,15 @@ struct MeshQueryView[
         var active = SIMD[.bool, width](fill=True)
         comptime if not full:
             active = nodes.ne(EMPTY_LANE)
+        var bounds = TileTensor(
+            self.bvh.bounds, row_major(len(self.bvh.bounds) // 6, 6)
+        )
+        var first = Int(nodes[0])
         var stride = 0
         comptime if width > 1:
-            stride = (Int(nodes[1]) - Int(nodes[0])) * 6
-        var bounds = self.bvh.bounds.unsafe_ptr().unsafe_offset(
-            Int(nodes[0]) * 6
-        )
+            stride = (Int(nodes[1]) - first) * Int(bounds.layout(Coord(1, 0)))
         comptime if is_gpu() and width == 1:
-            var box = AABB[Self.frame].load6(bounds)
+            var box = AABB[Self.frame].load6(bounds.ptr_at_offset((first, 0)))
             var filtered, entry = _gpu_ray_bounds_interval(
                 ray, box, ray.t_max, 0.0, inverse
             )
@@ -351,10 +349,10 @@ struct MeshQueryView[
         var upper = SIMD[.float64, width](Float64(ray.t_max))
         comptime for axis in range(3):
             var lo = strided_load(
-                bounds.unsafe_offset(axis), stride, active
+                bounds.ptr_at_offset((first, axis)), stride, active
             ).cast[.float64]()
             var hi = strided_load(
-                bounds.unsafe_offset(axis + 3), stride, active
+                bounds.ptr_at_offset((first, axis + 3)), stride, active
             ).cast[.float64]()
             var origin = Float64(ray.o[axis])
             if ray.d[axis] == 0.0:
@@ -378,17 +376,20 @@ struct MeshQueryView[
         # Independent axis calculations avoid serial slab branches. Parallel
         # axes contribute the ray interval and retain exact box membership.
         # The outward margins and uncertain-node retention are unchanged.
-        var bounds = self.bvh.bounds.unsafe_ptr().unsafe_offset(Int(node) * 6)
+        var fields = TileTensor(
+            self.bvh.bounds, row_major(len(self.bvh.bounds) // 6, 6)
+        )
+        var bounds = fields[Int(node), :]
         var lo = SIMD[.float32, 4](
-            bounds.unsafe_load(0),
-            bounds.unsafe_load(1),
-            bounds.unsafe_load(2),
+            bounds[0],
+            bounds[1],
+            bounds[2],
             0.0,
         )
         var hi = SIMD[.float32, 4](
-            bounds.unsafe_load(3),
-            bounds.unsafe_load(4),
-            bounds.unsafe_load(5),
+            bounds[3],
+            bounds[4],
+            bounds[5],
             0.0,
         )
         var ray_origin = SIMD[.float32, 4](ray.o.x, ray.o.y, ray.o.z, 0.0)
@@ -432,19 +433,14 @@ struct MeshQueryView[
         right: UInt32,
     ) -> SIMD[.float32, 2]:
         # Evaluate both children together, retaining the scalar slab margins.
-        var left_bounds = self.bvh.bounds.unsafe_ptr().unsafe_offset(
-            Int(left) * 6
+        var fields = TileTensor(
+            self.bvh.bounds, row_major(len(self.bvh.bounds) // 6, 6)
         )
-        var right_bounds = self.bvh.bounds.unsafe_ptr().unsafe_offset(
-            Int(right) * 6
-        )
+        var left_bounds = fields[Int(left), :]
+        var right_bounds = fields[Int(right), :]
         var miss = bitcast[.float32](UInt32(0x7F800000))
-        var lo0 = SIMD[.float32, 2](
-            left_bounds.unsafe_load(0), right_bounds.unsafe_load(0)
-        )
-        var hi0 = SIMD[.float32, 2](
-            left_bounds.unsafe_load(3), right_bounds.unsafe_load(3)
-        )
+        var lo0 = SIMD[.float32, 2](left_bounds[0], right_bounds[0])
+        var hi0 = SIMD[.float32, 2](left_bounds[3], right_bounds[3])
         var parallel0 = SIMD[.bool, 2](fill=ray.d[0] == 0.0)
         var a0 = (lo0 - ray.o[0]) * inverse[0]
         var b0 = (hi0 - ray.o[0]) * inverse[0]
@@ -461,12 +457,8 @@ struct MeshQueryView[
             SIMD[.float32, 2](ray.t_max), max(a0, b0) + error0
         )
         var outside0 = parallel0 & (~lo0.le(ray.o[0]) | ~hi0.ge(ray.o[0]))
-        var lo1 = SIMD[.float32, 2](
-            left_bounds.unsafe_load(1), right_bounds.unsafe_load(1)
-        )
-        var hi1 = SIMD[.float32, 2](
-            left_bounds.unsafe_load(4), right_bounds.unsafe_load(4)
-        )
+        var lo1 = SIMD[.float32, 2](left_bounds[1], right_bounds[1])
+        var hi1 = SIMD[.float32, 2](left_bounds[4], right_bounds[4])
         var parallel1 = SIMD[.bool, 2](fill=ray.d[1] == 0.0)
         var a1 = (lo1 - ray.o[1]) * inverse[1]
         var b1 = (hi1 - ray.o[1]) * inverse[1]
@@ -483,12 +475,8 @@ struct MeshQueryView[
             SIMD[.float32, 2](ray.t_max), max(a1, b1) + error1
         )
         var outside1 = parallel1 & (~lo1.le(ray.o[1]) | ~hi1.ge(ray.o[1]))
-        var lo2 = SIMD[.float32, 2](
-            left_bounds.unsafe_load(2), right_bounds.unsafe_load(2)
-        )
-        var hi2 = SIMD[.float32, 2](
-            left_bounds.unsafe_load(5), right_bounds.unsafe_load(5)
-        )
+        var lo2 = SIMD[.float32, 2](left_bounds[2], right_bounds[2])
+        var hi2 = SIMD[.float32, 2](left_bounds[5], right_bounds[5])
         var parallel2 = SIMD[.bool, 2](fill=ray.d[2] == 0.0)
         var a2 = (lo2 - ray.o[2]) * inverse[2]
         var b2 = (hi2 - ray.o[2]) * inverse[2]
@@ -671,12 +659,15 @@ struct MeshQueryView[
     ) -> Tuple[Vec3f32[Self.frame], Bool]:
         var regular = True
         var inverse32 = Vec3f32[Self.frame](0.0)
-        var bounds = self.bvh.bounds.unsafe_ptr().unsafe_offset(Int(root) * 6)
+        var fields = TileTensor(
+            self.bvh.bounds, row_major(len(self.bvh.bounds) // 6, 6)
+        )
+        var bounds = fields[Int(root), :]
         comptime for axis in range(3):
             regular &= (
                 max(
-                    abs(bounds.unsafe_load(axis)),
-                    abs(bounds.unsafe_load(axis + 3)),
+                    abs(bounds[axis]),
+                    abs(bounds[axis + 3]),
                 )
                 <= 1e20
             )
@@ -862,18 +853,19 @@ struct MeshQueryView[
             return (UInt32(self._query_ray_any_f32(ray, root, inverse)), False)
         # Preorder escape links prune complete subtrees without a candidate
         # iterator or traversal stack. Every face retains its original ID.
+        var nodes = TileTensor(
+            self.bvh.nodes, row_major(len(self.bvh.nodes) // 2, 2)
+        )
         var node = root
-        var end = self.bvh.nodes.unsafe_ptr().unsafe_load(Int(root) * 2)
+        var end = nodes.load[invariant=False](Coord(Int(root), 0))
         var miss = bitcast[.float32](UInt32(0x7F800000))
         var hits = UInt32(0)
         while node < end:
-            var escape = self.bvh.nodes.unsafe_ptr().unsafe_load(Int(node) * 2)
+            var escape = nodes.load[invariant=False](Coord(Int(node), 0))
             if self._ray_node_lower_f32(ray, inverse, node) == miss:
                 node = escape
                 continue
-            var face = self.bvh.nodes.unsafe_ptr().unsafe_load(
-                Int(node) * 2 + 1
-            )
+            var face = nodes.load[invariant=False](Coord(Int(node), 1))
             node += 1
             if face == EMPTY_LANE:
                 continue
@@ -980,20 +972,21 @@ struct MeshQueryView[
         # Callers supply one node or a child pair, padding wider packets with
         # EMPTY_LANE. Two addresses define a runtime stride even in preorder.
         var active = nodes.ne(EMPTY_LANE)
+        var bounds = TileTensor(
+            self.bvh.bounds, row_major(len(self.bvh.bounds) // 6, 6)
+        )
+        var first = Int(nodes[0])
         var stride = 0
         comptime if width > 1:
-            stride = (Int(nodes[1]) - Int(nodes[0])) * 6
-        var bounds = self.bvh.bounds.unsafe_ptr().unsafe_offset(
-            Int(nodes[0]) * 6
-        )
+            stride = (Int(nodes[1]) - first) * Int(bounds.layout(Coord(1, 0)))
         var lower = Point3[.float32, Self.frame, width](0.0)
         var upper = Point3[.float32, Self.frame, width](0.0)
         comptime for axis in range(3):
             lower[axis] = strided_load(
-                bounds.unsafe_offset(axis), stride, active
+                bounds.ptr_at_offset((first, axis)), stride, active
             )
             upper[axis] = strided_load(
-                bounds.unsafe_offset(axis + 3), stride, active
+                bounds.ptr_at_offset((first, axis + 3)), stride, active
             )
         comptime if is_gpu() and width == 1:
             var d2 = Float32(0.0)
@@ -1032,12 +1025,15 @@ struct MeshQueryView[
     def _furthest_node_upper_f32(
         self, point: Point3f32[Self.frame], node: UInt32
     ) -> Float32:
-        var bounds = self.bvh.bounds.unsafe_ptr().unsafe_offset(Int(node) * 6)
+        var fields = TileTensor(
+            self.bvh.bounds, row_major(len(self.bvh.bounds) // 6, 6)
+        )
+        var bounds = fields[Int(node), :]
         var distance2 = Float32(0.0)
         comptime for axis in range(3):
             var delta = max(
-                abs(bounds.unsafe_load(axis) - point[axis]),
-                abs(bounds.unsafe_load(axis + 3) - point[axis]),
+                abs(bounds[axis] - point[axis]),
+                abs(bounds[axis + 3] - point[axis]),
             )
             distance2 += delta * delta
         # Cover subtraction/square/sum rounding and flushed tiny differences.
@@ -1154,13 +1150,16 @@ struct MeshQueryView[
     def _nearest_node_lower_f32(
         self, point: Point3f32[Self.frame], node: UInt32
     ) -> Float32:
-        var bounds = self.bvh.bounds.unsafe_ptr().unsafe_offset(Int(node) * 6)
+        var fields = TileTensor(
+            self.bvh.bounds, row_major(len(self.bvh.bounds) // 6, 6)
+        )
+        var bounds = fields[Int(node), :]
         var distance2 = Float32(0.0)
         comptime for axis in range(3):
             var delta = max(
                 max(
-                    bounds.unsafe_load(axis) - point[axis],
-                    point[axis] - bounds.unsafe_load(axis + 3),
+                    bounds[axis] - point[axis],
+                    point[axis] - bounds[axis + 3],
                 ),
                 Float32(0.0),
             )
@@ -1611,8 +1610,11 @@ struct MeshQueryView[
                         compensation,
                     )
                 return sum.reduce_add() * INV_4_PI
+        var nodes = TileTensor(
+            self.bvh.nodes, row_major(len(self.bvh.nodes) // 2, 2)
+        )
         var node = Int(root)
-        var end = Int(self.bvh.nodes[node * 2])
+        var end = Int(nodes[node, 0])
         while node < end:
             var a = Vec3[.float64, Self.frame, width](
                 SIMD[.float64, width](0.0),
@@ -1624,7 +1626,7 @@ struct MeshQueryView[
             comptime for lane in range(width):
                 var face = EMPTY_LANE
                 while node < end and face == EMPTY_LANE:
-                    face = self.bvh.nodes[node * 2 + 1]
+                    face = nodes[node, 1]
                     node += 1
                 if face != EMPTY_LANE:
                     var av = self.face_vertex(face, 0)

@@ -1,3 +1,4 @@
+from layout import TileTensor, Coord, Idx, row_major
 from std.memory import bitcast
 
 from bajo.bvh.gpu.wide_layout import _intersect_wide_node_precomputed
@@ -80,14 +81,14 @@ struct GpuTraversalStats(TrivialRegisterPassable, Writable):
         dst: MutPointer[UInt32, _],
         ray_idx: Int,
     ):
-        var base = ray_idx * Self.STRIDE
-        dst[unsafe_offset=base + Self.NODE_VISITS] = self.node_visits
-        dst[
-            unsafe_offset=base + Self.INTERNAL_CHILD_HITS
-        ] = self.internal_child_hits
-        dst[unsafe_offset=base + Self.LEAF_BLOCKS] = self.leaf_blocks
-        dst[unsafe_offset=base + Self.PRIMITIVE_TESTS] = self.primitive_tests
-        dst[unsafe_offset=base + Self.MAX_STACK_DEPTH] = self.max_stack_depth
+        var records = TileTensor(
+            ptr=dst, layout=row_major(Coord(ray_idx + 1, Idx[Self.STRIDE]))
+        )
+        records[ray_idx, Self.NODE_VISITS] = self.node_visits
+        records[ray_idx, Self.INTERNAL_CHILD_HITS] = self.internal_child_hits
+        records[ray_idx, Self.LEAF_BLOCKS] = self.leaf_blocks
+        records[ray_idx, Self.PRIMITIVE_TESTS] = self.primitive_tests
+        records[ray_idx, Self.MAX_STACK_DEPTH] = self.max_stack_depth
 
 
 @fieldwise_init

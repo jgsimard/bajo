@@ -1,3 +1,4 @@
+from layout import TileTensor, Coord, Idx, row_major
 from std.math import ceildiv, max
 from std.time import perf_counter_ns
 from max.gpu import global_idx
@@ -102,29 +103,32 @@ def pack_segmented_triangle_leaf_lanes_kernel[
     var prim = leaf_block_indices[unsafe_offset=lane_idx]
     var lane = lane_idx % width
     var out_base = physical_block * TRI_LEAF_PACKED_STRIDE * width
-    var leaf_vertices_u32 = leaf_vertices.unsafe_bitcast[UInt32]()
+    var fields = TileTensor(
+        ptr=leaf_vertices.unsafe_offset(out_base),
+        layout=row_major(Coord(Idx[TRI_LEAF_PACKED_STRIDE], Idx[Int(width)])),
+    )
+    var ids = fields.bitcast[.uint32]()
 
     if prim == EMPTY_LANE:
-        leaf_vertices_u32[unsafe_offset=out_base + 3 * width + lane] = prim
+        ids[3, lane] = prim
         return
 
     var primitive_begin = primitive_segment_offsets.unsafe_get(segment_idx)
-    leaf_vertices_u32[unsafe_offset=out_base + 3 * width + lane] = (
-        prim - primitive_begin
-    )
+    ids[3, lane] = prim - primitive_begin
 
-    var in_base = Int(prim) * TRI_LEAF_VERTEX_STRIDE
+    comptime assert TRI_LEAF_VERTEX_STRIDE == 9
+    var triangles = TileTensor(
+        ptr=vertices,
+        layout=row_major(Coord(Int(prim) + 1, Idx[3], Idx[3])),
+    )
+    var triangle = triangles[Int(prim), :, :]
     comptime for axis in range(3):
-        var v0 = vertices[unsafe_offset=in_base + axis]
-        leaf_vertices[unsafe_offset=out_base + axis * width + lane] = v0
-        leaf_vertices[unsafe_offset=out_base + (4 + axis) * width + lane] = (
-            vertices[unsafe_offset=in_base + 3 + axis] - v0
-        )
-        leaf_vertices[unsafe_offset=out_base + (8 + axis) * width + lane] = (
-            vertices[unsafe_offset=in_base + 6 + axis] - v0
-        )
-    leaf_vertices[unsafe_offset=out_base + 7 * width + lane] = 0.0
-    leaf_vertices[unsafe_offset=out_base + 11 * width + lane] = 0.0
+        var v0 = triangle[0, axis]
+        fields[axis, lane] = v0
+        fields[4 + axis, lane] = triangle[1, axis] - v0
+        fields[8 + axis, lane] = triangle[2, axis] - v0
+    fields[7, lane] = 0.0
+    fields[11, lane] = 0.0
 
 
 @fieldwise_init
@@ -844,18 +848,22 @@ def compute_triangle_bounds_kernel[
         and tri_idx < len(payloads),
         "triangle bounds record is outside a device span",
     )
-    var v0 = Point3f32[frame](vertices.unsafe_ptr().unsafe_offset(vbase))
-    var v1 = Point3f32[frame](vertices.unsafe_ptr().unsafe_offset(vbase + 3))
-    var v2 = Point3f32[frame](vertices.unsafe_ptr().unsafe_offset(vbase + 6))
+    var triangles = TileTensor(vertices, row_major(tri_count, 3, 3))
+    var records = TileTensor(
+        leaf_bounds, row_major(tri_count, AABB[frame].STRIDE)
+    )
+    var v0 = Point3f32[frame](triangles.ptr_at_offset((tri_idx, 0, 0)))
+    var v1 = Point3f32[frame](triangles.ptr_at_offset((tri_idx, 1, 0)))
+    var v2 = Point3f32[frame](triangles.ptr_at_offset((tri_idx, 2, 0)))
 
     var bmin = vmin(vmin(v0, v1), v2)
     var bmax = vmax(vmax(v0, v1), v2)
 
-    leaf_bounds.unsafe_get(bbase + 0) = bmin.x
-    leaf_bounds.unsafe_get(bbase + 1) = bmin.y
-    leaf_bounds.unsafe_get(bbase + 2) = bmin.z
-    leaf_bounds.unsafe_get(bbase + 3) = bmax.x
-    leaf_bounds.unsafe_get(bbase + 4) = bmax.y
-    leaf_bounds.unsafe_get(bbase + 5) = bmax.z
+    records[tri_idx, 0] = bmin.x
+    records[tri_idx, 1] = bmin.y
+    records[tri_idx, 2] = bmin.z
+    records[tri_idx, 3] = bmax.x
+    records[tri_idx, 4] = bmax.y
+    records[tri_idx, 5] = bmax.z
 
     payloads.unsafe_get(tri_idx) = UInt32(tri_idx)

@@ -495,8 +495,11 @@ def _gpu_rt_scene_trace_path[
             surface_value = instance_surfaces[unsafe_offset=instance_idx]
 
     if path.medium_id != 0:
-        var base = 3 * Int(path.medium_id)
-        var sigma_a = Color(scene.medium_absorption.unsafe_offset(base))
+        var medium = Int(path.medium_id)
+        var absorption = TileTensor(
+            ptr=scene.medium_absorption, layout=row_major(medium + 1, 3)
+        )
+        var sigma_a = Color(absorption.ptr_at_offset((medium, 0)))
         var attenuation = medium_transmittance(
             sigma_a,
             (closest_t if found else ray.t_max) * length(ray.d),
@@ -560,19 +563,27 @@ def _gpu_rt_scene_trace_path[
         var random = material_rng.f32()
         while SurfaceId.kind_from_raw(surface_value) == .MIX:
             var index = Int(SurfaceId.index_from_raw(surface_value))
+            var scales = TileTensor(
+                ptr=scene.mix_uv_scales,
+                layout=row_major(Coord(index + 1, Idx[2])),
+            )
+            var children = TileTensor(
+                ptr=scene.mix_surfaces,
+                layout=row_major(Coord(index + 1, Idx[2])),
+            )
             var amount = scene.mix_amounts[unsafe_offset=index]
             var texture_index = scene.mix_texture_indices[unsafe_offset=index]
             if texture_index != NO_TEXTURE:
                 var color = _sample_gpu_image_texture(
                     texture_index,
-                    uv_u * scene.mix_uv_scales[unsafe_offset=2 * index],
-                    uv_v * scene.mix_uv_scales[unsafe_offset=2 * index + 1],
+                    uv_u * scales.load[invariant=False]((index, 0)),
+                    uv_v * scales.load[invariant=False]((index, 1)),
                     texture_descs,
                     texture_pixels,
                 )
                 amount *= luminance(color)
             var branch = sample_mix_branch(amount.clamp(0.0, 1.0), random)
-            surface_value = scene.mix_surfaces[unsafe_offset=2 * index + branch]
+            surface_value = children.load[invariant=False]((index, branch))
     var geometric = orient_surface_normal(ray.d, geometric_outward)
     var oriented = orient_surface_normal(ray.d, outward)
     var normal = oriented.normal

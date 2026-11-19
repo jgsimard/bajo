@@ -616,7 +616,7 @@ def _build_lbvh_recursive_parallel[
     var last = first + count - 1
     var split = _lbvh_find_split(pairs, first, last)
     var left_count = split - first + 1
-    var left_child_idx = Atomic.fetch_add[ordering=Ordering.RELAXED](
+    var left_child_idx = Atomic.fetch_add[ordering=Ordering.relaxed](
         next_node, UInt32(2)
     )
     var left_bounds = _build_lbvh_recursive_parallel(

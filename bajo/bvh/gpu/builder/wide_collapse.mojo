@@ -1,3 +1,4 @@
+from layout import Coord, TileTensor, row_major
 from std.sys.info import is_nvidia_gpu
 from std.atomic import Atomic, Ordering
 from max.gpu import block_idx, global_idx, thread_idx
@@ -190,7 +191,7 @@ def _write_direct_cwbvh8_node[
     debug_assert["safe", _use_compiler_assume=True](
         internal_mask != 0 or triangle_count != 0
     )
-    var triangle_base = AtomicU32.fetch_add[ordering=Ordering.RELAXED](
+    var triangle_base = AtomicU32.fetch_add[ordering=Ordering.relaxed](
         triangle_counter, triangle_count
     )
     var x_axis = _cwbvh_axis_scale(lo_x, hi_x)
@@ -284,24 +285,28 @@ def _write_direct_cwbvh8_node[
             q_uz[lane] = UInt8(
                 _quantize_upper[True](bounds._max.z, lo_z, scale_z, inverse_z)
             )
-    var packed_lx = bitcast[.uint32, 2](q_lx)
-    words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + 0] = packed_lx[0]
-    words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + 1] = packed_lx[1]
-    var packed_ly = bitcast[.uint32, 2](q_ly)
-    words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + 2] = packed_ly[0]
-    words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + 3] = packed_ly[1]
-    var packed_lz = bitcast[.uint32, 2](q_lz)
-    words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + 4] = packed_lz[0]
-    words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + 5] = packed_lz[1]
-    var packed_ux = bitcast[.uint32, 2](q_ux)
-    words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + 6] = packed_ux[0]
-    words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + 7] = packed_ux[1]
-    var packed_uy = bitcast[.uint32, 2](q_uy)
-    words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + 8] = packed_uy[0]
-    words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + 9] = packed_uy[1]
-    var packed_uz = bitcast[.uint32, 2](q_uz)
-    words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + 10] = packed_uz[0]
-    words[unsafe_offset=base + CWBVH_QUANTIZED_BASE + 11] = packed_uz[1]
+    var quantized_planes = TileTensor(
+        ptr=words.unsafe_offset(base + CWBVH_QUANTIZED_BASE),
+        layout=row_major[6, 2](),
+    )
+    quantized_planes.store[width=2, alignment=4](
+        Coord(0, 0), bitcast[.uint32, 2](q_lx)
+    )
+    quantized_planes.store[width=2, alignment=4](
+        Coord(1, 0), bitcast[.uint32, 2](q_ly)
+    )
+    quantized_planes.store[width=2, alignment=4](
+        Coord(2, 0), bitcast[.uint32, 2](q_lz)
+    )
+    quantized_planes.store[width=2, alignment=4](
+        Coord(3, 0), bitcast[.uint32, 2](q_ux)
+    )
+    quantized_planes.store[width=2, alignment=4](
+        Coord(4, 0), bitcast[.uint32, 2](q_uy)
+    )
+    quantized_planes.store[width=2, alignment=4](
+        Coord(5, 0), bitcast[.uint32, 2](q_uz)
+    )
 
 
 def _pack_hploc_wide_pair(encoded: UInt32, out_idx: UInt32) -> UInt64:
@@ -541,7 +546,7 @@ def hploc_literature_to_wide_kernel[
     ]()
     if thread_idx.x == 0:
         logical_block[unsafe_offset=0] = AtomicU32.fetch_add[
-            ordering=Ordering.RELAXED
+            ordering=Ordering.relaxed
         ](work_group_counter, UInt32(1))
     barrier()
 
@@ -590,17 +595,17 @@ def hploc_literature_to_wide_kernel[
     var failsafe = 10000000
 
     while True:
-        var pair = AtomicU64.load[ordering=Ordering.RELAXED](
+        var pair = AtomicU64.load[ordering=Ordering.relaxed](
             index_pairs.unsafe_offset(work_id)
         )
         if pair == UInt64.MAX:
-            if AtomicU32.load[ordering=Ordering.ACQUIRE](status) != (
+            if AtomicU32.load[ordering=Ordering.acquire](status) != (
                 HPLOC_WIDE_STATUS_OK
             ):
                 return
             failsafe -= 1
             if failsafe == 0:
-                AtomicU32.store[ordering=Ordering.RELEASE](
+                AtomicU32.store[ordering=Ordering.release](
                     status, HPLOC_WIDE_STATUS_TIMEOUT
                 )
                 return
@@ -620,7 +625,7 @@ def hploc_literature_to_wide_kernel[
             terminal = encoded_leaf_count <= UInt32(fat_leaf_limit)
         if terminal:
             if Int(out_idx) >= max_leaf_blocks_int:
-                AtomicU32.store[ordering=Ordering.RELEASE](
+                AtomicU32.store[ordering=Ordering.release](
                     status, HPLOC_WIDE_STATUS_OUT_OF_LEAVES
                 )
                 return
@@ -636,7 +641,7 @@ def hploc_literature_to_wide_kernel[
             # The root has no parent task to publish the no-op jobs that make
             # one fixed paper work slot available per primitive.
             if work_id == 0 and encoded_leaf_count == UInt32(leaf_count_int):
-                AtomicU32.store[ordering=Ordering.RELEASE](
+                AtomicU32.store[ordering=Ordering.release](
                     leaf_block_counter, UInt32(1)
                 )
                 var root_leaf_data = leaf_data_fn(
@@ -701,7 +706,7 @@ def hploc_literature_to_wide_kernel[
                             _pack_wide_meta(UInt32(0), EMPTY_LANE),
                         )
                 for noop_id in range(1, leaf_count_int):
-                    AtomicU64.store[ordering=Ordering.RELAXED](
+                    AtomicU64.store[ordering=Ordering.relaxed](
                         index_pairs.unsafe_offset(noop_id),
                         _pack_hploc_wide_pair(
                             HPLOC_WIDE_NOOP_ENCODED, UInt32(0)
@@ -710,7 +715,7 @@ def hploc_literature_to_wide_kernel[
             return
 
         if Int(out_idx) >= max_wide_nodes_int:
-            AtomicU32.store[ordering=Ordering.RELEASE](
+            AtomicU32.store[ordering=Ordering.release](
                 status, HPLOC_WIDE_STATUS_OUT_OF_NODES
             )
             return
@@ -922,13 +927,13 @@ def hploc_literature_to_wide_kernel[
                 inner_count += 1
                 published_work_count += 1
 
-        var child_node_base = AtomicU32.fetch_add[ordering=Ordering.RELAXED](
+        var child_node_base = AtomicU32.fetch_add[ordering=Ordering.relaxed](
             wide_node_counter, UInt32(inner_count)
         )
-        var leaf_block_base = AtomicU32.fetch_add[ordering=Ordering.RELAXED](
+        var leaf_block_base = AtomicU32.fetch_add[ordering=Ordering.relaxed](
             leaf_block_counter, UInt32(leaf_count_in_node)
         )
-        var work_base = AtomicU32.fetch_add[ordering=Ordering.RELAXED](
+        var work_base = AtomicU32.fetch_add[ordering=Ordering.relaxed](
             work_alloc_counter, UInt32(published_work_count - 1)
         )
         if (
@@ -943,7 +948,7 @@ def hploc_literature_to_wide_kernel[
                 Int(leaf_block_base) + leaf_count_in_node > max_leaf_blocks_int
             ):
                 error = HPLOC_WIDE_STATUS_OUT_OF_LEAVES
-            AtomicU32.store[ordering=Ordering.RELEASE](status, error)
+            AtomicU32.store[ordering=Ordering.release](status, error)
             return
 
         var inner_rank = UInt32(0)
@@ -1027,7 +1032,7 @@ def hploc_literature_to_wide_kernel[
                 var child_work_id = work_id
                 if publish_pos > 0:
                     child_work_id = Int(work_base) + publish_pos - 1
-                AtomicU64.store[ordering=Ordering.RELAXED](
+                AtomicU64.store[ordering=Ordering.relaxed](
                     index_pairs.unsafe_offset(child_work_id),
                     _pack_hploc_wide_pair(child, child_out_idx),
                 )
@@ -1040,7 +1045,7 @@ def hploc_literature_to_wide_kernel[
                         var noops = Int(candidate_leaf_counts[child_pos]) - 1
                         for _ in range(noops):
                             var noop_work_id = Int(work_base) + publish_pos - 1
-                            AtomicU64.store[ordering=Ordering.RELAXED](
+                            AtomicU64.store[ordering=Ordering.relaxed](
                                 index_pairs.unsafe_offset(noop_work_id),
                                 _pack_hploc_wide_pair(
                                     HPLOC_WIDE_NOOP_ENCODED, UInt32(0)

@@ -1,5 +1,7 @@
 """SIMD mesh validation and ordered emissive-instance light preparation."""
 
+from layout import TileTensor, Coord, Idx, row_major
+from bajo.core.tensor_gather import gather_record_field
 from std.algorithm import vectorize
 from std.math import iota, sqrt
 from std.sys import simd_width_of
@@ -27,27 +29,23 @@ def _validate_mesh_bounds(
     comptime assert size_of[Point3f32[.LOCAL]]() == 3 * size_of[Float32]()
     var result = AABB[.LOCAL].invalid()
     var invalid = False
-    var source = vertices.unsafe_ptr().unsafe_bitcast[Float32]()
+    var source = TileTensor(
+        ptr=vertices.unsafe_ptr().unsafe_bitcast[Float32](),
+        layout=row_major(Coord(len(vertices) // 3, Idx[3], Idx[3])),
+    )
 
     def block[lanes: Int](first: Int) {imm, mut result, mut invalid}:
-        var ids = (iota[.int, lanes]() + first) * 9
-        var points = (
-            Point3[.float32, .LOCAL, lanes](
-                source.unsafe_gather(ids),
-                source.unsafe_gather(ids + 1),
-                source.unsafe_gather(ids + 2),
-            ),
-            Point3[.float32, .LOCAL, lanes](
-                source.unsafe_gather(ids + 3),
-                source.unsafe_gather(ids + 4),
-                source.unsafe_gather(ids + 5),
-            ),
-            Point3[.float32, .LOCAL, lanes](
-                source.unsafe_gather(ids + 6),
-                source.unsafe_gather(ids + 7),
-                source.unsafe_gather(ids + 8),
-            ),
+        var ids = iota[.int, lanes]() + first
+        var points = Array[Point3[.float32, .LOCAL, lanes], 3](
+            uninitialized=True
         )
+        comptime for corner in range(3):
+            var coordinates = source[:, corner, :]
+            points[corner] = Point3[.float32, .LOCAL, lanes](
+                gather_record_field[0](coordinates, ids),
+                gather_record_field[1](coordinates, ids),
+                gather_record_field[2](coordinates, ids),
+            )
         var area2 = length2(cross(points[1] - points[0], points[2] - points[0]))
         if not (
             points[0].is_finite()
@@ -97,8 +95,11 @@ def _transformed_triangles[
     SIMD[.float32, lanes],
 ]:
     comptime assert size_of[Point3f32[.LOCAL]]() == 3 * size_of[Float32]()
-    var source = vertices.unsafe_ptr().unsafe_bitcast[Float32]()
-    var ids = (iota[.int, lanes]() + first) * 9
+    var source = TileTensor(
+        ptr=vertices.unsafe_ptr().unsafe_bitcast[Float32](),
+        layout=row_major(Coord(len(vertices) // 3, Idx[3], Idx[3])),
+    )
+    var ids = iota[.int, lanes]() + first
     var wide = Affine3[.float32, .LOCAL, .WORLD, lanes](
         transform.m00,
         transform.m01,
@@ -113,27 +114,17 @@ def _transformed_triangles[
         transform.m22,
         transform.tz,
     )
-    var p0 = wide.point(
-        Point3[.float32, .LOCAL, lanes](
-            source.unsafe_gather(ids),
-            source.unsafe_gather(ids + 1),
-            source.unsafe_gather(ids + 2),
+    var points = Array[Point3[.float32, .WORLD, lanes], 3](uninitialized=True)
+    comptime for corner in range(3):
+        var coordinates = source[:, corner, :]
+        points[corner] = wide.point(
+            Point3[.float32, .LOCAL, lanes](
+                gather_record_field[0](coordinates, ids),
+                gather_record_field[1](coordinates, ids),
+                gather_record_field[2](coordinates, ids),
+            )
         )
-    )
-    var p1 = wide.point(
-        Point3[.float32, .LOCAL, lanes](
-            source.unsafe_gather(ids + 3),
-            source.unsafe_gather(ids + 4),
-            source.unsafe_gather(ids + 5),
-        )
-    )
-    var p2 = wide.point(
-        Point3[.float32, .LOCAL, lanes](
-            source.unsafe_gather(ids + 6),
-            source.unsafe_gather(ids + 7),
-            source.unsafe_gather(ids + 8),
-        )
-    )
+    var p0, p1, p2 = points[0], points[1], points[2]
     if reverse:
         swap(p1, p2)
     var weight = (
@@ -167,13 +158,15 @@ def _instance_light_record[
     var u2 = Float32(1)
     var v2 = Float32(1)
     if len(texcoords):
-        var base = 6 * triangle
-        u0 = texcoords[base]
-        v0 = texcoords[base + 1]
-        u1 = texcoords[base + 2]
-        v1 = texcoords[base + 3]
-        u2 = texcoords[base + 4]
-        v2 = texcoords[base + 5]
+        var uv = TileTensor(
+            texcoords, row_major(Coord(len(texcoords) // 6, Idx[3], Idx[2]))
+        )[triangle, :, :]
+        u0 = uv[0, 0]
+        v0 = uv[0, 1]
+        u1 = uv[1, 0]
+        v1 = uv[1, 1]
+        u2 = uv[2, 0]
+        v2 = uv[2, 1]
     if reverse:
         swap(u1, u2)
         swap(v1, v2)

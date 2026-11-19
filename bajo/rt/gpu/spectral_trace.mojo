@@ -375,19 +375,27 @@ def spectral_trace_surface[
             random = guide_mix_random
         while SurfaceId.kind_from_raw(surface_value) == .MIX:
             var index = Int(SurfaceId.index_from_raw(surface_value))
+            var scales = TileTensor(
+                ptr=scene.mix_uv_scales,
+                layout=row_major(Coord(index + 1, Idx[2])),
+            )
+            var children = TileTensor(
+                ptr=scene.mix_surfaces,
+                layout=row_major(Coord(index + 1, Idx[2])),
+            )
             var amount = scene.mix_amounts[unsafe_offset=index]
             var texture_index = scene.mix_texture_indices[unsafe_offset=index]
             if texture_index != NO_TEXTURE:
                 var color = _sample_gpu_image_texture(
                     texture_index,
-                    uv_u * scene.mix_uv_scales[unsafe_offset=2 * index],
-                    uv_v * scene.mix_uv_scales[unsafe_offset=2 * index + 1],
+                    uv_u * scales.load[invariant=False]((index, 0)),
+                    uv_v * scales.load[invariant=False]((index, 1)),
                     texture_descs,
                     texture_pixels,
                 )
                 amount *= luminance(color)
             var branch = sample_mix_branch(amount.clamp(0.0, 1.0), random)
-            surface_value = scene.mix_surfaces[unsafe_offset=2 * index + branch]
+            surface_value = children.load[invariant=False]((index, branch))
     var geometric = orient_surface_normal(ray.d, geometric_outward)
     var oriented = orient_surface_normal(ray.d, outward)
     var normal = oriented.normal

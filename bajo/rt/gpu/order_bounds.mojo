@@ -1,5 +1,6 @@
 """Scene bounds for geometry-independent spatial ray grouping."""
 
+from layout import TileTensor, row_major
 from std.utils.numerics import max_finite
 
 from std.math import min, max
@@ -30,18 +31,17 @@ def _wide_order_bounds[
         -max_finite[.float32](),
         -max_finite[.float32](),
     )
-    var base = Int(root) * 7 * width
+    var fields = TileTensor(
+        ptr=nodes, layout=row_major(Int(root) + 1, 7, width)
+    )
     comptime for lane in range(width):
-        if (
-            bitcast[.uint32](nodes[unsafe_offset=base + 6 * width + lane])
-            != EMPTY_LANE
-        ):
-            low.x = min(low.x, nodes[unsafe_offset=base + lane])
-            low.y = min(low.y, nodes[unsafe_offset=base + width + lane])
-            low.z = min(low.z, nodes[unsafe_offset=base + 2 * width + lane])
-            high.x = max(high.x, nodes[unsafe_offset=base + 3 * width + lane])
-            high.y = max(high.y, nodes[unsafe_offset=base + 4 * width + lane])
-            high.z = max(high.z, nodes[unsafe_offset=base + 5 * width + lane])
+        if bitcast[.uint32](fields[Int(root), 6, lane]) != EMPTY_LANE:
+            low.x = min(low.x, fields[Int(root), 0, lane])
+            low.y = min(low.y, fields[Int(root), 1, lane])
+            low.z = min(low.z, fields[Int(root), 2, lane])
+            high.x = max(high.x, fields[Int(root), 3, lane])
+            high.y = max(high.y, fields[Int(root), 4, lane])
+            high.z = max(high.z, fields[Int(root), 5, lane])
     return low, high
 
 
@@ -49,9 +49,9 @@ def _compressed_order_bounds(
     nodes: Pointer[Float32, ImmUntrackedOrigin],
     root: UInt32,
 ) -> Tuple[Point3f32[.WORLD], Point3f32[.WORLD]]:
-    var base = Int(root) * 20
-    var low = Point3f32[.WORLD](nodes.unsafe_offset(base))
-    var exp = bitcast[.uint32](nodes[unsafe_offset=base + 3])
+    var fields = TileTensor(ptr=nodes, layout=row_major(Int(root) + 1, 20))
+    var low = Point3f32[.WORLD](fields.ptr_at_offset((Int(root), 0)))
+    var exp = bitcast[.uint32](fields[Int(root), 3])
     var high = Point3f32[.WORLD](
         low.x + 255.0 * _scale_from_exponent(exp & 255),
         low.y + 255.0 * _scale_from_exponent((exp >> 8) & 255),

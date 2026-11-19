@@ -1,5 +1,6 @@
 """Unified compile-time-specialized GPU RT scene ownership."""
 
+from layout import Coord, Idx, TileTensor, row_major
 from max.gpu.host import DeviceBuffer, DeviceContext
 
 from bajo.gpu.buffers import upload_list
@@ -390,18 +391,16 @@ def prepare_gpu_scene[
                 texcoord_offsets.append(UInt32(len(texcoords)))
                 texcoords.extend(Span(mesh_texcoords))
                 ref vertices = data.triangle_meshes()[mesh_idx]
+                var uv = TileTensor(
+                    ImmSpan(mesh_texcoords),
+                    row_major(Coord(len(mesh_texcoords) // 6, Idx[3], Idx[2])),
+                )
                 for vertex in range(0, len(vertices), 3):
-                    var uv = 2 * vertex
                     var tangent = triangle_uv_tangent(
                         vertices[vertex],
                         vertices[vertex + 1],
                         vertices[vertex + 2],
-                        mesh_texcoords[uv],
-                        mesh_texcoords[uv + 1],
-                        mesh_texcoords[uv + 2],
-                        mesh_texcoords[uv + 3],
-                        mesh_texcoords[uv + 4],
-                        mesh_texcoords[uv + 5],
+                        uv[vertex // 3, :, :],
                     )
                     tangents.extend([tangent.x, tangent.y, tangent.z])
         if len(normals) == 0:

@@ -367,32 +367,37 @@ def _trace_blas_set_packet_policy[
         var block_ptr = leaves.unsafe_offset(
             Int(leaf_block_idx) * CPU_TRI_LEAF_PACKED_STRIDE * leaf_width
         )
-        var block_u32 = block_ptr.unsafe_bitcast[UInt32]()
+        var fields = TileTensor(
+            ptr=block_ptr,
+            layout=row_major(
+                Coord(Idx[CPU_TRI_LEAF_PACKED_STRIDE], Idx[Int(leaf_width)])
+            ),
+        )
+        var ids = fields.bitcast[.uint32]()
         comptime if mode == .ANY_HIT and leaf_width == 16:
+            # Preserve ordinary load hints in this measured early-exit path.
             var prim_lane = 0
             while prim_lane < Int(leaf_width):
                 var live = active & packet_hit.t.ne(0.0)
                 if not live.reduce_or():
                     break
-                var prim_idx = block_u32[
-                    unsafe_offset=3 * leaf_width + prim_lane
-                ]
+                var prim_idx = ids.load[invariant=False]((3, prim_lane))
                 if prim_idx == EMPTY_LANE:
                     break
                 var v0 = Point3f32[frame](
-                    block_ptr[unsafe_offset=0 * leaf_width + prim_lane],
-                    block_ptr[unsafe_offset=1 * leaf_width + prim_lane],
-                    block_ptr[unsafe_offset=2 * leaf_width + prim_lane],
+                    fields.load[invariant=False]((0, prim_lane)),
+                    fields.load[invariant=False]((1, prim_lane)),
+                    fields.load[invariant=False]((2, prim_lane)),
                 )
                 var e1 = Vec3f32[frame](
-                    block_ptr[unsafe_offset=4 * leaf_width + prim_lane],
-                    block_ptr[unsafe_offset=5 * leaf_width + prim_lane],
-                    block_ptr[unsafe_offset=6 * leaf_width + prim_lane],
+                    fields.load[invariant=False]((4, prim_lane)),
+                    fields.load[invariant=False]((5, prim_lane)),
+                    fields.load[invariant=False]((6, prim_lane)),
                 )
                 var e2 = Vec3f32[frame](
-                    block_ptr[unsafe_offset=7 * leaf_width + prim_lane],
-                    block_ptr[unsafe_offset=8 * leaf_width + prim_lane],
-                    block_ptr[unsafe_offset=9 * leaf_width + prim_lane],
+                    fields.load[invariant=False]((7, prim_lane)),
+                    fields.load[invariant=False]((8, prim_lane)),
+                    fields.load[invariant=False]((9, prim_lane)),
                 )
                 _trace_triangle_packet_primitive[frame, length, .ANY_HIT](
                     rays, live, prim_idx, v0, e1, e2, packet_hit
@@ -400,24 +405,22 @@ def _trace_blas_set_packet_policy[
                 prim_lane += 1
         else:
             comptime for prim_lane in range(leaf_width):
-                var prim_idx = block_u32[
-                    unsafe_offset=3 * leaf_width + prim_lane
-                ]
+                var prim_idx = ids[3, prim_lane]
                 if prim_idx != EMPTY_LANE:
                     var v0 = Point3f32[frame](
-                        block_ptr[unsafe_offset=0 * leaf_width + prim_lane],
-                        block_ptr[unsafe_offset=1 * leaf_width + prim_lane],
-                        block_ptr[unsafe_offset=2 * leaf_width + prim_lane],
+                        fields[0, prim_lane],
+                        fields[1, prim_lane],
+                        fields[2, prim_lane],
                     )
                     var e1 = Vec3f32[frame](
-                        block_ptr[unsafe_offset=4 * leaf_width + prim_lane],
-                        block_ptr[unsafe_offset=5 * leaf_width + prim_lane],
-                        block_ptr[unsafe_offset=6 * leaf_width + prim_lane],
+                        fields[4, prim_lane],
+                        fields[5, prim_lane],
+                        fields[6, prim_lane],
                     )
                     var e2 = Vec3f32[frame](
-                        block_ptr[unsafe_offset=7 * leaf_width + prim_lane],
-                        block_ptr[unsafe_offset=8 * leaf_width + prim_lane],
-                        block_ptr[unsafe_offset=9 * leaf_width + prim_lane],
+                        fields[7, prim_lane],
+                        fields[8, prim_lane],
+                        fields[9, prim_lane],
                     )
                     comptime if mode == .ANY_HIT:
                         var live = active & packet_hit.t.ne(0.0)
@@ -665,16 +668,22 @@ def _trace_sphere_blas_set_packet_policy[
         var block_ptr = leaves.unsafe_offset(
             Int(leaf_block_idx) * SPHERE_LEAF_PACKED_STRIDE * leaf_width
         )
-        var block_u32 = block_ptr.unsafe_bitcast[UInt32]()
+        var fields = TileTensor(
+            ptr=block_ptr,
+            layout=row_major(
+                Coord(Idx[SPHERE_LEAF_PACKED_STRIDE], Idx[Int(leaf_width)])
+            ),
+        )
+        var ids = fields.bitcast[.uint32]()
         comptime for prim_lane in range(leaf_width):
-            var prim_idx = block_u32[unsafe_offset=4 * leaf_width + prim_lane]
+            var prim_idx = ids[4, prim_lane]
             if prim_idx != EMPTY_LANE:
                 var center = Point3f32[frame](
-                    block_ptr[unsafe_offset=0 * leaf_width + prim_lane],
-                    block_ptr[unsafe_offset=1 * leaf_width + prim_lane],
-                    block_ptr[unsafe_offset=2 * leaf_width + prim_lane],
+                    fields[0, prim_lane],
+                    fields[1, prim_lane],
+                    fields[2, prim_lane],
                 )
-                var radius = block_ptr[unsafe_offset=3 * leaf_width + prim_lane]
+                var radius = fields[3, prim_lane]
                 comptime if mode == .ANY_HIT:
                     var live = active & packet_hit.t.ne(0.0)
                     if live.reduce_or():

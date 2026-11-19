@@ -1,3 +1,4 @@
+from layout import TileTensor, row_major
 from std.math import fma, abs, clamp, sqrt, min, max, pi
 from std.sys.info import is_gpu
 from std.utils.numerics import max_finite, isfinite
@@ -517,9 +518,10 @@ def intersect_ray_tri[
         base >= 0 and base <= len(vertices) - 9,
         "triangle load is outside the input span",
     )
-    var v0 = Point3[frame=frame](vertices.unsafe_ptr().unsafe_offset(base))
-    var v1 = Point3[frame=frame](vertices.unsafe_ptr().unsafe_offset(base + 3))
-    var v2 = Point3[frame=frame](vertices.unsafe_ptr().unsafe_offset(base + 6))
+    var triangles = TileTensor(vertices, row_major(len(vertices) // 9, 3, 3))
+    var v0 = Point3[frame=frame](triangles.ptr_at_offset((Int(prim_idx), 0, 0)))
+    var v1 = Point3[frame=frame](triangles.ptr_at_offset((Int(prim_idx), 1, 0)))
+    var v2 = Point3[frame=frame](triangles.ptr_at_offset((Int(prim_idx), 2, 0)))
 
     return intersect_ray_tri(
         o,

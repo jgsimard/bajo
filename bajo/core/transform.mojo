@@ -1,4 +1,6 @@
+from layout import Coord, TileTensor, row_major
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
+from std.sys import align_of
 from std.math import abs, fma, sqrt
 from std.utils.numerics import max_finite
 
@@ -410,11 +412,13 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
             base >= 0 and base <= len(data) - Self.STRIDE,
             "Affine3 load is outside the input span",
         )
-        var ptr = data.unsafe_ptr().unsafe_offset(base)
+        var matrix = TileTensor(
+            ptr=data.unsafe_ptr().unsafe_offset(base), layout=row_major[3, 4]()
+        )
         # fmt: off
-        var r0 = ptr.unsafe_load[width=4]()
-        var r1 = ptr.unsafe_offset(4).unsafe_load[width=4]()
-        var r2 = ptr.unsafe_offset(8).unsafe_load[width=4]()
+        var r0 = matrix.load[width=4, alignment=align_of[Scalar[Self.dtype]]()](Coord(0, 0))
+        var r1 = matrix.load[width=4, alignment=align_of[Scalar[Self.dtype]]()](Coord(1, 0))
+        var r2 = matrix.load[width=4, alignment=align_of[Scalar[Self.dtype]]()](Coord(2, 0))
         return Self(
             r0[0], r0[1], r0[2], r0[3],
             r1[0], r1[1], r1[2], r1[3],
@@ -428,11 +432,13 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
             base >= 0 and base <= len(data) - Self.STRIDE,
             "Affine3 store is outside the output span",
         )
-        var ptr = data.unsafe_ptr().unsafe_offset(base)
+        var matrix = TileTensor(
+            ptr=data.unsafe_ptr().unsafe_offset(base), layout=row_major[3, 4]()
+        )
         # fmt: off
-        ptr.unsafe_store[width=4]([self.m00[0], self.m01[0], self.m02[0], self.tx[0]])
-        ptr.unsafe_offset(4).unsafe_store[width=4]([self.m10[0], self.m11[0], self.m12[0], self.ty[0]])
-        ptr.unsafe_offset(8).unsafe_store[width=4]([self.m20[0], self.m21[0], self.m22[0], self.tz[0]])
+        matrix.store[width=4, alignment=align_of[Scalar[Self.dtype]]()](Coord(0, 0), [self.m00[0], self.m01[0], self.m02[0], self.tx[0]])
+        matrix.store[width=4, alignment=align_of[Scalar[Self.dtype]]()](Coord(1, 0), [self.m10[0], self.m11[0], self.m12[0], self.ty[0]])
+        matrix.store[width=4, alignment=align_of[Scalar[Self.dtype]]()](Coord(2, 0), [self.m20[0], self.m21[0], self.m22[0], self.tz[0]])
         # fmt: on
 
     def inverse(

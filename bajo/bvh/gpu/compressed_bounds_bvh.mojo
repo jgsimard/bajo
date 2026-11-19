@@ -1,3 +1,4 @@
+from layout import Coord, TileTensor, row_major
 from std.atomic import Atomic, Ordering
 from max.gpu import global_idx
 from std.math import ceil, ceildiv, floor, fma, clamp, max, min
@@ -213,7 +214,7 @@ def _encode_cwbvh8_node[
         "CWBVH8 supports at most 24 triangles referenced by one node",
     )
 
-    var triangle_base = Atomic.fetch_add[ordering=Ordering.RELAXED](
+    var triangle_base = Atomic.fetch_add[ordering=Ordering.relaxed](
         triangle_counter, leaf_triangle_count
     )
     var x_axis = _cwbvh_axis_scale(lo_x, hi_x)
@@ -268,6 +269,10 @@ def _encode_cwbvh8_node[
     cwbvh_u32[unsafe_offset=base + CWBVH_META_BASE + 0] = packed_meta[0]
     cwbvh_u32[unsafe_offset=base + CWBVH_META_BASE + 1] = packed_meta[1]
 
+    var quantized_planes = TileTensor(
+        ptr=cwbvh_u32.unsafe_offset(base + CWBVH_QUANTIZED_BASE),
+        layout=row_major[6, 2](),
+    )
     comptime for plane in range(6):
         var quantized = SIMD[.uint8, CWBVH_WIDTH](0)
         comptime for lane in range(CWBVH_WIDTH):
@@ -288,12 +293,7 @@ def _encode_cwbvh8_node[
                         q = _quantize_upper(max_z[lane], lo_z, scale_z)
             quantized[lane] = UInt8(q)
         var packed = bitcast[.uint32, 2](quantized)
-        cwbvh_u32[
-            unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2
-        ] = packed[0]
-        cwbvh_u32[
-            unsafe_offset=base + CWBVH_QUANTIZED_BASE + plane * 2 + 1
-        ] = packed[1]
+        quantized_planes.store[width=2, alignment=4](Coord(plane, 0), packed)
 
 
 def encode_segmented_cwbvh8_nodes_kernel[
@@ -360,33 +360,36 @@ def pack_segmented_cwbvh_triangles_kernel[
         )
         primitive_begin = Int(primitive_segment_offsets.unsafe_get(segment_idx))
     var prim = primitive_ids[unsafe_offset=triangle_idx]
-    var src = Int(prim) * 9
-    var dst = triangle_idx * CWBVH_TRIANGLE_WORDS
-    var v0x = vertices[unsafe_offset=src + 0]
-    var v0y = vertices[unsafe_offset=src + 1]
-    var v0z = vertices[unsafe_offset=src + 2]
+    comptime assert CWBVH_TRIANGLE_WORDS == 3 * 4
+    var source = TileTensor(ptr=vertices, layout=row_major(Int(prim) + 1, 3, 3))
+    var records = TileTensor(
+        ptr=triangles, layout=row_major(Int(triangle_count), 3, 4)
+    )
+    var v0x = source.load[invariant=False](Coord(Int(prim), 0, 0))
+    var v0y = source.load[invariant=False](Coord(Int(prim), 0, 1))
+    var v0z = source.load[invariant=False](Coord(Int(prim), 0, 2))
     # Each 48-byte record starts at a 16-byte boundary. Three vector stores
     # avoid scattering twelve scalar stores over the same cache lines.
-    triangles.unsafe_store[width=4, alignment=16](
-        dst,
+    records.store[width=4, alignment=16](
+        Coord(triangle_idx, 0, 0),
         SIMD[.float32, 4](
-            vertices[unsafe_offset=src + 3] - v0x,
-            vertices[unsafe_offset=src + 4] - v0y,
-            vertices[unsafe_offset=src + 5] - v0z,
+            source.load[invariant=False](Coord(Int(prim), 1, 0)) - v0x,
+            source.load[invariant=False](Coord(Int(prim), 1, 1)) - v0y,
+            source.load[invariant=False](Coord(Int(prim), 1, 2)) - v0z,
             0.0,
         ),
     )
-    triangles.unsafe_store[width=4, alignment=16](
-        dst + 4,
+    records.store[width=4, alignment=16](
+        Coord(triangle_idx, 1, 0),
         SIMD[.float32, 4](
-            vertices[unsafe_offset=src + 6] - v0x,
-            vertices[unsafe_offset=src + 7] - v0y,
-            vertices[unsafe_offset=src + 8] - v0z,
+            source.load[invariant=False](Coord(Int(prim), 2, 0)) - v0x,
+            source.load[invariant=False](Coord(Int(prim), 2, 1)) - v0y,
+            source.load[invariant=False](Coord(Int(prim), 2, 2)) - v0z,
             0.0,
         ),
     )
-    triangles.unsafe_store[width=4, alignment=16](
-        dst + 8,
+    records.store[width=4, alignment=16](
+        Coord(triangle_idx, 2, 0),
         SIMD[.float32, 4](
             v0x,
             v0y,
@@ -541,15 +544,17 @@ def _intersect_cwbvh8_node_tasks[
     t_min: Float32 = 0.0,
 ) -> Cwbvh8NodeTasks:
     """Intersect five packed loads with a nonnegative entry-distance floor."""
-    var base = Int(node_idx) * CWBVH_NODE_WORDS
-    # Device allocations and the 80-byte node stride keep every load aligned.
-    var p_exp = cwbvh_nodes.unsafe_load[width=4, alignment=16](base)
-    var child_tri_meta = cwbvh_nodes.unsafe_load[width=4, alignment=16](
-        base + 4
-    )
-    var qlox_qloy = cwbvh_nodes.unsafe_load[width=4, alignment=16](base + 8)
-    var qloz_qhix = cwbvh_nodes.unsafe_load[width=4, alignment=16](base + 12)
-    var qhiy_qhiz = cwbvh_nodes.unsafe_load[width=4, alignment=16](base + 16)
+    comptime assert CWBVH_NODE_WORDS == 5 * 4
+    # Device allocations and the 80-byte node stride keep each SIMD word aligned.
+    var record = TileTensor(
+        ptr=cwbvh_nodes.unsafe_offset(Int(node_idx) * CWBVH_NODE_WORDS),
+        layout=row_major[5, 4](),
+    ).vectorize[1, 4]()
+    var p_exp = record.load[alignment=16, invariant=False](Coord(0, 0))
+    var child_tri_meta = record.load[alignment=16, invariant=False](Coord(1, 0))
+    var qlox_qloy = record.load[alignment=16, invariant=False](Coord(2, 0))
+    var qloz_qhix = record.load[alignment=16, invariant=False](Coord(3, 0))
+    var qhiy_qhiz = record.load[alignment=16, invariant=False](Coord(4, 0))
     var p_exp_u32 = bitcast[.uint32](p_exp)
     var child_tri_meta_u32 = bitcast[.uint32](child_tri_meta)
     var qlox_qloy_u32 = bitcast[.uint32](qlox_qloy)

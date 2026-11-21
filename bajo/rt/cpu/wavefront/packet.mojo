@@ -327,7 +327,9 @@ def _trace_packets[
     mut dielectric_queue: PacketShadeQueue[length],
     mut coated_diffuse_queue: PacketShadeQueue[length],
     sample_base: Int = -1,
-    components: Optional[Pointer[UInt32, MutAnyOrigin]] = {},
+    components: Optional[MutPointer[UInt32, _]] = Optional[
+        Pointer[UInt32, MutAnyOrigin]
+    ](),
 ):
     # The emission-only preview has no BSDF continuations. Bistro counts
     # scattering events, so depth zero is main's former depth-one shortcut;
@@ -401,7 +403,9 @@ def _trace_packets_impl[
     mut dielectric_queue: PacketShadeQueue[length],
     mut coated_diffuse_queue: PacketShadeQueue[length],
     sample_base: Int = -1,
-    components: Optional[Pointer[UInt32, MutAnyOrigin]] = {},
+    components: Optional[MutPointer[UInt32, _]] = Optional[
+        Pointer[UInt32, MutAnyOrigin]
+    ](),
 ):
     var bounce_count = (
         settings.max_depth + 1 if Integrator.is_path_tracing[integrator] else 1

@@ -139,9 +139,9 @@ def _trace_packet_range[
     spectra: Optional[SpectrumSourcesView[_]],
     film: FilmResponse,
     lighting: Optional[SpectralLightDistributionView[_]],
-    components: Optional[Pointer[UInt32, MutAnyOrigin]],
-    sample_colors: Optional[Pointer[Color, MutAnyOrigin]],
-    sample_weights: Optional[Pointer[Float32, MutAnyOrigin]],
+    components: Optional[MutPointer[UInt32, _]],
+    sample_colors: Optional[MutPointer[Color, _]],
+    sample_weights: Optional[MutPointer[Float32, _]],
 ):
     _initialize_path_packets_range[length](
         queues.active_paths,
@@ -322,9 +322,9 @@ def _trace_packet_batches[
     spectra: Optional[SpectrumSourcesView[_]],
     film: FilmResponse,
     lighting: Optional[SpectralLightDistributionView[_]],
-    components: Optional[Pointer[UInt32, MutAnyOrigin]],
-    sample_colors: Optional[Pointer[Color, MutAnyOrigin]],
-    sample_weights: Optional[Pointer[Float32, MutAnyOrigin]],
+    components: Optional[MutPointer[UInt32, _]],
+    sample_colors: Optional[MutPointer[Color, _]],
+    sample_weights: Optional[MutPointer[Float32, _]],
 ):
     # Accept already-borrowed views so worker captures contain no owning
     # containers. Queue/output partitions remain disjoint for each worker.
@@ -476,27 +476,22 @@ def _render_wavefront_configured[
             workspace.spectral_scene = Optional(scene_identity^)
             film = settings.film.prepared_spectral()
     var pixels = List[Color](length=pixel_count, fill=Color(0.0))
-    var samples = Optional[DenoiseSampleBatch]()
-    var components = Optional[Pointer[UInt32, MutAnyOrigin]]()
-    var sample_colors = Optional[Pointer[Color, MutAnyOrigin]]()
-    var sample_weights = Optional[Pointer[Float32, MutAnyOrigin]]()
-    if settings.collect_denoise:
-        samples = DenoiseSampleBatch(pixel_count, settings.samples_per_pixel)
-        components = (
-            samples.value()
-            .components.unsafe_ptr()
-            .unsafe_origin_cast[MutAnyOrigin]()
-        )
-        sample_colors = (
-            samples.value()
-            .colors.unsafe_ptr()
-            .unsafe_origin_cast[MutAnyOrigin]()
-        )
-        sample_weights = (
-            samples.value()
-            .weights.unsafe_ptr()
-            .unsafe_origin_cast[MutAnyOrigin]()
-        )
+    # Keep each buffer's owner initialized even when collection is disabled,
+    # so optional worker pointers retain their separate tracked lifetimes.
+    var samples = DenoiseSampleBatch(
+        pixel_count if settings.collect_denoise else 0,
+        settings.samples_per_pixel,
+    )
+    var components_ptr = samples.components.unsafe_ptr()
+    var colors_ptr = samples.colors.unsafe_ptr()
+    var weights_ptr = samples.weights.unsafe_ptr()
+    var components = Optional(components_ptr)
+    var sample_colors = Optional(colors_ptr)
+    var sample_weights = Optional(weights_ptr)
+    if not settings.collect_denoise:
+        components = Optional[type_of(components_ptr)]()
+        sample_colors = Optional[type_of(colors_ptr)]()
+        sample_weights = Optional[type_of(weights_ptr)]()
     var init_t1 = perf_counter_ns()
 
     var render_t0 = perf_counter_ns()
@@ -591,7 +586,9 @@ def _render_wavefront_configured[
             path_count,
             settings.max_depth,
         ),
-        samples^,
+        Optional(samples^) if settings.collect_denoise else Optional[
+            DenoiseSampleBatch
+        ](),
     )
 
 

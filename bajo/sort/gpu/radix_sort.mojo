@@ -62,8 +62,10 @@ def upsweep[
     # Histogram Binning
     var s_warp_hist = s_global_hist.unsafe_offset(wid * PADDED_RADIX)
 
-    def _f[width: SIMDLength](i: Int) {imm}:
-        var t = keys_current.unsafe_load[width=width](i)
+    def _f[
+        width: SIMDLength
+    ](i: Int, keys: Pointer[Scalar[keys_dtype], _]) {imm}:
+        var t = keys.unsafe_load[width=width](i)
         t = (t >> radix_shift) & RADIX_MASK
         comptime for j in range(width):
             _ = Atomic.fetch_add[ordering=ordering](
@@ -77,10 +79,10 @@ def upsweep[
             block_start + PART_SIZE,
             BLOCK_SIZE * VEC_WIDTH,
         ):
-            _f[VEC_WIDTH](i)
+            _f[VEC_WIDTH](i, keys_current)
     else:
         for i in range(block_start + tid, size_int, BLOCK_SIZE):
-            _f[1](i)
+            _f[1](i, keys_current)
 
     barrier()
 
@@ -222,12 +224,12 @@ def downsweep[
     var BIN_PART_START = bid * PART_SIZE
     var t_base = lid + BIN_SUB_PART_START + BIN_PART_START
     var full_partition = BIN_PART_START + PART_SIZE <= size_int
-    var keys = Array[Scalar[keys_dtype], KEYS_PER_THREAD](
-        fill_with=lambda (i: Int) -> Scalar[keys_dtype]: keys_current[
-            unsafe_offset=t_base + i * WARP_SIZE
-        ] if full_partition
-        or t_base + i * WARP_SIZE < size_int else Scalar[keys_dtype].MAX
-    )
+    var keys = Array[Scalar[keys_dtype], KEYS_PER_THREAD](uninitialized=True)
+    comptime for i in range(KEYS_PER_THREAD):
+        keys[i] = (
+            keys_current[unsafe_offset=t_base + i * WARP_SIZE] if full_partition
+            or t_base + i * WARP_SIZE < size_int else Scalar[keys_dtype].MAX
+        )
     barrier()
 
     # Warp-Level Multi-Split (WLMS)

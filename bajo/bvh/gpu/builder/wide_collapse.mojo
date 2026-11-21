@@ -1,4 +1,4 @@
-from layout import Coord, TileTensor, row_major
+from layout import Coord, TileTensor
 from std.sys.info import is_nvidia_gpu
 from std.atomic import Atomic, Ordering
 from max.gpu import block_idx, global_idx, thread_idx
@@ -35,6 +35,7 @@ from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_NODE_WORDS,
     CWBVH_META_BASE,
     CWBVH_QUANTIZED_BASE,
+    CWBVH_QUANTIZED_LAYOUT,
     _cwbvh_axis_scale,
     _store_cwbvh_header,
     _inverse_scale_from_exponent,
@@ -287,7 +288,7 @@ def _write_direct_cwbvh8_node[
             )
     var quantized_planes = TileTensor(
         ptr=words.unsafe_offset(base + CWBVH_QUANTIZED_BASE),
-        layout=row_major[6, 2](),
+        layout=CWBVH_QUANTIZED_LAYOUT,
     )
     quantized_planes.store[width=2, alignment=4](
         Coord(0, 0), bitcast[.uint32, 2](q_lx)

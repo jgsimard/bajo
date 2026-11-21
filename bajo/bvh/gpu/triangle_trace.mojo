@@ -10,6 +10,7 @@ from bajo.bvh.constants import (
     EMPTY_LANE,
     GPU_STACK_SIZE,
     TRI_LEAF_PACKED_STRIDE,
+    TRIANGLE_LEAF_LAYOUT,
     TRI_LEAF_VERTEX_STRIDE,
     TraceMode,
 )
@@ -188,7 +189,7 @@ def _intersect_triangle_leaf[
     var block_base = Int(leaf_block_idx) * TRI_LEAF_PACKED_STRIDE * width
     var fields = TileTensor(
         ptr=leaf_vertices.unsafe_offset(block_base),
-        layout=row_major(Coord(Idx[TRI_LEAF_PACKED_STRIDE], Idx[Int(width)])),
+        layout=TRIANGLE_LEAF_LAYOUT[width],
     )
     var ids = fields.bitcast[.uint32]()
 

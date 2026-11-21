@@ -20,6 +20,9 @@ from bajo.core.frame import Frame
 from bajo.core.ray import Ray
 
 
+comptime AFFINE_MATRIX_LAYOUT = row_major[3, 4]()
+
+
 @fieldwise_init
 struct Affine3InverseResult[
     dtype: DType,
@@ -413,7 +416,8 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
             "Affine3 load is outside the input span",
         )
         var matrix = TileTensor(
-            ptr=data.unsafe_ptr().unsafe_offset(base), layout=row_major[3, 4]()
+            ptr=data.unsafe_ptr().unsafe_offset(base),
+            layout=AFFINE_MATRIX_LAYOUT,
         )
         # fmt: off
         var r0 = matrix.load[width=4, alignment=align_of[Scalar[Self.dtype]]()](Coord(0, 0))
@@ -433,7 +437,8 @@ struct Affine3[dtype: DType, From: Frame, To: Frame, width: SIMDLength = 1](
             "Affine3 store is outside the output span",
         )
         var matrix = TileTensor(
-            ptr=data.unsafe_ptr().unsafe_offset(base), layout=row_major[3, 4]()
+            ptr=data.unsafe_ptr().unsafe_offset(base),
+            layout=AFFINE_MATRIX_LAYOUT,
         )
         # fmt: off
         matrix.store[width=4, alignment=align_of[Scalar[Self.dtype]]()](Coord(0, 0), [self.m00[0], self.m01[0], self.m02[0], self.tx[0]])

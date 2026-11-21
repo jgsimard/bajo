@@ -15,6 +15,7 @@ from bajo.bvh.gpu.compressed_bounds_bvh import (
     CWBVH_EXP_IMASK,
     CWBVH_META_BASE,
     CWBVH_QUANTIZED_BASE,
+    CWBVH_QUANTIZED_LAYOUT,
     _scale_from_exponent,
 )
 
@@ -44,7 +45,7 @@ def _extract_blas_root_children[
             var words = nodes.unsafe_bitcast[UInt32]()
             var quantized = TileTensor(
                 ptr=words.unsafe_offset(base + CWBVH_QUANTIZED_BASE),
-                layout=row_major[6, 2](),
+                layout=CWBVH_QUANTIZED_LAYOUT,
             )
             var byte = (
                 words[unsafe_offset=base + CWBVH_META_BASE + lane // 4]

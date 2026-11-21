@@ -1,3 +1,4 @@
+from layout import row_major
 from std.utils.numerics import max_finite, min_finite
 
 comptime f32_max = max_finite[.float32]()
@@ -28,6 +29,11 @@ comptime TRI_LEAF_VERTEX_STRIDE = 9
 comptime TRI_LEAF_PACKED_STRIDE = 12
 comptime CPU_TRI_LEAF_PACKED_STRIDE = 10
 comptime SPHERE_LEAF_PACKED_STRIDE = 5
+
+# Shared by GPU triangle leaf packing and traversal.
+comptime TRIANGLE_LEAF_LAYOUT[width: SIMDLength] = row_major[
+    TRI_LEAF_PACKED_STRIDE, Int(width)
+]()
 
 
 __enum PrimitiveKind(Equatable, ImplicitlyCopyable, Writable):

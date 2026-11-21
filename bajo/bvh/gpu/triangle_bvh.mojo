@@ -22,6 +22,7 @@ from bajo.bvh.constants import (
     TraceMode,
     TRI_LEAF_VERTEX_STRIDE,
     TRI_LEAF_PACKED_STRIDE,
+    TRIANGLE_LEAF_LAYOUT,
     GPU_BOUNDS_BVH_BLOCK_SIZE,
 )
 from bajo.bvh.gpu.wide_layout import (
@@ -105,7 +106,7 @@ def pack_segmented_triangle_leaf_lanes_kernel[
     var out_base = physical_block * TRI_LEAF_PACKED_STRIDE * width
     var fields = TileTensor(
         ptr=leaf_vertices.unsafe_offset(out_base),
-        layout=row_major(Coord(Idx[TRI_LEAF_PACKED_STRIDE], Idx[Int(width)])),
+        layout=TRIANGLE_LEAF_LAYOUT[width],
     )
     var ids = fields.bitcast[.uint32]()
 

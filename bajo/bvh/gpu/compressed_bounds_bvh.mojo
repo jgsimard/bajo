@@ -39,6 +39,7 @@ comptime CWBVH_CHILD_BASE = 4
 comptime CWBVH_TRIANGLE_BASE = 5
 comptime CWBVH_META_BASE = 6
 comptime CWBVH_QUANTIZED_BASE = 8
+comptime CWBVH_QUANTIZED_LAYOUT = row_major[6, 2]()
 
 
 def _power_of_two_scale_exponent(extent: Float32) -> UInt32:
@@ -271,7 +272,7 @@ def _encode_cwbvh8_node[
 
     var quantized_planes = TileTensor(
         ptr=cwbvh_u32.unsafe_offset(base + CWBVH_QUANTIZED_BASE),
-        layout=row_major[6, 2](),
+        layout=CWBVH_QUANTIZED_LAYOUT,
     )
     comptime for plane in range(6):
         var quantized = SIMD[.uint8, CWBVH_WIDTH](0)

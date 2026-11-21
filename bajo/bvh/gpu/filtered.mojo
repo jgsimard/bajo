@@ -1,7 +1,12 @@
 """Filtered triangle traversal over existing wide and compressed GPU storage."""
 
-from layout import Coord, TileTensor, row_major
-from bajo.bvh.constants import EMPTY_LANE, TRI_LEAF_PACKED_STRIDE, TraceMode
+from layout import Coord, TileTensor
+from bajo.bvh.constants import (
+    EMPTY_LANE,
+    TRI_LEAF_PACKED_STRIDE,
+    TRIANGLE_LEAF_LAYOUT,
+    TraceMode,
+)
 from bajo.bvh.filter import TriangleHitFilter
 from bajo.bvh.types import Hit
 from bajo.bvh.gpu.blas_storage import GpuBvhLayout
@@ -39,7 +44,7 @@ def _filtered_triangle_leaf[
         ptr=state.leaves.unsafe_offset(
             Int(block) * TRI_LEAF_PACKED_STRIDE * width
         ),
-        layout=row_major[TRI_LEAF_PACKED_STRIDE, Int(width)](),
+        layout=TRIANGLE_LEAF_LAYOUT[width],
     )
     var words = fields.bitcast[.uint32]()
     for lane in range(Int(width)):

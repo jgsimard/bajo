@@ -140,10 +140,10 @@ def fallback_lookback[
         var warp_start = (tid / WARP_SIZE) * WARP_SIZE * KEYS_PER_THREAD
         var source = start + warp_start + lane_id()
         var fallback_keys = Array[Scalar[keys_dtype], KEYS_PER_THREAD](
-            fill_with=lambda (i: Int) -> Scalar[keys_dtype]: keys[
-                unsafe_offset=source + i * WARP_SIZE
-            ]
+            uninitialized=True
         )
+        comptime for i in range(KEYS_PER_THREAD):
+            fallback_keys[i] = keys[unsafe_offset=source + i * WARP_SIZE]
         # Share the existing portable ballot-based histogram reduction. The
         # returned ranks are unused; equal digits need one atomic per warp.
         _ = warp_level_multi_split[keys_dtype, 8, KEYS_PER_THREAD](
@@ -284,12 +284,12 @@ def digit_binning[
     var BIN_PART_START = partition_index * PART_SIZE
     var t_base = lid + BIN_SUB_PART_START + BIN_PART_START
     var full_partition = BIN_PART_START + PART_SIZE <= size_int
-    var keys = Array[Scalar[keys_dtype], KEYS_PER_THREAD](
-        fill_with=lambda (i: Int) -> Scalar[keys_dtype]: keys_current[
-            unsafe_offset=t_base + i * WARP_SIZE
-        ] if full_partition
-        or t_base + i * WARP_SIZE < size_int else Scalar[keys_dtype].MAX
-    )
+    var keys = Array[Scalar[keys_dtype], KEYS_PER_THREAD](uninitialized=True)
+    comptime for i in range(KEYS_PER_THREAD):
+        keys[i] = (
+            keys_current[unsafe_offset=t_base + i * WARP_SIZE] if full_partition
+            or t_base + i * WARP_SIZE < size_int else Scalar[keys_dtype].MAX
+        )
 
     # Warp-Level Multi-Split (WLMS)
     var offsets = warp_level_multi_split[

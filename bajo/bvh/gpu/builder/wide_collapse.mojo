@@ -101,6 +101,23 @@ def _collapse_encoded_bounds[
     return _encoded_bounds(encoded, leaf_bounds, leaf_ids, node_bounds)
 
 
+def _collapse_opening_area[
+    compact_hploc: Bool, sorted_leaf_bounds: Bool = False
+](
+    encoded: UInt32,
+    leaf_bounds: ImmSpan[Float32, _],
+    leaf_ids: ImmSpan[UInt32, _],
+    node_bounds: ImmSpan[Float32, _],
+    compact_bounds: ImmPointer[Float32, _],
+) -> Float32:
+    # Leaves are never opened by either frontier expansion pass.
+    if is_leaf_ref(encoded):
+        return Float32(-1)
+    return _collapse_encoded_bounds[compact_hploc, sorted_leaf_bounds](
+        encoded, leaf_bounds, leaf_ids, node_bounds, compact_bounds
+    ).surface_area()[0]
+
+
 def _write_hploc_terminal_primitive_ids[
     compact_hploc: Bool,
 ](
@@ -573,21 +590,6 @@ def hploc_literature_to_wide_kernel[
         length=max(internal_count, 1) * BinaryBvhNode.BOUNDS_STRIDE,
     )
 
-    def load_encoded_bounds(encoded_ref: UInt32) {imm} -> AABB[.WORLD]:
-        return _collapse_encoded_bounds[compact_hploc, sorted_leaf_bounds](
-            encoded_ref,
-            leaf_bounds_span,
-            leaf_ids_span,
-            node_bounds_span,
-            compact_bounds,
-        )
-
-    def opening_area(encoded_ref: UInt32) {imm} -> Float32:
-        # Leaves are never opened by either frontier expansion pass.
-        if is_leaf_ref(encoded_ref):
-            return Float32(-1)
-        return load_encoded_bounds(encoded_ref).surface_area()[0]
-
     # Each atomic queue word contains the complete (encoded node, output index)
     # task. Bounds, topology and leaf inputs come from earlier kernels in this
     # stream and stay immutable here. Consumers never read producer output;
@@ -741,8 +743,24 @@ def hploc_literature_to_wide_kernel[
                 candidates[1], node_leaf_counts
             )
         comptime if spatial_slots:
-            candidate_areas[0] = opening_area(candidates[0])
-            candidate_areas[1] = opening_area(candidates[1])
+            candidate_areas[0] = _collapse_opening_area[
+                compact_hploc, sorted_leaf_bounds
+            ](
+                candidates[0],
+                leaf_bounds_span,
+                leaf_ids_span,
+                node_bounds_span,
+                compact_bounds,
+            )
+            candidate_areas[1] = _collapse_opening_area[
+                compact_hploc, sorted_leaf_bounds
+            ](
+                candidates[1],
+                leaf_bounds_span,
+                leaf_ids_span,
+                node_bounds_span,
+                compact_bounds,
+            )
         var child_count = 2
 
         # HIPRT first opens non-fat internal nodes using the paper's
@@ -768,7 +786,17 @@ def hploc_literature_to_wide_kernel[
                 comptime if spatial_slots:
                     area = candidate_areas[candidate_pos]
                 else:
-                    area = load_encoded_bounds(candidate).surface_area()[0]
+                    area = _collapse_encoded_bounds[
+                        compact_hploc, sorted_leaf_bounds
+                    ](
+                        candidate,
+                        leaf_bounds_span,
+                        leaf_ids_span,
+                        node_bounds_span,
+                        compact_bounds,
+                    ).surface_area()[
+                        0
+                    ]
                 if area > largest_area:
                     largest_area = area
                     open_pos = candidate_pos
@@ -790,9 +818,23 @@ def hploc_literature_to_wide_kernel[
                     candidates[child_count], node_leaf_counts
                 )
             comptime if spatial_slots:
-                candidate_areas[open_pos] = opening_area(candidates[open_pos])
-                candidate_areas[child_count] = opening_area(
-                    candidates[child_count]
+                candidate_areas[open_pos] = _collapse_opening_area[
+                    compact_hploc, sorted_leaf_bounds
+                ](
+                    candidates[open_pos],
+                    leaf_bounds_span,
+                    leaf_ids_span,
+                    node_bounds_span,
+                    compact_bounds,
+                )
+                candidate_areas[child_count] = _collapse_opening_area[
+                    compact_hploc, sorted_leaf_bounds
+                ](
+                    candidates[child_count],
+                    leaf_bounds_span,
+                    leaf_ids_span,
+                    node_bounds_span,
+                    compact_bounds,
                 )
             child_count += 1
 
@@ -812,7 +854,17 @@ def hploc_literature_to_wide_kernel[
                     comptime if spatial_slots:
                         area = candidate_areas[candidate_pos]
                     else:
-                        area = load_encoded_bounds(candidate).surface_area()[0]
+                        area = _collapse_encoded_bounds[
+                            compact_hploc, sorted_leaf_bounds
+                        ](
+                            candidate,
+                            leaf_bounds_span,
+                            leaf_ids_span,
+                            node_bounds_span,
+                            compact_bounds,
+                        ).surface_area()[
+                            0
+                        ]
                     if area > largest_area:
                         largest_area = area
                         open_pos = candidate_pos
@@ -833,11 +885,23 @@ def hploc_literature_to_wide_kernel[
                     candidates[child_count], node_leaf_counts
                 )
                 comptime if spatial_slots:
-                    candidate_areas[open_pos] = opening_area(
-                        candidates[open_pos]
+                    candidate_areas[open_pos] = _collapse_opening_area[
+                        compact_hploc, sorted_leaf_bounds
+                    ](
+                        candidates[open_pos],
+                        leaf_bounds_span,
+                        leaf_ids_span,
+                        node_bounds_span,
+                        compact_bounds,
                     )
-                    candidate_areas[child_count] = opening_area(
-                        candidates[child_count]
+                    candidate_areas[child_count] = _collapse_opening_area[
+                        compact_hploc, sorted_leaf_bounds
+                    ](
+                        candidates[child_count],
+                        leaf_bounds_span,
+                        leaf_ids_span,
+                        node_bounds_span,
+                        compact_bounds,
                     )
                 child_count += 1
 
@@ -854,10 +918,24 @@ def hploc_literature_to_wide_kernel[
         var wide_slot_candidates = Array[Int, node_width](fill=-1)
         comptime if spatial_slots:
             var occupied_slot_mask = UInt32(0)
-            var parent_center = load_encoded_bounds(encoded).centroid()
+            var parent_center = _collapse_encoded_bounds[
+                compact_hploc, sorted_leaf_bounds
+            ](
+                encoded,
+                leaf_bounds_span,
+                leaf_ids_span,
+                node_bounds_span,
+                compact_bounds,
+            ).centroid()
             for candidate_pos in range(child_count):
-                var candidate_bounds = load_encoded_bounds(
-                    candidates[candidate_pos]
+                var candidate_bounds = _collapse_encoded_bounds[
+                    compact_hploc, sorted_leaf_bounds
+                ](
+                    candidates[candidate_pos],
+                    leaf_bounds_span,
+                    leaf_ids_span,
+                    node_bounds_span,
+                    compact_bounds,
                 )
                 var center = candidate_bounds.centroid()
                 var costs = (
@@ -1006,7 +1084,15 @@ def hploc_literature_to_wide_kernel[
                 comptime if direct_cwbvh8 and spatial_slots:
                     bounds = direct_bounds[child_slot]
                 else:
-                    bounds = load_encoded_bounds(child)
+                    bounds = _collapse_encoded_bounds[
+                        compact_hploc, sorted_leaf_bounds
+                    ](
+                        child,
+                        leaf_bounds_span,
+                        leaf_ids_span,
+                        node_bounds_span,
+                        compact_bounds,
+                    )
                 comptime if direct_cwbvh8:
                     direct_bounds[child_slot] = bounds
                     direct_encoded[child_slot] = child

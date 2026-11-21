@@ -394,7 +394,9 @@ def trace_spectral_packets[
     mut next_paths: PacketPathQueue[width],
     sample_base: Int,
     sample_count: Int,
-    components: Optional[Pointer[UInt32, MutAnyOrigin]] = {},
+    components: Optional[MutPointer[UInt32, _]] = Optional[
+        Pointer[UInt32, MutAnyOrigin]
+    ](),
 ):
     state.initialize[width](sample_count, sample_base, sampling)
     for bounce in range(settings.max_depth + 1):

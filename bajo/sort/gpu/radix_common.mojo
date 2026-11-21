@@ -66,8 +66,10 @@ def global_histogram[
     # 64 threads : 1 histogram in shared memory
     var wave_offset = tid / THREADS_PER_PARTITION * RADIX
 
-    def _accumulate_hist[width: SIMDLength](i: Int) {imm}:
-        var _t = sort.unsafe_load[width=width](i)
+    def _accumulate_hist[
+        width: SIMDLength
+    ](i: Int, keys: Pointer[Scalar[keys_dtype], _]) {imm}:
+        var _t = keys.unsafe_load[width=width](i)
         var t = bitcast[.uint8, width * BYTES_PER_KEY](_t)
 
         comptime for v in range(width):
@@ -85,10 +87,10 @@ def global_histogram[
             block_start + PART_SIZE,
             BLOCK_SIZE * VEC_WIDTH,
         ):
-            _accumulate_hist[VEC_WIDTH](i)
+            _accumulate_hist[VEC_WIDTH](i, sort)
     else:
         for i in range(block_start + tid, size_int, BLOCK_SIZE):
-            _accumulate_hist[1](i)
+            _accumulate_hist[1](i, sort)
     barrier()
 
     # Reduce

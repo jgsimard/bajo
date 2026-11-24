@@ -35,8 +35,8 @@ def _record_leaf_order(
 def _record_order_kernel[
     width: SIMDLength
 ](
-    nodes: Pointer[Float32, ImmutAnyOrigin],
-    visits: Pointer[UInt32, MutAnyOrigin],
+    nodes: Pointer[Float32, ImmUntrackedOrigin],
+    visits: Pointer[UInt32, MutUntrackedOrigin],
 ):
     if global_idx.x != 0:
         return
@@ -88,10 +88,10 @@ def test_ordered_binary_and_wide_leaf_visits_preserve_equal_distance_order() rai
 def _trace_kernel[
     any_hit: Bool
 ](
-    nodes: Pointer[Float32, ImmutAnyOrigin],
-    leaves: Pointer[Float32, ImmutAnyOrigin],
-    rays: Pointer[Float32, ImmutAnyOrigin],
-    output: Pointer[Float32, MutAnyOrigin],
+    nodes: Pointer[Float32, ImmUntrackedOrigin],
+    leaves: Pointer[Float32, ImmUntrackedOrigin],
+    rays: Pointer[Float32, ImmUntrackedOrigin],
+    output: Pointer[Float32, MutUntrackedOrigin],
     count: Int32,
 ):
     var idx = global_idx.x

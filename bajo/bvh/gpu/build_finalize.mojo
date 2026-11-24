@@ -21,16 +21,16 @@ comptime _FAT_LEAVES = UInt32(16)
 def finalize_wide_layout_kernel[
     block_size: Int
 ](
-    node_counts: ImmSpan[UInt32, ImmutAnyOrigin],
-    leaf_counts: ImmSpan[UInt32, ImmutAnyOrigin],
-    primitive_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    node_capacity_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    hploc_status: ImmSpan[UInt32, ImmutAnyOrigin],
-    collapse_status: ImmSpan[UInt32, ImmutAnyOrigin],
-    encoded_counts: ImmSpan[UInt32, ImmutAnyOrigin],
-    node_offsets: MutSpan[UInt32, MutAnyOrigin],
-    leaf_offsets: MutSpan[UInt32, MutAnyOrigin],
-    summary: MutSpan[UInt32, MutAnyOrigin],
+    node_counts: ImmSpan[UInt32, ImmUntrackedOrigin],
+    leaf_counts: ImmSpan[UInt32, ImmUntrackedOrigin],
+    primitive_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    node_capacity_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    hploc_status: ImmSpan[UInt32, ImmUntrackedOrigin],
+    collapse_status: ImmSpan[UInt32, ImmUntrackedOrigin],
+    encoded_counts: ImmSpan[UInt32, ImmUntrackedOrigin],
+    node_offsets: MutSpan[UInt32, MutUntrackedOrigin],
+    leaf_offsets: MutSpan[UInt32, MutUntrackedOrigin],
+    summary: MutSpan[UInt32, MutUntrackedOrigin],
     segment_count: Int32,
     flags: UInt32,
 ):

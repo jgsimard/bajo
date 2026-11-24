@@ -31,9 +31,9 @@ def upsweep[
     VEC_WIDTH: SIMDLength,
     KEYS_PER_THREAD: Int,
 ](
-    keys_current: Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    global_hist: Pointer[UInt32, MutAnyOrigin],
-    pass_hist: Pointer[UInt32, MutAnyOrigin],
+    keys_current: Pointer[Scalar[keys_dtype], MutUntrackedOrigin],
+    global_hist: Pointer[UInt32, MutUntrackedOrigin],
+    pass_hist: Pointer[UInt32, MutUntrackedOrigin],
     size: Int32,
     radix_shift: Scalar[keys_dtype],
 ):
@@ -126,7 +126,7 @@ def upsweep[
 
 def scan[
     BLOCK_SIZE: Int
-](pass_hist: Pointer[UInt32, MutAnyOrigin], thread_blocks: Int32):
+](pass_hist: Pointer[UInt32, MutUntrackedOrigin], thread_blocks: Int32):
     var thread_blocks_int = Int(thread_blocks)
     var tid = Int(thread_idx.x)
     var bid = Int(block_idx.x)
@@ -171,12 +171,14 @@ def downsweep[
     KEYS_PER_THREAD: Int,
     HAVE_PAYLOAD: Bool,
 ](
-    keys_current: Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    keys_alternate: Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    vals_current_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
-    vals_alternate_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
-    global_hist: Pointer[UInt32, MutAnyOrigin],
-    pass_hist: Pointer[UInt32, MutAnyOrigin],
+    keys_current: Pointer[Scalar[keys_dtype], MutUntrackedOrigin],
+    keys_alternate: Pointer[Scalar[keys_dtype], MutUntrackedOrigin],
+    vals_current_opt: Optional[Pointer[Scalar[vals_dtype], MutUntrackedOrigin]],
+    vals_alternate_opt: Optional[
+        Pointer[Scalar[vals_dtype], MutUntrackedOrigin]
+    ],
+    global_hist: Pointer[UInt32, MutUntrackedOrigin],
+    pass_hist: Pointer[UInt32, MutUntrackedOrigin],
     size: Int32,
     radix_shift: UInt32,
 ):
@@ -507,7 +509,7 @@ def device_radix_sort_keys[
         KEYS_PER_THREAD,
         False,
     ]
-    var _dummy_ptr = Optional[Pointer[Scalar[dtype], MutAnyOrigin]]()
+    var _dummy_ptr = Optional[Pointer[Scalar[dtype], MutUntrackedOrigin]]()
 
     global_hist.enqueue_fill(0)
     comptime for pass_idx in range(NUM_PASSES):

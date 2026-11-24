@@ -17,9 +17,9 @@ comptime ordering = Ordering.relaxed
 def init_radix_workspace[
     NUM_PASSES: Int, BLOCK_SIZE: Int, count_dtype: DType = .int32
 ](
-    global_hist: Pointer[UInt32, MutAnyOrigin],
-    pass_hist: Pointer[UInt32, MutAnyOrigin],
-    index: Pointer[UInt32, MutAnyOrigin],
+    global_hist: Pointer[UInt32, MutUntrackedOrigin],
+    pass_hist: Pointer[UInt32, MutUntrackedOrigin],
+    index: Pointer[UInt32, MutUntrackedOrigin],
     pass_hist_size: Scalar[count_dtype],
 ):
     var idx = block_idx.x * BLOCK_SIZE + thread_idx.x
@@ -39,8 +39,8 @@ def global_histogram[
     VEC_WIDTH: SIMDLength,
     ITEMS_PER_THREAD: Int,
 ](
-    sort: Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    global_hist: Pointer[UInt32, MutAnyOrigin],
+    sort: Pointer[Scalar[keys_dtype], MutUntrackedOrigin],
+    global_hist: Pointer[UInt32, MutUntrackedOrigin],
     size: Int32,
 ):
     var size_int = Int(size)
@@ -139,9 +139,9 @@ def scatter_radix_tile[
     KEYS_PER_THREAD: Int,
     HAVE_PAYLOAD: Bool,
 ](
-    keys_alternate: Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    vals_current_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
-    vals_alternate_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
+    keys_alternate: MutPointer[Scalar[keys_dtype], _],
+    vals_current_opt: Optional[MutPointer[Scalar[vals_dtype], _]],
+    vals_alternate_opt: Optional[MutPointer[Scalar[vals_dtype], _]],
     s_keys: Pointer[Scalar[keys_dtype], _, address_space=AddressSpace.SHARED],
     s_values: MutPointer[
         Scalar[vals_dtype], _, address_space=AddressSpace.SHARED
@@ -224,17 +224,17 @@ def scatter_radix_tile[
 
 
 comptime RadixScanArgs = TypeList.of[
-    Pointer[UInt32, MutAnyOrigin],
-    Pointer[UInt32, MutAnyOrigin],
+    Pointer[UInt32, MutUntrackedOrigin],
+    Pointer[UInt32, MutUntrackedOrigin],
     Int32,
 ]()
 comptime RadixBinningArgs[keys_dtype: DType, vals_dtype: DType] = TypeList.of[
-    Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
-    Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
-    Pointer[UInt32, MutAnyOrigin],
-    Pointer[UInt32, MutAnyOrigin],
+    Pointer[Scalar[keys_dtype], MutUntrackedOrigin],
+    Pointer[Scalar[keys_dtype], MutUntrackedOrigin],
+    Optional[Pointer[Scalar[vals_dtype], MutUntrackedOrigin]],
+    Optional[Pointer[Scalar[vals_dtype], MutUntrackedOrigin]],
+    Pointer[UInt32, MutUntrackedOrigin],
+    Pointer[UInt32, MutUntrackedOrigin],
     Int32,
     UInt32,
 ]()
@@ -246,6 +246,9 @@ comptime RadixBinningFn[keys_dtype: DType, vals_dtype: DType] = def(
 
 
 def enqueue_radix_passes[
+    values_current_origin: MutOrigin,
+    values_alternate_origin: MutOrigin,
+    //,
     keys_dtype: DType,
     vals_dtype: DType,
     *,
@@ -262,8 +265,12 @@ def enqueue_radix_passes[
     ctx: DeviceContext,
     keys: MutPointer[Scalar[keys_dtype], _],
     keys_alternate: MutPointer[Scalar[keys_dtype], _],
-    vals_current: Optional[MutPointer[Scalar[vals_dtype], _]],
-    vals_alternate: Optional[MutPointer[Scalar[vals_dtype], _]],
+    vals_current: Optional[
+        MutPointer[Scalar[vals_dtype], values_current_origin]
+    ],
+    vals_alternate: Optional[
+        MutPointer[Scalar[vals_dtype], values_alternate_origin]
+    ],
     global_hist: MutPointer[UInt32, _],
     pass_hist: MutPointer[UInt32, _],
     index: MutPointer[UInt32, _],
@@ -312,12 +319,12 @@ def enqueue_radix_passes[
     # Track payload pointers with the same pass swaps as keys, then construct
     # fresh Optional launch arguments from that state for each dispatch.
     var db_values = Optional[
-        DoubleBuffer[MutAnyOrigin, MutAnyOrigin, vals_dtype]
+        DoubleBuffer[values_current_origin, values_alternate_origin, vals_dtype]
     ]()
     comptime if HAVE_PAYLOAD:
         db_values = DoubleBuffer(
-            vals_current.unsafe_value().unsafe_origin_cast[MutAnyOrigin](),
-            vals_alternate.unsafe_value().unsafe_origin_cast[MutAnyOrigin](),
+            vals_current.unsafe_value(),
+            vals_alternate.unsafe_value(),
         )
     comptime for pass_idx in range(NUM_PASSES):
         ctx.enqueue_function[
@@ -327,10 +334,10 @@ def enqueue_radix_passes[
             db_keys.current,
             db_keys.alternate,
             Optional(db_values.value().current) if HAVE_PAYLOAD else Optional[
-                Pointer[Scalar[vals_dtype], MutAnyOrigin]
+                MutPointer[Scalar[vals_dtype], values_current_origin]
             ](),
             Optional(db_values.value().alternate) if HAVE_PAYLOAD else Optional[
-                Pointer[Scalar[vals_dtype], MutAnyOrigin]
+                MutPointer[Scalar[vals_dtype], values_alternate_origin]
             ](),
             pass_hist.unsafe_offset(
                 pass_idx * hist_blocks * 256 * HISTOGRAM_WORDS

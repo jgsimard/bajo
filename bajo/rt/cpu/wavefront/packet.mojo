@@ -328,7 +328,7 @@ def _trace_packets[
     mut coated_diffuse_queue: PacketShadeQueue[length],
     sample_base: Int = -1,
     components: Optional[MutPointer[UInt32, _]] = Optional[
-        Pointer[UInt32, MutAnyOrigin]
+        Pointer[UInt32, MutUntrackedOrigin]
     ](),
 ):
     # The emission-only preview has no BSDF continuations. Bistro counts
@@ -404,7 +404,7 @@ def _trace_packets_impl[
     mut coated_diffuse_queue: PacketShadeQueue[length],
     sample_base: Int = -1,
     components: Optional[MutPointer[UInt32, _]] = Optional[
-        Pointer[UInt32, MutAnyOrigin]
+        Pointer[UInt32, MutUntrackedOrigin]
     ](),
 ):
     var bounce_count = (

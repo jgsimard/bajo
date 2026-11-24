@@ -31,7 +31,7 @@ change order but retains published buffers and uses temporary builder scratch.
 
 GPU owner: `bajo.bvh.spatial.gpu.GpuSpatialBoundsBvh(ctx, host_tree^)`. Pass its
 `bounds`/`nodes` as immutable device spans to a kernel, construct
-`BoundsQueryView[ImmutAnyOrigin, frame]`, then use the same query methods.
+`BoundsQueryView[ImmUntrackedOrigin, frame]`, then use the same query methods.
 The raw view requires valid preorder buffers produced by the owner.
 Synchronous `refit(ctx, boxes)` uploads host bounds and refits the current device
 topology; `rebuild(ctx, boxes)` runs the host builder and uploads its result. Serialize kernels and updates on the

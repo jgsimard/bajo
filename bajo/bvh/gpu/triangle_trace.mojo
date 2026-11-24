@@ -47,8 +47,8 @@ def _trace_triangle_bvh_camera_ray[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
-    wide_nodes: Pointer[Float32, ImmutAnyOrigin],
-    leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
+    wide_nodes: Pointer[Float32, ImmUntrackedOrigin],
+    leaf_vertices: Pointer[Float32, ImmUntrackedOrigin],
     root_idx: UInt32,
     ray: Rayf32[.WORLD],
 ) -> Hit[.WORLD]:
@@ -82,11 +82,11 @@ def trace_triangle_bvh_rays_kernel[
     leaf_width: SIMDLength,
     mode: TraceMode = .CLOSEST_HIT,
 ](
-    wide_nodes: Pointer[Float32, ImmutAnyOrigin],
-    leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
+    wide_nodes: Pointer[Float32, ImmUntrackedOrigin],
+    leaf_vertices: Pointer[Float32, ImmUntrackedOrigin],
     root_idx: UInt32,
-    rays: Pointer[Float32, ImmutAnyOrigin],
-    hits: Pointer[Float32, MutAnyOrigin],
+    rays: Pointer[Float32, ImmUntrackedOrigin],
+    hits: Pointer[Float32, MutUntrackedOrigin],
     ray_count: Int32,
 ):
     var ray_count_int = Int(ray_count)
@@ -122,12 +122,12 @@ def trace_triangle_bvh_camera_instrumented_kernel[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
-    wide_nodes: Pointer[Float32, ImmutAnyOrigin],
-    leaf_vertices: Pointer[Float32, ImmutAnyOrigin],
+    wide_nodes: Pointer[Float32, ImmUntrackedOrigin],
+    leaf_vertices: Pointer[Float32, ImmUntrackedOrigin],
     root_idx: UInt32,
-    camera_params: Pointer[Float32, ImmutAnyOrigin],
-    hits: Pointer[Float32, MutAnyOrigin],
-    stats: Pointer[UInt32, MutAnyOrigin],
+    camera_params: Pointer[Float32, ImmUntrackedOrigin],
+    hits: Pointer[Float32, MutUntrackedOrigin],
+    stats: Pointer[UInt32, MutUntrackedOrigin],
     ray_count: Int32,
     width_px: Int32,
     height_px: Int32,

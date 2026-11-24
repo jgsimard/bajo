@@ -288,11 +288,11 @@ def _print_cwbvh8_stage(
 def _trace_cwbvh8_rays_kernel[
     mode: TraceMode,
 ](
-    nodes: Pointer[Float32, ImmutAnyOrigin],
-    triangles: Pointer[Float32, ImmutAnyOrigin],
+    nodes: Pointer[Float32, ImmUntrackedOrigin],
+    triangles: Pointer[Float32, ImmUntrackedOrigin],
     root_idx: UInt32,
-    rays: Pointer[Float32, ImmutAnyOrigin],
-    hits: Pointer[Float32, MutAnyOrigin],
+    rays: Pointer[Float32, ImmUntrackedOrigin],
+    hits: Pointer[Float32, MutUntrackedOrigin],
     ray_count: Int32,
 ):
     var ray_count_int = Int(ray_count)

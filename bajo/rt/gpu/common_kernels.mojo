@@ -99,10 +99,10 @@ def clear_gpu_rt_sample(
 def gpu_rt_primary_kernel[
     integrator: Integrator,
 ](
-    camera_params: Pointer[Float32, ImmutAnyOrigin],
-    path_ids: Pointer[UInt32, MutAnyOrigin],
-    path_fields: Pointer[Float32, MutAnyOrigin],
-    sample_radiance: Pointer[Float32, MutAnyOrigin],
+    camera_params: Pointer[Float32, ImmUntrackedOrigin],
+    path_ids: Pointer[UInt32, MutUntrackedOrigin],
+    path_fields: Pointer[Float32, MutUntrackedOrigin],
+    sample_radiance: Pointer[Float32, MutUntrackedOrigin],
     capacity_i32: Int32,
     active_count_i32: Int32,
     sample_base: UInt32,
@@ -216,8 +216,8 @@ def _gpu_rt_resolve_pixel[
 
 
 def gpu_rt_resolve_kernel(
-    sample_radiance: Pointer[Float32, ImmutAnyOrigin],
-    pixels: Pointer[Float32, MutAnyOrigin],
+    sample_radiance: Pointer[Float32, ImmUntrackedOrigin],
+    pixels: Pointer[Float32, MutUntrackedOrigin],
     sample_capacity_i32: Int32,
     pixel_base_i32: Int32,
     pixel_count_i32: Int32,
@@ -235,8 +235,8 @@ def gpu_rt_resolve_kernel(
 
 
 def gpu_rt_resolve_film_kernel(
-    sample_radiance: Pointer[Float32, ImmutAnyOrigin],
-    pixels: Pointer[Float32, MutAnyOrigin],
+    sample_radiance: Pointer[Float32, ImmUntrackedOrigin],
+    pixels: Pointer[Float32, MutUntrackedOrigin],
     sample_capacity_i32: Int32,
     pixel_base_i32: Int32,
     pixel_count_i32: Int32,
@@ -255,9 +255,9 @@ def gpu_rt_resolve_film_kernel(
 
 
 def gpu_rt_capture_samples_kernel(
-    radiance_data: Pointer[Float32, ImmutAnyOrigin],
-    colors: Pointer[Float32, MutAnyOrigin],
-    weights: Pointer[Float32, MutAnyOrigin],
+    radiance_data: Pointer[Float32, ImmUntrackedOrigin],
+    colors: Pointer[Float32, MutUntrackedOrigin],
+    weights: Pointer[Float32, MutUntrackedOrigin],
     capacity: Int32,
     sample_base: Int32,
     count: Int32,

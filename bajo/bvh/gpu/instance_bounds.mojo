@@ -24,9 +24,9 @@ def _extract_blas_root_children[
     width: SIMDLength,
     layout: GpuBvhLayout,
 ](
-    descriptors: Pointer[UInt32, ImmutAnyOrigin],
-    nodes: Pointer[Float32, ImmutAnyOrigin],
-    output: Pointer[Float32, MutAnyOrigin],
+    descriptors: Pointer[UInt32, ImmUntrackedOrigin],
+    nodes: Pointer[Float32, ImmUntrackedOrigin],
+    output: Pointer[Float32, MutUntrackedOrigin],
     count: Int32,
 ):
     var index = global_idx.x

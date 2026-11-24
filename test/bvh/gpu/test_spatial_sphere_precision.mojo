@@ -17,14 +17,14 @@ def sphere_kernel[
 ](
     count_arg: Int32,
     faces_arg: Int32,
-    points: ImmSpan[Float32, ImmutAnyOrigin],
-    indices: ImmSpan[UInt32, ImmutAnyOrigin],
-    velocities: ImmSpan[Float32, ImmutAnyOrigin],
-    bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    params: ImmSpan[Float32, ImmutAnyOrigin],
-    roots: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[UInt32, MutAnyOrigin],
+    points: ImmSpan[Float32, ImmUntrackedOrigin],
+    indices: ImmSpan[UInt32, ImmUntrackedOrigin],
+    velocities: ImmSpan[Float32, ImmUntrackedOrigin],
+    bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    params: ImmSpan[Float32, ImmUntrackedOrigin],
+    roots: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var count = Int(count_arg)
     var faces = Int(faces_arg)
@@ -33,11 +33,11 @@ def sphere_kernel[
         return
     for face in range(faces + 1):
         output[lane * (faces + 1) + face] = 0
-    var view = MeshQueryView[ImmutAnyOrigin, .WORLD](
+    var view = MeshQueryView[ImmUntrackedOrigin, .WORLD](
         points,
         indices,
         velocities,
-        BoundsQueryView[ImmutAnyOrigin, .WORLD](bounds, nodes),
+        BoundsQueryView[ImmUntrackedOrigin, .WORLD](bounds, nodes),
     )
     var center = Point3f32[.WORLD](
         params[lane * 4], params[lane * 4 + 1], params[lane * 4 + 2]

@@ -33,9 +33,9 @@ def refresh_adjacency(nodes: ImmSpan[UInt32, _], data: MutSpan[UInt32, _]):
 
 
 def refresh_adjacency_kernel(
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    data: MutSpan[UInt32, MutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    data: MutSpan[UInt32, MutUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     var node = Int(global_idx.x)
     if status[0] == 0 and node < len(nodes) // 2:

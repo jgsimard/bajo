@@ -19,7 +19,7 @@ from test.bvh.spatial_fixtures import tetrahedron
 
 def _bounds_input[
     count: Int
-](boxes: MutSpan[Float32, MutAnyOrigin], phase: Int32):
+](boxes: MutSpan[Float32, MutUntrackedOrigin], phase: Int32):
     var i = global_idx.x
     if i >= count:
         return
@@ -30,14 +30,14 @@ def _bounds_input[
         boxes[i * 6 + axis + 3] = boxes[i * 6 + axis] + 0.25
 
 
-def _invalid_input[count: Int](input: MutSpan[Float32, MutAnyOrigin]):
+def _invalid_input[count: Int](input: MutSpan[Float32, MutUntrackedOrigin]):
     if global_idx.x < count:
         input[global_idx.x] = bitcast[.float32](UInt32(0x7FC00000))
 
 
 def _mesh_input[
     count: Int
-](points: MutSpan[Float32, MutAnyOrigin], phase: Int32):
+](points: MutSpan[Float32, MutUntrackedOrigin], phase: Int32):
     var i = global_idx.x
     if i >= count:
         return

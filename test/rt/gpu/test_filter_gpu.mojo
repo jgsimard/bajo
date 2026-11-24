@@ -22,7 +22,7 @@ from test.rt.helpers import assert_pixels_close
 
 def _filter_kernel[
     _device: Bool = True
-](view: FilterView, output: Pointer[Float32, MutAnyOrigin]):
+](view: FilterView, output: Pointer[Float32, MutUntrackedOrigin]):
     var index = global_idx.x
     if index >= 257:
         return

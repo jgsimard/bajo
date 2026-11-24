@@ -257,7 +257,7 @@ def _reset_wavefront_output_counters(
 
 
 def _init_wavefront_contract_counters_kernel(
-    counters: Pointer[UInt32, MutAnyOrigin], active_count: UInt32
+    counters: Pointer[UInt32, MutUntrackedOrigin], active_count: UInt32
 ):
     counters[unsafe_offset=WAVE_COUNTER.ACTIVE] = active_count
     _reset_wavefront_output_counters(counters)
@@ -265,7 +265,7 @@ def _init_wavefront_contract_counters_kernel(
 
 
 def _advance_wavefront_contract_counters_kernel(
-    counters: Pointer[UInt32, MutAnyOrigin],
+    counters: Pointer[UInt32, MutUntrackedOrigin],
 ):
     """Promote the compacted queue without a device-to-host synchronization."""
     counters[unsafe_offset=WAVE_COUNTER.ACTIVE] = counters[
@@ -289,15 +289,15 @@ def _mark_status(counters: MutPointer[UInt32, _], status: UInt32):
 
 
 def wavefront_contract_probe_kernel(
-    src_path_ids: Pointer[UInt32, ImmutAnyOrigin],
-    src_path_fields: Pointer[Float32, ImmutAnyOrigin],
-    dst_path_ids: Pointer[UInt32, MutAnyOrigin],
-    dst_path_fields: Pointer[Float32, MutAnyOrigin],
-    shade_path_refs: Pointer[UInt32, MutAnyOrigin],
-    shade_surfaces: Pointer[UInt32, MutAnyOrigin],
-    shade_fields: Pointer[Float32, MutAnyOrigin],
-    counters: Pointer[UInt32, MutAnyOrigin],
-    subsequences: Pointer[UInt64, MutAnyOrigin],
+    src_path_ids: Pointer[UInt32, ImmUntrackedOrigin],
+    src_path_fields: Pointer[Float32, ImmUntrackedOrigin],
+    dst_path_ids: Pointer[UInt32, MutUntrackedOrigin],
+    dst_path_fields: Pointer[Float32, MutUntrackedOrigin],
+    shade_path_refs: Pointer[UInt32, MutUntrackedOrigin],
+    shade_surfaces: Pointer[UInt32, MutUntrackedOrigin],
+    shade_fields: Pointer[Float32, MutUntrackedOrigin],
+    counters: Pointer[UInt32, MutUntrackedOrigin],
+    subsequences: Pointer[UInt64, MutUntrackedOrigin],
     capacity_i32: Int32,
     active_count_i32: Int32,
     rng_stage: UInt32,

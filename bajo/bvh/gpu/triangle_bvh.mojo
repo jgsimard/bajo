@@ -77,12 +77,12 @@ from bajo.bvh.gpu.triangle_trace import (
 def pack_segmented_triangle_leaf_lanes_kernel[
     width: SIMDLength,
 ](
-    vertices: Pointer[Float32, ImmutAnyOrigin],
-    primitive_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    leaf_block_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    leaf_block_indices: Pointer[UInt32, ImmutAnyOrigin],
-    leaf_block_counts: Pointer[UInt32, ImmutAnyOrigin],
-    leaf_vertices: Pointer[Float32, MutAnyOrigin],
+    vertices: Pointer[Float32, ImmUntrackedOrigin],
+    primitive_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    leaf_block_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    leaf_block_indices: Pointer[UInt32, ImmUntrackedOrigin],
+    leaf_block_counts: Pointer[UInt32, ImmUntrackedOrigin],
+    leaf_vertices: Pointer[Float32, MutUntrackedOrigin],
     leaf_lane_capacity: Int32,
 ):
     """Pack every BLAS leaf range while retaining BLAS-local primitive IDs."""
@@ -831,9 +831,9 @@ def _build_gpu_triangle_bvh[
 def compute_triangle_bounds_kernel[
     frame: Frame,
 ](
-    vertices: ImmSpan[Float32, ImmutAnyOrigin],
-    leaf_bounds: MutSpan[Float32, MutAnyOrigin],
-    payloads: MutSpan[UInt32, MutAnyOrigin],
+    vertices: ImmSpan[Float32, ImmUntrackedOrigin],
+    leaf_bounds: MutSpan[Float32, MutUntrackedOrigin],
+    payloads: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var tri_count = len(payloads)
     var tri_idx = global_idx.x

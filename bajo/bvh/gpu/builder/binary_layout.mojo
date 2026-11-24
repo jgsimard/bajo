@@ -133,10 +133,10 @@ def _warp_reduce_bounds(bounds: AABB[.WORLD]) -> AABB[.WORLD]:
 def compute_segment_bounds_partials_kernel[
     block_size: Int
 ](
-    leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    leaf_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    partial_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    out_partials: MutSpan[Float32, MutAnyOrigin],
+    leaf_bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    leaf_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    partial_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    out_partials: MutSpan[Float32, MutUntrackedOrigin],
 ):
     comptime assert block_size % WARP_SIZE == 0
     var partial_idx = global_idx.x // WARP_SIZE
@@ -179,10 +179,10 @@ def compute_segment_bounds_partials_kernel[
 def reduce_segment_bounds_partials_kernel[
     block_size: Int
 ](
-    in_partials: ImmSpan[Float32, ImmutAnyOrigin],
-    in_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    out_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    out_partials: MutSpan[Float32, MutAnyOrigin],
+    in_partials: ImmSpan[Float32, ImmUntrackedOrigin],
+    in_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    out_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    out_partials: MutSpan[Float32, MutUntrackedOrigin],
 ):
     comptime assert block_size % WARP_SIZE == 0
     var out_idx = global_idx.x // WARP_SIZE

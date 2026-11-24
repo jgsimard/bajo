@@ -35,7 +35,10 @@ def outcome(data: ImmSpan[Float32, _], i: Int) -> UInt32:
 
 def check_kernel[
     _device: Bool = True
-](data: ImmSpan[Float32, ImmutAnyOrigin], flags: MutSpan[UInt32, MutAnyOrigin]):
+](
+    data: ImmSpan[Float32, ImmUntrackedOrigin],
+    flags: MutSpan[UInt32, MutUntrackedOrigin],
+):
     var i = Int(global_idx.x)
     if i < len(flags):
         flags[i] = outcome(data, i)

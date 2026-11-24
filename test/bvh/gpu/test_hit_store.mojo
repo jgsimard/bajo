@@ -17,8 +17,8 @@ from bajo.core import Frame
 def _store_bits[
     frame: Frame, vectorized: Bool
 ](
-    words: ImmPointer[UInt32, ImmutAnyOrigin],
-    output: MutPointer[UInt32, MutAnyOrigin],
+    words: ImmPointer[UInt32, ImmUntrackedOrigin],
+    output: MutPointer[UInt32, MutUntrackedOrigin],
     count: Int32,
     offset: Int32,
 ):

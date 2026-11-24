@@ -93,8 +93,8 @@ def _environment(
     wavelengths: SampledWavelengths[1],
 ) -> SampledSpectrum[1]:
     var spectral = scene.spectral.value()
-    var descs = scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin]()
-    var pixels = scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin]()
+    var descs = scene.texture_descs
+    var pixels = scene.texture_pixels
     if scene.environment_kind == .BLACK:
         return {}
     var result: SampledSpectrum[1]
@@ -300,7 +300,7 @@ def _shade[
         sampled.direction,
         hit.geometric_normal,
     )
-    var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
+    var counters = queues.counters
     var slot = _reserve_slot(counters, WAVE_COUNTER.NEXT)
     if slot >= Int(state.capacity):
         _mark_status(counters, WAVE_STATUS.PATH_OVERFLOW)
@@ -315,8 +315,8 @@ def _shade[
             sampled.delta,
             medium,
         ),
-        queues.dst_path_ids.unsafe_origin_cast[MutAnyOrigin](),
-        queues.dst_path_fields.unsafe_origin_cast[MutAnyOrigin](),
+        queues.dst_path_ids,
+        queues.dst_path_fields,
         Int(state.capacity),
         slot,
     )
@@ -366,8 +366,8 @@ def spectral_bounce_kernel[
     var sampling = sampling_arg.load()
     while slot < count:
         var path = load_gpu_rt_path[integrator](
-            queues.src_path_ids.unsafe_origin_cast[ImmutAnyOrigin](),
-            queues.src_path_fields.unsafe_origin_cast[ImmutAnyOrigin](),
+            queues.src_path_ids,
+            queues.src_path_fields,
             Int(state.capacity),
             slot,
         )
@@ -390,8 +390,8 @@ def spectral_bounce_kernel[
         if not hit.hit:
             var rgb = _gpu_environment_radiance(
                 scene,
-                scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin](),
-                scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin](),
+                scene.texture_descs,
+                scene.texture_pixels,
                 ray.d,
             )
             if scene.environment_kind == .IMAGE:
@@ -400,8 +400,8 @@ def spectral_bounce_kernel[
                 )
                 rgb = _GpuImageTextureView.load(
                     scene.environment_texture_index,
-                    scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin](),
-                    scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin](),
+                    scene.texture_descs,
+                    scene.texture_pixels,
                 ).sample_environment(uv.u, uv.v)
             var light_pdf = scene.spectral.value().lighting.environment_pdf(
                 scene.environment_kind, rgb
@@ -573,8 +573,8 @@ def spectral_resolve_kernel(
 def spectral_capture_samples_kernel(
     state: GpuSpectralStateView,
     weights: ImmPointer[Float32, ImmUntrackedOrigin],
-    colors: Pointer[Float32, MutAnyOrigin],
-    output_weights: Pointer[Float32, MutAnyOrigin],
+    colors: Pointer[Float32, MutUntrackedOrigin],
+    output_weights: Pointer[Float32, MutUntrackedOrigin],
     count: Int32,
     film: FilmResponse,
 ):

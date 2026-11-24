@@ -68,7 +68,7 @@ def _coated_sample() -> BsdfSample[1]:
     )
 
 
-def _coated_sample_kernel(output: Pointer[Float32, MutAnyOrigin]):
+def _coated_sample_kernel(output: Pointer[Float32, MutUntrackedOrigin]):
     var sampled = _coated_sample()
     output[unsafe_offset=0] = sampled.direction.x[0]
     output[unsafe_offset=1] = sampled.direction.y[0]

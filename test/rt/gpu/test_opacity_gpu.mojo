@@ -45,7 +45,11 @@ from test.rt.cpu.test_opacity import (
 
 def _opacity_trace_kernel[
     kind: GpuRtSceneKind, format: GpuRtBvhFormat, tlas_format: GpuRtBvhFormat
-](scene: GpuRtSceneView, output: Pointer[Float32, MutAnyOrigin], count: Int32,):
+](
+    scene: GpuRtSceneView,
+    output: Pointer[Float32, MutUntrackedOrigin],
+    count: Int32,
+):
     var index = global_idx.x
     if index >= Int(count):
         return

@@ -35,8 +35,8 @@ def _case(
 def _precision_kernel[
     block_size: Int
 ](
-    data: ImmSpan[Float32, ImmutAnyOrigin],
-    output: MutSpan[UInt32, MutAnyOrigin],
+    data: ImmSpan[Float32, ImmUntrackedOrigin],
+    output: MutSpan[UInt32, MutUntrackedOrigin],
     count: Int32,
 ):
     var lane = global_idx.x

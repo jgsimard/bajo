@@ -344,8 +344,8 @@ def _trace_sphere_bvh_camera_ray[
     node_width: SIMDLength,
     leaf_width: SIMDLength,
 ](
-    wide_nodes: Pointer[Float32, ImmutAnyOrigin],
-    leaf_spheres: Pointer[Float32, ImmutAnyOrigin],
+    wide_nodes: Pointer[Float32, ImmUntrackedOrigin],
+    leaf_spheres: Pointer[Float32, ImmUntrackedOrigin],
     root_idx: UInt32,
     ray: Rayf32[.WORLD],
 ) -> Hit[.WORLD]:
@@ -435,12 +435,12 @@ def _intersect_sphere_leaf[
 def pack_segmented_sphere_leaf_lanes_kernel[
     width: SIMDLength,
 ](
-    spheres: ImmSpan[Float32, ImmutAnyOrigin],
-    primitive_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    leaf_block_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    leaf_block_indices: Pointer[UInt32, ImmutAnyOrigin],
-    leaf_block_counts: Pointer[UInt32, ImmutAnyOrigin],
-    leaf_spheres: Pointer[Float32, MutAnyOrigin],
+    spheres: ImmSpan[Float32, ImmUntrackedOrigin],
+    primitive_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    leaf_block_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    leaf_block_indices: Pointer[UInt32, ImmUntrackedOrigin],
+    leaf_block_counts: Pointer[UInt32, ImmUntrackedOrigin],
+    leaf_spheres: Pointer[Float32, MutUntrackedOrigin],
     leaf_lane_capacity: Int32,
 ):
     """Pack all sphere BLAS leaf ranges and restore local primitive IDs."""

@@ -26,7 +26,7 @@ from bajo.rt.gpu.prepared_renderer import GpuRtPreparedRenderer
 
 def _canon_kernel[
     _device: Bool = True
-](film: FilmResponse, output: Pointer[Float32, MutAnyOrigin]):
+](film: FilmResponse, output: Pointer[Float32, MutUntrackedOrigin]):
     if global_idx.x != 0:
         return
     var wavelengths = SampledWavelengths[1](

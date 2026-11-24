@@ -419,14 +419,14 @@ def _write_hploc_terminal_leaf_block[
 def init_hploc_literature_wide_kernel[
     publish_single_root: Bool,
 ](
-    roots: ImmSpan[UInt32, ImmutAnyOrigin],
-    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    index_pairs: MutSpan[UInt64, MutAnyOrigin],
-    work_alloc_counter: MutSpan[UInt32, MutAnyOrigin],
-    work_group_counter: MutSpan[UInt32, MutAnyOrigin],
-    leaf_block_counter: MutSpan[UInt32, MutAnyOrigin],
-    wide_node_counter: MutSpan[UInt32, MutAnyOrigin],
-    status: MutSpan[UInt32, MutAnyOrigin],
+    roots: ImmSpan[UInt32, ImmUntrackedOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    index_pairs: MutSpan[UInt64, MutUntrackedOrigin],
+    work_alloc_counter: MutSpan[UInt32, MutUntrackedOrigin],
+    work_group_counter: MutSpan[UInt32, MutUntrackedOrigin],
+    leaf_block_counter: MutSpan[UInt32, MutUntrackedOrigin],
+    wide_node_counter: MutSpan[UInt32, MutUntrackedOrigin],
+    status: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var i = global_idx.x
     if i < len(index_pairs):
@@ -450,9 +450,9 @@ def init_hploc_literature_wide_kernel[
 
 
 def publish_hploc_literature_wide_roots_kernel(
-    roots: ImmSpan[UInt32, ImmutAnyOrigin],
-    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    index_pairs: MutSpan[UInt64, MutAnyOrigin],
+    roots: ImmSpan[UInt32, ImmUntrackedOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    index_pairs: MutSpan[UInt64, MutUntrackedOrigin],
 ):
     var segment_idx = global_idx.x
     if segment_idx >= len(roots):
@@ -478,30 +478,30 @@ def hploc_literature_to_wide_kernel[
     block_size: Int,
     sorted_leaf_bounds: Bool = False,
 ](
-    leaf_bounds: Pointer[Float32, MutAnyOrigin],
-    leaf_payloads: Pointer[UInt32, MutAnyOrigin],
-    leaf_ids: Pointer[UInt32, MutAnyOrigin],
-    node_meta: Pointer[UInt32, MutAnyOrigin],
-    node_bounds: Pointer[Float32, MutAnyOrigin],
-    node_leaf_counts: Pointer[UInt32, MutAnyOrigin],
-    compact_children: Pointer[UInt32, MutAnyOrigin],
-    compact_bounds: Pointer[Float32, MutAnyOrigin],
-    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    internal_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    block_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    node_output_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    leaf_output_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    all_index_pairs: Pointer[UInt64, MutAnyOrigin],
-    all_work_alloc_counters: Pointer[UInt32, MutAnyOrigin],
-    all_work_group_counters: Pointer[UInt32, MutAnyOrigin],
-    all_leaf_block_counters: Pointer[UInt32, MutAnyOrigin],
-    all_wide_node_counters: Pointer[UInt32, MutAnyOrigin],
-    all_status: Pointer[UInt32, MutAnyOrigin],
-    all_wide_nodes: Pointer[Float32, MutAnyOrigin],
-    all_leaf_block_indices: Pointer[UInt32, MutAnyOrigin],
-    all_cwbvh_nodes: Pointer[Float32, MutAnyOrigin],
-    all_compact_primitive_ids: Pointer[UInt32, MutAnyOrigin],
-    all_triangle_counters: Pointer[UInt32, MutAnyOrigin],
+    leaf_bounds: Pointer[Float32, MutUntrackedOrigin],
+    leaf_payloads: Pointer[UInt32, MutUntrackedOrigin],
+    leaf_ids: Pointer[UInt32, MutUntrackedOrigin],
+    node_meta: Pointer[UInt32, MutUntrackedOrigin],
+    node_bounds: Pointer[Float32, MutUntrackedOrigin],
+    node_leaf_counts: Pointer[UInt32, MutUntrackedOrigin],
+    compact_children: Pointer[UInt32, MutUntrackedOrigin],
+    compact_bounds: Pointer[Float32, MutUntrackedOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    internal_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    block_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    node_output_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    leaf_output_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    all_index_pairs: Pointer[UInt64, MutUntrackedOrigin],
+    all_work_alloc_counters: Pointer[UInt32, MutUntrackedOrigin],
+    all_work_group_counters: Pointer[UInt32, MutUntrackedOrigin],
+    all_leaf_block_counters: Pointer[UInt32, MutUntrackedOrigin],
+    all_wide_node_counters: Pointer[UInt32, MutUntrackedOrigin],
+    all_status: Pointer[UInt32, MutUntrackedOrigin],
+    all_wide_nodes: Pointer[Float32, MutUntrackedOrigin],
+    all_leaf_block_indices: Pointer[UInt32, MutUntrackedOrigin],
+    all_cwbvh_nodes: Pointer[Float32, MutUntrackedOrigin],
+    all_compact_primitive_ids: Pointer[UInt32, MutUntrackedOrigin],
+    all_triangle_counters: Pointer[UInt32, MutUntrackedOrigin],
 ):
     """Paper §3.4 for every segment in one top-down GPU dispatch."""
 

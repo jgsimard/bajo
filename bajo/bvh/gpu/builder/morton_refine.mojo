@@ -20,10 +20,10 @@ from .binary_layout import _segment_for_item
 def refine_morton_tiles_kernel[
     tile_size: Int, segmented: Bool
 ](
-    leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    coarse_codes: ImmSpan[UInt32, ImmutAnyOrigin],
-    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    leaf_ids: MutSpan[UInt32, MutAnyOrigin],
+    leaf_bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    coarse_codes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    leaf_ids: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     comptime assert tile_size == 128 or tile_size == 256
     var lane = Int(thread_idx.x)

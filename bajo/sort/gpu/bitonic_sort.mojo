@@ -22,8 +22,8 @@ def bitonic_sort_shared[
     ITEMS_PER_THREAD: Int,
     IS_MERGE_BLOCK: Bool,
 ](
-    keys: Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    values: Pointer[Scalar[vals_dtype], MutAnyOrigin],
+    keys: Pointer[Scalar[keys_dtype], MutUntrackedOrigin],
+    values: Pointer[Scalar[vals_dtype], MutUntrackedOrigin],
     k_merge: Int32,  # Target bitonic sequence length
     size: Int32,
 ):
@@ -200,8 +200,8 @@ def bitonic_sort_shared[
 def bitonic_sort_step[
     keys_dtype: DType, vals_dtype: DType
 ](
-    keys: Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    values: Pointer[Scalar[vals_dtype], MutAnyOrigin],
+    keys: Pointer[Scalar[keys_dtype], MutUntrackedOrigin],
+    values: Pointer[Scalar[vals_dtype], MutUntrackedOrigin],
     j: Int32,
     k: Int32,
     size: Int32,

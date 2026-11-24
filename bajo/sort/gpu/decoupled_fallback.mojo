@@ -44,7 +44,7 @@ comptime FALLBACK_SPIN_LIMIT = 4
 def publish_split_histogram[
     BLOCK_SIZE: Int, STATE: UInt32
 ](
-    pass_hist: Pointer[UInt32, MutAnyOrigin],
+    pass_hist: MutPointer[UInt32, _],
     histogram: Pointer[UInt32, _, address_space=AddressSpace.SHARED],
     row: Int,
 ):
@@ -81,8 +81,8 @@ def fallback_lookback[
     KEYS_PER_THREAD: Int,
     SUPPRESS_PUBLICATION: Bool = False,
 ](
-    keys: Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    pass_hist: Pointer[UInt32, MutAnyOrigin],
+    keys: MutPointer[Scalar[keys_dtype], _],
+    pass_hist: MutPointer[UInt32, _],
     local_offsets: MutPointer[UInt32, _, address_space=AddressSpace.SHARED],
     scratch: MutPointer[UInt32, _, address_space=AddressSpace.SHARED],
     local_reduction: UInt32,
@@ -180,9 +180,9 @@ def _validate_size(size: Int, capacity: Int, key_count: Int) raises:
 def init_fallback_workspace[
     NUM_PASSES: Int, BLOCK_SIZE: Int
 ](
-    global_hist: Pointer[UInt32, MutAnyOrigin],
-    pass_hist: Pointer[UInt32, MutAnyOrigin],
-    index: Pointer[UInt32, MutAnyOrigin],
+    global_hist: Pointer[UInt32, MutUntrackedOrigin],
+    pass_hist: Pointer[UInt32, MutUntrackedOrigin],
+    index: Pointer[UInt32, MutUntrackedOrigin],
     pass_hist_size: Int64,
 ):
     init_radix_workspace[NUM_PASSES, BLOCK_SIZE, .int64](
@@ -191,8 +191,8 @@ def init_fallback_workspace[
 
 
 def scan_global_fallback(
-    global_hist: Pointer[UInt32, MutAnyOrigin],
-    pass_hist: Pointer[UInt32, MutAnyOrigin],
+    global_hist: Pointer[UInt32, MutUntrackedOrigin],
+    pass_hist: Pointer[UInt32, MutUntrackedOrigin],
     hist_blocks: Int32,
 ):
     var tid = thread_idx.x
@@ -215,12 +215,14 @@ def digit_binning[
     HAVE_PAYLOAD: Bool,
     _TEST_SUPPRESS_PUBLICATION: Bool = False,
 ](
-    keys_current: Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    keys_alternate: Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    vals_current_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
-    vals_alternate_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
-    pass_hist: Pointer[UInt32, MutAnyOrigin],
-    index: Pointer[UInt32, MutAnyOrigin],
+    keys_current: Pointer[Scalar[keys_dtype], MutUntrackedOrigin],
+    keys_alternate: Pointer[Scalar[keys_dtype], MutUntrackedOrigin],
+    vals_current_opt: Optional[Pointer[Scalar[vals_dtype], MutUntrackedOrigin]],
+    vals_alternate_opt: Optional[
+        Pointer[Scalar[vals_dtype], MutUntrackedOrigin]
+    ],
+    pass_hist: Pointer[UInt32, MutUntrackedOrigin],
+    index: Pointer[UInt32, MutUntrackedOrigin],
     size: Int32,
     radix_shift: UInt32,
 ):
@@ -468,8 +470,8 @@ def decoupled_fallback_radix_sort_keys[
         ctx,
         keys.unsafe_ptr(),
         workspace.keys_alternate.unsafe_ptr(),
-        Optional[Pointer[Scalar[keys_dtype], MutAnyOrigin]](),
-        Optional[Pointer[Scalar[keys_dtype], MutAnyOrigin]](),
+        Optional[MutPointer[Scalar[keys_dtype], MutUntrackedOrigin]](),
+        Optional[MutPointer[Scalar[keys_dtype], MutUntrackedOrigin]](),
         workspace.global_hist.unsafe_ptr(),
         workspace.pass_hist.unsafe_ptr(),
         workspace.index.unsafe_ptr(),

@@ -706,7 +706,7 @@ def _visibility_ray(index: Int) -> Rayf32[.WORLD]:
 
 def _geometry_visibility_kernel[
     kind: GpuRtSceneKind
-](scene: GpuRtSceneView, output: Pointer[UInt32, MutAnyOrigin]):
+](scene: GpuRtSceneView, output: Pointer[UInt32, MutUntrackedOrigin]):
     comptime Formats = _gpu_rt_kernel_formats[kind]
     var index = global_idx.x
     if index >= 24:

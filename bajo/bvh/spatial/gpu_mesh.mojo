@@ -181,21 +181,51 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
 
     def view(
         self,
-    ) -> MeshQueryView[ImmutAnyOrigin, Self.frame, Self.storage_width]:
+    ) -> MeshQueryView[origin_of(self), Self.frame, Self.storage_width]:
         """Borrow device storage for a query kernel; never dereference on host.
         """
         var result = MeshQueryView[
-            ImmutAnyOrigin, Self.frame, Self.storage_width
+            origin_of(self), Self.frame, Self.storage_width
         ](
-            _device_span[mut=False](self.points),
-            _device_span[mut=False](self.indices),
-            _device_span[mut=False](self.velocities),
-            BoundsQueryView[ImmutAnyOrigin, Self.frame](
-                _device_span[mut=False](self.bounds),
-                _device_span[mut=False](self.nodes),
+            ImmSpan(
+                unsafe_ptr=self.points.unsafe_ptr().unsafe_origin_cast[
+                    origin_of(self)
+                ](),
+                length=len(self.points),
+            ),
+            ImmSpan(
+                unsafe_ptr=self.indices.unsafe_ptr().unsafe_origin_cast[
+                    origin_of(self)
+                ](),
+                length=len(self.indices),
+            ),
+            ImmSpan(
+                unsafe_ptr=self.velocities.unsafe_ptr().unsafe_origin_cast[
+                    origin_of(self)
+                ](),
+                length=len(self.velocities),
+            ),
+            BoundsQueryView[origin_of(self), Self.frame](
+                ImmSpan(
+                    unsafe_ptr=self.bounds.unsafe_ptr().unsafe_origin_cast[
+                        origin_of(self)
+                    ](),
+                    length=len(self.bounds),
+                ),
+                ImmSpan(
+                    unsafe_ptr=self.nodes.unsafe_ptr().unsafe_origin_cast[
+                        origin_of(self)
+                    ](),
+                    length=len(self.nodes),
+                ),
             ),
         )
-        result.adjacency = _device_span[mut=False](self.adjacency)
+        result.adjacency = ImmSpan(
+            unsafe_ptr=self.adjacency.unsafe_ptr().unsafe_origin_cast[
+                origin_of(self)
+            ](),
+            length=len(self.adjacency),
+        )
         result.device_winding = self.device_winding_view()
         return result^
 
@@ -212,16 +242,36 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
 
     def device_winding_view(
         self,
-    ) -> DeviceWindingView[ImmutAnyOrigin, Self.frame]:
+    ) -> DeviceWindingView[origin_of(self), Self.frame]:
         __guard case .Some(ref cache) = self.winding else:
             return {}
-        return DeviceWindingView[ImmutAnyOrigin, Self.frame](
-            BoundsQueryView[ImmutAnyOrigin, Self.frame](
-                _device_span[mut=False](cache.tree.bounds),
-                _device_span[mut=False](cache.tree.nodes),
+        return DeviceWindingView[origin_of(self), Self.frame](
+            BoundsQueryView[origin_of(self), Self.frame](
+                ImmSpan(
+                    unsafe_ptr=cache.tree.bounds.unsafe_ptr().unsafe_origin_cast[
+                        origin_of(self)
+                    ](),
+                    length=len(cache.tree.bounds),
+                ),
+                ImmSpan(
+                    unsafe_ptr=cache.tree.nodes.unsafe_ptr().unsafe_origin_cast[
+                        origin_of(self)
+                    ](),
+                    length=len(cache.tree.nodes),
+                ),
             ),
-            _device_span[mut=False](cache.offsets),
-            _device_span[mut=False](cache.faces),
+            ImmSpan(
+                unsafe_ptr=cache.offsets.unsafe_ptr().unsafe_origin_cast[
+                    origin_of(self)
+                ](),
+                length=len(cache.offsets),
+            ),
+            ImmSpan(
+                unsafe_ptr=cache.faces.unsafe_ptr().unsafe_origin_cast[
+                    origin_of(self)
+                ](),
+                length=len(cache.faces),
+            ),
         )
 
     def group_root(self, group: UInt32) -> UInt32:

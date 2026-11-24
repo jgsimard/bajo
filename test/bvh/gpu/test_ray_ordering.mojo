@@ -246,8 +246,8 @@ def test_sphere_ordered_hits() raises:
 def _copy_at_offset[
     copy_width: Int
 ](
-    source: ImmPointer[Float32, ImmutAnyOrigin],
-    destination: MutPointer[Float32, MutAnyOrigin],
+    source: ImmPointer[Float32, ImmUntrackedOrigin],
+    destination: MutPointer[Float32, MutUntrackedOrigin],
     count: Int32,
     offset: Int32,
 ):

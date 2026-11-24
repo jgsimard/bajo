@@ -395,7 +395,7 @@ def trace_spectral_packets[
     sample_base: Int,
     sample_count: Int,
     components: Optional[MutPointer[UInt32, _]] = Optional[
-        Pointer[UInt32, MutAnyOrigin]
+        Pointer[UInt32, MutUntrackedOrigin]
     ](),
 ):
     state.initialize[width](sample_count, sample_base, sampling)

@@ -40,13 +40,16 @@ def _device_span[
 ](
     buffer: DeviceBuffer[dtype],
 ) -> Span[
-    mut=mut, Scalar[dtype], AnyOrigin[mut=mut]
+    mut=mut, Scalar[dtype], origin_of(buffer).unsafe_mut_cast[mut]()
 ]:
-    """Create a length-backed view at the device ABI boundary."""
+    """Borrow device storage while retaining the buffer owner's lifetime.
+
+    The span is a host-side launch argument; never dereference it on the host.
+    Mutability authorizes device writes. The caller still synchronizes before
+    releasing storage that queued work may use.
+    """
     return Span(
-        unsafe_ptr=buffer.unsafe_ptr()
-        .unsafe_mut_cast[mut]()
-        .unsafe_origin_cast[AnyOrigin[mut=mut]](),
+        unsafe_ptr=buffer.unsafe_ptr().unsafe_mut_cast[mut](),
         length=len(buffer),
     )
 

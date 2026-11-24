@@ -200,15 +200,11 @@ def _gpu_rt_scene_trace_path[
     comptime if scene_kind.has_spheres():
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.spheres))
         var spheres = scene.spheres.unsafe_value()
-        var sphere_nodes = spheres.nodes.unsafe_origin_cast[ImmutAnyOrigin]()
-        var leaf_spheres = spheres.leaves.unsafe_origin_cast[ImmutAnyOrigin]()
+        var sphere_nodes = spheres.nodes
+        var leaf_spheres = spheres.leaves
         var sphere_root = spheres.root
-        var sphere_surfaces = spheres.surfaces.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
-        var signed_radii = spheres.signed_radii.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
+        var sphere_surfaces = spheres.surfaces
+        var signed_radii = spheres.signed_radii
         var sphere_hit: Hit[.WORLD]
         if scene.opacity.count > 0:
             sphere_hit = trace_gpu_opacity_spheres[
@@ -246,16 +242,10 @@ def _gpu_rt_scene_trace_path[
     comptime if scene_kind.has_triangles():
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.triangles))
         var triangles = scene.triangles.unsafe_value()
-        var triangle_nodes = triangles.nodes.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
-        var leaf_vertices = triangles.leaves.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
+        var triangle_nodes = triangles.nodes
+        var leaf_vertices = triangles.leaves
         var triangle_root = triangles.root
-        var triangle_surfaces = triangles.surfaces.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
+        var triangle_surfaces = triangles.surfaces
         var triangle_ray = Rayf32[.WORLD](ray.o, ray.d, ray.t_min, closest_t)
         # A separate GPU function avoids slow fused traversal/shading code
         # for large static MIS queues, without additional dispatch variants.
@@ -309,44 +299,20 @@ def _gpu_rt_scene_trace_path[
     comptime if scene_kind.has_instances():
         debug_assert["safe", _use_compiler_assume=True](Bool(scene.instances))
         var instances = scene.instances.unsafe_value()
-        var tlas_nodes = instances.tlas_nodes.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
-        var tlas_leaf_instances = (
-            instances.tlas_leaf_instances.unsafe_origin_cast[ImmutAnyOrigin]()
-        )
-        var inst_inv_transform = instances.inv_transforms.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
-        var inst_blas_indices = instances.blas_indices.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
-        var blas_descs = instances.blas_descs.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
-        var blas_nodes = instances.blas_nodes.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
-        var blas_leaves = instances.blas_leaves.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
-        var normal_offsets = instances.normal_offsets.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
-        var vertex_normals = instances.normals.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
-        var texcoord_offsets = instances.texcoord_offsets.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
-        var vertex_texcoords = instances.texcoords.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
+        var tlas_nodes = instances.tlas_nodes
+        var tlas_leaf_instances = instances.tlas_leaf_instances
+        var inst_inv_transform = instances.inv_transforms
+        var inst_blas_indices = instances.blas_indices
+        var blas_descs = instances.blas_descs
+        var blas_nodes = instances.blas_nodes
+        var blas_leaves = instances.blas_leaves
+        var normal_offsets = instances.normal_offsets
+        var vertex_normals = instances.normals
+        var texcoord_offsets = instances.texcoord_offsets
+        var vertex_texcoords = instances.texcoords
         var tlas_root = instances.tlas_root
         var instance_count_i32 = instances.count
-        var instance_surfaces = instances.surfaces.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
+        var instance_surfaces = instances.surfaces
         var instance_ray = Rayf32[.WORLD](ray.o, ray.d, ray.t_min, closest_t)
         var instance_hit: Hit[.WORLD]
         if scene.opacity.count > 0:
@@ -780,9 +746,9 @@ def gpu_rt_primary_scene_trace_kernel[
     Formats: _GpuRtKernelFormats,
     store_source_path: Bool,
 ](
-    camera_params: Pointer[Float32, ImmutAnyOrigin],
-    source_path_ids: Pointer[UInt32, MutAnyOrigin],
-    source_path_fields: Pointer[Float32, MutAnyOrigin],
+    camera_params: Pointer[Float32, ImmUntrackedOrigin],
+    source_path_ids: Pointer[UInt32, MutUntrackedOrigin],
+    source_path_fields: Pointer[Float32, MutUntrackedOrigin],
     scene: GpuRtSceneView,
     queues: GpuRtTraceQueueView,
     width_i32: Int32,
@@ -917,8 +883,8 @@ def _trace_scene_any[
             _intersect_sphere_leaf[.WORLD, Formats.sphere.leaf_width, .ANY_HIT],
             Formats.sphere.node_width == 2,
         ](
-            spheres.nodes.unsafe_origin_cast[ImmutAnyOrigin](),
-            spheres.leaves.unsafe_origin_cast[ImmutAnyOrigin](),
+            spheres.nodes,
+            spheres.leaves,
             spheres.root,
             ray,
         )
@@ -941,8 +907,8 @@ def _trace_scene_any[
             Formats.triangle.layout,
             Formats.triangle.node_width == 4,
         ](
-            triangles.nodes.unsafe_origin_cast[ImmutAnyOrigin](),
-            triangles.leaves.unsafe_origin_cast[ImmutAnyOrigin](),
+            triangles.nodes,
+            triangles.leaves,
             triangles.root,
             ray,
             separate_traversal,
@@ -967,13 +933,13 @@ def _trace_scene_any[
             ],
             Formats.blas.layout,
         ](
-            instances.tlas_nodes.unsafe_origin_cast[ImmutAnyOrigin](),
-            instances.tlas_leaf_instances.unsafe_origin_cast[ImmutAnyOrigin](),
-            instances.inv_transforms.unsafe_origin_cast[ImmutAnyOrigin](),
-            instances.blas_indices.unsafe_origin_cast[ImmutAnyOrigin](),
-            instances.blas_descs.unsafe_origin_cast[ImmutAnyOrigin](),
-            instances.blas_nodes.unsafe_origin_cast[ImmutAnyOrigin](),
-            instances.blas_leaves.unsafe_origin_cast[ImmutAnyOrigin](),
+            instances.tlas_nodes,
+            instances.tlas_leaf_instances,
+            instances.inv_transforms,
+            instances.blas_indices,
+            instances.blas_descs,
+            instances.blas_nodes,
+            instances.blas_leaves,
             Int(instances.count),
             Int(instances.blas_count),
             instances.tlas_root,

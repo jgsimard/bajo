@@ -101,7 +101,9 @@ struct _MaterialParameters[length: SIMDLength]:
         u: SIMD[.float32, Self.length],
         v: SIMD[.float32, Self.length],
         active: SIMD[.bool, Self.length],
-        coated_fields: ImmSpan[Float32, _] = ImmSpan[Float32, ImmutAnyOrigin](),
+        coated_fields: ImmSpan[Float32, _] = ImmSpan[
+            Float32, ImmUntrackedOrigin
+        ](),
     ):
         """Load one material group from authoring records or prepared tables."""
         if not active.reduce_or():

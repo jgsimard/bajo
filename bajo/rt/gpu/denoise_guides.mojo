@@ -33,10 +33,10 @@ def _guide_kernel[
     kind: GpuRtSceneKind, Formats: _GpuRtKernelFormats
 ](
     scene: GpuRtSceneView,
-    camera_data: ImmPointer[Float32, ImmutAnyOrigin],
-    fields: MutPointer[Float32, MutAnyOrigin],
-    surfaces: MutPointer[UInt32, MutAnyOrigin],
-    metal_textures: ImmPointer[UInt32, ImmutAnyOrigin],
+    camera_data: ImmPointer[Float32, ImmUntrackedOrigin],
+    fields: MutPointer[Float32, MutUntrackedOrigin],
+    surfaces: MutPointer[UInt32, MutUntrackedOrigin],
+    metal_textures: ImmPointer[UInt32, ImmUntrackedOrigin],
     width: Int32,
     height: Int32,
 ):
@@ -64,20 +64,16 @@ def _guide_kernel[
     if not hit.hit[0]:
         return
     var surface = hit.surface.value[0]
-    var texture_descs = scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin]()
-    var texture_pixels = scene.texture_pixels.unsafe_origin_cast[
-        ImmutAnyOrigin
-    ]()
+    var texture_descs = scene.texture_descs
+    var texture_pixels = scene.texture_pixels
     var albedo = Color(1)
     if hit.surface.kind() == .LAMBERTIAN:
         albedo = _sample_gpu_lambertian(
             surface,
             hit.uv_u[0],
             hit.uv_v[0],
-            scene.lambertians.unsafe_origin_cast[ImmutAnyOrigin](),
-            scene.lambertian_texture_indices.unsafe_origin_cast[
-                ImmutAnyOrigin
-            ](),
+            scene.lambertians,
+            scene.lambertian_texture_indices,
             texture_descs,
             texture_pixels,
         )
@@ -86,10 +82,8 @@ def _guide_kernel[
             surface,
             hit.uv_u[0],
             hit.uv_v[0],
-            scene.coated_diffuses.unsafe_origin_cast[ImmutAnyOrigin](),
-            scene.coated_diffuse_texture_indices.unsafe_origin_cast[
-                ImmutAnyOrigin
-            ](),
+            scene.coated_diffuses,
+            scene.coated_diffuse_texture_indices,
             texture_descs,
             texture_pixels,
         )

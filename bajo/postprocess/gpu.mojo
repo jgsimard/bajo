@@ -62,10 +62,10 @@ struct GpuDenoiseSampleBatch:
 
 # enqueue_function requires concrete pointer origins at kernel entry points.
 def _maximum_kernel(
-    colors: ImmPointer[Float32, ImmutAnyOrigin],
-    partial: MutPointer[Float32, MutAnyOrigin],
-    weights: ImmPointer[Float32, ImmutAnyOrigin],
-    components: ImmPointer[UInt32, ImmutAnyOrigin],
+    colors: ImmPointer[Float32, ImmUntrackedOrigin],
+    partial: MutPointer[Float32, MutUntrackedOrigin],
+    weights: ImmPointer[Float32, ImmUntrackedOrigin],
+    components: ImmPointer[UInt32, ImmUntrackedOrigin],
     count: Int32,
 ):
     var records = TileTensor(
@@ -92,8 +92,8 @@ def _maximum_kernel(
 
 
 def _maximum_finish(
-    partial: ImmPointer[Float32, ImmutAnyOrigin],
-    result: MutPointer[Float32, MutAnyOrigin],
+    partial: ImmPointer[Float32, ImmUntrackedOrigin],
+    result: MutPointer[Float32, MutUntrackedOrigin],
     count: Int32,
 ):
     if global_idx.x == 0:
@@ -104,11 +104,11 @@ def _maximum_finish(
 
 
 def _accumulate_statistics(
-    colors: ImmPointer[Float32, ImmutAnyOrigin],
-    weights: ImmPointer[Float32, ImmutAnyOrigin],
-    components: ImmPointer[UInt32, ImmutAnyOrigin],
-    bins: MutPointer[Float64, MutAnyOrigin],
-    meta: MutPointer[Float64, MutAnyOrigin],
+    colors: ImmPointer[Float32, ImmUntrackedOrigin],
+    weights: ImmPointer[Float32, ImmUntrackedOrigin],
+    components: ImmPointer[UInt32, ImmUntrackedOrigin],
+    bins: MutPointer[Float64, MutUntrackedOrigin],
+    meta: MutPointer[Float64, MutUntrackedOrigin],
     count: Int32,
     spp: Int32,
 ):
@@ -240,13 +240,13 @@ struct GpuAtrousWorkspace:
 
 
 def _reconstruct_kernel(
-    bins: ImmPointer[Float64, ImmutAnyOrigin],
-    meta: ImmPointer[Float64, ImmutAnyOrigin],
-    fields: ImmPointer[Float32, ImmutAnyOrigin],
-    ping: MutPointer[Float32, MutAnyOrigin],
-    diffuse: MutPointer[Float32, MutAnyOrigin],
-    residual: MutPointer[Float32, MutAnyOrigin],
-    variance: MutPointer[Float32, MutAnyOrigin],
+    bins: ImmPointer[Float64, ImmUntrackedOrigin],
+    meta: ImmPointer[Float64, ImmUntrackedOrigin],
+    fields: ImmPointer[Float32, ImmUntrackedOrigin],
+    ping: MutPointer[Float32, MutUntrackedOrigin],
+    diffuse: MutPointer[Float32, MutUntrackedOrigin],
+    residual: MutPointer[Float32, MutUntrackedOrigin],
+    variance: MutPointer[Float32, MutUntrackedOrigin],
     width: Int32,
     height: Int32,
     n_bins: Int32,
@@ -286,12 +286,12 @@ def _reconstruct_kernel(
 
 
 def _filter_kernel(
-    source: ImmPointer[Float32, ImmutAnyOrigin],
-    fields: ImmPointer[Float32, ImmutAnyOrigin],
-    surfaces: ImmPointer[UInt32, ImmutAnyOrigin],
-    variance: ImmPointer[Float32, ImmutAnyOrigin],
-    output: MutPointer[Float32, MutAnyOrigin],
-    next_variance: MutPointer[Float32, MutAnyOrigin],
+    source: ImmPointer[Float32, ImmUntrackedOrigin],
+    fields: ImmPointer[Float32, ImmUntrackedOrigin],
+    surfaces: ImmPointer[UInt32, ImmUntrackedOrigin],
+    variance: ImmPointer[Float32, ImmUntrackedOrigin],
+    output: MutPointer[Float32, MutUntrackedOrigin],
+    next_variance: MutPointer[Float32, MutUntrackedOrigin],
     width: Int32,
     height: Int32,
     iteration: Int32,
@@ -332,10 +332,10 @@ def _filter_kernel(
 
 
 def _compose_kernel(
-    pixels: MutPointer[Float32, MutAnyOrigin],
-    fields: ImmPointer[Float32, ImmutAnyOrigin],
-    diffuse: ImmPointer[Float32, ImmutAnyOrigin],
-    residual: ImmPointer[Float32, ImmutAnyOrigin],
+    pixels: MutPointer[Float32, MutUntrackedOrigin],
+    fields: ImmPointer[Float32, ImmUntrackedOrigin],
+    diffuse: ImmPointer[Float32, ImmUntrackedOrigin],
+    residual: ImmPointer[Float32, ImmUntrackedOrigin],
     count: Int32,
     passes: Int32,
 ):

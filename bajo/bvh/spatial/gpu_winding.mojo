@@ -27,12 +27,12 @@ comptime WINDING_COMPONENT_TILE_FACES = 2048
 def component_bounds_kernel[
     block_size: Int, skip_large: Bool = False
 ](
-    points: ImmSpan[Float32, ImmutAnyOrigin],
-    indices: ImmSpan[UInt32, ImmutAnyOrigin],
-    offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    faces: ImmSpan[UInt32, ImmutAnyOrigin],
-    items: MutSpan[Float32, MutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
+    points: ImmSpan[Float32, ImmUntrackedOrigin],
+    indices: ImmSpan[UInt32, ImmUntrackedOrigin],
+    offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    faces: ImmSpan[UInt32, ImmUntrackedOrigin],
+    items: MutSpan[Float32, MutUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     var item_bounds = TileTensor(items, row_major(len(items) // 6, 6))
     var component = Int(global_idx.x)
@@ -62,13 +62,13 @@ def component_bounds_kernel[
 def component_bounds_parallel_kernel[
     block_size: Int
 ](
-    points: ImmSpan[Float32, ImmutAnyOrigin],
-    indices: ImmSpan[UInt32, ImmutAnyOrigin],
-    offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    faces: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[Float32, MutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
-    large_components: ImmSpan[UInt32, ImmutAnyOrigin],
+    points: ImmSpan[Float32, ImmUntrackedOrigin],
+    indices: ImmSpan[UInt32, ImmUntrackedOrigin],
+    offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    faces: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[Float32, MutUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
+    large_components: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     var output_bounds = TileTensor(output, row_major(len(output) // 6, 6))
     var component = Int(large_components[Int(block_idx.x)])
@@ -100,13 +100,13 @@ def component_bounds_parallel_kernel[
 def component_bounds_tiles_kernel[
     block_size: Int
 ](
-    points: ImmSpan[Float32, ImmutAnyOrigin],
-    indices: ImmSpan[UInt32, ImmutAnyOrigin],
-    offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    faces: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[Float32, MutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
-    tiles: ImmSpan[UInt32, ImmutAnyOrigin],
+    points: ImmSpan[Float32, ImmUntrackedOrigin],
+    indices: ImmSpan[UInt32, ImmUntrackedOrigin],
+    offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    faces: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[Float32, MutUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
+    tiles: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     var output_bounds = TileTensor(output, row_major(len(output) // 6, 6))
     var descriptors = TileTensor(tiles, row_major(len(tiles) // 3, 3))
@@ -140,11 +140,11 @@ def component_bounds_tiles_kernel[
 def component_bounds_finish_tiles_kernel[
     block_size: Int
 ](
-    partials: ImmSpan[Float32, ImmutAnyOrigin],
-    components: ImmSpan[UInt32, ImmutAnyOrigin],
-    offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[Float32, MutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
+    partials: ImmSpan[Float32, ImmUntrackedOrigin],
+    components: ImmSpan[UInt32, ImmUntrackedOrigin],
+    offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[Float32, MutUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     if status[0] != 0:
         return

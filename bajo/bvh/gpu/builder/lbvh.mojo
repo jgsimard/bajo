@@ -40,11 +40,11 @@ from .morton_refine import refine_morton_tiles_kernel
 def compute_bounds_morton_codes_kernel[
     keys_dtype: DType = .uint64
 ](
-    leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    bounds_device: ImmSpan[Float32, ImmutAnyOrigin],
-    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    composite_keys: MutSpan[Scalar[keys_dtype], MutAnyOrigin],
-    values: MutSpan[UInt32, MutAnyOrigin],
+    leaf_bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    bounds_device: ImmSpan[Float32, ImmUntrackedOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    composite_keys: MutSpan[Scalar[keys_dtype], MutUntrackedOrigin],
+    values: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var leaf_count = len(values)
     var i = global_idx.x
@@ -80,8 +80,8 @@ def compute_bounds_morton_codes_kernel[
 
 
 def gather_sorted_morton_codes_kernel(
-    sorted_composite_keys: ImmSpan[UInt64, ImmutAnyOrigin],
-    sorted_morton_codes: MutSpan[UInt32, MutAnyOrigin],
+    sorted_composite_keys: ImmSpan[UInt64, ImmUntrackedOrigin],
+    sorted_morton_codes: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var sorted_idx = global_idx.x
     if sorted_idx >= len(sorted_composite_keys):
@@ -228,10 +228,10 @@ def _lbvh_set_parent(
 
 
 def init_segmented_lbvh_kernel(
-    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    node_flags: MutSpan[UInt32, MutAnyOrigin],
-    roots: MutSpan[UInt32, MutAnyOrigin],
-    leaf_parent: MutSpan[UInt32, MutAnyOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    node_flags: MutSpan[UInt32, MutUntrackedOrigin],
+    roots: MutSpan[UInt32, MutUntrackedOrigin],
+    leaf_parent: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var i = global_idx.x
     if i < len(node_flags):
@@ -250,17 +250,17 @@ def init_segmented_lbvh_kernel(
 
 
 def build_lbvh_topology_and_bounds_kernel(
-    leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    sorted_leaf_ids: ImmSpan[UInt32, ImmutAnyOrigin],
-    sorted_morton_codes: ImmSpan[UInt32, ImmutAnyOrigin],
-    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    internal_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    node_meta: MutSpan[UInt32, MutAnyOrigin],
-    leaf_parent: MutSpan[UInt32, MutAnyOrigin],
-    node_bounds: MutSpan[Float32, MutAnyOrigin],
-    arrival_slots: MutSpan[UInt32, MutAnyOrigin],
-    node_leaf_counts: MutSpan[UInt32, MutAnyOrigin],
-    roots: MutSpan[UInt32, MutAnyOrigin],
+    leaf_bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    sorted_leaf_ids: ImmSpan[UInt32, ImmUntrackedOrigin],
+    sorted_morton_codes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    internal_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    node_meta: MutSpan[UInt32, MutUntrackedOrigin],
+    leaf_parent: MutSpan[UInt32, MutUntrackedOrigin],
+    node_bounds: MutSpan[Float32, MutUntrackedOrigin],
+    arrival_slots: MutSpan[UInt32, MutUntrackedOrigin],
+    node_leaf_counts: MutSpan[UInt32, MutUntrackedOrigin],
+    roots: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     """Apetrei topology construction and AABB propagation in one kernel."""
 

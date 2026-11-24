@@ -14,12 +14,12 @@ def emit_segmented_blas_descriptors_kernel[
     node_f32_stride: Int,
     leaf_f32_stride: Int,
 ](
-    node_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    leaf_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    primitive_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    node_counts: ImmSpan[UInt32, ImmutAnyOrigin],
-    leaf_counts: ImmSpan[UInt32, ImmutAnyOrigin],
-    descs: MutSpan[UInt32, MutAnyOrigin],
+    node_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    leaf_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    primitive_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    node_counts: ImmSpan[UInt32, ImmUntrackedOrigin],
+    leaf_counts: ImmSpan[UInt32, ImmUntrackedOrigin],
+    descs: MutSpan[UInt32, MutUntrackedOrigin],
     segment_count: Int32,
 ):
     """Write one descriptor from device-resident segmented build results."""

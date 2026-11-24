@@ -262,7 +262,10 @@ def test_forced_fallback_keys_smaller_workgroups() raises:
 
 def _publish[
     STATE: UInt32
-](counts: Pointer[UInt32, MutAnyOrigin], spine: Pointer[UInt32, MutAnyOrigin]):
+](
+    counts: Pointer[UInt32, MutUntrackedOrigin],
+    spine: Pointer[UInt32, MutUntrackedOrigin],
+):
     var shared = stack_allocation[
         256, UInt32, address_space=AddressSpace.SHARED
     ]()

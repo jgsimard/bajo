@@ -17,8 +17,8 @@ from bajo.core import Rayf32
 
 
 comptime GpuCameraTraceFn = def(
-    Pointer[Float32, ImmutAnyOrigin],
-    Pointer[Float32, ImmutAnyOrigin],
+    Pointer[Float32, ImmUntrackedOrigin],
+    Pointer[Float32, ImmUntrackedOrigin],
     UInt32,
     Rayf32[.WORLD],
 ) thin -> Hit[.WORLD]
@@ -28,11 +28,11 @@ def trace_bvh_camera_kernel[
     trace_ray: GpuCameraTraceFn,
     single_view: Bool = False,
 ](
-    nodes: Pointer[Float32, ImmutAnyOrigin],
-    leaves: Pointer[Float32, ImmutAnyOrigin],
+    nodes: Pointer[Float32, ImmUntrackedOrigin],
+    leaves: Pointer[Float32, ImmUntrackedOrigin],
     root_idx: UInt32,
-    camera_params: Pointer[Float32, ImmutAnyOrigin],
-    hits: Pointer[Float32, MutAnyOrigin],
+    camera_params: Pointer[Float32, ImmUntrackedOrigin],
+    hits: Pointer[Float32, MutUntrackedOrigin],
     ray_count: Int32,
     width_px: Int32,
     height_px: Int32,

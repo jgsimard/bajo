@@ -31,8 +31,8 @@ def forest_parents(nodes: ImmSpan[UInt32, _]) -> List[UInt32]:
 
 
 def forest_parents_kernel(
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    parents: MutSpan[UInt32, MutAnyOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    parents: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var node_records = TileTensor(
         nodes, row_major(Coord(len(nodes) // 2, Idx[2]))
@@ -70,8 +70,8 @@ def forest_chunks(nodes: ImmSpan[UInt32, _]) -> List[UInt32]:
 
 
 def clear_refit_kernel(
-    counters: MutSpan[UInt32, MutAnyOrigin],
-    status: MutSpan[UInt32, MutAnyOrigin],
+    counters: MutSpan[UInt32, MutUntrackedOrigin],
+    status: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var i = Int(global_idx.x)
     if i < len(counters):
@@ -80,7 +80,7 @@ def clear_refit_kernel(
         status.unsafe_get(0) = 0
 
 
-def _reject(status: MutSpan[UInt32, MutAnyOrigin]):
+def _reject(status: MutSpan[UInt32, _]):
     comptime AtomicU32 = Atomic[
         UInt32, scope="device" if is_nvidia_gpu() else ""
     ]
@@ -90,10 +90,10 @@ def _reject(status: MutSpan[UInt32, MutAnyOrigin]):
 def validate_mesh_refit_kernel[
     cache_keys: Bool = False
 ](
-    input: ImmSpan[Float32, ImmutAnyOrigin],
-    indices: ImmSpan[UInt32, ImmutAnyOrigin],
-    items: MutSpan[Float32, MutAnyOrigin],
-    status: MutSpan[UInt32, MutAnyOrigin],
+    input: ImmSpan[Float32, ImmUntrackedOrigin],
+    indices: ImmSpan[UInt32, ImmUntrackedOrigin],
+    items: MutSpan[Float32, MutUntrackedOrigin],
+    status: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var triangles = TileTensor(
         indices, row_major(Coord(len(indices) // 3, Idx[3]))
@@ -127,9 +127,9 @@ def validate_mesh_refit_kernel[
 
 
 def validate_bounds_refit_kernel(
-    input: ImmSpan[Float32, ImmutAnyOrigin],
-    items: MutSpan[Float32, MutAnyOrigin],
-    status: MutSpan[UInt32, MutAnyOrigin],
+    input: ImmSpan[Float32, ImmUntrackedOrigin],
+    items: MutSpan[Float32, MutUntrackedOrigin],
+    status: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var input_records = TileTensor(
         input, row_major(Coord(len(input) // 6, Idx[6]))
@@ -150,11 +150,11 @@ def validate_bounds_refit_kernel(
 
 def _publish_leaf(
     node: Int,
-    items: ImmSpan[Float32, ImmutAnyOrigin],
-    bounds: MutSpan[Float32, MutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    parents: ImmSpan[UInt32, ImmutAnyOrigin],
-    counters: MutSpan[UInt32, MutAnyOrigin],
+    items: ImmSpan[Float32, _],
+    bounds: MutSpan[Float32, _],
+    nodes: ImmSpan[UInt32, _],
+    parents: ImmSpan[UInt32, _],
+    counters: MutSpan[UInt32, _],
 ):
     var node_records = TileTensor(
         nodes, row_major(Coord(len(nodes) // 2, Idx[2]))
@@ -175,10 +175,10 @@ def _publish_leaf(
 
 def _publish_parent(
     node: Int,
-    bounds: MutSpan[Float32, MutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    parents: ImmSpan[UInt32, ImmutAnyOrigin],
-    counters: MutSpan[UInt32, MutAnyOrigin],
+    bounds: MutSpan[Float32, _],
+    nodes: ImmSpan[UInt32, _],
+    parents: ImmSpan[UInt32, _],
+    counters: MutSpan[UInt32, _],
 ):
     var node_records = TileTensor(
         nodes, row_major(Coord(len(nodes) // 2, Idx[2]))
@@ -211,12 +211,12 @@ def _publish_parent(
 
 
 def publish_bounds_refit_kernel(
-    items: ImmSpan[Float32, ImmutAnyOrigin],
-    bounds: MutSpan[Float32, MutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    parents: ImmSpan[UInt32, ImmutAnyOrigin],
-    counters: MutSpan[UInt32, MutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
+    items: ImmSpan[Float32, ImmUntrackedOrigin],
+    bounds: MutSpan[Float32, MutUntrackedOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    parents: ImmSpan[UInt32, ImmUntrackedOrigin],
+    counters: MutSpan[UInt32, MutUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     if status.unsafe_get(0) != 0:
         return
@@ -228,13 +228,13 @@ def publish_bounds_refit_kernel(
 def refit_mesh_chunks_kernel[
     block_size: Int
 ](
-    input: ImmSpan[Float32, ImmutAnyOrigin],
-    points: MutSpan[Float32, MutAnyOrigin],
-    items: ImmSpan[Float32, ImmutAnyOrigin],
-    bounds: MutSpan[Float32, MutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
-    chunks: ImmSpan[UInt32, ImmutAnyOrigin],
+    input: ImmSpan[Float32, ImmUntrackedOrigin],
+    points: MutSpan[Float32, MutUntrackedOrigin],
+    items: ImmSpan[Float32, ImmUntrackedOrigin],
+    bounds: MutSpan[Float32, MutUntrackedOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
+    chunks: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     var node_records = TileTensor(
         nodes, row_major(Coord(len(nodes) // 2, Idx[2]))
@@ -290,12 +290,12 @@ def refit_mesh_chunks_kernel[
 
 
 def publish_mesh_chunk_parents_kernel(
-    bounds: MutSpan[Float32, MutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    parents: ImmSpan[UInt32, ImmutAnyOrigin],
-    counters: MutSpan[UInt32, MutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
-    chunks: ImmSpan[UInt32, ImmutAnyOrigin],
+    bounds: MutSpan[Float32, MutUntrackedOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    parents: ImmSpan[UInt32, ImmUntrackedOrigin],
+    counters: MutSpan[UInt32, MutUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
+    chunks: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     var i = Int(global_idx.x)
     if status.unsafe_get(0) == 0 and i < len(chunks):

@@ -39,9 +39,9 @@ comptime FLAG_MASK = 3
 def init_onesweep_workspace[
     NUM_PASSES: Int, BLOCK_SIZE: Int
 ](
-    global_hist: Pointer[UInt32, MutAnyOrigin],
-    pass_hist: Pointer[UInt32, MutAnyOrigin],
-    index: Pointer[UInt32, MutAnyOrigin],
+    global_hist: Pointer[UInt32, MutUntrackedOrigin],
+    pass_hist: Pointer[UInt32, MutUntrackedOrigin],
+    index: Pointer[UInt32, MutUntrackedOrigin],
     pass_hist_size: Int32,
 ):
     init_radix_workspace[NUM_PASSES, BLOCK_SIZE, .int32](
@@ -50,8 +50,8 @@ def init_onesweep_workspace[
 
 
 def scan_global(
-    global_hist: Pointer[UInt32, MutAnyOrigin],
-    pass_hist: Pointer[UInt32, MutAnyOrigin],
+    global_hist: Pointer[UInt32, MutUntrackedOrigin],
+    pass_hist: Pointer[UInt32, MutUntrackedOrigin],
     hist_blocks: Int32,
 ):
     var hist_blocks_int = Int(hist_blocks)
@@ -77,12 +77,14 @@ def digit_binning[
     KEYS_PER_THREAD: Int,
     HAVE_PAYLOAD: Bool,
 ](
-    keys_current: Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    keys_alternate: Pointer[Scalar[keys_dtype], MutAnyOrigin],
-    vals_current_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
-    vals_alternate_opt: Optional[Pointer[Scalar[vals_dtype], MutAnyOrigin]],
-    pass_hist: Pointer[UInt32, MutAnyOrigin],
-    index: Pointer[UInt32, MutAnyOrigin],
+    keys_current: Pointer[Scalar[keys_dtype], MutUntrackedOrigin],
+    keys_alternate: Pointer[Scalar[keys_dtype], MutUntrackedOrigin],
+    vals_current_opt: Optional[Pointer[Scalar[vals_dtype], MutUntrackedOrigin]],
+    vals_alternate_opt: Optional[
+        Pointer[Scalar[vals_dtype], MutUntrackedOrigin]
+    ],
+    pass_hist: Pointer[UInt32, MutUntrackedOrigin],
+    index: Pointer[UInt32, MutUntrackedOrigin],
     size: Int32,
     radix_shift: UInt32,
 ):
@@ -326,8 +328,8 @@ def onesweep_radix_sort_keys[
         ctx,
         keys.unsafe_ptr(),
         workspace.keys_alternate.unsafe_ptr(),
-        Optional[Pointer[Scalar[keys_dtype], MutAnyOrigin]](),
-        Optional[Pointer[Scalar[keys_dtype], MutAnyOrigin]](),
+        Optional[MutPointer[Scalar[keys_dtype], MutUntrackedOrigin]](),
+        Optional[MutPointer[Scalar[keys_dtype], MutUntrackedOrigin]](),
         workspace.global_hist.unsafe_ptr(),
         workspace.pass_hist.unsafe_ptr(),
         workspace.index.unsafe_ptr(),

@@ -45,7 +45,7 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
     def __init__(
         out self,
         boxes: ImmSpan[AABB[Self.frame], _],
-        groups: ImmSpan[UInt32, _] = ImmSpan[UInt32, ImmutAnyOrigin](),
+        groups: ImmSpan[UInt32, _] = ImmSpan[UInt32, ImmUntrackedOrigin](),
     ) raises:
         if len(groups) != 0 and len(groups) != len(boxes):
             raise Error("BVH group count must match item count")

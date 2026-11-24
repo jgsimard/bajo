@@ -21,27 +21,27 @@ from test.bvh.cpu.test_spatial_winding import append_tetra
 def _winding_kernel[
     count: Int
 ](
-    points: ImmSpan[Float32, ImmutAnyOrigin],
-    indices: ImmSpan[UInt32, ImmutAnyOrigin],
-    velocities: ImmSpan[Float32, ImmutAnyOrigin],
-    bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    wb: ImmSpan[Float32, ImmutAnyOrigin],
-    wn: ImmSpan[UInt32, ImmutAnyOrigin],
-    offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    faces: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[Float64, MutAnyOrigin],
+    points: ImmSpan[Float32, ImmUntrackedOrigin],
+    indices: ImmSpan[UInt32, ImmUntrackedOrigin],
+    velocities: ImmSpan[Float32, ImmUntrackedOrigin],
+    bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    wb: ImmSpan[Float32, ImmUntrackedOrigin],
+    wn: ImmSpan[UInt32, ImmUntrackedOrigin],
+    offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    faces: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[Float64, MutUntrackedOrigin],
 ):
     var lane = Int(global_idx.x)
     if lane >= count:
         return
-    var view = MeshQueryView[ImmutAnyOrigin, .WORLD](
+    var view = MeshQueryView[ImmUntrackedOrigin, .WORLD](
         points,
         indices,
         velocities,
-        BoundsQueryView[ImmutAnyOrigin, .WORLD](bounds, nodes),
-        device_winding=DeviceWindingView[ImmutAnyOrigin, .WORLD](
-            BoundsQueryView[ImmutAnyOrigin, .WORLD](wb, wn), offsets, faces
+        BoundsQueryView[ImmUntrackedOrigin, .WORLD](bounds, nodes),
+        device_winding=DeviceWindingView[ImmUntrackedOrigin, .WORLD](
+            BoundsQueryView[ImmUntrackedOrigin, .WORLD](wb, wn), offsets, faces
         ),
     )
     var p = Point3f32[.WORLD](

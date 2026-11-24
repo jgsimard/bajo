@@ -29,9 +29,9 @@ comptime UPDATE_BLOCK_SIZE = 256
 def refit_forest[
     block_size: Int
 ](
-    items: ImmSpan[Float32, ImmutAnyOrigin],
-    bounds: MutSpan[Float32, MutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
+    items: ImmSpan[Float32, _],
+    bounds: MutSpan[Float32, _],
+    nodes: ImmSpan[UInt32, _],
 ):
     var node_fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
     var node_bounds = TileTensor(bounds, row_major(len(bounds) // 6, 6))
@@ -115,7 +115,7 @@ def centroid_order_key(lo: Float32, hi: Float32) -> UInt64:
 
 def _rebuild_key[
     cached_keys: Bool
-](items: ImmSpan[Float32, ImmutAnyOrigin], item: UInt32) -> UInt64:
+](items: ImmSpan[Float32, _], item: UInt32) -> UInt64:
     if item == EMPTY_LANE:
         return UInt64.MAX
     comptime if cached_keys:
@@ -135,7 +135,7 @@ def _rebuild_key[
 
 def _item_less[
     cached_keys: Bool = False
-](items: ImmSpan[Float32, ImmutAnyOrigin], a: UInt32, b: UInt32) -> Bool:
+](items: ImmSpan[Float32, _], a: UInt32, b: UInt32) -> Bool:
     var ka = _rebuild_key[cached_keys](items, a)
     var kb = _rebuild_key[cached_keys](items, b)
     return ka < kb or (ka == kb and a < b)
@@ -145,9 +145,9 @@ def _item_less[
 def reorder_forest[
     block_size: Int, cached_keys: Bool = False
 ](
-    items: ImmSpan[Float32, ImmutAnyOrigin],
-    nodes: MutSpan[UInt32, MutAnyOrigin],
-    order: MutSpan[UInt32, MutAnyOrigin],
+    items: ImmSpan[Float32, _],
+    nodes: MutSpan[UInt32, _],
+    order: MutSpan[UInt32, _],
 ):
     var node_fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
     var lane = Int(thread_idx.x)
@@ -245,10 +245,10 @@ def reorder_forest[
 def reorder_mesh_kernel[
     block_size: Int
 ](
-    items: ImmSpan[Float32, ImmutAnyOrigin],
-    nodes: MutSpan[UInt32, MutAnyOrigin],
-    order: MutSpan[UInt32, MutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
+    items: ImmSpan[Float32, ImmUntrackedOrigin],
+    nodes: MutSpan[UInt32, MutUntrackedOrigin],
+    order: MutSpan[UInt32, MutUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     # Prior validation covers all geometry before any published leaf ID changes.
     if status[0] == 0:
@@ -263,10 +263,10 @@ def reorder_mesh_kernel[
 def reorder_bounds_kernel[
     block_size: Int
 ](
-    items: ImmSpan[Float32, ImmutAnyOrigin],
-    nodes: MutSpan[UInt32, MutAnyOrigin],
-    order: MutSpan[UInt32, MutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
+    items: ImmSpan[Float32, ImmUntrackedOrigin],
+    nodes: MutSpan[UInt32, MutUntrackedOrigin],
+    order: MutSpan[UInt32, MutUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     if status[0] == 0:
         reorder_forest[block_size](items, nodes, order)
@@ -278,7 +278,7 @@ def reorder_bounds_kernel[
 
 def _begin_single_block_update[
     block_size: Int
-](status: MutSpan[UInt32, MutAnyOrigin]) -> Bool:
+](status: MutSpan[UInt32, _]) -> Bool:
     """Reject malformed launches before mutation and mark updates pending."""
     comptime assert (
         block_size >= 32
@@ -305,12 +305,12 @@ def _begin_single_block_update[
 def bounds_update_kernel[
     rebuild: Bool, block_size: Int = UPDATE_BLOCK_SIZE
 ](
-    input: ImmSpan[Float32, ImmutAnyOrigin],
-    items: MutSpan[Float32, MutAnyOrigin],
-    bounds: MutSpan[Float32, MutAnyOrigin],
-    nodes: MutSpan[UInt32, MutAnyOrigin],
-    order: MutSpan[UInt32, MutAnyOrigin],
-    status: MutSpan[UInt32, MutAnyOrigin],
+    input: ImmSpan[Float32, ImmUntrackedOrigin],
+    items: MutSpan[Float32, MutUntrackedOrigin],
+    bounds: MutSpan[Float32, MutUntrackedOrigin],
+    nodes: MutSpan[UInt32, MutUntrackedOrigin],
+    order: MutSpan[UInt32, MutUntrackedOrigin],
+    status: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var input_bounds = TileTensor(input, row_major(len(input) // 6, 6))
     if not _begin_single_block_update[block_size](status):
@@ -338,14 +338,14 @@ def bounds_update_kernel[
 def mesh_update_kernel[
     rebuild: Bool, block_size: Int = UPDATE_BLOCK_SIZE
 ](
-    input: ImmSpan[Float32, ImmutAnyOrigin],
-    points: MutSpan[Float32, MutAnyOrigin],
-    indices: ImmSpan[UInt32, ImmutAnyOrigin],
-    items: MutSpan[Float32, MutAnyOrigin],
-    bounds: MutSpan[Float32, MutAnyOrigin],
-    nodes: MutSpan[UInt32, MutAnyOrigin],
-    order: MutSpan[UInt32, MutAnyOrigin],
-    status: MutSpan[UInt32, MutAnyOrigin],
+    input: ImmSpan[Float32, ImmUntrackedOrigin],
+    points: MutSpan[Float32, MutUntrackedOrigin],
+    indices: ImmSpan[UInt32, ImmUntrackedOrigin],
+    items: MutSpan[Float32, MutUntrackedOrigin],
+    bounds: MutSpan[Float32, MutUntrackedOrigin],
+    nodes: MutSpan[UInt32, MutUntrackedOrigin],
+    order: MutSpan[UInt32, MutUntrackedOrigin],
+    status: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var vertices = TileTensor(input, row_major(len(input) // 3, 3))
     var triangles = TileTensor(indices, row_major(len(indices) // 3, 3))
@@ -381,9 +381,9 @@ def mesh_update_kernel[
 def velocity_update_kernel[
     checked: Bool, block_size: Int = UPDATE_BLOCK_SIZE
 ](
-    input: ImmSpan[Float32, ImmutAnyOrigin],
-    velocities: MutSpan[Float32, MutAnyOrigin],
-    status: MutSpan[UInt32, MutAnyOrigin],
+    input: ImmSpan[Float32, ImmUntrackedOrigin],
+    velocities: MutSpan[Float32, MutUntrackedOrigin],
+    status: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     if not _begin_single_block_update[block_size](status):
         return
@@ -407,9 +407,9 @@ def velocity_update_kernel[
 def validate_velocity_blocks[
     block_size: Int, width: SIMDLength = 1
 ](
-    input: ImmSpan[Float32, ImmutAnyOrigin],
-    counters: MutSpan[UInt32, MutAnyOrigin],
-    status: MutSpan[UInt32, MutAnyOrigin],
+    input: ImmSpan[Float32, ImmUntrackedOrigin],
+    counters: MutSpan[UInt32, MutUntrackedOrigin],
+    status: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     """Validate width adjacent components per lane, then publish one status.
 
@@ -457,9 +457,9 @@ def validate_velocity_blocks[
 def publish_velocity_blocks[
     block_size: Int, width: SIMDLength = 1
 ](
-    input: ImmSpan[Float32, ImmutAnyOrigin],
-    velocities: MutSpan[Float32, MutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
+    input: ImmSpan[Float32, ImmUntrackedOrigin],
+    velocities: MutSpan[Float32, MutUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     """Guarded copy after validation; both spans need width*4-byte alignment."""
     comptime assert width <= 8
@@ -480,8 +480,8 @@ def publish_velocity_blocks[
 
 
 def clear_velocity_kernel(
-    velocities: MutSpan[Float32, MutAnyOrigin],
-    status: MutSpan[UInt32, MutAnyOrigin],
+    velocities: MutSpan[Float32, MutUntrackedOrigin],
+    status: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var i = Int(global_idx.x)
     if i < len(velocities):
@@ -491,7 +491,7 @@ def clear_velocity_kernel(
 
 
 def _rebuild_leaf(
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin], root: Int, count: Int, ordinal: Int
+    nodes: ImmSpan[UInt32, _], root: Int, count: Int, ordinal: Int
 ) -> Int:
     var node_fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
     if (count & (count - 1)) == 0:
@@ -518,11 +518,11 @@ def _rebuild_leaf(
 def rebuild_tile_sort_kernel[
     cached_keys: Bool = True
 ](
-    items: ImmSpan[Float32, ImmutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    tiles: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[UInt32, MutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
+    items: ImmSpan[Float32, ImmUntrackedOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    tiles: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[UInt32, MutUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     var descriptors = TileTensor(tiles, row_major(len(tiles) // 3, 3))
     var node_fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
@@ -575,11 +575,11 @@ def rebuild_tile_sort_kernel[
 def rebuild_merge_order_kernel[
     cached_keys: Bool = True
 ](
-    items: ImmSpan[Float32, ImmutAnyOrigin],
-    tiles: ImmSpan[UInt32, ImmutAnyOrigin],
-    source: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[UInt32, MutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
+    items: ImmSpan[Float32, ImmUntrackedOrigin],
+    tiles: ImmSpan[UInt32, ImmUntrackedOrigin],
+    source: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[UInt32, MutUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
     merge_width: UInt32,
 ):
     var descriptors = TileTensor(tiles, row_major(len(tiles) // 3, 3))
@@ -611,10 +611,10 @@ def rebuild_merge_order_kernel[
 
 
 def publish_rebuild_order_kernel(
-    tiles: ImmSpan[UInt32, ImmutAnyOrigin],
-    source: ImmSpan[UInt32, ImmutAnyOrigin],
-    nodes: MutSpan[UInt32, MutAnyOrigin],
-    status: ImmSpan[UInt32, ImmutAnyOrigin],
+    tiles: ImmSpan[UInt32, ImmUntrackedOrigin],
+    source: ImmSpan[UInt32, ImmUntrackedOrigin],
+    nodes: MutSpan[UInt32, MutUntrackedOrigin],
+    status: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     var descriptors = TileTensor(tiles, row_major(len(tiles) // 3, 3))
     var node_fields = TileTensor(nodes, row_major(len(nodes) // 2, 2))
@@ -629,7 +629,7 @@ def publish_rebuild_order_kernel(
         node_fields[node, 1] = source[root + i]
 
 
-def clear_rebuild_order_kernel(order: MutSpan[UInt32, MutAnyOrigin]):
+def clear_rebuild_order_kernel(order: MutSpan[UInt32, MutUntrackedOrigin]):
     var i = Int(block_idx.x) * 256 + Int(thread_idx.x)
     if i < len(order):
         order[i] = 0
@@ -675,21 +675,28 @@ def enqueue_forest_rebuild[
     )
     var in_scratch = True
     var width = 256
-    while width < item_count:
+
+    def merge(
+        source: DeviceBuffer[.uint32], destination: DeviceBuffer[.uint32]
+    ) raises {imm}:
         ctx.enqueue_function[rebuild_merge_order_kernel[cached_keys]](
             _device_span[mut=False](items),
             _device_span[mut=False](tiles),
-            _device_span[mut=False](scratch) if in_scratch else _device_span[
-                mut=False
-            ](order),
-            _device_span[mut=True](order) if in_scratch else _device_span[
-                mut=True
-            ](scratch),
+            _device_span[mut=False](source),
+            _device_span[mut=True](destination),
             _device_span[mut=False](status),
             UInt32(width),
             grid_dim=blocks,
             block_dim=256,
         )
+
+    while width < item_count:
+        # Choose the allocation pair before borrowing: merging the two span
+        # origins would make the input and output appear to alias.
+        if in_scratch:
+            merge(scratch, order)
+        else:
+            merge(order, scratch)
         in_scratch = not in_scratch
         width *= 2
     ctx.enqueue_function[publish_rebuild_order_kernel](

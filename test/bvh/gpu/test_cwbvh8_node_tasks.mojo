@@ -70,9 +70,9 @@ def _reference_tasks[
 def _compare_tasks[
     max_leaf_size: Int
 ](
-    nodes: ImmPointer[Float32, ImmutAnyOrigin],
-    rays: ImmPointer[Float32, ImmutAnyOrigin],
-    results: MutPointer[UInt32, MutAnyOrigin],
+    nodes: ImmPointer[Float32, ImmUntrackedOrigin],
+    rays: ImmPointer[Float32, ImmUntrackedOrigin],
+    results: MutPointer[UInt32, MutUntrackedOrigin],
     ray_count: Int32,
     node_count: Int32,
 ):

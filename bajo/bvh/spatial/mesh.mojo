@@ -73,9 +73,9 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
         out self,
         points: ImmSpan[Point3f32[Self.frame], _],
         indices: ImmSpan[UInt32, _],
-        groups: ImmSpan[UInt32, _] = ImmSpan[UInt32, ImmutAnyOrigin](),
+        groups: ImmSpan[UInt32, _] = ImmSpan[UInt32, ImmUntrackedOrigin](),
         velocities: ImmSpan[Vec3f32[Self.frame], _] = ImmSpan[
-            Vec3f32[Self.frame], ImmutAnyOrigin
+            Vec3f32[Self.frame], ImmUntrackedOrigin
         ](),
         cache_winding: Bool = True,
         cache_adjacency: Bool = True,

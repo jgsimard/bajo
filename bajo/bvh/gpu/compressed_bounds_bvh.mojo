@@ -144,11 +144,11 @@ def _unary_triangle_count(count: UInt32) -> UInt32:
 def _encode_cwbvh8_node[
     leaf_width: SIMDLength,
 ](
-    wide_nodes: Pointer[Float32, ImmutAnyOrigin],
-    leaf_block_indices: Pointer[UInt32, ImmutAnyOrigin],
-    cwbvh_nodes: Pointer[Float32, MutAnyOrigin],
-    compact_primitive_ids: Pointer[UInt32, MutAnyOrigin],
-    triangle_counter: Pointer[UInt32, MutAnyOrigin],
+    wide_nodes: ImmPointer[Float32, _],
+    leaf_block_indices: ImmPointer[UInt32, _],
+    cwbvh_nodes: MutPointer[Float32, _],
+    compact_primitive_ids: MutPointer[UInt32, _],
+    triangle_counter: MutPointer[UInt32, _],
     node_idx_i: Int,
 ):
     comptime assert leaf_width == CWBVH_LEAF_STORAGE_WIDTH
@@ -300,15 +300,15 @@ def _encode_cwbvh8_node[
 def encode_segmented_cwbvh8_nodes_kernel[
     leaf_width: SIMDLength,
 ](
-    wide_nodes: Pointer[Float32, ImmutAnyOrigin],
-    leaf_block_indices: Pointer[UInt32, ImmutAnyOrigin],
-    node_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    leaf_block_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    primitive_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    node_counts: Pointer[UInt32, ImmutAnyOrigin],
-    cwbvh_nodes: Pointer[Float32, MutAnyOrigin],
-    compact_primitive_ids: Pointer[UInt32, MutAnyOrigin],
-    triangle_counters: Pointer[UInt32, MutAnyOrigin],
+    wide_nodes: Pointer[Float32, ImmUntrackedOrigin],
+    leaf_block_indices: Pointer[UInt32, ImmUntrackedOrigin],
+    node_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    leaf_block_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    primitive_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    node_counts: Pointer[UInt32, ImmUntrackedOrigin],
+    cwbvh_nodes: Pointer[Float32, MutUntrackedOrigin],
+    compact_primitive_ids: Pointer[UInt32, MutUntrackedOrigin],
+    triangle_counters: Pointer[UInt32, MutUntrackedOrigin],
 ):
     """Encode packed wide segments while retaining local CWBVH indices."""
     comptime assert leaf_width == CWBVH_LEAF_STORAGE_WIDTH
@@ -344,10 +344,10 @@ def encode_segmented_cwbvh8_nodes_kernel[
 def pack_segmented_cwbvh_triangles_kernel[
     single_segment: Bool = False,
 ](
-    vertices: Pointer[Float32, ImmutAnyOrigin],
-    primitive_ids: Pointer[UInt32, ImmutAnyOrigin],
-    primitive_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    triangles: Pointer[Float32, MutAnyOrigin],
+    vertices: Pointer[Float32, ImmUntrackedOrigin],
+    primitive_ids: Pointer[UInt32, ImmUntrackedOrigin],
+    primitive_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    triangles: Pointer[Float32, MutUntrackedOrigin],
     triangle_count: Int32,
 ):
     var triangle_idx = global_idx.x

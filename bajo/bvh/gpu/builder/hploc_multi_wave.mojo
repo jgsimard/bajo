@@ -140,16 +140,16 @@ def _hploc_arrive_parent(ptr: MutPointer[UInt32, _], desired: UInt32) -> UInt32:
 def init_hploc_multi_wave_kernel[
     write_leaf_parents: Bool = True, cache_leaf_bounds: Bool = False
 ](
-    sorted_leaf_ids: ImmSpan[UInt32, ImmutAnyOrigin],
-    leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    scratch_bounds: MutSpan[Float32, MutAnyOrigin],
-    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    parent_slots: MutSpan[UInt32, MutAnyOrigin],
-    cluster_indices: MutSpan[UInt32, MutAnyOrigin],
-    leaf_parent: MutSpan[UInt32, MutAnyOrigin],
-    node_counter: MutSpan[UInt32, MutAnyOrigin],
-    root: MutSpan[UInt32, MutAnyOrigin],
-    status: MutSpan[UInt32, MutAnyOrigin],
+    sorted_leaf_ids: ImmSpan[UInt32, ImmUntrackedOrigin],
+    leaf_bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    scratch_bounds: MutSpan[Float32, MutUntrackedOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    parent_slots: MutSpan[UInt32, MutUntrackedOrigin],
+    cluster_indices: MutSpan[UInt32, MutUntrackedOrigin],
+    leaf_parent: MutSpan[UInt32, MutUntrackedOrigin],
+    node_counter: MutSpan[UInt32, MutUntrackedOrigin],
+    root: MutSpan[UInt32, MutUntrackedOrigin],
+    status: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var sorted_pos = global_idx.x
     var leaf_count = len(sorted_leaf_ids)
@@ -194,23 +194,23 @@ def build_hploc_multi_wave_kernel[
     compute_leaf_counts: Bool,
     cache_leaf_bounds: Bool = False,
 ](
-    sorted_morton_codes: ImmSpan[UInt32, ImmutAnyOrigin],
-    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    internal_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    leaf_bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    sorted_leaf_ids: ImmSpan[UInt32, ImmutAnyOrigin],
-    parent_slots: MutSpan[UInt32, MutAnyOrigin],
-    cluster_indices: MutSpan[UInt32, MutAnyOrigin],
-    scratch_bounds: MutSpan[Float32, MutAnyOrigin],
-    compact_children: MutSpan[UInt32, MutAnyOrigin],
-    node_meta: MutSpan[UInt32, MutAnyOrigin],
-    leaf_parent: MutSpan[UInt32, MutAnyOrigin],
-    node_bounds: MutSpan[Float32, MutAnyOrigin],
-    node_flags: MutSpan[UInt32, MutAnyOrigin],
-    node_leaf_counts: MutSpan[UInt32, MutAnyOrigin],
-    node_counter: MutSpan[UInt32, MutAnyOrigin],
-    root: MutSpan[UInt32, MutAnyOrigin],
-    status: MutSpan[UInt32, MutAnyOrigin],
+    sorted_morton_codes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    internal_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    leaf_bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    sorted_leaf_ids: ImmSpan[UInt32, ImmUntrackedOrigin],
+    parent_slots: MutSpan[UInt32, MutUntrackedOrigin],
+    cluster_indices: MutSpan[UInt32, MutUntrackedOrigin],
+    scratch_bounds: MutSpan[Float32, MutUntrackedOrigin],
+    compact_children: MutSpan[UInt32, MutUntrackedOrigin],
+    node_meta: MutSpan[UInt32, MutUntrackedOrigin],
+    leaf_parent: MutSpan[UInt32, MutUntrackedOrigin],
+    node_bounds: MutSpan[Float32, MutUntrackedOrigin],
+    node_flags: MutSpan[UInt32, MutUntrackedOrigin],
+    node_leaf_counts: MutSpan[UInt32, MutUntrackedOrigin],
+    node_counter: MutSpan[UInt32, MutUntrackedOrigin],
+    root: MutSpan[UInt32, MutUntrackedOrigin],
+    status: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     """Literature H-PLOC outer and inner loops for arbitrary leaf counts."""
 
@@ -557,11 +557,11 @@ def build_hploc_multi_wave_kernel[
 
 
 def finalize_hploc_multi_wave_kernel(
-    segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    internal_segment_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    node_counter: ImmSpan[UInt32, ImmutAnyOrigin],
-    root: ImmSpan[UInt32, ImmutAnyOrigin],
-    status: MutSpan[UInt32, MutAnyOrigin],
+    segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    internal_segment_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    node_counter: ImmSpan[UInt32, ImmUntrackedOrigin],
+    root: ImmSpan[UInt32, ImmUntrackedOrigin],
+    status: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var segment_idx = global_idx.x
     if segment_idx >= len(segment_offsets) - 1 or status.unsafe_get(

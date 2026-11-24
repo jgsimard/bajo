@@ -201,7 +201,7 @@ def _append_instance_lights(
     instance_idx: Int,
     radiance: Color,
     mut output: LightStore,
-    texcoords: ImmSpan[Float32, _] = ImmSpan[Float32, ImmutAnyOrigin](),
+    texcoords: ImmSpan[Float32, _] = ImmSpan[Float32, ImmUntrackedOrigin](),
     two_sided: Bool = False,
 ) raises:
     var status = 0

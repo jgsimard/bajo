@@ -15,9 +15,9 @@ from bajo.postprocess.gpu import (
 
 
 def gpu_rt_accumulate_preview_kernel(
-    incoming: ImmPointer[Float32, ImmutAnyOrigin],
-    summed: MutPointer[Float32, MutAnyOrigin],
-    counters: ImmPointer[UInt32, ImmutAnyOrigin],
+    incoming: ImmPointer[Float32, ImmUntrackedOrigin],
+    summed: MutPointer[Float32, MutUntrackedOrigin],
+    counters: ImmPointer[UInt32, ImmUntrackedOrigin],
     count: Int32,
     batch: Float32,
     reset: UInt32,
@@ -35,8 +35,8 @@ def gpu_rt_accumulate_preview_kernel(
 
 
 def _encode_preview_kernel(
-    source: ImmPointer[Float32, ImmutAnyOrigin],
-    rgba: MutPointer[UInt8, MutAnyOrigin],
+    source: ImmPointer[Float32, ImmUntrackedOrigin],
+    rgba: MutPointer[UInt8, MutUntrackedOrigin],
     count: Int32,
     divisor: Float32,
 ):

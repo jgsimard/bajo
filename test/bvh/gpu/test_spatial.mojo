@@ -11,16 +11,16 @@ from bajo.bvh.gpu.utils import _device_span
 def _query_kernel[
     query_count: Int
 ](
-    bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[UInt32, MutAnyOrigin],
+    bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[UInt32, MutUntrackedOrigin],
     root: UInt32,
     count: Int32,
 ):
     var lane = global_idx.x
     if lane >= query_count:
         return
-    var view = BoundsQueryView[ImmutAnyOrigin, .WORLD](bounds, nodes)
+    var view = BoundsQueryView[ImmUntrackedOrigin, .WORLD](bounds, nodes)
     var box = AABB(Point3f32[.WORLD](0.0), Point3f32[.WORLD](1.0))
     var ray = Rayf32[.WORLD](
         Point3f32[.WORLD](0.5, 0.5, -1.0), Vec3f32[.WORLD](0.0, 0.0, 1.0)
@@ -139,14 +139,14 @@ def test_gpu_many_group_queries_and_updates_match_cpu() raises:
 def _invalid_kernel[
     case_count: Int
 ](
-    bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[UInt32, MutAnyOrigin],
+    bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var lane = global_idx.x
     if lane >= case_count:
         return
-    var view = BoundsQueryView[ImmutAnyOrigin, .WORLD](bounds, nodes)
+    var view = BoundsQueryView[ImmUntrackedOrigin, .WORLD](bounds, nodes)
     var query = view.query_aabb(AABB[.WORLD].invalid())
     var nan = bitcast[.float32](UInt32(0x7FC00000))
     if lane == 1:

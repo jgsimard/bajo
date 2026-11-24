@@ -39,8 +39,8 @@ def _case(
 def _geometry_kernel[
     count: Int
 ](
-    data: ImmSpan[Float32, ImmutAnyOrigin],
-    output: MutSpan[Float64, MutAnyOrigin],
+    data: ImmSpan[Float32, ImmUntrackedOrigin],
+    output: MutSpan[Float64, MutUntrackedOrigin],
 ):
     var lane = Int(global_idx.x)
     if lane >= count:

@@ -11,9 +11,9 @@ from bajo.sort.gpu.onesweep import OneSweepWorkspace, onesweep_radix_sort_pairs
 
 
 def _ray_order_keys(
-    rays: ImmPointer[Float32, ImmutAnyOrigin],
-    keys: MutPointer[UInt32, MutAnyOrigin],
-    indices: MutPointer[UInt32, MutAnyOrigin],
+    rays: ImmPointer[Float32, ImmUntrackedOrigin],
+    keys: MutPointer[UInt32, MutUntrackedOrigin],
+    indices: MutPointer[UInt32, MutUntrackedOrigin],
     count: Int32,
     min_x: Float32,
     min_y: Float32,
@@ -42,8 +42,8 @@ def _ray_order_keys(
 
 
 def _copy_ray_buffer(
-    source: ImmPointer[Float32, ImmutAnyOrigin],
-    destination: MutPointer[Float32, MutAnyOrigin],
+    source: ImmPointer[Float32, ImmUntrackedOrigin],
+    destination: MutPointer[Float32, MutUntrackedOrigin],
     count: Int32,
 ):
     # The ray stride is eight words, so every copy has complete four-word

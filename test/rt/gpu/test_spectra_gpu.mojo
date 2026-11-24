@@ -24,7 +24,7 @@ def _spectra_kernel[
 ](
     table: RgbSpectrumView[],
     film: FilmResponse,
-    output: Pointer[Float32, MutAnyOrigin],
+    output: Pointer[Float32, MutUntrackedOrigin],
 ):
     var base = Int(global_idx.x) * Int(width)
     if base >= 257:
@@ -81,7 +81,7 @@ def _spectra_kernel[
 
 def _reference_kernel[
     _device: Bool = True
-](table: RgbSpectrumView[], output: Pointer[Float32, MutAnyOrigin]):
+](table: RgbSpectrumView[], output: Pointer[Float32, MutUntrackedOrigin]):
     var index = Int(global_idx.x)
     if index >= 12:
         return
@@ -227,7 +227,7 @@ def test_gpu_wavelengths_spectral_arithmetic_and_cie_film_match_scalar_cpu() rai
 
 def _optical_scene_kernel[
     width: SIMDLength, _device: Bool = True
-](scene: GpuRtSceneView, output: Pointer[Float32, MutAnyOrigin]):
+](scene: GpuRtSceneView, output: Pointer[Float32, MutUntrackedOrigin]):
     var base = Int(global_idx.x) * Int(width)
     if base >= 256:
         return

@@ -13,10 +13,10 @@ from bajo.bvh.gpu.utils import _device_span
 def _block_kernel[
     block_size: Int, kind: Int
 ](
-    bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[UInt32, MutAnyOrigin],
-    stats: MutSpan[UInt32, MutAnyOrigin],
+    bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[UInt32, MutUntrackedOrigin],
+    stats: MutSpan[UInt32, MutUntrackedOrigin],
     group_root: UInt32,
     item_count: Int32,
 ):
@@ -27,7 +27,7 @@ def _block_kernel[
         root = group_root
     elif block == 2:
         root = EMPTY_LANE
-    var view = BoundsQueryView[ImmutAnyOrigin, .WORLD](bounds, nodes)
+    var view = BoundsQueryView[ImmUntrackedOrigin, .WORLD](bounds, nodes)
     var ray = Rayf32[.WORLD](
         Point3f32[.WORLD](0.5, 0.5, -1.0), Vec3f32[.WORLD](0.0, 0.0, 1.0)
     )
@@ -47,7 +47,7 @@ def _block_kernel[
         )
     if block == 3:
         query = view.query_sphere(Point3f32[.WORLD](0.0), -1.0)
-    var batch = BlockBoundsQuery[ImmutAnyOrigin, .WORLD, block_size](query^)
+    var batch = BlockBoundsQuery[ImmUntrackedOrigin, .WORLD, block_size](query^)
     for i in range(lane, Int(item_count), block_size):
         output[block * Int(item_count) + i] = 0
     stats[block * block_size + lane] = 0
@@ -179,18 +179,18 @@ def test_block_queries_empty_tree() raises:
 def _cutoff_kernel[
     block_size: Int
 ](
-    bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[UInt32, MutAnyOrigin],
+    bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[UInt32, MutUntrackedOrigin],
 ):
     var lane = Int(thread_idx.x)
-    var view = BoundsQueryView[ImmutAnyOrigin, .WORLD](bounds, nodes)
+    var view = BoundsQueryView[ImmUntrackedOrigin, .WORLD](bounds, nodes)
     var query = view.query_ray(
         Rayf32[.WORLD](
             Point3f32[.WORLD](0.5, 0.5, 0.0), Vec3f32[.WORLD](0.0, 0.0, 1.0)
         )
     )
-    var batch = BlockBoundsQuery[ImmutAnyOrigin, .WORLD, block_size](query^)
+    var batch = BlockBoundsQuery[ImmUntrackedOrigin, .WORLD, block_size](query^)
     output[lane] = 0
     var item = UInt32(999)
     var valid = batch.next(item, 2.0)
@@ -235,15 +235,15 @@ def test_block_ray_cutoffs_remain_monotonic() raises:
 def _wrong_shape_kernel[
     block_size: Int
 ](
-    bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[UInt32, MutAnyOrigin],
+    bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[UInt32, MutUntrackedOrigin],
 ):
-    var view = BoundsQueryView[ImmutAnyOrigin, .WORLD](bounds, nodes)
+    var view = BoundsQueryView[ImmUntrackedOrigin, .WORLD](bounds, nodes)
     var query = view.query_aabb(
         AABB(Point3f32[.WORLD](0.0), Point3f32[.WORLD](1.0))
     )
-    var batch = BlockBoundsQuery[ImmutAnyOrigin, .WORLD, block_size](query^)
+    var batch = BlockBoundsQuery[ImmUntrackedOrigin, .WORLD, block_size](query^)
     var index = UInt32(99)
     var valid = batch.next(index)
     output[thread_idx.x] = UInt32(valid or batch.batch_valid or index != 99)

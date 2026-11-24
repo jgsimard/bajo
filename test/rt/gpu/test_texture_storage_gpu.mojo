@@ -19,9 +19,9 @@ from test.rt.cpu.test_texture_storage import make_textures
 def _decode_kernel[
     _device: Bool = True
 ](
-    descriptors: Pointer[UInt32, ImmutAnyOrigin],
-    words: Pointer[Float32, ImmutAnyOrigin],
-    output: Pointer[UInt32, MutAnyOrigin],
+    descriptors: Pointer[UInt32, ImmUntrackedOrigin],
+    words: Pointer[Float32, ImmUntrackedOrigin],
+    output: Pointer[UInt32, MutUntrackedOrigin],
 ):
     var index = global_idx.x
     if index >= 289:

@@ -29,10 +29,10 @@ def compact_segmented_buffer_kernel[
     dtype: DType,
     item_stride: Int,
 ](
-    source: Pointer[Scalar[dtype], ImmutAnyOrigin],
-    source_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    target_offsets: ImmSpan[UInt32, ImmutAnyOrigin],
-    target: Pointer[Scalar[dtype], MutAnyOrigin],
+    source: Pointer[Scalar[dtype], ImmUntrackedOrigin],
+    source_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    target_offsets: ImmSpan[UInt32, ImmUntrackedOrigin],
+    target: Pointer[Scalar[dtype], MutUntrackedOrigin],
     scalar_count: Int32,
 ):
     """Copy exact final fields in parallel while preserving segment order."""

@@ -20,11 +20,11 @@ from bajo.core.random import Rng
 def _compare_masks[
     triangle_count: Int, frame: Frame
 ](
-    triangles: ImmPointer[Float32, ImmutAnyOrigin],
-    wide_triangles: ImmPointer[Float32, ImmutAnyOrigin],
-    vertices: ImmPointer[Float32, ImmutAnyOrigin],
-    primitive_ids: ImmPointer[UInt32, ImmutAnyOrigin],
-    results: MutPointer[UInt32, MutAnyOrigin],
+    triangles: ImmPointer[Float32, ImmUntrackedOrigin],
+    wide_triangles: ImmPointer[Float32, ImmUntrackedOrigin],
+    vertices: ImmPointer[Float32, ImmUntrackedOrigin],
+    primitive_ids: ImmPointer[UInt32, ImmUntrackedOrigin],
+    results: MutPointer[UInt32, MutUntrackedOrigin],
 ):
     var index = global_idx.x
     if index >= triangle_count * 64:

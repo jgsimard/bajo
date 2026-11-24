@@ -18,7 +18,7 @@ from test.core.zsobol_reference import ZSOBOL_REFERENCE
 
 def _reference_kernel[
     _device: Bool = True
-](output: Pointer[UInt32, MutAnyOrigin]):
+](output: Pointer[UInt32, MutUntrackedOrigin]):
     var index = Int(global_idx.x)
     ref cases = global_constant[ZSOBOL_REFERENCE]()
     if index >= len(cases):
@@ -59,7 +59,7 @@ def _stream_kernel[
 ](
     config: SamplingConfig,
     stage: UInt32,
-    output: Pointer[Float32, MutAnyOrigin],
+    output: Pointer[Float32, MutUntrackedOrigin],
 ):
     var first = Int(global_idx.x) * Int(width)
     if first >= 257:

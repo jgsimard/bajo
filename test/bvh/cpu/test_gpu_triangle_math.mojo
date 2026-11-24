@@ -81,24 +81,18 @@ def test_gpu_triangle_nearest_hit_normal_and_occlusion() raises:
         var ids = List[UInt32](length=3, fill=EMPTY_LANE)
         var counter = List[UInt32](length=1, fill=0)
         _encode_cwbvh8_node[4](
-            wide.unsafe_ptr()
-            .unsafe_mut_cast[False]()
-            .unsafe_origin_cast[ImmutAnyOrigin](),
-            indices.unsafe_ptr()
-            .unsafe_mut_cast[False]()
-            .unsafe_origin_cast[ImmutAnyOrigin](),
-            nodes.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
-            ids.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
-            counter.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+            wide.unsafe_ptr().unsafe_mut_cast[False](),
+            indices.unsafe_ptr().unsafe_mut_cast[False](),
+            nodes.unsafe_ptr(),
+            ids.unsafe_ptr(),
+            counter.unsafe_ptr(),
             0,
         )
         var ray = Rayf32[.WORLD](Point3W(0.0, 0.0, 0.0), Vec3W(0.0, 0.0, 1.0))
         var ordinary = Hit[.WORLD].miss(ray.t_max)
         assert_true(
             _intersect_triangle_leaf[.WORLD, 4, .CLOSEST_HIT](
-                wide_leaf.unsafe_ptr()
-                .unsafe_mut_cast[False]()
-                .unsafe_origin_cast[ImmutAnyOrigin](),
+                wide_leaf.unsafe_ptr().unsafe_mut_cast[False](),
                 0,
                 3,
                 ray,
@@ -106,25 +100,15 @@ def test_gpu_triangle_nearest_hit_normal_and_occlusion() raises:
             )
         )
         var compressed = trace_cwbvh8_triangles[.WORLD, .CLOSEST_HIT](
-            nodes.unsafe_ptr()
-            .unsafe_mut_cast[False]()
-            .unsafe_origin_cast[ImmutAnyOrigin](),
-            packed.unsafe_ptr()
-            .unsafe_mut_cast[False]()
-            .unsafe_origin_cast[ImmutAnyOrigin](),
+            nodes.unsafe_ptr().unsafe_mut_cast[False](),
+            packed.unsafe_ptr().unsafe_mut_cast[False](),
             0,
             ray,
         )
         var indexed = trace_cwbvh8_indexed_triangles[.WORLD, .CLOSEST_HIT](
-            nodes.unsafe_ptr()
-            .unsafe_mut_cast[False]()
-            .unsafe_origin_cast[ImmutAnyOrigin](),
-            ids.unsafe_ptr()
-            .unsafe_mut_cast[False]()
-            .unsafe_origin_cast[ImmutAnyOrigin](),
-            vertices.unsafe_ptr()
-            .unsafe_mut_cast[False]()
-            .unsafe_origin_cast[ImmutAnyOrigin](),
+            nodes.unsafe_ptr().unsafe_mut_cast[False](),
+            ids.unsafe_ptr().unsafe_mut_cast[False](),
+            vertices.unsafe_ptr().unsafe_mut_cast[False](),
             0,
             ray,
         )
@@ -136,27 +120,17 @@ def test_gpu_triangle_nearest_hit_normal_and_occlusion() raises:
             assert_almost_equal(hit.normal.z, 0.8944272)
         assert_true(
             trace_cwbvh8_triangles[.WORLD, .ANY_HIT](
-                nodes.unsafe_ptr()
-                .unsafe_mut_cast[False]()
-                .unsafe_origin_cast[ImmutAnyOrigin](),
-                packed.unsafe_ptr()
-                .unsafe_mut_cast[False]()
-                .unsafe_origin_cast[ImmutAnyOrigin](),
+                nodes.unsafe_ptr().unsafe_mut_cast[False](),
+                packed.unsafe_ptr().unsafe_mut_cast[False](),
                 0,
                 ray,
             ).is_occluded()
         )
         assert_true(
             trace_cwbvh8_indexed_triangles[.WORLD, .ANY_HIT](
-                nodes.unsafe_ptr()
-                .unsafe_mut_cast[False]()
-                .unsafe_origin_cast[ImmutAnyOrigin](),
-                ids.unsafe_ptr()
-                .unsafe_mut_cast[False]()
-                .unsafe_origin_cast[ImmutAnyOrigin](),
-                vertices.unsafe_ptr()
-                .unsafe_mut_cast[False]()
-                .unsafe_origin_cast[ImmutAnyOrigin](),
+                nodes.unsafe_ptr().unsafe_mut_cast[False](),
+                ids.unsafe_ptr().unsafe_mut_cast[False](),
+                vertices.unsafe_ptr().unsafe_mut_cast[False](),
                 0,
                 ray,
             ).is_occluded()
@@ -166,12 +140,8 @@ def test_gpu_triangle_nearest_hit_normal_and_occlusion() raises:
         )
         assert_true(
             not trace_cwbvh8_triangles[.WORLD, .CLOSEST_HIT](
-                nodes.unsafe_ptr()
-                .unsafe_mut_cast[False]()
-                .unsafe_origin_cast[ImmutAnyOrigin](),
-                packed.unsafe_ptr()
-                .unsafe_mut_cast[False]()
-                .unsafe_origin_cast[ImmutAnyOrigin](),
+                nodes.unsafe_ptr().unsafe_mut_cast[False](),
+                packed.unsafe_ptr().unsafe_mut_cast[False](),
                 0,
                 miss,
             ).is_hit()

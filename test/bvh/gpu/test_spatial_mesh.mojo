@@ -22,24 +22,24 @@ def _mesh_kernel[
     _device: Bool = True
 ](
     count_arg: Int32,
-    points: ImmSpan[Float32, ImmutAnyOrigin],
-    indices: ImmSpan[UInt32, ImmutAnyOrigin],
-    velocities: ImmSpan[Float32, ImmutAnyOrigin],
-    bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[Float64, MutAnyOrigin],
+    points: ImmSpan[Float32, ImmUntrackedOrigin],
+    indices: ImmSpan[UInt32, ImmUntrackedOrigin],
+    velocities: ImmSpan[Float32, ImmUntrackedOrigin],
+    bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[Float64, MutUntrackedOrigin],
     root: UInt32,
-    adjacency: ImmSpan[UInt32, ImmutAnyOrigin],
+    adjacency: ImmSpan[UInt32, ImmUntrackedOrigin],
 ):
     var count = Int(count_arg)
     var lane = global_idx.x
     if lane >= count:
         return
-    var view = MeshQueryView[ImmutAnyOrigin, .WORLD](
+    var view = MeshQueryView[ImmUntrackedOrigin, .WORLD](
         points,
         indices,
         velocities,
-        BoundsQueryView[ImmutAnyOrigin, .WORLD](bounds, nodes),
+        BoundsQueryView[ImmUntrackedOrigin, .WORLD](bounds, nodes),
     )
     view.adjacency = adjacency
     var p = Point3f32[.WORLD](
@@ -256,21 +256,21 @@ def test_gpu_empty_mesh_and_failed_update_atomicity() raises:
 def _edge_kernel[
     count: Int
 ](
-    points: ImmSpan[Float32, ImmutAnyOrigin],
-    indices: ImmSpan[UInt32, ImmutAnyOrigin],
-    velocities: ImmSpan[Float32, ImmutAnyOrigin],
-    bounds: ImmSpan[Float32, ImmutAnyOrigin],
-    nodes: ImmSpan[UInt32, ImmutAnyOrigin],
-    output: MutSpan[Float64, MutAnyOrigin],
+    points: ImmSpan[Float32, ImmUntrackedOrigin],
+    indices: ImmSpan[UInt32, ImmUntrackedOrigin],
+    velocities: ImmSpan[Float32, ImmUntrackedOrigin],
+    bounds: ImmSpan[Float32, ImmUntrackedOrigin],
+    nodes: ImmSpan[UInt32, ImmUntrackedOrigin],
+    output: MutSpan[Float64, MutUntrackedOrigin],
     scale: Float32,
 ):
     if global_idx.x >= count:
         return
-    var view = MeshQueryView[ImmutAnyOrigin, .WORLD](
+    var view = MeshQueryView[ImmUntrackedOrigin, .WORLD](
         points,
         indices,
         velocities,
-        BoundsQueryView[ImmutAnyOrigin, .WORLD](bounds, nodes),
+        BoundsQueryView[ImmUntrackedOrigin, .WORLD](bounds, nodes),
     )
     var p = Point3f32[.WORLD](scale * 0.25, scale * 0.25, scale)
     var projection = view.query_point_no_sign(p)
@@ -382,10 +382,11 @@ def test_mesh_aabb_cooperative_original_faces_groups_and_updates() raises:
 
 
 def _adjacent_normal_kernel[
-    _device: Bool = True
+    origin: ImmOrigin,
+    _device: Bool = True,
 ](
-    view: MeshQueryView[ImmutAnyOrigin, .WORLD],
-    output: MutSpan[Float32, MutAnyOrigin],
+    view: MeshQueryView[origin, .WORLD],
+    output: MutSpan[Float32, MutUntrackedOrigin],
     root: UInt32,
 ):
     var i = Int(global_idx.x)
@@ -435,7 +436,9 @@ def test_gpu_adjacency_view_survives_parallel_device_rebuild_and_graph() raises:
                 gpu.check_update(ctx)
             assert_equal(Int(gpu.adjacency.unsafe_ptr()), address)
             for root in [UInt32(0), cpu.group_root(0), cpu.group_root(2)]:
-                ctx.enqueue_function[_adjacent_normal_kernel[True]](
+                ctx.enqueue_function[
+                    _adjacent_normal_kernel[origin_of(gpu), True]
+                ](
                     gpu.view(),
                     _device_span[mut=True](output),
                     root,

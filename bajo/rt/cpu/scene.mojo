@@ -745,7 +745,7 @@ struct CpuScene[
                             var triangle = Int(hits.prim[lane])
                             var vertex = 3 * triangle
                             var texcoords = TileTensor(
-                                ImmSpan(uvs),
+                                uvs,
                                 row_major(Coord(len(uvs) // 6, Idx[3], Idx[2])),
                             )
                             var tangent = triangle_uv_tangent(

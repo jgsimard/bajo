@@ -236,11 +236,11 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
     ):
         var node_i = Int(bin_idx)
         var costs = TileTensor(
-            MutSpan(dp.costs),
+            dp.costs,
             row_major(Coord(len(dp.best_slots), Idx[Self.width])),
         )
         var splits = TileTensor(
-            MutSpan(dp.splits),
+            dp.splits,
             row_major(Coord(len(dp.best_slots), Idx[Self.width])),
         )
         ref node = bvh.nodes[node_i]
@@ -327,7 +327,7 @@ struct BoundsBvh[frame: Frame, width: SIMDLength](Copyable):
         var slot_budget = Array[UInt8, Self.width](fill=UInt8(1))
         var p_size = 1
         var splits = TileTensor(
-            ImmSpan(dp.splits),
+            dp.splits,
             row_major(Coord(len(dp.best_slots), Idx[Self.width])),
         )
 

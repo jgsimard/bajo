@@ -369,7 +369,7 @@ def evaluate_bsdf(
         case .MIX:
             var index = Int(surface.index())
             var children = TileTensor(
-                ImmSpan(surfaces.mix_surfaces),
+                surfaces.mix_surfaces,
                 row_major(Coord(len(surfaces.mix_surfaces) // 2, Idx[2])),
             )
             var first = evaluate_bsdf(
@@ -438,7 +438,7 @@ def sample_bsdf(
             )
             var choose_second = rng.f32() < amount
             var children = TileTensor(
-                ImmSpan(surfaces.mix_surfaces),
+                surfaces.mix_surfaces,
                 row_major(Coord(len(surfaces.mix_surfaces) // 2, Idx[2])),
             )
             var selected = SurfaceId.from_raw(

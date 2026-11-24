@@ -226,9 +226,9 @@ struct GpuWavefrontArena:
             "host/device path capacities must match",
         )
         with self.path_a.path_ids.map_to_host() as ids:
-            ids.as_span().copy_from(Span(packed.path_ids))
+            ids.as_span().copy_from(packed.path_ids)
         with self.path_a.fields.map_to_host() as fields:
-            fields.as_span().copy_from(Span(packed.fields))
+            fields.as_span().copy_from(packed.fields)
         ctx.synchronize()
 
     def download_next(

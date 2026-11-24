@@ -127,7 +127,7 @@ def _rgb_rows(width: Int, height: Int, filter: Int) -> List[UInt8]:
 
 def _assert_matches_reference(bytes: List[UInt8]) raises:
     var actual = parse_png(bytes)
-    var expected = _parse_png_libpng(ImmSpan(bytes))
+    var expected = _parse_png_libpng(bytes)
     assert_equal(actual.width, expected.width)
     assert_equal(actual.height, expected.height)
     assert_equal(len(actual.pixels), len(expected.pixels))
@@ -225,7 +225,7 @@ def test_malformed_png_is_rejected() raises:
             _ = parse_png(broken)
     for count in [0, 1, 7, 32, len(good) - 1, len(good) - 12]:
         with assert_raises():
-            _ = parse_png(ImmSpan(good)[:count])
+            _ = parse_png(good[:count])
     var raw = _rgb_rows(5, 3, -1)
     raw[0] = UInt8(5)
     with assert_raises():
@@ -367,9 +367,9 @@ def test_rgba_preserves_unassociated_color_and_linear_alpha() raises:
 def test_data_png_palette_and_one_bit_alpha() raises:
     var encoded = _encode([UInt8(0), 0b01000000], 2, 1, color=3, depth=1)
     # Insert tRNS after the IHDR and two-entry PLTE, before IDAT.
-    var bytes = List[UInt8](ImmSpan(encoded)[:51])
+    var bytes = List[UInt8](encoded[:51])
     _chunk(bytes, "tRNS", [UInt8(0), 128])
-    bytes.extend(ImmSpan(encoded)[51:])
+    bytes.extend(encoded[51:])
     var image = parse_png(bytes, linear=True)
     assert_equal(image.pixels[0], Float32(1.0))
     assert_equal(image.pixels[1], Float32(0.0))

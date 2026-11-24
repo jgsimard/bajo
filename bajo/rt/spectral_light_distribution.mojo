@@ -272,7 +272,7 @@ struct SpectralLightDistribution:
         self.probabilities.clear()
         self.aliases.clear()
         build_alias_distribution(
-            Span(finite_weights), finite_total, self.probabilities, self.aliases
+            finite_weights, finite_total, self.probabilities, self.aliases
         )
         if self.environment_kind == .IMAGE:
             for nm in range(360, 831):
@@ -318,7 +318,7 @@ struct SpectralLightDistribution:
             self.environment_probabilities.clear()
             self.environment_aliases.clear()
             build_alias_distribution(
-                Span(weights),
+                weights,
                 total,
                 self.environment_probabilities,
                 self.environment_aliases,

@@ -776,7 +776,7 @@ struct SceneData:
                         "environment importance integral must be finite"
                     )
                 build_alias_distribution(
-                    Span(weights),
+                    weights,
                     total,
                     self._environment_alias_probabilities,
                     self._environment_alias_indices,

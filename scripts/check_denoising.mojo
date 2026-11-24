@@ -101,9 +101,9 @@ def cpu_check(
     report(
         prefix,
         low,
-        ImmSpan(noisy.pixels),
-        ImmSpan(workspace.ping),
-        ImmSpan(reference.pixels),
+        noisy.pixels,
+        workspace.ping,
+        reference.pixels,
     )
 
 
@@ -142,9 +142,7 @@ def gpu_check[
         / 1048576,
     )
     var reference = renderer.render[.MIS](high, camera)
-    report(
-        prefix, low, ImmSpan(raw), ImmSpan(filtered), ImmSpan(reference.pixels)
-    )
+    report(prefix, low, raw, filtered, reference.pixels)
 
 
 def main() raises:

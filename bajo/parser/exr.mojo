@@ -608,7 +608,7 @@ def _parse_exr_bulk(
                     if chunk.end - chunk.begin != chunk.decoded_size:
                         raise Error("unexpected OpenEXR scanline chunk size")
                     _decode_scanlines(
-                        Span(pixels)[
+                        pixels[
                             3
                             * header.width()
                             * chunk.row : 3
@@ -628,14 +628,14 @@ def _parse_exr_bulk(
                 var decoded = List[UInt8](unsafe_uninit_length=scratch_size)
                 for i in range(begin, end):
                     ref chunk = chunks[i]
-                    var data = Span(decoded)[: chunk.decoded_size]
+                    var data = decoded[: chunk.decoded_size]
                     _inflate_chunk(
                         bytes[chunk.begin : chunk.end],
-                        Span(predicted)[: chunk.decoded_size],
+                        predicted[: chunk.decoded_size],
                         data,
                     )
                     _decode_scanlines(
-                        Span(pixels)[
+                        pixels[
                             3
                             * header.width()
                             * chunk.row : 3

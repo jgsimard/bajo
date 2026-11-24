@@ -93,21 +93,21 @@ struct GpuBlasSet[
                     )
                     # v0, primitive id, and e1 occupy planes 0 through 6 in
                     # both layouts.
-                    Span(upload_leaves)[
+                    upload_leaves[
                         gpu_block_base : gpu_block_base + 7 * Self.leaf_width
                     ].copy_from(
-                        ImmSpan(host.leaves)[
+                        host.leaves[
                             cpu_block_base : cpu_block_base
                             + 7 * Self.leaf_width
                         ]
                     )
                     # GPU planes 7 and 11 remain zero padding around e2.
-                    Span(upload_leaves)[
+                    upload_leaves[
                         gpu_block_base
                         + 8 * Self.leaf_width : gpu_block_base
                         + 11 * Self.leaf_width
                     ].copy_from(
-                        ImmSpan(host.leaves)[
+                        host.leaves[
                             cpu_block_base
                             + 7 * Self.leaf_width : cpu_block_base
                             + 10 * Self.leaf_width

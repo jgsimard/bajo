@@ -642,7 +642,7 @@ def _decode_vertices(
                 if prop.semantic >= _X and prop.semantic <= _Z:
                     _decode_vertex_property(
                         bytes,
-                        Span(mesh.positions),
+                        mesh.positions,
                         prop.scalar_type,
                         offset,
                         stride,
@@ -654,7 +654,7 @@ def _decode_vertices(
                 elif prop.semantic >= _NX and prop.semantic <= _NZ:
                     _decode_vertex_property(
                         bytes,
-                        Span(mesh.normals),
+                        mesh.normals,
                         prop.scalar_type,
                         offset,
                         stride,
@@ -666,7 +666,7 @@ def _decode_vertices(
                 elif prop.semantic == _U or prop.semantic == _V:
                     _decode_vertex_property(
                         bytes,
-                        Span(mesh.texcoords),
+                        mesh.texcoords,
                         prop.scalar_type,
                         offset,
                         stride,
@@ -987,7 +987,7 @@ def _parse_ply_bulk_from_header(
                 bytes,
                 header,
                 chunk,
-                Span(mesh.indices)[
+                mesh.indices[
                     chunk.output_offset : chunk.output_offset
                     + chunk.output_count
                 ],

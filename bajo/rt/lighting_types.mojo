@@ -107,7 +107,7 @@ struct LightStore(Defaultable):
         for record in self.records:
             weights.append(record.weight)
         build_alias_distribution(
-            Span(weights),
+            weights,
             Float64(self.total_weight),
             self.alias_probabilities,
             self.alias_indices,

@@ -63,9 +63,7 @@ struct FrameAccumulator(Defaultable):
         comptime assert size_of[Color]() == 3 * size_of[Float32]()
         var source = frame.pixels.unsafe_ptr().unsafe_bitcast[Float32]()
         var linear = self.linear.unsafe_ptr().unsafe_bitcast[Float32]()
-        var rgba = TileTensor(
-            MutSpan(self.rgba), row_major(len(self.linear), 4)
-        )
+        var rgba = TileTensor(self.rgba, row_major(len(self.linear), 4))
         var pixel = 0
         # Six remaining pixels bound both 16-float loads. Only the first
         # twelve lanes are stored, so each group of four pixels accumulates

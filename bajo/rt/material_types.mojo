@@ -665,7 +665,7 @@ struct SurfaceStore(Defaultable):
         var texture_index = self.mix_texture_indices[index]
         if texture_index != NO_TEXTURE:
             var scales = TileTensor(
-                ImmSpan(self.mix_uv_scales),
+                self.mix_uv_scales,
                 row_major(Coord(len(self.mix_uv_scales) // 2, Idx[2])),
             )
             amount *= self.image_textures[Int(texture_index)].sample_luminance(
@@ -684,7 +684,7 @@ struct SurfaceStore(Defaultable):
         var selected = surface.copy()
         random = random.clamp(0.0, 0.99999994)
         var children = TileTensor(
-            ImmSpan(self.mix_surfaces),
+            self.mix_surfaces,
             row_major(Coord(len(self.mix_surfaces) // 2, Idx[2])),
         )
         while selected.kind() == .MIX:
@@ -719,11 +719,11 @@ struct SurfaceStore(Defaultable):
             MaterialKind.MIX.value()
         )
         var scales = TileTensor(
-            ImmSpan(self.mix_uv_scales),
+            self.mix_uv_scales,
             row_major(Coord(len(self.mix_uv_scales) // 2, Idx[2])),
         )
         var children = TileTensor(
-            ImmSpan(self.mix_surfaces),
+            self.mix_surfaces,
             row_major(Coord(len(self.mix_surfaces) // 2, Idx[2])),
         )
         while pending.reduce_or():

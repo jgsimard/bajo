@@ -109,9 +109,7 @@ def _pack_built_triangle_blas[
         var source_base = block_idx * block_stride
         var destination_base = leaf_f32_base + source_base
         leaves[destination_base : destination_base + block_stride].copy_from(
-            ImmSpan(bvh.packed_leaf_blocks)[
-                source_base : source_base + block_stride
-            ]
+            bvh.packed_leaf_blocks[source_base : source_base + block_stride]
         )
 
     var node_count = len(bvh.tree.nodes)

@@ -392,7 +392,7 @@ def prepare_gpu_scene[
                 texcoords.extend(Span(mesh_texcoords))
                 ref vertices = data.triangle_meshes()[mesh_idx]
                 var uv = TileTensor(
-                    ImmSpan(mesh_texcoords),
+                    mesh_texcoords,
                     row_major(Coord(len(mesh_texcoords) // 6, Idx[3], Idx[2])),
                 )
                 for vertex in range(0, len(vertices), 3):

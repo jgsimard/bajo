@@ -256,7 +256,7 @@ def test_resolved_indices_match_scalar_boundaries_and_all_byte_values() raises:
             for digit in range(10):
                 token[digit] = UInt8(49 + digit % 9)
             token[position] = UInt8(byte)
-            _assert_resolved_index_matches_scalar(ImmSpan(token), limit)
+            _assert_resolved_index_matches_scalar(token, limit)
 
 
 def test_every_face_index_component_rejects_invalid_fields() raises:
@@ -776,14 +776,14 @@ def test_decimal_blocks_reject_every_nondigit_byte() raises:
             var expected = F32ParseResult(0.0, 0)
             var reference_raised = False
             try:
-                expected = parse_f32_at(Span(bytes), 0)
+                expected = parse_f32_at(bytes, 0)
             except:
                 reference_raised = True
             if reference_raised:
                 with assert_raises():
-                    _ = parse_f32_fast_at(Span(bytes), 0)
+                    _ = parse_f32_fast_at(bytes, 0)
             else:
-                var actual = parse_f32_fast_at(Span(bytes), 0)
+                var actual = parse_f32_fast_at(bytes, 0)
                 assert_true(actual.pos == expected.pos)
                 assert_true(
                     bitcast[.uint32](actual.value)

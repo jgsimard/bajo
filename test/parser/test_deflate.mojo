@@ -55,7 +55,7 @@ def test_checksum_simd_and_block_boundaries_match_zlib() raises:
             5553,
             11105,
         ]:
-            var span = ImmSpan(bytes)[offset : offset + count]
+            var span = bytes[offset : offset + count]
             for seed in [UInt32(0), 1, 0x12345678, 0xFFFFFFFF]:
                 assert_equal(
                     adler32(span, seed),
@@ -99,7 +99,7 @@ def test_adler_maximal_sums_do_not_overflow_at_nmax() raises:
         11104,
         11105,
     ]:
-        var span = ImmSpan(maximal)[:count]
+        var span = maximal[:count]
         assert_equal(
             adler32(span, 0xFFF0FFF0),
             UInt32(
@@ -124,7 +124,7 @@ def test_adler_pair_batches_and_vector_tails_match_zlib() raises:
         counts.append(count)
     for offset in [0, 1, 7, 15, 31, 32, 63]:
         for count in counts:
-            var span = ImmSpan(bytes)[offset : offset + count]
+            var span = bytes[offset : offset + count]
             for seed in [UInt32(0), 1, 0xFFFFFFFF]:
                 assert_equal(
                     adler32(span, seed),
@@ -147,7 +147,7 @@ def test_crc_vector_folding_tails_and_seeded_updates() raises:
         bytes[i] = UInt8((i * 73 + i // 13) & 255)
     for offset in [0, 1, 3, 7, 15, 16, 17, 31, 32, 33, 47, 63]:
         for count in range(258):
-            var span = ImmSpan(bytes)[offset : offset + count]
+            var span = bytes[offset : offset + count]
             for seed in [UInt32(0), 0x5A3C9571]:
                 assert_equal(crc32(span, seed), _crc32_portable(span, seed))
 
@@ -159,7 +159,7 @@ def test_crc_alignment_prologue_matches_zlib() raises:
     var lib = OwnedDLHandle("libz.so.1")
     for offset in range(64):
         for count in [65535, 65536, 65537, 65551, 131071]:
-            var span = ImmSpan(bytes)[offset : offset + count]
+            var span = bytes[offset : offset + count]
             for seed in [UInt32(0), 0x5A3C9571]:
                 assert_equal(
                     crc32(span, seed),
@@ -181,12 +181,12 @@ def test_stored_fixed_dynamic_blocks_and_history_wrap() raises:
         for level in [0, 1, 6, 9]:
             var compressed = _compressed(source, level)
             var output = List[UInt8](length=count + 17, fill=0xA5)
-            assert_equal(inflate_zlib(compressed, Span(output)[:count]), count)
+            assert_equal(inflate_zlib(compressed, output[:count]), count)
             for i in range(count):
                 assert_equal(output[i], source[i])
             for i in range(count, len(output)):
                 assert_equal(output[i], UInt8(0xA5))
-            var raw = inflate_raw(ImmSpan(compressed)[2:], Span(output)[:count])
+            var raw = inflate_raw(compressed[2:], output[:count])
             assert_equal(raw[0], len(compressed) - 6)
             assert_equal(raw[1], count)
 
@@ -209,7 +209,7 @@ def test_truncation_checksums_and_output_capacity_are_checked() raises:
     var output = List[UInt8](length=len(source) + 1, fill=0xA5)
     for size in range(len(compressed)):
         with assert_raises():
-            _ = inflate_zlib(ImmSpan(compressed)[:size], output)
+            _ = inflate_zlib(compressed[:size], output)
     for index in [0, 1, len(compressed) - 1]:
         var corrupt = compressed.copy()
         corrupt[index] ^= UInt8(128)
@@ -217,7 +217,7 @@ def test_truncation_checksums_and_output_capacity_are_checked() raises:
             _ = inflate_zlib(corrupt, output)
     for size in [0, 1, len(source) - 1]:
         with assert_raises():
-            _ = inflate_zlib(compressed, Span(output)[:size])
+            _ = inflate_zlib(compressed, output[:size])
     assert_equal(output[len(source)], UInt8(0xA5))
 
 

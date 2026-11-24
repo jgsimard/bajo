@@ -42,7 +42,7 @@ def _flatten_metals(world: SceneData) -> List[Float32]:
         length=len(world.surfaces().metals) * GpuMetalLayout.STRIDE, fill=0.0
     )
     var records = TileTensor(
-        Span(out),
+        out,
         row_major(
             Coord(len(world.surfaces().metals), Idx[GpuMetalLayout.STRIDE])
         ),
@@ -98,7 +98,7 @@ def _flatten_coated_diffuse_texture_indices(world: SceneData) -> List[UInt32]:
         fill=NO_TEXTURE,
     )
     var records = TileTensor(
-        Span(out),
+        out,
         row_major(
             Coord(
                 len(world.surfaces().coated_diffuses),

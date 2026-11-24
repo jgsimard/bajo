@@ -34,7 +34,7 @@ def main() raises:
         var rejected = False
         var count = 0
         try:
-            count = inflate_zlib(compressed, Span(output)[16 : 16 + capacity])
+            count = inflate_zlib(compressed, output[16 : 16 + capacity])
         except error:
             rejected = True
             if not error_expected:

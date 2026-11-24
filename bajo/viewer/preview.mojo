@@ -96,9 +96,7 @@ struct CpuPreviewAccumulator:
                 self.statistics.value(), self.guides.value(), self.workspace
             )
         var rgba = List[UInt8](length=self.width * self.height * 4, fill=255)
-        var output = TileTensor(
-            MutSpan(rgba), row_major(Coord(len(self.sums), Idx[4]))
-        )
+        var output = TileTensor(rgba, row_major(Coord(len(self.sums), Idx[4])))
         for i in range(len(self.sums)):
             var color = self.workspace.ping[i] if denoise else self.sums[
                 i

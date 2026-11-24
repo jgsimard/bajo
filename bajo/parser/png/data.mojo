@@ -30,7 +30,7 @@ def _unfilter_data(
     mut raw: List[UInt8], row_bytes: Int, height: Int, bpp: Int
 ) raises:
     var stride = row_bytes + 1
-    var scanlines = TileTensor(MutSpan(raw), row_major(height, stride))
+    var scanlines = TileTensor(raw, row_major(height, stride))
     for y in range(height):
         var filter = scanlines[y, 0]
         if filter > 4:
@@ -187,11 +187,9 @@ def parse_data_png(bytes: ImmSpan[UInt8, _]) raises -> ImageTexture:
         length=width * height if has_alpha else 0, fill=1.0
     )
     var maximum = (1 << depth) - 1
-    var output = TileTensor(
-        MutSpan(pixels), row_major(Coord(width * height, Idx[3]))
-    )
+    var output = TileTensor(pixels, row_major(Coord(width * height, Idx[3])))
     var palette_rgb = TileTensor(
-        ImmSpan(palette), row_major(Coord(len(palette) // 3, Idx[3]))
+        palette, row_major(Coord(len(palette) // 3, Idx[3]))
     )
     for y in range(height):
         var row = y * stride + 1

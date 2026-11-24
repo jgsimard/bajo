@@ -143,7 +143,7 @@ Texture "height" "float" "imagemap" "string filename" "shared.png"
 """,
     )
     var calls = List[Int](length=4, fill=0)
-    var loader = _CountingAssetLoader(memory^, Span(calls))
+    var loader = _CountingAssetLoader(memory^, calls)
     # Caches are local to a parse: a new scene must load fresh assets.
     for run in range(2):
         var scene = read_pbrt("scene/main.pbrt", loader)
@@ -194,7 +194,7 @@ Shape "plymesh" "string filename" "assets/shared.ply"
         )
         memory.add_ply_file("scene/assets/shared.ply", _triangle_ply())
         var calls = List[Int](length=4, fill=0)
-        var loader = _CountingAssetLoader(memory^, Span(calls))
+        var loader = _CountingAssetLoader(memory^, calls)
         var scene = read_pbrt("scene/main.pbrt", loader)
         assert_equal(calls[0], 1)
         assert_equal(len(scene.data.triangle_meshes()), 2)
@@ -260,7 +260,7 @@ Shape "plymesh" "string filename" "other/shared.ply"
     memory.add_ply_file("scene/assets/shared.ply", _triangle_ply())
     memory.add_ply_file("scene/other/shared.ply", _triangle_ply())
     var calls = List[Int](length=4, fill=0)
-    var loader = _CountingAssetLoader(memory^, Span(calls))
+    var loader = _CountingAssetLoader(memory^, calls)
     var scene = read_pbrt("scene/main.pbrt", loader)
     assert_equal(calls[0], 1)
     assert_equal(calls[1], 1)

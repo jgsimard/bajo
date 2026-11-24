@@ -154,7 +154,7 @@ def test_pinhole_primary_paths_preserve_sampler_dimensions_and_signed_zero() rai
                 var paths = PacketPathQueue[16](17)
                 var weights = List[Float32](length=17, fill=0)
                 _initialize_path_packets_range(
-                    paths, settings, sampling, camera, 0, 17, MutSpan(weights)
+                    paths, settings, sampling, camera, 0, 17, weights
                 )
                 for index in range(len(paths.packets)):
                     var ids = iota[.uint32, 16]() + UInt32(index * 16)

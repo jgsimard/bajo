@@ -70,8 +70,8 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
         """Store after the caller has validated the complete Hit block."""
         comptime assert Self.length == 1
         var records = TileTensor(
-            ptr=hits.unsafe_ptr(),
-            layout=row_major(Coord(len(hits) // Self.STRIDE, Idx[Self.STRIDE])),
+            hits,
+            row_major(Coord(len(hits) // Self.STRIDE, Idx[Self.STRIDE])),
         )
         records[idx, Self.U] = self.u[0]
         records[idx, Self.V] = self.v[0]
@@ -89,8 +89,8 @@ struct Hit[frame: Frame = .WORLD, length: SIMDLength = 1](
             "Hit load is outside the input span",
         )
         var records = TileTensor(
-            ptr=hits.unsafe_ptr(),
-            layout=row_major(Coord(len(hits) // Self.STRIDE, Idx[Self.STRIDE])),
+            hits,
+            row_major(Coord(len(hits) // Self.STRIDE, Idx[Self.STRIDE])),
         )
         return Self(
             records[idx, Self.U],

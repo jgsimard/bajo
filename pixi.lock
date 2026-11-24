@@ -4,7 +4,7 @@ platforms:
   subdir: linux-64
   virtual-packages:
   - __glibc=2.38
-  - __unix=0=0
+  - __unix=0
   - __linux=4.18
   - __archspec=0=x86_64
 environments:
@@ -89,7 +89,7 @@ environments:
       - conda: https://conda.modular.com/max-nightly/linux-64/mojo-compiler-1.3.0.dev2026112316-release.conda
       - conda: https://conda.modular.com/max-nightly/noarch/mblack-26.8.0.dev2026112316-release.conda
       - conda: https://conda.modular.com/max-nightly/noarch/mojo-python-1.3.0.dev2026112316-libpython_release.conda
-      - conda_source: raylib[7c9f16e6] @ git+https://github.com/jgsimard/raylib?branch=dev#56f6702afc5bbe2a5a1bfd5fc6f204277e5d9562
+      - conda_source: raylib[53f2b0ee] @ git+https://github.com/jgsimard/raylib?branch=dev#56f6702afc5bbe2a5a1bfd5fc6f204277e5d9562
   plotting:
     channels:
     - url: https://conda.modular.com/max-nightly/
@@ -2770,7 +2770,7 @@ packages:
   run_exports: {}
   size: 26576
   timestamp: 1795450248500
-- conda_source: raylib[7c9f16e6] @ git+https://github.com/jgsimard/raylib?branch=dev#56f6702afc5bbe2a5a1bfd5fc6f204277e5d9562
+- conda_source: raylib[53f2b0ee] @ git+https://github.com/jgsimard/raylib?branch=dev#56f6702afc5bbe2a5a1bfd5fc6f204277e5d9562
   version: 0.1.0
   build: hcf1e741_0
   subdir: linux-64
@@ -2778,10 +2778,10 @@ packages:
     __glibc: __glibc >=2.38
     target_platform: linux-64
   depends:
+  - __glibc >=2.38
   - mojo >=1.3.0.dev2026110405,<2
   - xorg-libx11
   - xorg-libx11 >=1.8.14,<2.0a0
-  - __glibc >=2.38
   build_packages:
   - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
   - conda: https://conda.anaconda.org/conda-forge/linux-64/libgcc-16.2.0-ha9f2e26_7.conda

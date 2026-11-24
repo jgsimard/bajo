@@ -56,10 +56,8 @@ def gpu_rt_coated_shade_kernel[
 ):
     var sampling = sampling_arg.load()
     var capacity = Int(queues.capacity)
-    var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
-    var fields = queues.shade_fields.unsafe_mut_cast[
-        False
-    ]().unsafe_origin_cast[ImmutAnyOrigin]()
+    var counters = queues.counters
+    var fields = queues.shade_fields.unsafe_mut_cast[False]()
     var shade_tile = gpu_rt_shade_tile(fields, capacity)
     var work_count = Int(counters[unsafe_offset=WAVE_COUNTER.SHADE])
     var slot = global_idx.x
@@ -75,19 +73,15 @@ def gpu_rt_coated_shade_kernel[
         var surface_value = queues.shade_surfaces[unsafe_offset=idx]
         if SurfaceId.kind_from_raw(surface_value) == .COATED_DIFFUSE:
             var work = load_device_wave_shade(
-                queues.shade_path_refs.unsafe_mut_cast[
-                    False
-                ]().unsafe_origin_cast[ImmutAnyOrigin](),
-                queues.shade_surfaces.unsafe_mut_cast[
-                    False
-                ]().unsafe_origin_cast[ImmutAnyOrigin](),
+                queues.shade_path_refs.unsafe_mut_cast[False](),
+                queues.shade_surfaces.unsafe_mut_cast[False](),
                 fields,
                 capacity,
                 idx,
             )
             var path = load_gpu_rt_path[integrator](
-                queues.src_path_ids.unsafe_origin_cast[ImmutAnyOrigin](),
-                queues.src_path_fields.unsafe_origin_cast[ImmutAnyOrigin](),
+                queues.src_path_ids,
+                queues.src_path_fields,
                 capacity,
                 Int(work.path_idx),
             )
@@ -132,14 +126,12 @@ def gpu_rt_coated_shade_kernel[
                     uv_v,
                     work.t,
                     surface_value,
-                    scene.coated_diffuses.unsafe_origin_cast[ImmutAnyOrigin](),
-                    scene.coated_diffuse_texture_indices.unsafe_origin_cast[
-                        ImmutAnyOrigin
-                    ](),
-                    scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin](),
-                    scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin](),
-                    queues.dst_path_ids.unsafe_origin_cast[MutAnyOrigin](),
-                    queues.dst_path_fields.unsafe_origin_cast[MutAnyOrigin](),
+                    scene.coated_diffuses,
+                    scene.coated_diffuse_texture_indices,
+                    scene.texture_descs,
+                    scene.texture_pixels,
+                    queues.dst_path_ids,
+                    queues.dst_path_fields,
                     counters,
                     capacity,
                     sampling,

@@ -1,7 +1,7 @@
 """Mixed coated conductors retain instance attributes and chunk invariance."""
 
 from test.rt.helpers import assert_pixels_close
-from std.testing import TestSuite, assert_true
+from std.testing import TestSuite, assert_equal, assert_true
 from max.gpu.host import DeviceContext
 from bajo.parser import MemoryAssetLoader
 from bajo.parser.pbrt import read_pbrt

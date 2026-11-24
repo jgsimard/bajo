@@ -123,16 +123,8 @@ def test_palette_and_raw_fallback_preserve_every_float32_bit() raises:
     )
     var expected_words = 3 + 2 * (256 + 17 * 17) + 257 * 3
     assert_equal(len(packed.words), expected_words)
-    var descriptors = (
-        packed.descriptors.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin]()
-    )
-    var words = (
-        packed.words.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin]()
-    )
+    var descriptors = packed.descriptors.unsafe_ptr().unsafe_mut_cast[False]()
+    var words = packed.words.unsafe_ptr().unsafe_mut_cast[False]()
     for image in range(len(surfaces.image_textures)):
         var view = _GpuImageTextureView.load(UInt32(image), descriptors, words)
         ref source = surfaces.image_textures[image]
@@ -148,16 +140,8 @@ def test_palette_and_raw_fallback_preserve_every_float32_bit() raises:
 def test_paletted_nearest_bilinear_and_environment_addressing_match_source() raises:
     var surfaces = make_textures()
     var packed = pack_texture_tables(surfaces)
-    var descriptors = (
-        packed.descriptors.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin]()
-    )
-    var words = (
-        packed.words.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin]()
-    )
+    var descriptors = packed.descriptors.unsafe_ptr().unsafe_mut_cast[False]()
+    var words = packed.words.unsafe_ptr().unsafe_mut_cast[False]()
     for image in range(len(surfaces.image_textures)):
         var view = _GpuImageTextureView.load(UInt32(image), descriptors, words)
         ref source = surfaces.image_textures[image]

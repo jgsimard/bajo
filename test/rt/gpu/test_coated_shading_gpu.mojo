@@ -1,6 +1,11 @@
 """Deferred coated shading retains instance UVs and global path IDs."""
 
-from std.testing import TestSuite, assert_almost_equal, assert_true
+from std.testing import (
+    TestSuite,
+    assert_equal,
+    assert_almost_equal,
+    assert_true,
+)
 from max.gpu.host import DeviceContext
 
 from bajo.core.random import Sampler

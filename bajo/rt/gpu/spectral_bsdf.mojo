@@ -35,10 +35,8 @@ def load_spectral_material[
     var rgb = Color(0)
     var texture = NO_TEXTURE
     var source = NO_SPECTRUM
-    var texture_descs = scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin]()
-    var texture_pixels = scene.texture_pixels.unsafe_origin_cast[
-        ImmutAnyOrigin
-    ]()
+    var texture_descs = scene.texture_descs
+    var texture_pixels = scene.texture_pixels
     comptime if kind == .LAMBERTIAN:
         var records = TileTensor(
             ptr=scene.lambertians, layout=row_major(Coord(index + 1, Idx[3]))
@@ -84,13 +82,11 @@ def load_spectral_material[
     else:
         comptime assert kind == .COATED_DIFFUSE
         var base = _sample_gpu_coated_parameters(
-            scene.coated_diffuses.unsafe_origin_cast[ImmutAnyOrigin](),
+            scene.coated_diffuses,
             index,
             u,
             v,
-            scene.coated_diffuse_texture_indices.unsafe_origin_cast[
-                ImmutAnyOrigin
-            ](),
+            scene.coated_diffuse_texture_indices,
             texture_descs,
             texture_pixels,
         )

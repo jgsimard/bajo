@@ -65,18 +65,10 @@ def spectral_trace_surface[
     capacity: Int,
     guide_mix_random: Float32 = -1,
 ) -> Tuple[SurfaceHit[1], UInt32]:
-    var texture_descs = scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin]()
-    var texture_pixels = scene.texture_pixels.unsafe_origin_cast[
-        ImmutAnyOrigin
-    ]()
-    var coated_diffuses = scene.coated_diffuses.unsafe_origin_cast[
-        ImmutAnyOrigin
-    ]()
-    var coated_diffuse_texture_indices = (
-        scene.coated_diffuse_texture_indices.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
-    )
+    var texture_descs = scene.texture_descs
+    var texture_pixels = scene.texture_pixels
+    var coated_diffuses = scene.coated_diffuses
+    var coated_diffuse_texture_indices = scene.coated_diffuse_texture_indices
     var medium_boundary = UInt32(0)
     var geometric_outward = Vec3f32[.WORLD](0.0)
     var found = False
@@ -406,7 +398,7 @@ def spectral_trace_surface[
         uv_u,
         uv_v,
         geometric.front_face,
-        scene.normal_maps.unsafe_origin_cast[ImmutAnyOrigin](),
+        scene.normal_maps,
         Int(scene.normal_map_count),
         texture_descs,
         texture_pixels,
@@ -427,7 +419,7 @@ def spectral_trace_surface[
             normal,
             uv_u,
             uv_v,
-            scene.dielectrics.unsafe_origin_cast[ImmutAnyOrigin](),
+            scene.dielectrics,
             texture_descs,
             texture_pixels,
         )

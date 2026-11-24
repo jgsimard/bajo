@@ -72,9 +72,9 @@ def _test_continuation[
         path,
         2.0,
         sampled,
-        ids.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
-        fields.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
-        counters.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+        ids.unsafe_ptr(),
+        fields.unsafe_ptr(),
+        counters.unsafe_ptr(),
         CAPACITY,
         sampling,
         bounce,
@@ -103,12 +103,8 @@ def _test_continuation[
         return
 
     var result = load_gpu_rt_path[integrator](
-        ids.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
-        fields.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
+        ids.unsafe_ptr().unsafe_mut_cast[False](),
+        fields.unsafe_ptr().unsafe_mut_cast[False](),
         CAPACITY,
         0,
     )

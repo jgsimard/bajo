@@ -35,14 +35,14 @@ def gpu_rt_bounce_block_limit(bounce: UInt32, block_size: Int) -> Int:
 
 
 def make_gpu_rt_primary_path(
-    camera_params: Pointer[Float32, ImmutAnyOrigin],
+    camera_params: ImmPointer[Float32, _],
     sample_base: UInt32,
     idx: Int,
     width_i32: Int32,
     height_i32: Int32,
     samples_per_pixel_i32: Int32,
     sampling: SamplingConfig,
-    sample_radiance: Pointer[Float32, MutAnyOrigin],
+    sample_radiance: MutPointer[Float32, _],
     capacity: Int,
 ) -> DeviceWavePath:
     var width = Int(width_i32)
@@ -86,7 +86,7 @@ def make_gpu_rt_primary_path(
 
 
 def clear_gpu_rt_sample(
-    sample_radiance: Pointer[Float32, MutAnyOrigin],
+    sample_radiance: MutPointer[Float32, _],
     capacity: Int,
     idx: Int,
 ):
@@ -141,8 +141,8 @@ def gpu_rt_primary_kernel[
 def _gpu_rt_resolve_pixel[
     apply_film: Bool
 ](
-    sample_radiance: Pointer[Float32, ImmutAnyOrigin],
-    pixels: Pointer[Float32, MutAnyOrigin],
+    sample_radiance: ImmPointer[Float32, _],
+    pixels: MutPointer[Float32, _],
     sample_capacity_i32: Int32,
     pixel_base_i32: Int32,
     pixel_count_i32: Int32,

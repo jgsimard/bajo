@@ -53,8 +53,8 @@ from bajo.rt.gpu.queue_layout import (
 def load_gpu_rt_path[
     integrator: Integrator,
 ](
-    path_ids: Pointer[UInt32, ImmutAnyOrigin],
-    fields: Pointer[Float32, ImmutAnyOrigin],
+    path_ids: ImmPointer[UInt32, _],
+    fields: ImmPointer[Float32, _],
     capacity: Int,
     idx: Int,
 ) -> DeviceWavePath:
@@ -72,8 +72,8 @@ def store_gpu_rt_path_values[
     Values: PathValues, //, integrator: Integrator
 ](
     path: Values,
-    path_ids: Pointer[UInt32, MutAnyOrigin],
-    fields: Pointer[Float32, MutAnyOrigin],
+    path_ids: MutPointer[UInt32, _],
+    fields: MutPointer[Float32, _],
     capacity: Int,
     idx: Int,
 ):
@@ -91,8 +91,8 @@ def store_gpu_rt_path_values[
 def load_gpu_rt_shadow[
     LOAD_CONTRIBUTION: Bool,
 ](
-    path_ids: Pointer[UInt32, ImmutAnyOrigin],
-    fields: Pointer[Float32, ImmutAnyOrigin],
+    path_ids: ImmPointer[UInt32, _],
+    fields: ImmPointer[Float32, _],
     capacity: Int,
     idx: Int,
 ) -> DeviceWaveShadow:
@@ -125,8 +125,8 @@ def store_gpu_rt_shadow[
     STORE_CONTRIBUTION: Bool,
 ](
     work: DeviceWaveShadow,
-    path_ids: Pointer[UInt32, MutAnyOrigin],
-    fields: Pointer[Float32, MutAnyOrigin],
+    path_ids: MutPointer[UInt32, _],
+    fields: MutPointer[Float32, _],
     capacity: Int,
     idx: Int,
 ):
@@ -249,7 +249,7 @@ struct GpuWavefrontArena:
 
 
 def _reset_wavefront_output_counters(
-    counters: Pointer[UInt32, MutAnyOrigin],
+    counters: MutPointer[UInt32, _],
 ):
     counters[unsafe_offset=WAVE_COUNTER.NEXT] = UInt32(0)
     counters[unsafe_offset=WAVE_COUNTER.SHADE] = UInt32(0)
@@ -274,9 +274,7 @@ def _advance_wavefront_contract_counters_kernel(
     _reset_wavefront_output_counters(counters)
 
 
-def _reserve_slot(
-    counters: Pointer[UInt32, MutAnyOrigin], counter_idx: Int
-) -> Int:
+def _reserve_slot(counters: MutPointer[UInt32, _], counter_idx: Int) -> Int:
     return Int(
         Atomic.fetch_add[ordering=Ordering.relaxed](
             counters.unsafe_offset(counter_idx), UInt32(1)
@@ -284,7 +282,7 @@ def _reserve_slot(
     )
 
 
-def _mark_status(counters: Pointer[UInt32, MutAnyOrigin], status: UInt32):
+def _mark_status(counters: MutPointer[UInt32, _], status: UInt32):
     Atomic.store[ordering=Ordering.relaxed](
         counters.unsafe_offset(WAVE_COUNTER.STATUS), status
     )

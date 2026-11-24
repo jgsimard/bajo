@@ -1,6 +1,6 @@
 """A trace grid cap must not omit primary samples."""
 
-from std.testing import TestSuite, assert_almost_equal
+from std.testing import TestSuite, assert_equal, assert_almost_equal
 from max.gpu.host import DeviceContext
 
 from bajo.bvh.gpu.utils import upload_list

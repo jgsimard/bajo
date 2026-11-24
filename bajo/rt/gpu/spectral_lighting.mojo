@@ -131,8 +131,8 @@ def sample_spectral_light[
                     scene.environment_scale_z,
                 ) * _GpuImageTextureView.load(
                     scene.environment_texture_index,
-                    scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin](),
-                    scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin](),
+                    scene.texture_descs,
+                    scene.texture_pixels,
                 ).environment_texel(
                     selected_pixel
                 )
@@ -155,8 +155,8 @@ def sample_spectral_light[
             case .IMAGE:
                 var texel = _GpuImageTextureView.load(
                     scene.environment_texture_index,
-                    scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin](),
-                    scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin](),
+                    scene.texture_descs,
+                    scene.texture_pixels,
                 ).environment_texel(selected_pixel)
                 light_pdf = lighting.environment_pdf(.IMAGE, texel)
             case .BLACK | .PROCEDURAL | .UNIFORM:

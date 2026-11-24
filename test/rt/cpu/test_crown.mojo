@@ -146,21 +146,13 @@ def test_gpu_texture_and_bump_adapters_match_cpu() raises:
     var data = _flatten_dielectrics(world)
     for u in [0.1, 0.6]:
         var gpu = _sample_gpu_coated_parameters(
-            records.unsafe_ptr()
-            .unsafe_mut_cast[False]()
-            .unsafe_origin_cast[ImmutAnyOrigin](),
+            records.unsafe_ptr().unsafe_mut_cast[False](),
             0,
             Float32(u),
             0.5,
-            indices.unsafe_ptr()
-            .unsafe_mut_cast[False]()
-            .unsafe_origin_cast[ImmutAnyOrigin](),
-            descs.unsafe_ptr()
-            .unsafe_mut_cast[False]()
-            .unsafe_origin_cast[ImmutAnyOrigin](),
-            pixels.unsafe_ptr()
-            .unsafe_mut_cast[False]()
-            .unsafe_origin_cast[ImmutAnyOrigin](),
+            indices.unsafe_ptr().unsafe_mut_cast[False](),
+            descs.unsafe_ptr().unsafe_mut_cast[False](),
+            pixels.unsafe_ptr().unsafe_mut_cast[False](),
         )
         var cpu = world.surfaces().sample_conductor_roughness(
             conductor, Float32(u), 0.5
@@ -173,15 +165,9 @@ def test_gpu_texture_and_bump_adapters_match_cpu() raises:
         normal,
         0.25,
         0.5,
-        data.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
-        descs.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
-        pixels.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
+        data.unsafe_ptr().unsafe_mut_cast[False](),
+        descs.unsafe_ptr().unsafe_mut_cast[False](),
+        pixels.unsafe_ptr().unsafe_mut_cast[False](),
     )
     assert_almost_equal(cpu.x[0], gpu.x[0])
     assert_almost_equal(cpu.y[0], gpu.y[0])
@@ -200,36 +186,28 @@ def test_gpu_medium_queue_roundtrip() raises:
     )
     store_device_wave_path(
         path,
-        ids.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
-        fields.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+        ids.unsafe_ptr(),
+        fields.unsafe_ptr(),
         2,
         0,
     )
     var loaded = load_device_wave_path(
-        ids.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
-        fields.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
+        ids.unsafe_ptr().unsafe_mut_cast[False](),
+        fields.unsafe_ptr().unsafe_mut_cast[False](),
         2,
         0,
     )
     assert_equal(loaded.medium_id, UInt32(2))
     store_gpu_rt_path_values[.MIS](
         path,
-        ids.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
-        fields.unsafe_ptr().unsafe_origin_cast[MutAnyOrigin](),
+        ids.unsafe_ptr(),
+        fields.unsafe_ptr(),
         2,
         1,
     )
     loaded = load_gpu_rt_path[.MIS](
-        ids.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
-        fields.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
+        ids.unsafe_ptr().unsafe_mut_cast[False](),
+        fields.unsafe_ptr().unsafe_mut_cast[False](),
         2,
         1,
     )

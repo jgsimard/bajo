@@ -42,7 +42,7 @@ struct _GpuImageTextureView[origin: ImmOrigin](TrivialRegisterPassable):
     @staticmethod
     def load(
         texture_idx: UInt32,
-        texture_descs: Pointer[UInt32, ImmutAnyOrigin],
+        texture_descs: ImmPointer[UInt32, _],
         texture_pixels: Pointer[Float32, Self.origin],
     ) -> Self:
         var index = Int(texture_idx)
@@ -146,10 +146,10 @@ def _gpu_normal_map(
     u: Float32,
     v: Float32,
     front_face: Bool,
-    maps: Pointer[UInt32, ImmutAnyOrigin],
+    maps: ImmPointer[UInt32, _],
     count: Int,
-    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
-    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+    texture_descs: ImmPointer[UInt32, _],
+    texture_pixels: ImmPointer[Float32, _],
 ) -> Vec3f32[.WORLD]:
     var records = TileTensor(ptr=maps, layout=row_major(count, 2))
     var begin = 0
@@ -175,8 +175,8 @@ def _sample_gpu_image_texture(
     texture_idx: UInt32,
     u: Float32,
     v: Float32,
-    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
-    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+    texture_descs: ImmPointer[UInt32, _],
+    texture_pixels: ImmPointer[Float32, _],
 ) -> Color:
     return _GpuImageTextureView.load(
         texture_idx, texture_descs, texture_pixels
@@ -187,10 +187,10 @@ def _sample_gpu_lambertian(
     surface_value: UInt32,
     u: Float32,
     v: Float32,
-    lambertians: Pointer[Float32, ImmutAnyOrigin],
-    texture_indices: Pointer[UInt32, ImmutAnyOrigin],
-    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
-    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+    lambertians: ImmPointer[Float32, _],
+    texture_indices: ImmPointer[UInt32, _],
+    texture_descs: ImmPointer[UInt32, _],
+    texture_pixels: ImmPointer[Float32, _],
 ) -> Color:
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
     var records = TileTensor(
@@ -213,10 +213,10 @@ def _sample_gpu_coated_albedo(
     surface_value: UInt32,
     u: Float32,
     v: Float32,
-    coated_diffuses: Pointer[Float32, ImmutAnyOrigin],
-    texture_indices: Pointer[UInt32, ImmutAnyOrigin],
-    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
-    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+    coated_diffuses: ImmPointer[Float32, _],
+    texture_indices: ImmPointer[UInt32, _],
+    texture_descs: ImmPointer[UInt32, _],
+    texture_pixels: ImmPointer[Float32, _],
 ) -> Color:
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
     var records = TileTensor(
@@ -250,10 +250,10 @@ def _gpu_coated_shading_normal(
     normal: Vec3f32[.WORLD],
     u: Float32,
     v: Float32,
-    coated_diffuses: Pointer[Float32, ImmutAnyOrigin],
-    texture_indices: Pointer[UInt32, ImmutAnyOrigin],
-    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
-    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+    coated_diffuses: ImmPointer[Float32, _],
+    texture_indices: ImmPointer[UInt32, _],
+    texture_descs: ImmPointer[UInt32, _],
+    texture_pixels: ImmPointer[Float32, _],
 ) -> Vec3f32[.WORLD]:
     if SurfaceId.kind_from_raw(surface_value) != .COATED_DIFFUSE:
         return normal
@@ -303,8 +303,8 @@ def _gpu_bump_normal(
     scale: Float32,
     u_scale: Float32,
     v_scale: Float32,
-    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
-    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+    texture_descs: ImmPointer[UInt32, _],
+    texture_pixels: ImmPointer[Float32, _],
 ) -> Vec3f32[.WORLD]:
     if texture_idx == NO_TEXTURE or scale == 0.0:
         return normal
@@ -329,9 +329,9 @@ def _gpu_dielectric_shading_normal(
     normal: Vec3f32[.WORLD],
     u: Float32,
     v: Float32,
-    data: Pointer[Float32, ImmutAnyOrigin],
-    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
-    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+    data: ImmPointer[Float32, _],
+    texture_descs: ImmPointer[UInt32, _],
+    texture_pixels: ImmPointer[Float32, _],
 ) -> Vec3f32[.WORLD]:
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
     var records = TileTensor(
@@ -356,13 +356,13 @@ def _gpu_dielectric_shading_normal(
 
 
 def _sample_gpu_coated_parameters(
-    data: Pointer[Float32, ImmutAnyOrigin],
+    data: ImmPointer[Float32, _],
     material_idx: Int,
     u: Float32,
     v: Float32,
-    texture_indices: Pointer[UInt32, ImmutAnyOrigin],
-    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
-    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+    texture_indices: ImmPointer[UInt32, _],
+    texture_descs: ImmPointer[UInt32, _],
+    texture_pixels: ImmPointer[Float32, _],
 ) -> _GpuCoatedDiffuseParameters:
     var value = _load_gpu_coated_parameters(data, material_idx)
     var textures = TileTensor(

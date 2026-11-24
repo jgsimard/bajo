@@ -113,8 +113,8 @@ comptime GPU_RT_DIRECT_WIDE_SHADOW_MAX_BLOCKS = 8192
 
 def _gpu_environment_radiance(
     scene: GpuRtSceneView,
-    texture_descs: Pointer[UInt32, ImmutAnyOrigin],
-    texture_pixels: Pointer[Float32, ImmutAnyOrigin],
+    texture_descs: ImmPointer[UInt32, _],
+    texture_pixels: ImmPointer[Float32, _],
     direction: Vec3f32[.WORLD],
 ) -> Color:
     var scale = Color(
@@ -160,44 +160,24 @@ def _gpu_rt_scene_trace_path[
         or scene_kind.has_triangles()
         or scene_kind.has_instances()
     )
-    var emissives = scene.emissives.unsafe_origin_cast[ImmutAnyOrigin]()
-    var lambertians = scene.lambertians.unsafe_origin_cast[ImmutAnyOrigin]()
-    var metals = scene.metals.unsafe_origin_cast[ImmutAnyOrigin]()
-    var coated_diffuses = scene.coated_diffuses.unsafe_origin_cast[
-        ImmutAnyOrigin
-    ]()
-    var lambertian_texture_indices = (
-        scene.lambertian_texture_indices.unsafe_origin_cast[ImmutAnyOrigin]()
-    )
-    var coated_diffuse_texture_indices = (
-        scene.coated_diffuse_texture_indices.unsafe_origin_cast[
-            ImmutAnyOrigin
-        ]()
-    )
-    var texture_descs = scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin]()
-    var texture_pixels = scene.texture_pixels.unsafe_origin_cast[
-        ImmutAnyOrigin
-    ]()
+    var emissives = scene.emissives
+    var lambertians = scene.lambertians
+    var metals = scene.metals
+    var coated_diffuses = scene.coated_diffuses
+    var lambertian_texture_indices = scene.lambertian_texture_indices
+    var coated_diffuse_texture_indices = scene.coated_diffuse_texture_indices
+    var texture_descs = scene.texture_descs
+    var texture_pixels = scene.texture_pixels
     var total_light_weight = scene.total_light_weight
-    var dst_path_ids = queues.dst_path_ids.unsafe_origin_cast[MutAnyOrigin]()
-    var dst_path_fields = queues.dst_path_fields.unsafe_origin_cast[
-        MutAnyOrigin
-    ]()
-    var shade_path_refs = queues.shade_path_refs.unsafe_origin_cast[
-        MutAnyOrigin
-    ]()
-    var shade_surfaces = queues.shade_surfaces.unsafe_origin_cast[
-        MutAnyOrigin
-    ]()
-    var shade_fields = queues.shade_fields.unsafe_origin_cast[MutAnyOrigin]()
-    var shadow_path_ids = queues.shadow_path_ids.unsafe_origin_cast[
-        MutAnyOrigin
-    ]()
-    var shadow_fields = queues.shadow_fields.unsafe_origin_cast[MutAnyOrigin]()
-    var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
-    var sample_radiance = queues.sample_radiance.unsafe_origin_cast[
-        MutAnyOrigin
-    ]()
+    var dst_path_ids = queues.dst_path_ids
+    var dst_path_fields = queues.dst_path_fields
+    var shade_path_refs = queues.shade_path_refs
+    var shade_surfaces = queues.shade_surfaces
+    var shade_fields = queues.shade_fields
+    var shadow_path_ids = queues.shadow_path_ids
+    var shadow_fields = queues.shadow_fields
+    var counters = queues.counters
+    var sample_radiance = queues.sample_radiance
     var capacity = Int(queues.capacity)
     var sample_base = queues.sample_base
     var ray = Rayf32[.WORLD](
@@ -594,7 +574,7 @@ def _gpu_rt_scene_trace_path[
         uv_u,
         uv_v,
         geometric.front_face,
-        scene.normal_maps.unsafe_origin_cast[ImmutAnyOrigin](),
+        scene.normal_maps,
         Int(scene.normal_map_count),
         texture_descs,
         texture_pixels,
@@ -615,7 +595,7 @@ def _gpu_rt_scene_trace_path[
             normal,
             uv_u,
             uv_v,
-            scene.dielectrics.unsafe_origin_cast[ImmutAnyOrigin](),
+            scene.dielectrics,
             texture_descs,
             texture_pixels,
         )
@@ -761,10 +741,8 @@ def _gpu_rt_scene_trace_one[
     uniform_sampling_kind: UInt32,
     use_mis: Bool,
 ):
-    var src_path_ids = queues.src_path_ids.unsafe_origin_cast[ImmutAnyOrigin]()
-    var src_path_fields = queues.src_path_fields.unsafe_origin_cast[
-        ImmutAnyOrigin
-    ]()
+    var src_path_ids = queues.src_path_ids
+    var src_path_fields = queues.src_path_fields
     var path: DeviceWavePath
     comptime if Integrator.uses_direct_lighting[integrator]:
         # NEE does not initialize or consume the previous-BSDF PDF plane.
@@ -815,7 +793,7 @@ def gpu_rt_primary_scene_trace_kernel[
     use_mis_arg: UInt32,
 ):
     var sampling = sampling_arg.load()
-    var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
+    var counters = queues.counters
     var active_count = Int(counters[unsafe_offset=WAVE_COUNTER.ACTIVE])
     var idx = global_idx.x
     if idx >= active_count:
@@ -829,11 +807,11 @@ def gpu_rt_primary_scene_trace_kernel[
         height_i32,
         samples_per_pixel_i32,
         sampling,
-        queues.sample_radiance.unsafe_origin_cast[MutAnyOrigin](),
+        queues.sample_radiance,
         capacity,
     )
     clear_gpu_rt_sample(
-        queues.sample_radiance.unsafe_origin_cast[MutAnyOrigin](),
+        queues.sample_radiance,
         capacity,
         idx,
     )
@@ -875,7 +853,7 @@ def gpu_rt_scene_trace_kernel[
     use_mis_arg: UInt32,
 ):
     var sampling = sampling_arg.load()
-    var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
+    var counters = queues.counters
     var active_count = Int(counters[unsafe_offset=WAVE_COUNTER.ACTIVE])
     var idx = global_idx.x
     var stride = Int(grid_dim.x * block_dim.x)
@@ -1013,14 +991,10 @@ def _gpu_rt_shadow_one[
     Formats: _GpuRtKernelFormats,
 ](idx: Int, scene: GpuRtSceneView, queues: GpuRtTraceQueueView):
     comptime assert Integrator.uses_visibility[integrator]
-    var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
+    var counters = queues.counters
     var capacity = Int(queues.capacity)
-    var path_ids = queues.shadow_path_ids.unsafe_mut_cast[
-        False
-    ]().unsafe_origin_cast[ImmutAnyOrigin]()
-    var fields = queues.shadow_fields.unsafe_mut_cast[
-        False
-    ]().unsafe_origin_cast[ImmutAnyOrigin]()
+    var path_ids = queues.shadow_path_ids.unsafe_mut_cast[False]()
+    var fields = queues.shadow_fields.unsafe_mut_cast[False]()
     var work = load_gpu_rt_shadow[integrator != .AO](
         path_ids, fields, capacity, idx
     )
@@ -1040,9 +1014,7 @@ def _gpu_rt_shadow_one[
         and integrator == .MIS
         and capacity >= GPU_RT_LARGE_QUEUE_MIN_CAPACITY,
     )
-    var sample_radiance = queues.sample_radiance.unsafe_origin_cast[
-        MutAnyOrigin
-    ]()
+    var sample_radiance = queues.sample_radiance
     var sample_base = queues.sample_base
     comptime if integrator == .AO:
         var value = Color(0.08) if occluded else Color(1.0)
@@ -1066,7 +1038,7 @@ def gpu_rt_shadow_kernel[
     Formats: _GpuRtKernelFormats,
     ordered: Bool = False,
 ](scene: GpuRtSceneView, queues: GpuRtTraceQueueView):
-    var counters = queues.counters.unsafe_origin_cast[MutAnyOrigin]()
+    var counters = queues.counters
     var count = Int(counters[unsafe_offset=WAVE_COUNTER.SHADOW])
     var slot = global_idx.x
     var stride = Int(grid_dim.x * block_dim.x)

@@ -21,7 +21,7 @@ comptime _GpuCoatedDiffuseParameters = CoatedParameters[1]
 
 
 def _load_gpu_coated_parameters(
-    data: Pointer[Float32, ImmutAnyOrigin], material_idx: Int
+    data: ImmPointer[Float32, _], material_idx: Int
 ) -> _GpuCoatedDiffuseParameters:
     var records = TileTensor(
         ptr=data,

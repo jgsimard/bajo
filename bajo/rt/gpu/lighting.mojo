@@ -295,8 +295,8 @@ def _sample_direct_light_candidate[
                     scene.environment_scale_z,
                 ) * _GpuImageTextureView.load(
                     scene.environment_texture_index,
-                    scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin](),
-                    scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin](),
+                    scene.texture_descs,
+                    scene.texture_pixels,
                 ).environment_texel(
                     selected_pixel
                 )
@@ -473,16 +473,10 @@ def _sample_direct_light_candidate[
                         surface_value,
                         uv_u,
                         uv_v,
-                        scene.lambertians.unsafe_origin_cast[ImmutAnyOrigin](),
-                        scene.lambertian_texture_indices.unsafe_origin_cast[
-                            ImmutAnyOrigin
-                        ](),
-                        scene.texture_descs.unsafe_origin_cast[
-                            ImmutAnyOrigin
-                        ](),
-                        scene.texture_pixels.unsafe_origin_cast[
-                            ImmutAnyOrigin
-                        ](),
+                        scene.lambertians,
+                        scene.lambertian_texture_indices,
+                        scene.texture_descs,
+                        scene.texture_pixels,
                     ),
                     1.0,
                     geometry.direction,
@@ -519,15 +513,13 @@ def _sample_direct_light_candidate[
         case .COATED_DIFFUSE:
             comptime if coated_pass:
                 var coated = _sample_gpu_coated_parameters(
-                    scene.coated_diffuses.unsafe_origin_cast[ImmutAnyOrigin](),
+                    scene.coated_diffuses,
                     material_idx,
                     uv_u,
                     uv_v,
-                    scene.coated_diffuse_texture_indices.unsafe_origin_cast[
-                        ImmutAnyOrigin
-                    ](),
-                    scene.texture_descs.unsafe_origin_cast[ImmutAnyOrigin](),
-                    scene.texture_pixels.unsafe_origin_cast[ImmutAnyOrigin](),
+                    scene.coated_diffuse_texture_indices,
+                    scene.texture_descs,
+                    scene.texture_pixels,
                 )
                 var evaluation = _evaluate_coated_diffuse(
                     incoming_ray.d,
@@ -536,18 +528,10 @@ def _sample_direct_light_candidate[
                         surface_value,
                         uv_u,
                         uv_v,
-                        scene.coated_diffuses.unsafe_origin_cast[
-                            ImmutAnyOrigin
-                        ](),
-                        scene.coated_diffuse_texture_indices.unsafe_origin_cast[
-                            ImmutAnyOrigin
-                        ](),
-                        scene.texture_descs.unsafe_origin_cast[
-                            ImmutAnyOrigin
-                        ](),
-                        scene.texture_pixels.unsafe_origin_cast[
-                            ImmutAnyOrigin
-                        ](),
+                        scene.coated_diffuses,
+                        scene.coated_diffuse_texture_indices,
+                        scene.texture_descs,
+                        scene.texture_pixels,
                     ),
                     coated,
                     geometry.direction,

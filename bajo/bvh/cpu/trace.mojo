@@ -33,6 +33,23 @@ def _pack_pending_task(child_ref: UInt32, child_t: Float32) -> UInt64:
     return (UInt64(t_bits) << 32) | UInt64(child_ref)
 
 
+@inline(.always)
+def _insert_pending_task(
+    storage: MutPointer[UInt64, _], count: Int, task: UInt64
+):
+    # Keep pending tasks far-to-near so the nearest global task is
+    # always the final entry and can be popped in O(1).
+    var insert_idx = count
+    while insert_idx > 0:
+        var previous_idx = insert_idx - 1
+        var previous = storage[unsafe_offset=previous_idx]
+        if previous >= task:
+            break
+        storage[unsafe_offset=insert_idx] = previous
+        insert_idx = previous_idx
+    storage[unsafe_offset=insert_idx] = task
+
+
 def _pending_task_ref(task: UInt64) -> UInt32:
     return UInt32(task)
 
@@ -210,9 +227,6 @@ def _trace_bounds_bvh_impl[
         def push_pending(
             child_ref: UInt32, child_t: Float32
         ) {imm, mut stack_ptr, mut ordered_stack, mut ordered_overflow}:
-            var storage = ordered_stack.unsafe_ptr().unsafe_origin_cast[
-                MutAnyOrigin
-            ]()
             if stack_ptr >= CPU_STACK_SIZE or ordered_overflow:
                 if not ordered_overflow:
                     ordered_overflow.resize(2 * CPU_STACK_SIZE, fill=0)
@@ -222,23 +236,17 @@ def _trace_bounds_bvh_impl[
                         )
                 elif stack_ptr >= len(ordered_overflow):
                     ordered_overflow.resize(2 * len(ordered_overflow), fill=0)
-                storage = ordered_overflow.unsafe_ptr().unsafe_origin_cast[
-                    MutAnyOrigin
-                ]()
 
-            # Keep pending tasks far-to-near so the nearest global task is
-            # always the final entry and can be popped in O(1).
+            # Borrow only after overflow storage has finished growing.
             var task = _pack_pending_task(child_ref, child_t)
-            var insert_idx = stack_ptr
-            while insert_idx > 0:
-                var previous_idx = insert_idx - 1
-                var previous = storage[unsafe_offset=previous_idx]
-                if previous >= task:
-                    break
-                storage[unsafe_offset=insert_idx] = previous
-                insert_idx = previous_idx
-
-            storage[unsafe_offset=insert_idx] = task
+            if ordered_overflow:
+                _insert_pending_task(
+                    ordered_overflow.unsafe_ptr(), stack_ptr, task
+                )
+            else:
+                _insert_pending_task(
+                    ordered_stack.unsafe_ptr(), stack_ptr, task
+                )
 
             stack_ptr += 1
 

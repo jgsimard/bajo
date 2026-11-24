@@ -84,16 +84,8 @@ def test_texture_view_offsets_wrapping_and_bump_gradients() raises:
         3,
         3,
     ]
-    var desc_ptr = (
-        descs.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin]()
-    )
-    var pixel_ptr = (
-        pixels.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin]()
-    )
+    var desc_ptr = descs.unsafe_ptr().unsafe_mut_cast[False]()
+    var pixel_ptr = pixels.unsafe_ptr().unsafe_mut_cast[False]()
     var texture = _GpuImageTextureView.load(1, desc_ptr, pixel_ptr)
     assert_equal(texture.width, 2)
     assert_equal(texture.height, 2)
@@ -232,9 +224,7 @@ def test_material_upload_keeps_packed_abi() raises:
         )
 
     var parameters = _load_gpu_coated_parameters(
-        coated.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
+        coated.unsafe_ptr().unsafe_mut_cast[False](),
         1,
     )
     assert_equal(parameters.roughness, Float32(0.25))
@@ -274,18 +264,10 @@ def test_material_texture_tables_address_second_record() raises:
         SurfaceId.pack_raw(.COATED_DIFFUSE, 1),
         0.0,
         0.0,
-        coated.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
-        indices.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
-        descs.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
-        pixels.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
+        coated.unsafe_ptr().unsafe_mut_cast[False](),
+        indices.unsafe_ptr().unsafe_mut_cast[False](),
+        descs.unsafe_ptr().unsafe_mut_cast[False](),
+        pixels.unsafe_ptr().unsafe_mut_cast[False](),
     )
     assert_equal(color.x, Float32(0.0625))
     assert_equal(color.y, Float32(0.25))
@@ -301,9 +283,7 @@ def test_conductor_upload_preserves_optics_and_substrate_roughness() raises:
     var world = builder^.finish()
     var records = pack_coated_materials[False](world.surfaces())
     var parameters = _load_gpu_coated_parameters(
-        records.unsafe_ptr()
-        .unsafe_mut_cast[False]()
-        .unsafe_origin_cast[ImmutAnyOrigin](),
+        records.unsafe_ptr().unsafe_mut_cast[False](),
         0,
     )
     assert_equal(parameters.conductor_eta.x[0], Float32(1.2) / Float32(1.5))

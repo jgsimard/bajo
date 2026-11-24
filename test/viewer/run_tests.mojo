@@ -17,18 +17,18 @@ def main() raises:
             "test/viewer/test_accumulation.mojo",
             test_accumulation.run_tests[True],
         )
-    comptime if module_selected["test_core"]():
+    elif module_selected["test_core"]():
         tests.run("test/viewer/test_core.mojo", test_core.run_tests[True])
-    comptime if module_selected["test_native"]():
+    elif module_selected["test_native"]():
         tests.run("test/viewer/test_native.mojo", test_native.run_tests[True])
-    comptime if module_selected["test_batching"]():
+    elif module_selected["test_batching"]():
         tests.run(
             "test/viewer/test_batching.mojo", test_batching.run_tests[True]
         )
-    comptime if module_selected["test_denoising"]():
+    elif module_selected["test_denoising"]():
         tests.run(
             "test/viewer/test_denoising.mojo", test_denoising.run_tests[True]
         )
-    comptime if module_selected["test_timing"]():
+    elif module_selected["test_timing"]():
         tests.run("test/viewer/test_timing.mojo", test_timing.run_tests[True])
     tests^.finish()

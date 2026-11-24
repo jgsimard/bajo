@@ -1,5 +1,5 @@
 from test.helpers import assert_vec_equal
-from test.rt.helpers import assert_pixels_close, assert_pixels_equal
+from test.rt.helpers import assert_pixels_close
 
 from std.testing import TestSuite, assert_equal, assert_raises, assert_true
 from max.gpu import global_idx
@@ -598,7 +598,7 @@ def test_gpu_chunked_triangle_nee_matches_full_capacity() raises:
         enqueue_render_gpu[.NEE](ctx, chunked, gpu_world, settings)
         var chunked_pixels = download_gpu_pixels(ctx, chunked)
 
-        assert_pixels_equal(chunked_pixels, full_pixels)
+        assert_equal(chunked_pixels, full_pixels)
 
 
 def test_gpu_host_boundaries_raise_validation_errors() raises:
@@ -628,7 +628,7 @@ def test_prepared_gpu_scene_is_stable_across_repeated_renders() raises:
 
         enqueue_render_gpu[.NORMALS](ctx, target, scene, settings)
         var after = download_gpu_pixels(ctx, target)
-        assert_pixels_equal(after, before)
+        assert_equal(after, before)
 
         # Reuse this render for the sphere-normal range and hit checks.
         assert_equal(len(before), settings.image_width * settings.image_height)
@@ -663,7 +663,7 @@ def test_gpu_camera_update_is_ordered_before_render() raises:
         enqueue_render_gpu[.NORMALS](ctx, reference, scene, settings)
         var reference_pixels = download_gpu_pixels(ctx, reference)
 
-        assert_pixels_equal(updated_pixels, reference_pixels)
+        assert_equal(updated_pixels, reference_pixels)
 
 
 def test_gpu_scene_dispatch_matches_each_configured_geometry_kind() raises:
@@ -682,7 +682,7 @@ def test_gpu_scene_dispatch_matches_each_configured_geometry_kind() raises:
         var expected = render_gpu_configured[kind=kind, integrator=.NORMALS](
             settings, camera, world.scene_data()
         )
-        assert_pixels_equal(actual.pixels, expected.pixels)
+        assert_equal(actual.pixels, expected.pixels)
         var cpu = render_wavefront[.NORMALS, 1, PARALLEL=False](
             settings, camera, world
         )

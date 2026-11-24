@@ -1080,54 +1080,53 @@ def _optical_constant(
     params: _Parameters, name: String, default: Color
 ) raises -> Color:
     var values = params.values("spectrum " + name)
-    if len(values) == 0:
-        if params.has("float " + name):
-            return Color(params.f32("float " + name, 1.0))
-        return params.color(name, default)
-    if len(values) == 1:
-        var text = values[0]
-        if text.startswith("metal-"):
-            return _named_optical_constant(text)
-        return Color(_parse_f32(text))
-    if len(values) == 3:
-        return Color(
-            _parse_f32(values[0]), _parse_f32(values[1]), _parse_f32(values[2])
-        )
-    if len(values) >= 4 and len(values) % 2 == 0:
-        var samples = [_parse_f32(value) for value in values]
-        for i in range(0, len(samples), 2):
-            if (
-                not isfinite(samples[i])
-                or not isfinite(samples[i + 1])
-                or samples[i] <= 0.0
-                or samples[i + 1] < 0.0
-            ):
-                raise Error("optical spectrum samples must be non-negative")
-            if i > 0 and samples[i] <= samples[i - 2]:
-                raise Error("optical spectrum wavelengths must increase")
-        var result = Color(0.0)
-        for channel in range(3):
-            var wavelength = Float32(
-                610 if channel == 0 else 550 if channel == 1 else 460
+    match values:
+        case []:
+            if params.has("float " + name):
+                return Color(params.f32("float " + name, 1.0))
+            return params.color(name, default)
+        case [text]:
+            if text.startswith("metal-"):
+                return _named_optical_constant(text)
+            return Color(_parse_f32(text))
+        case [red, green, blue]:
+            return Color(_parse_f32(red), _parse_f32(green), _parse_f32(blue))
+        case _ if len(values) >= 4 and len(values) % 2 == 0:
+            var samples = [_parse_f32(value) for value in values]
+            for i in range(0, len(samples), 2):
+                if (
+                    not isfinite(samples[i])
+                    or not isfinite(samples[i + 1])
+                    or samples[i] <= 0.0
+                    or samples[i + 1] < 0.0
+                ):
+                    raise Error("optical spectrum samples must be non-negative")
+                if i > 0 and samples[i] <= samples[i - 2]:
+                    raise Error("optical spectrum wavelengths must increase")
+            var result = Color(0.0)
+            for channel in range(3):
+                var wavelength = Float32(
+                    610 if channel == 0 else 550 if channel == 1 else 460
+                )
+                var value = samples[1]
+                for i in range(2, len(samples), 2):
+                    if wavelength >= samples[i]:
+                        value = samples[i + 1]
+                    elif wavelength > samples[i - 2]:
+                        var t = (wavelength - samples[i - 2]) / (
+                            samples[i] - samples[i - 2]
+                        )
+                        value = samples[i - 1] * (1.0 - t) + samples[i + 1] * t
+                        break
+                    else:
+                        break
+                result[channel] = value
+            return result
+        case _:
+            raise Error(
+                "PBRT optical constants require a named spectrum or"
+                " wavelength/value pairs"
             )
-            var value = samples[1]
-            for i in range(2, len(samples), 2):
-                if wavelength >= samples[i]:
-                    value = samples[i + 1]
-                elif wavelength > samples[i - 2]:
-                    var t = (wavelength - samples[i - 2]) / (
-                        samples[i] - samples[i - 2]
-                    )
-                    value = samples[i - 1] * (1.0 - t) + samples[i + 1] * t
-                    break
-                else:
-                    break
-            result[channel] = value
-        return result
-    raise Error(
-        "PBRT optical constants require a named spectrum or wavelength/value"
-        " pairs"
-    )
 
 
 def _retain_named_optical_spectrum(
@@ -1932,10 +1931,9 @@ def _parse_text[
             case "MakeNamedMaterial":
                 var name = String(lexer.next().value)
                 var params = _parse_params(lexer)
-                var model = params.string("string type")
-                if model:
+                if case .Some(model) = params.string("string type"):
                     builder.named_materials[name] = _surface(
-                        builder, model.value(), params, path
+                        builder, model, params, path
                     )
                 else:
                     builder.named_materials[name] = _surface(

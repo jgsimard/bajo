@@ -204,26 +204,32 @@ def _sample_environment_candidate[
 ) -> _DirectLightSample[length]:
     ref data = world.scene_data()
     var alias_count = len(data.environment_alias_probabilities())
-    var scene_probabilities = (
-        data.environment_alias_probabilities().unsafe_ptr()
-    )
-    var scene_aliases = data.environment_alias_indices().unsafe_ptr()
-    var probabilities = (
-        lighting.value().environment_probabilities if lighting else scene_probabilities
-    )
-    var aliases = (
-        lighting.value().environment_aliases if lighting else scene_aliases
-    )
-    if lighting:
-        alias_count = Int(lighting.value().environment_count)
+    if case .Some(ref spectral) = lighting:
+        alias_count = Int(spectral.environment_count)
     var local_direction: Vec3[.float32, .LOCAL, length]
     if alias_count > 0:
         var draw = draw_alias_column(random_u, alias_count)
-        var pixel_idx = resolve_alias_draw(
-            draw,
-            probabilities.unsafe_gather(draw.column),
-            aliases.unsafe_gather(draw.column),
-        )
+        var probability: SIMD[.float32, length]
+        var alias_index: SIMD[.uint32, length]
+        if case .Some(ref spectral) = lighting:
+            probability = spectral.environment_probabilities.unsafe_gather(
+                draw.column
+            )
+            alias_index = spectral.environment_aliases.unsafe_gather(
+                draw.column
+            )
+        else:
+            probability = (
+                data.environment_alias_probabilities()
+                .unsafe_ptr()
+                .unsafe_gather(draw.column)
+            )
+            alias_index = (
+                data.environment_alias_indices()
+                .unsafe_ptr()
+                .unsafe_gather(draw.column)
+            )
+        var pixel_idx = resolve_alias_draw(draw, probability, alias_index)
         ref texture = data.surfaces().image_textures[
             Int(data.environment().texture_index)
         ]
@@ -263,7 +269,7 @@ def _sample_environment_candidate[
         data.total_light_weight(),
         emission,
     )
-    if lighting:
+    if case .Some(ref spectral) = lighting:
         if data.environment().kind == .IMAGE:
             var uv = equal_area_sphere_to_square(local_direction)
             emission = (
@@ -271,9 +277,7 @@ def _sample_environment_candidate[
                 .image_textures[Int(data.environment().texture_index)]
                 .sample_environment(uv.u, uv.v)
             )
-        light_pdf = lighting.value().environment_pdf(
-            data.environment().kind, emission
-        )
+        light_pdf = spectral.environment_pdf(data.environment().kind, emission)
     return _DirectLightSample[length](
         surface_cosine.gt(0.0) & light_pdf.gt(0.0),
         direction,
@@ -302,27 +306,25 @@ def _sample_direct_light_candidate[
 ) -> _DirectLightSample[length]:
     """Select and sample emitters across a packet; scalar is width one."""
     ref data = world.scene_data()
-    var total_weight = (
-        lighting.value().total_weight if lighting else data.total_light_weight()
-    )
+    ref lights = data.lights()
+    var total_weight = data.total_light_weight()
+    var environment_weight = data.environment_weight()
+    var environment_count = len(data.environment_alias_probabilities())
+    if case .Some(ref spectral) = lighting:
+        total_weight = spectral.total_weight
+        environment_weight = spectral.environment_weight
+        environment_count = Int(spectral.environment_count)
     if total_weight <= 0.0 or not active.reduce_or():
         return _DirectLightSample[length].make_empty()
-    ref lights = data.lights()
     var selection_u = rng.f32()
-    var environment_probability = (
-        lighting.value().environment_weight if lighting else data.environment_weight()
-    ) / total_weight
+    var environment_probability = environment_weight / total_weight
     var environment_lanes = active & selection_u.lt(environment_probability)
     var result = _DirectLightSample[length].make_empty()
     var u = rng.f32()
     var v = rng.f32()
     var jitter_v = SIMD[.float32, length](0.0)
     if environment_lanes.reduce_or():
-        if (
-            lighting.value().environment_count
-            > 0 if lighting else len(data.environment_alias_probabilities())
-            > 0
-        ):
+        if environment_count > 0:
             jitter_v = rng.f32()
         result = _sample_environment_candidate(
             world, point, u, v, jitter_v, allow_transmission, lighting
@@ -343,19 +345,19 @@ def _sample_direct_light_candidate[
         finite_lanes.select(finite_u.clamp(0.0, 0.99999994), 0.0),
         len(lights.records),
     )
-    var selected = resolve_alias_draw(
-        draw,
-        lighting.value()
-        .probabilities.unsafe_gather(
+    var probability: SIMD[.float32, length]
+    var alias_index: SIMD[.uint32, length]
+    if case .Some(ref spectral) = lighting:
+        probability = spectral.probabilities.unsafe_gather(draw.column)
+        alias_index = spectral.aliases.unsafe_gather(draw.column)
+    else:
+        probability = lights.alias_probabilities.unsafe_ptr().unsafe_gather(
             draw.column
-        ) if lighting else lights.alias_probabilities.unsafe_ptr()
-        .unsafe_gather(draw.column),
-        lighting.value()
-        .aliases.unsafe_gather(
+        )
+        alias_index = lights.alias_indices.unsafe_ptr().unsafe_gather(
             draw.column
-        ) if lighting else lights.alias_indices.unsafe_ptr()
-        .unsafe_gather(draw.column),
-    )
+        )
+    var selected = resolve_alias_draw(draw, probability, alias_index)
     # Read each field across records, using the field's actual address and
     # the ABI record stride. Inactive lanes always reference record zero.
     comptime stride = size_of[LightRecord]() // size_of[Float32]()
@@ -440,8 +442,8 @@ def _sample_direct_light_candidate[
                         ),
                     )
     var sampling_emission = emission
-    if lighting:
-        var importance = lighting.value().weights.unsafe_gather(selected)
+    if case .Some(ref spectral) = lighting:
+        var importance = spectral.weights.unsafe_gather(selected)
         sampling_emission = Vec3[.float32, .WORLD, length](
             importance, importance, importance
         )

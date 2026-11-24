@@ -280,10 +280,10 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
     def _upload_geometry(mut self, ctx: DeviceContext) raises:
         copy_to_device(self.points, self.host.points)
         copy_to_device(self.bounds, self.host.bvh.bounds)
-        if self.winding:
+        if case .Some(ref winding) = self.winding:
             with self.update_status.map_to_host() as status:
                 status[0] = 0
-            self.winding.value().enqueue_refit(
+            winding.enqueue_refit(
                 ctx, self.points, self.indices, self.update_status
             )
         ctx.synchronize()
@@ -344,8 +344,8 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
             self._enqueue_parallel_refit[block_size, rebuild](ctx, points)
             comptime if rebuild:
                 self._enqueue_adjacency(ctx)
-            if self.winding:
-                self.winding.value().enqueue_refit[winding_block_size](
+            if case .Some(ref winding) = self.winding:
+                winding.enqueue_refit[winding_block_size](
                     ctx, self.points, self.indices, self.update_status
                 )
             return
@@ -364,8 +364,8 @@ struct GpuSpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8]:
         comptime if rebuild:
             if len(self.nodes) > 0:
                 self._enqueue_adjacency(ctx)
-        if self.winding:
-            self.winding.value().enqueue_refit[winding_block_size](
+        if case .Some(ref winding) = self.winding:
+            winding.enqueue_refit[winding_block_size](
                 ctx, self.points, self.indices, self.update_status
             )
 

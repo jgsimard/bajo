@@ -97,117 +97,121 @@ struct GpuBackend:
             + 2 * Int(len(data.triangle_vertices()) > 0)
             + 4 * Int(len(data.triangle_instances()) > 0)
         )
-        if mask == 1:
-            if not self.spheres:
-                self.spheres = GpuRtPreparedRenderer[.SPHERES](
-                    settings, camera, data
+        match mask:
+            case 1:
+                if not self.spheres:
+                    self.spheres = GpuRtPreparedRenderer[.SPHERES](
+                        settings, camera, data
+                    )
+                return _render_backend[integrator](
+                    self.spheres.value(),
+                    settings,
+                    camera,
+                    preview,
+                    generation,
+                    self.preview_result,
+                    denoise,
+                    refresh,
+                    Int(perf_counter_ns() - preparation_t0),
                 )
-            return _render_backend[integrator](
-                self.spheres.value(),
-                settings,
-                camera,
-                preview,
-                generation,
-                self.preview_result,
-                denoise,
-                refresh,
-                Int(perf_counter_ns() - preparation_t0),
-            )
-        if mask == 2:
-            if not self.triangles:
-                self.triangles = GpuRtPreparedRenderer[.TRIANGLES](
-                    settings, camera, data
+            case 2:
+                if not self.triangles:
+                    self.triangles = GpuRtPreparedRenderer[.TRIANGLES](
+                        settings, camera, data
+                    )
+                return _render_backend[integrator](
+                    self.triangles.value(),
+                    settings,
+                    camera,
+                    preview,
+                    generation,
+                    self.preview_result,
+                    denoise,
+                    refresh,
+                    Int(perf_counter_ns() - preparation_t0),
                 )
-            return _render_backend[integrator](
-                self.triangles.value(),
-                settings,
-                camera,
-                preview,
-                generation,
-                self.preview_result,
-                denoise,
-                refresh,
-                Int(perf_counter_ns() - preparation_t0),
-            )
-        if mask == 3:
-            if not self.spheres_triangles:
-                self.spheres_triangles = GpuRtPreparedRenderer[
-                    .SPHERES_TRIANGLES
-                ](settings, camera, data)
-            return _render_backend[integrator](
-                self.spheres_triangles.value(),
-                settings,
-                camera,
-                preview,
-                generation,
-                self.preview_result,
-                denoise,
-                refresh,
-                Int(perf_counter_ns() - preparation_t0),
-            )
-        if mask == 4:
-            if not self.instances:
-                self.instances = GpuRtPreparedRenderer[.INSTANCES](
-                    settings, camera, data
+            case 3:
+                if not self.spheres_triangles:
+                    self.spheres_triangles = GpuRtPreparedRenderer[
+                        .SPHERES_TRIANGLES
+                    ](settings, camera, data)
+                return _render_backend[integrator](
+                    self.spheres_triangles.value(),
+                    settings,
+                    camera,
+                    preview,
+                    generation,
+                    self.preview_result,
+                    denoise,
+                    refresh,
+                    Int(perf_counter_ns() - preparation_t0),
                 )
-            return _render_backend[integrator](
-                self.instances.value(),
-                settings,
-                camera,
-                preview,
-                generation,
-                self.preview_result,
-                denoise,
-                refresh,
-                Int(perf_counter_ns() - preparation_t0),
-            )
-        if mask == 5:
-            if not self.spheres_instances:
-                self.spheres_instances = GpuRtPreparedRenderer[
-                    .SPHERES_INSTANCES
-                ](settings, camera, data)
-            return _render_backend[integrator](
-                self.spheres_instances.value(),
-                settings,
-                camera,
-                preview,
-                generation,
-                self.preview_result,
-                denoise,
-                refresh,
-                Int(perf_counter_ns() - preparation_t0),
-            )
-        if mask == 6:
-            if not self.triangles_instances:
-                self.triangles_instances = GpuRtPreparedRenderer[
-                    .TRIANGLES_INSTANCES
-                ](settings, camera, data)
-            return _render_backend[integrator](
-                self.triangles_instances.value(),
-                settings,
-                camera,
-                preview,
-                generation,
-                self.preview_result,
-                denoise,
-                refresh,
-                Int(perf_counter_ns() - preparation_t0),
-            )
-        if mask == 7:
-            if not self.all:
-                self.all = GpuRtPreparedRenderer[.ALL](settings, camera, data)
-            return _render_backend[integrator](
-                self.all.value(),
-                settings,
-                camera,
-                preview,
-                generation,
-                self.preview_result,
-                denoise,
-                refresh,
-                Int(perf_counter_ns() - preparation_t0),
-            )
-        raise Error("scene has no supported geometry")
+            case 4:
+                if not self.instances:
+                    self.instances = GpuRtPreparedRenderer[.INSTANCES](
+                        settings, camera, data
+                    )
+                return _render_backend[integrator](
+                    self.instances.value(),
+                    settings,
+                    camera,
+                    preview,
+                    generation,
+                    self.preview_result,
+                    denoise,
+                    refresh,
+                    Int(perf_counter_ns() - preparation_t0),
+                )
+            case 5:
+                if not self.spheres_instances:
+                    self.spheres_instances = GpuRtPreparedRenderer[
+                        .SPHERES_INSTANCES
+                    ](settings, camera, data)
+                return _render_backend[integrator](
+                    self.spheres_instances.value(),
+                    settings,
+                    camera,
+                    preview,
+                    generation,
+                    self.preview_result,
+                    denoise,
+                    refresh,
+                    Int(perf_counter_ns() - preparation_t0),
+                )
+            case 6:
+                if not self.triangles_instances:
+                    self.triangles_instances = GpuRtPreparedRenderer[
+                        .TRIANGLES_INSTANCES
+                    ](settings, camera, data)
+                return _render_backend[integrator](
+                    self.triangles_instances.value(),
+                    settings,
+                    camera,
+                    preview,
+                    generation,
+                    self.preview_result,
+                    denoise,
+                    refresh,
+                    Int(perf_counter_ns() - preparation_t0),
+                )
+            case 7:
+                if not self.all:
+                    self.all = GpuRtPreparedRenderer[.ALL](
+                        settings, camera, data
+                    )
+                return _render_backend[integrator](
+                    self.all.value(),
+                    settings,
+                    camera,
+                    preview,
+                    generation,
+                    self.preview_result,
+                    denoise,
+                    refresh,
+                    Int(perf_counter_ns() - preparation_t0),
+                )
+            case _:
+                raise Error("scene has no supported geometry")
 
 
 struct CompletedFrame:
@@ -445,9 +449,9 @@ struct _WorkerState[gpu_enabled: Bool]:
             self.operation_ns = Int(perf_counter_ns() - t0)
             raise error
         self.operation_ns = Int(perf_counter_ns() - t0)
-        if self.result:
-            self.result.value().preparation_ns += self.operation_preparation_ns
-            self.result.value().work_ns = self.operation_ns
+        if case .Some(ref result) = self.result:
+            result.preparation_ns += self.operation_preparation_ns
+            result.work_ns = self.operation_ns
 
     def _render(mut self) raises:
         if self.debug_requested:
@@ -456,10 +460,8 @@ struct _WorkerState[gpu_enabled: Bool]:
         if not self.trace_requested:
             return
         if self.refresh_requested and self.backend == 0:
-            if (
-                not self.cpu_preview
-                or self.cpu_preview.value().generation != self.generation
-            ):
+            __guard case .Some(ref preview) = self.cpu_preview;
+              preview.generation == self.generation else:
                 raise Error("CPU preview generation is no longer available")
             self._publish_cpu_preview(
                 RenderTimings(
@@ -486,10 +488,8 @@ struct _WorkerState[gpu_enabled: Bool]:
                 result = self.render_integrator[.AO]()
             case _:
                 raise Error("unknown integrator")
-        if self.backend == 1 and self.gpu.preview_result:
-            self.error = (
-                self.gpu.preview_result.value().postprocess_error.copy()
-            )
+        if self.backend == 1; case .Some(ref preview) = self.gpu.preview_result:
+            self.error = preview.postprocess_error.copy()
             self.result = CompletedFrame.from_preview(
                 self.gpu.preview_result.take(), self.generation, self.settings
             )
@@ -517,12 +517,10 @@ struct _WorkerState[gpu_enabled: Bool]:
             self.result = CompletedFrame(
                 result^, self.generation, self.settings
             )
-        if self.result:
-            self.result.value().presentation_revision = (
-                self.presentation_revision
-            )
+        if case .Some(ref completed) = self.result:
+            completed.presentation_revision = self.presentation_revision
             if self.refresh_requested:
-                self.result.value().samples = 0
+                completed.samples = 0
 
     def _publish_cpu_preview(mut self, timings: RenderTimings) raises:
         var post_t0 = perf_counter_ns()

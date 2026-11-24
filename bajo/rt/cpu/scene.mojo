@@ -468,22 +468,20 @@ struct CpuScene[
         var active = valid
         if not active.reduce_or():
             return result
-        if self.sphere_bvh:
+        if case .Some(ref sphere_bvh) = self.sphere_bvh:
             if len(self._scene.opacity().records):
                 result |= (
                     trace_opacity_spheres[
                         Self.world_bvh_width, Self.world_bvh_width, .ANY_HIT
-                    ](self._scene, self.sphere_bvh.value(), rays, active).t.eq(
-                        0
-                    )
+                    ](self._scene, sphere_bvh, rays, active).t.eq(0)
                     & active
                 )
             else:
-                result |= _blas_occluded(self.sphere_bvh.value(), rays, active)
+                result |= _blas_occluded(sphere_bvh, rays, active)
             active &= ~result
         if not active.reduce_or():
             return result
-        if self.triangle_bvh:
+        if case .Some(ref triangle_bvh) = self.triangle_bvh:
             if len(self._scene.opacity().records):
                 result |= (
                     trace_opacity_triangles_packet[
@@ -491,30 +489,24 @@ struct CpuScene[
                         Self.world_bvh_width,
                         .ANY_HIT,
                         length,
-                    ](
-                        self._scene, self.triangle_bvh.value(), rays, active
-                    ).t.eq(
-                        0
-                    )
+                    ](self._scene, triangle_bvh, rays, active).t.eq(0)
                     & active
                 )
             else:
-                result |= _blas_occluded(
-                    self.triangle_bvh.value(), rays, active
-                )
+                result |= _blas_occluded(triangle_bvh, rays, active)
             active &= ~result
-        if (
-            active.reduce_or()
-            and self.triangle_tlas
-            and self.triangle_mesh_blases
-        ):
-            result |= self._instances_occluded(rays, active)
+        if active.reduce_or();
+          case .Some(ref tlas) = self.triangle_tlas;
+          case .Some(ref blases) = self.triangle_mesh_blases:
+            result |= self._instances_occluded(tlas, blases, rays, active)
         return result
 
     def _instances_occluded[
         length: SIMDLength
     ](
         self,
+        tlas: CpuTlas[Self.instance_bvh_width, 1],
+        blases: CpuBlasSet[.TRIANGLE, Self.instance_bvh_width],
         rays: Ray[.float32, .WORLD, length],
         valid: SIMD[.bool, length],
     ) -> SIMD[.bool, length]:
@@ -524,28 +516,20 @@ struct CpuScene[
                 Self.instance_bvh_width,
                 .ANY_HIT,
                 length,
-            ](
-                self._scene,
-                self.triangle_tlas.value(),
-                self.triangle_mesh_blases.value(),
-                rays,
-                valid,
-            ).t.eq(
-                0
-            )
+            ](self._scene, tlas, blases, rays, valid,).t.eq(0)
         comptime if length == 1:
-            var hit = self.triangle_tlas.value().trace_blases[
+            var hit = tlas.trace_blases[
                 Self.instance_bvh_width,
                 Self.instance_bvh_width,
                 .ANY_HIT,
-            ](rebind[Rayf32[.WORLD]](rays), self.triangle_mesh_blases.value())
+            ](rebind[Rayf32[.WORLD]](rays), blases)
             return SIMD[.bool, length](fill=hit.is_occluded()[0])
         else:
-            return self.triangle_tlas.value().trace_blases_packet_any_hit[
+            return tlas.trace_blases_packet_any_hit[
                 Self.instance_bvh_width,
                 Self.instance_bvh_width,
                 length,
-            ](rays, self.triangle_mesh_blases.value(), valid)
+            ](rays, blases, valid)
 
     def _trace_closest(self, ray: Rayf32[.WORLD]) -> _WorldHit:
         var closest = self._trace_geometry[.SPHERE](ray)
@@ -625,6 +609,7 @@ struct CpuScene[
         *adaptive_packet_sizes: SIMDLength,
     ](
         self,
+        blases: CpuBlasSet[.TRIANGLE, Self.world_bvh_width],
         rays: Ray[.float32, .WORLD, length],
         valid: SIMD[.bool, length],
     ) -> Hit[.WORLD, length]:
@@ -638,7 +623,7 @@ struct CpuScene[
                     length,
                     *adaptive_packet_sizes,
                     frame=.WORLD,
-                ](self.triangle_bvh.value(), UInt32(0), rays, valid)
+                ](blases, UInt32(0), rays, valid)
             case .FIXED_PACKET | .AUTO_COHERENT:
                 return trace_blas_set_packet_selected[
                     Self.world_bvh_width,
@@ -646,7 +631,7 @@ struct CpuScene[
                     length,
                     traversal_mode,
                     .WORLD,
-                ](self.triangle_bvh.value(), UInt32(0), rays, valid)
+                ](blases, UInt32(0), rays, valid)
 
     def _surface_from_hit[
         kind: PrimitiveKind, length: SIMDLength
@@ -831,22 +816,22 @@ struct CpuScene[
         """Trace SIMD packets through world and instance acceleration."""
         comptime assert length > 1
         var result = SurfaceHit[length](rays.t_max)
-        if self.sphere_bvh:
+        if case .Some(ref sphere_bvh) = self.sphere_bvh:
             var hits: Hit[.WORLD, length]
             if len(self._scene.opacity().records):
                 hits = trace_opacity_spheres[
                     Self.world_bvh_width, Self.world_bvh_width, .CLOSEST_HIT
-                ](self._scene, self.sphere_bvh.value(), rays, valid)
+                ](self._scene, sphere_bvh, rays, valid)
             else:
                 hits = trace_blas_set_packet[
                     Self.world_bvh_width,
                     Self.world_bvh_width,
                     length,
                     Frame.WORLD,
-                ](self.sphere_bvh.value(), UInt32(0), rays, valid)
+                ](sphere_bvh, UInt32(0), rays, valid)
             result = self._surface_from_hit[.SPHERE](rays, hits, valid)
 
-        if self.triangle_bvh:
+        if case .Some(ref triangle_bvh) = self.triangle_bvh:
             var bounded_triangles = Ray[.float32, .WORLD, length](
                 rays.o, rays.d, rays.t_min, result.t
             )
@@ -859,14 +844,14 @@ struct CpuScene[
                     length,
                 ](
                     self._scene,
-                    self.triangle_bvh.value(),
+                    triangle_bvh,
                     bounded_triangles,
                     valid,
                 )
             else:
                 hits = self._trace_world_triangle_packet[
                     length, traversal_mode, *adaptive_packet_sizes
-                ](bounded_triangles, valid)
+                ](triangle_bvh, bounded_triangles, valid)
             _merge_surface_hit(
                 result,
                 self._surface_from_hit[.TRIANGLE](
@@ -874,7 +859,8 @@ struct CpuScene[
                 ),
             )
 
-        if self.triangle_tlas and self.triangle_mesh_blases:
+        if case .Some(ref tlas) = self.triangle_tlas;
+          case .Some(ref blases) = self.triangle_mesh_blases:
             var bounded_rays = Ray[.float32, .WORLD, length](
                 rays.o, rays.d, rays.t_min, result.t
             )
@@ -887,15 +873,15 @@ struct CpuScene[
                     length,
                 ](
                     self._scene,
-                    self.triangle_tlas.value(),
-                    self.triangle_mesh_blases.value(),
+                    tlas,
+                    blases,
                     bounded_rays,
                     valid,
                 )
             else:
-                hits = self.triangle_tlas.value().trace_blases_packet[
+                hits = tlas.trace_blases_packet[
                     Self.instance_bvh_width, Self.instance_bvh_width, length
-                ](bounded_rays, self.triangle_mesh_blases.value(), valid)
+                ](bounded_rays, blases, valid)
             _merge_surface_hit(
                 result,
                 self._surface_from_hit[.TRIANGLE_INSTANCE](

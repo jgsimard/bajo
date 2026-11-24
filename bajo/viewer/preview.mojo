@@ -62,14 +62,12 @@ struct CpuPreviewAccumulator:
         self.batches += 1
         self.generation = generation
         try:
-            if (
-                not sample_batch
-                or sample_batch.value().samples_per_pixel != samples
-            ):
+            __guard case .Some(ref batch) = sample_batch;
+              batch.samples_per_pixel == samples else:
                 raise Error("complete camera-sample statistics are unavailable")
             if not self.statistics:
                 self.statistics = DenoiseStatistics(self.width, self.height)
-            self.statistics.value().add(sample_batch.value())
+            self.statistics.value().add(batch)
         except error:
             self.statistics_error = String(error)
 
@@ -83,18 +81,14 @@ struct CpuPreviewAccumulator:
                 self.guides = make_cpu_denoise_guides(
                     scene, camera, self.width, self.height
                 )
-            if (
-                self.statistics_error
-                or not self.statistics
-                or self.statistics.value().samples != self.samples
-            ):
+            __guard not self.statistics_error;
+              case .Some(ref statistics) = self.statistics;
+              statistics.samples == self.samples else:
                 raise Error(
                     "denoising requires complete sample statistics: "
                     + self.statistics_error
                 )
-            denoise_frame(
-                self.statistics.value(), self.guides.value(), self.workspace
-            )
+            denoise_frame(statistics, self.guides.value(), self.workspace)
         var rgba = List[UInt8](length=self.width * self.height * 4, fill=255)
         var output = TileTensor(rgba, row_major(Coord(len(self.sums), Idx[4])))
         for i in range(len(self.sums)):

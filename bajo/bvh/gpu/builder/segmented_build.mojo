@@ -64,13 +64,10 @@ struct GpuSegmentedWideBuildTicket[
     var collapse_start_ns: Int
 
     def finish_synchronized(mut self) raises:
-        match self.hploc:
-            case .Some(ref hploc):
-                var status = hploc.result_status()
-                if status != UInt32(HPLOC_STATUS_OK):
-                    raise String(t"H-PLOC build status: {status}")
-            case .None:
-                pass
+        if case .Some(ref hploc) = self.hploc:
+            var status = hploc.result_status()
+            if status != UInt32(HPLOC_STATUS_OK):
+                raise String(t"H-PLOC build status: {status}")
         self.collapse.finish_batch_synchronized(self.wide, Self.fat_leaves)
         if self.collapse_start_ns != 0:
             self.timings.collapse_ns = Int(
@@ -88,8 +85,8 @@ struct GpuSegmentedWideBuildTicket[
     ) raises -> GpuCompactWideLayout:
         """Validate and prefix completed counts with one small readback."""
         var hploc_status = Optional[DeviceBuffer[.uint32]]()
-        if self.hploc:
-            hploc_status = Optional(self.hploc.value().status.copy())
+        if case .Some(ref hploc) = self.hploc:
+            hploc_status = Optional(hploc.status.copy())
         var layout = GpuCompactWideLayout(
             ctx,
             self.wide.node_counts,

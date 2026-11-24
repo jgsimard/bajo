@@ -134,24 +134,22 @@ def cpu_bvh_boxes(
 ) -> List[DebugBox]:
     var boxes = List[DebugBox]()
     var identity = Affine3f32[.LOCAL, .WORLD].identity()
-    if world.sphere_bvh:
-        _blas_boxes[.SPHERE, 16, .WORLD](
-            world.sphere_bvh.value(), 0, identity, boxes, limit
-        )
-    if world.triangle_bvh:
+    if case .Some(ref sphere_bvh) = world.sphere_bvh:
+        _blas_boxes[.SPHERE, 16, .WORLD](sphere_bvh, 0, identity, boxes, limit)
+    if case .Some(ref triangle_bvh) = world.triangle_bvh:
         _blas_boxes[.TRIANGLE, 16, .WORLD](
-            world.triangle_bvh.value(), 0, identity, boxes, limit
+            triangle_bvh, 0, identity, boxes, limit
         )
-    if world.triangle_tlas:
-        ref nodes = world.triangle_tlas.value().tree.nodes
+    if case .Some(ref tlas) = world.triangle_tlas:
+        ref nodes = tlas.tree.nodes
         if len(nodes):
             _node_boxes(nodes, 0, 0, identity, boxes, limit)
-    if world.triangle_mesh_blases:
+    if case .Some(ref blases) = world.triangle_mesh_blases:
         for instance in world.scene_data().triangle_instances():
             if len(boxes) >= limit:
                 break
             _blas_boxes[.TRIANGLE, 16, .LOCAL](
-                world.triangle_mesh_blases.value(),
+                blases,
                 Int(instance.blas_idx),
                 instance.transform,
                 boxes,

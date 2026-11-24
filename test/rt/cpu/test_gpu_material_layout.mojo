@@ -359,8 +359,7 @@ def _gathers[length: SIMDLength]() raises:
     var rows = pack_coated_materials[False](surfaces)
     var columns = pack_coated_materials[True](surfaces)
     var gpu = TileTensor(
-        ptr=rows.unsafe_ptr(),
-        layout=row_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE])),
+        Span(rows), row_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE]))
     )
     var cpu = TileTensor(
         ptr=columns.unsafe_ptr(),

@@ -439,8 +439,8 @@ def _sample_direct_light_candidate[
     if not geometry.valid:
         return GpuDirectLightSample.make_empty()
     var material_idx = Int(SurfaceId.index_from_raw(surface_value))
-    var value = Color(0.0)
-    var bsdf_pdf = Float32(0.0)
+    var value: Color
+    var bsdf_pdf: Float32
     match surface_kind:
         case .DIELECTRIC:
             var material = TileTensor(

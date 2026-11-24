@@ -49,8 +49,8 @@ def bitonic_sort_shared[
     ]()
 
     var g_base = bid * PART_SIZE + (tid * ITEMS_PER_THREAD)
-    var r_keys = SIMD[keys_dtype, ITEMS_PER_THREAD]()
-    var r_vals = SIMD[vals_dtype, ITEMS_PER_THREAD]()
+    var r_keys: SIMD[keys_dtype, ITEMS_PER_THREAD]
+    var r_vals: SIMD[vals_dtype, ITEMS_PER_THREAD]
 
     if g_base < size_int:
         r_keys = keys.unsafe_load[width=ITEMS_PER_THREAD](g_base)

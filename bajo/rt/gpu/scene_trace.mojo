@@ -162,7 +162,7 @@ def _gpu_rt_scene_trace_path[
     )
     var emissives = scene.emissives
     var lambertians = scene.lambertians
-    var metals = scene.metals
+    # var metals = scene.metals
     var coated_diffuses = scene.coated_diffuses
     var lambertian_texture_indices = scene.lambertian_texture_indices
     var coated_diffuse_texture_indices = scene.coated_diffuse_texture_indices
@@ -957,7 +957,7 @@ def _gpu_rt_shadow_one[
     Formats: _GpuRtKernelFormats,
 ](idx: Int, scene: GpuRtSceneView, queues: GpuRtTraceQueueView):
     comptime assert Integrator.uses_visibility[integrator]
-    var counters = queues.counters
+    # var counters = queues.counters
     var capacity = Int(queues.capacity)
     var path_ids = queues.shadow_path_ids.unsafe_mut_cast[False]()
     var fields = queues.shadow_fields.unsafe_mut_cast[False]()

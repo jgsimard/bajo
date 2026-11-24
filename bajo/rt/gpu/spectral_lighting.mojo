@@ -74,7 +74,7 @@ def sample_spectral_light[
     var environment_probability = (
         lighting.environment_weight / lighting.total_weight
     )
-    var light_id = UInt32(Int(scene.light_count))
+    var light_id: UInt32
     var emission: Color
     var primitive = UInt32.MAX
     var geometry: _DirectLightGeometrySample[1]

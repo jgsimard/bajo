@@ -262,7 +262,7 @@ def build_hploc_multi_wave_kernel[
         segment_leaf_count = segment_end - segment_begin
     while hploc_wave_ballot(lane_active) != 0:
         if lane_active:
-            var previous = LBVH_SENTINEL
+            var previous: UInt32
             var parent_id = _hploc_find_parent_id(
                 sorted_morton_codes,
                 left,

@@ -32,9 +32,9 @@ def load_spectral_material[
     var result = SpectralMaterialParameters[1]()
     var spectral = scene.spectral.value()
     var spectra = spectral.sources
-    var rgb = Color(0)
+    var rgb: Color
     var texture = NO_TEXTURE
-    var source = NO_SPECTRUM
+    var source: UInt32
     var texture_descs = scene.texture_descs
     var texture_pixels = scene.texture_pixels
     comptime if kind == .LAMBERTIAN:

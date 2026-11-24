@@ -293,7 +293,7 @@ def _packet_scalar_rays[
     reciprocal_direction: Vec3[.float32, .WORLD, length],
 ) -> Array[Float32, 10 * length]:
     var scalar_rays = Array[Float32, 10 * length](uninitialized=True)
-    var fields = TileTensor(Span(scalar_rays), row_major[10, Int(length)]())
+    var fields = TileTensor(scalar_rays, row_major[10, Int(length)]())
     fields.store[width=length]((0, 0), rays.o.x)
     fields.store[width=length]((1, 0), rays.o.y)
     fields.store[width=length]((2, 0), rays.o.z)
@@ -887,7 +887,7 @@ struct CpuTlas[
         var closest_t = hit.t.to_array()
         var scalar_rays = _packet_scalar_rays(rays, reciprocal_direction)
         var scalar_ray_fields = TileTensor(
-            ImmSpan(scalar_rays), row_major[10, Int(length)]()
+            scalar_rays, row_major[10, Int(length)]()
         )
         var result_u = hit.u.to_array()
         var result_v = hit.v.to_array()
@@ -1198,7 +1198,7 @@ struct CpuTlas[
 
         var any_scalar_rays = _packet_scalar_rays(rays, reciprocal_direction)
         var any_scalar_ray_fields = TileTensor(
-            ImmSpan(any_scalar_rays), row_major[10, Int(length)]()
+            any_scalar_rays, row_major[10, Int(length)]()
         )
 
         @inline(.never)

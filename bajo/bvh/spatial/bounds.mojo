@@ -582,14 +582,14 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
 
     def _node_bounds(self, index: Int) -> AABB[Self.frame]:
         var bounds = TileTensor(
-            ImmSpan(self.bounds),
+            self.bounds,
             row_major(Coord(len(self.bounds) // 6, Idx[6])),
         )
         return AABB[Self.frame].load6(bounds.ptr_at_offset((index, 0)))
 
     def _store_bounds(mut self, index: Int, box: AABB[Self.frame]):
         var bounds = TileTensor(
-            Span(self.bounds), row_major(Coord(len(self.bounds) // 6, Idx[6]))
+            self.bounds, row_major(Coord(len(self.bounds) // 6, Idx[6]))
         )
         comptime for axis in range(3):
             bounds[index, axis] = box._min[axis]
@@ -638,11 +638,11 @@ struct SpatialBoundsBvh[frame: Frame = .WORLD](Copyable):
             layout=row_major(Coord(len(self.item_bounds), Idx[6])),
         )
         var bounds = TileTensor(
-            MutSpan(self.bounds),
+            self.bounds,
             row_major(Coord(len(self.bounds) // 6, Idx[6])),
         )
         var nodes = TileTensor(
-            ImmSpan(self.nodes), row_major(Coord(len(self.nodes) // 2, Idx[2]))
+            self.nodes, row_major(Coord(len(self.nodes) // 2, Idx[2]))
         )
         for node in range(len(self.nodes) // 2 - 1, -1, -1):
             var primitive = nodes[node, 1]

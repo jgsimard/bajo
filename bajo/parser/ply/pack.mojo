@@ -138,7 +138,7 @@ def _pack_ply_mesh(
                 uv_output = uv_output[2 * begin : 2 * end]
             bounds[task] = _pack_range(
                 mesh,
-                Span(vertices)[begin:end],
+                vertices[begin:end],
                 normal_output,
                 uv_output,
                 begin,

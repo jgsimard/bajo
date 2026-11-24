@@ -135,7 +135,7 @@ def _write_comparison(
     var comparison = List[Color](unsafe_uninit_length=width * IMAGE_HEIGHT)
     for y in range(IMAGE_HEIGHT):
         var source = y * IMAGE_WIDTH
-        var row = Span(comparison)[y * width : (y + 1) * width]
+        var row = comparison[y * width : (y + 1) * width]
         row[:IMAGE_WIDTH].copy_from(path_pixels[source : source + IMAGE_WIDTH])
         row[IMAGE_WIDTH : 2 * IMAGE_WIDTH].copy_from(
             nee_pixels[source : source + IMAGE_WIDTH]

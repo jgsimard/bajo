@@ -45,10 +45,8 @@ def _linearize_png_rows(
     var tasks = max(1, ceildiv(row_bytes * height, _SRGB_CHANNELS_PER_TASK))
 
     def convert(task: Int) {imm, mut pixels}:
-        var scanlines = TileTensor(
-            ImmSpan(raw), row_major(height, row_bytes + 1)
-        )
-        var output = TileTensor(MutSpan(pixels), row_major(height, row_bytes))
+        var scanlines = TileTensor(raw, row_major(height, row_bytes + 1))
+        var output = TileTensor(pixels, row_major(height, row_bytes))
         for y in range(height * task // tasks, height * (task + 1) // tasks):
             var end = row_bytes // _SRGB_SIMD_WIDTH * _SRGB_SIMD_WIDTH
             for x in range(0, end, _SRGB_SIMD_WIDTH):
@@ -152,15 +150,13 @@ def _try_parse_png_simd(
         var write = 0
         for chunk in ranges:
             var count = chunk[1] - chunk[0]
-            Span(compressed)[write : write + count].copy_from(
+            compressed[write : write + count].copy_from(
                 bytes[chunk[0] : chunk[1]]
             )
             write += count
-        _inflate_png(compressed, Span(raw)[:decoded_size])
+        _inflate_png(compressed, raw[:decoded_size])
     else:
-        _inflate_png(
-            bytes[ranges[0][0] : ranges[0][1]], Span(raw)[:decoded_size]
-        )
+        _inflate_png(bytes[ranges[0][0] : ranges[0][1]], raw[:decoded_size])
     _unfilter_rgb(raw, width, height)
     return ImageTexture(width, height, _linearize_png_rows(raw, width, height))
 

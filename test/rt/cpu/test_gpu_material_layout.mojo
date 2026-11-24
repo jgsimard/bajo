@@ -339,12 +339,12 @@ def test_coated_material_tiles_keep_the_same_logical_fields() raises:
     var rows = pack_coated_materials[False](surfaces)
     var columns = pack_coated_materials[True](surfaces)
     var gpu = TileTensor(
-        ptr=rows.unsafe_ptr(),
-        layout=row_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE])),
+        rows,
+        row_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE])),
     )
     var cpu = TileTensor(
-        ptr=columns.unsafe_ptr(),
-        layout=col_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE])),
+        columns,
+        col_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE])),
     )
     for material in range(5):
         for field in range(CoatedDiffuseLayout.STRIDE):
@@ -359,11 +359,11 @@ def _gathers[length: SIMDLength]() raises:
     var rows = pack_coated_materials[False](surfaces)
     var columns = pack_coated_materials[True](surfaces)
     var gpu = TileTensor(
-        Span(rows), row_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE]))
+        rows, row_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE]))
     )
     var cpu = TileTensor(
-        ptr=columns.unsafe_ptr(),
-        layout=col_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE])),
+        columns,
+        col_major(Coord(5, Idx[CoatedDiffuseLayout.STRIDE])),
     )
     var ids = SIMD[.uint32, length](0)
     for lane in range(Int(length)):
@@ -371,9 +371,7 @@ def _gathers[length: SIMDLength]() raises:
     var vector = load_coated_parameters(cpu, ids)
     # Static extents use the same affine field decoder as dynamic row and
     # column views; they must retain the same logical record coordinates.
-    var static_records = TileTensor(
-        Span(rows), row_major(Coord(Idx[5], Idx[27]))
-    )
+    var static_records = TileTensor(rows, row_major(Coord(Idx[5], Idx[27])))
     var general = load_coated_parameters(static_records, ids)
     var uniform = load_coated_parameters(cpu, SIMD[.uint32, length](3), True)
     for lane in range(Int(length)):

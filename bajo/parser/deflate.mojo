@@ -330,8 +330,8 @@ struct _Huffman:
 
 def _fixed(mut literals: _Huffman, mut distances: _Huffman) raises:
     var lengths = List[UInt8](length=288, fill=8)
-    Span(lengths)[144:256].fill(9)
-    Span(lengths)[256:280].fill(7)
+    lengths[144:256].fill(9)
+    lengths[256:280].fill(7)
     literals.build(lengths, 0, 9)
     var offsets = List[UInt8](length=32, fill=5)
     distances.build(offsets, 1)
@@ -372,8 +372,8 @@ def _dynamic(
         lengths.resize(len(lengths) + repeat, fill=value)
     if lengths[256] == 0:
         raise Error("DEFLATE code is missing end of block")
-    literals.build(ImmSpan(lengths)[:literal_count], 0)
-    distances.build(ImmSpan(lengths)[literal_count:], 1)
+    literals.build(lengths[:literal_count], 0)
+    distances.build(lengths[literal_count:], 1)
 
 
 def _copy_match(
@@ -726,6 +726,6 @@ def inflate_zlib(
         | (UInt32(input[end + 2]) << 8)
         | UInt32(input[end + 3])
     )
-    if adler32(ImmSpan(output)[: result[1]]) != expected:
+    if adler32(output[: result[1]]) != expected:
         raise Error("zlib Adler-32 checksum mismatch")
     return result[1]

@@ -112,7 +112,7 @@ def triangulated_indices(mesh: ObjMesh) -> List[ObjIndex]:
         def copy_worker(task: Int) {mesh, count, workers, mut output}:
             var begin = count * task // workers
             var end = count * (task + 1) // workers
-            Span(output)[begin:end].copy_from(Span(mesh.indices)[begin:end])
+            output[begin:end].copy_from(mesh.indices[begin:end])
 
         parallelize(copy_worker, workers, workers)
         return output^
@@ -149,7 +149,7 @@ def _triangulate_range(
 def _triangulated_indices_serial(mesh: ObjMesh) -> List[ObjIndex]:
     var counts = _triangle_counts(mesh, 0, len(mesh.face_vertices))
     var output = List[ObjIndex](unsafe_uninit_length=counts[1])
-    _triangulate_range(mesh, Span(output), 0, len(mesh.face_vertices), 0)
+    _triangulate_range(mesh, output, 0, len(mesh.face_vertices), 0)
     return output^
 
 
@@ -168,7 +168,7 @@ def _triangulated_indices_parallel(
 
     def emit_worker(task: Int) {mesh, chunks, mut output}:
         ref chunk = chunks[task]
-        var indices = Span(output)[
+        var indices = output[
             chunk.output_offset : chunk.output_offset + chunk.output_count
         ]
         _triangulate_range(

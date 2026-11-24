@@ -49,7 +49,7 @@ struct _CpuOpacityFilter[origin: ImmOrigin, length: SIMDLength = 1](
                 ref uv = data.triangle_mesh_texcoords()[Int(self.mesh)]
                 if len(uv):
                     var texcoords = TileTensor(
-                        ImmSpan(uv),
+                        uv,
                         row_major(Coord(len(uv) // 6, Idx[3], Idx[2])),
                     )[Int(primitive), :, :]
                     var w = 1.0 - u - v
@@ -89,7 +89,7 @@ struct _CpuOpacityFilter[origin: ImmOrigin, length: SIMDLength = 1](
                 ref uv = data.triangle_mesh_texcoords()[Int(self.mesh)]
                 if len(uv):
                     var texcoords = TileTensor(
-                        ImmSpan(uv),
+                        uv,
                         row_major(Coord(len(uv) // 6, Idx[3], Idx[2])),
                     )[Int(primitive), :, :]
                     var w = 1 - u - v
@@ -367,7 +367,7 @@ def trace_opacity_instances_packet[
         length=length,
         any_hit=mode == .ANY_HIT,
     ](
-        ImmSpan(tlas.tree.nodes),
+        tlas.tree.nodes,
         rays,
         rays.reciprocal_direction(),
         valid,

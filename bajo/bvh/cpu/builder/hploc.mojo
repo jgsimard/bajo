@@ -97,7 +97,7 @@ struct _HplocClusterBounds(Copyable):
 
     def set[frame: Frame](mut self, pos: Int, bounds: AABB[frame]):
         var fields = TileTensor[linear_idx_type=.int](
-            MutSpan(self.values), col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6]()
+            self.values, col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6]()
         )
         var storage_pos = _HPLOC_BOUNDS_PAD + pos
         comptime for axis in range(3):
@@ -106,7 +106,7 @@ struct _HplocClusterBounds(Copyable):
 
     def copy(mut self, dst: Int, src: Int):
         var fields = TileTensor[linear_idx_type=.int](
-            MutSpan(self.values), col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6]()
+            self.values, col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6]()
         )
         comptime for field in range(6):
             fields[_HPLOC_BOUNDS_PAD + dst, field] = fields[
@@ -117,7 +117,7 @@ struct _HplocClusterBounds(Copyable):
         width: SIMDLength
     ](self, storage_pos: Int) -> _HplocBoundsPacket[width]:
         var fields = TileTensor[linear_idx_type=.int](
-            ImmSpan(self.values), col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6]()
+            self.values, col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6]()
         )
         return _HplocBoundsPacket[width](
             fields.load[width=width](Coord(storage_pos, 0)),
@@ -144,7 +144,7 @@ struct _HplocClusterBounds(Copyable):
                 _HPLOC_BOUNDS_PAD,
             )
             var fields = TileTensor[linear_idx_type=.int](
-                ImmSpan(self.values),
+                self.values,
                 col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6](),
             )
             return _HplocBoundsPacket[width](
@@ -171,7 +171,7 @@ struct _HplocClusterBounds(Copyable):
 
     def _clear_storage(mut self, storage_pos: Int):
         var fields = TileTensor[linear_idx_type=.int](
-            MutSpan(self.values), col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6]()
+            self.values, col_major[_HPLOC_PADDED_BOUNDS_CAPACITY, 6]()
         )
         _ = fields[storage_pos, :].fill(0.0)
 

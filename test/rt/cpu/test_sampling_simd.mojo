@@ -220,7 +220,7 @@ def test_alias_distribution_preserves_sparse_hdr_weights_and_zero_boundary() rai
         total += Float64(weight)
     var probabilities = List[Float32]()
     var indices = List[UInt32]()
-    build_alias_distribution(Span(weights), total, probabilities, indices)
+    build_alias_distribution(weights, total, probabilities, indices)
     var reconstructed = List[Float64](length=len(weights), fill=0)
     for column in range(len(weights)):
         assert_true(probabilities[column] >= 0 and probabilities[column] <= 1)
@@ -240,7 +240,7 @@ def test_alias_distribution_preserves_sparse_hdr_weights_and_zero_boundary() rai
     draw = draw_alias_column(Float32(1), len(weights))
     assert_equal(Int(draw.column), len(weights) - 1)
     var zeros = List[Float32](length=3, fill=0)
-    build_alias_distribution(Span(zeros), 0, probabilities, indices)
+    build_alias_distribution(zeros, 0, probabilities, indices)
     assert_equal(len(probabilities), 0)
     assert_equal(len(indices), 0)
 

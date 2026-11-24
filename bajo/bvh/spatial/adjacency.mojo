@@ -62,7 +62,7 @@ def build_adjacency(
         data[3 + vertex] += data[2 + vertex]
     var incidence = Int(data[2 + vertices])
     data.resize(3 + vertices + incidence + 2 * faces, fill=EMPTY_LANE)
-    var cursors = List(Span(data)[2 : 2 + vertices])
+    var cursors = List(data[2 : 2 + vertices])
     for face in range(faces):
         for corner in range(3):
             var vertex = triangles[face, corner]

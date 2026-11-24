@@ -35,7 +35,7 @@ def plan_texture_upload(surfaces: SurfaceStore) raises -> TextureUploadPlan:
         fill=0,
     )
     var records = TileTensor(
-        MutSpan(descriptors),
+        descriptors,
         row_major(
             Coord(len(surfaces.image_textures), Idx[TextureDescLayout.STRIDE])
         ),
@@ -52,7 +52,7 @@ def plan_texture_upload(surfaces: SurfaceStore) raises -> TextureUploadPlan:
         var format = TextureDescLayout.RGB_F32
         if pixel_count > 128:
             var pixels = TileTensor(
-                ImmSpan(image.pixels), row_major(Coord(pixel_count, Idx[3]))
+                image.pixels, row_major(Coord(pixel_count, Idx[3]))
             )
             var palette = Dict[UInt32, UInt32]()
             words = List[Float32](capacity=min(256 + pixel_count, 1024))
@@ -100,7 +100,7 @@ def pack_texture_tables(surfaces: SurfaceStore) raises -> PackedTextureTables:
     var plan = plan_texture_upload(surfaces)
     var words = List[Float32](capacity=plan.word_count)
     var records = TileTensor(
-        ImmSpan(plan.descriptors),
+        plan.descriptors,
         row_major(
             Coord(len(surfaces.image_textures), Idx[TextureDescLayout.STRIDE])
         ),
@@ -125,7 +125,7 @@ def upload_texture_pixels(
     var staging = ctx.enqueue_create_host_buffer[.float32](plan.word_count)
     var target = ctx.enqueue_create_buffer[.float32](plan.word_count)
     var records = TileTensor(
-        ImmSpan(plan.descriptors)[
+        plan.descriptors[
             : len(surfaces.image_textures) * TextureDescLayout.STRIDE
         ],
         row_major(

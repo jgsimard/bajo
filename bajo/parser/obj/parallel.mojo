@@ -366,24 +366,22 @@ def _decode_chunk(
     var position_begin = 3 * (chunk.position_offset + 1)
     var texcoord_begin = 2 * (chunk.texcoord_offset + 1)
     var normal_begin = 3 * (chunk.normal_offset + 1)
-    var positions = Span(mesh.positions)[
+    var positions = mesh.positions[
         position_begin : position_begin + 3 * chunk.positions
     ]
-    var texcoords = Span(mesh.texcoords)[
+    var texcoords = mesh.texcoords[
         texcoord_begin : texcoord_begin + 2 * chunk.texcoords
     ]
-    var normals = Span(mesh.normals)[
-        normal_begin : normal_begin + 3 * chunk.normals
-    ]
+    var normals = mesh.normals[normal_begin : normal_begin + 3 * chunk.normals]
     var colors = Span(mesh.colors)
     if len(colors) > 0:
         colors = colors[position_begin : position_begin + 3 * chunk.positions]
-    var indices = Span(mesh.indices)[
+    var indices = mesh.indices[
         chunk.index_offset : chunk.index_offset + chunk.indices
     ]
     # First-touch these pages in the same workers that decode their faces.
     # The ordered metadata pass then only overwrites non-default materials.
-    Span(mesh.face_materials)[
+    mesh.face_materials[
         chunk.face_offset : chunk.face_offset + chunk.faces
     ].fill(0)
     var lines = _ObjLines(bytes, chunk.begin, chunk.end)
@@ -474,7 +472,7 @@ def _finish_metadata[
                 var face = chunk.face_offset + event.face
                 var index = chunk.index_offset + event.index
                 if state.current_material != 0:
-                    Span(mesh.face_materials)[previous_face:face].fill(
+                    mesh.face_materials[previous_face:face].fill(
                         state.current_material
                     )
                 previous_face = face
@@ -512,9 +510,7 @@ def _finish_metadata[
                     case _:
                         pass
         if state.current_material != 0:
-            Span(mesh.face_materials)[previous_face:].fill(
-                state.current_material
-            )
+            mesh.face_materials[previous_face:].fill(state.current_material)
         state.current_group.face_count = (
             len(mesh.face_vertices) - state.current_group.face_offset
         )

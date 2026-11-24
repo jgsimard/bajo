@@ -242,7 +242,7 @@ def render_cpu(
         camera,
         WIDTH,
         HEIGHT,
-        Span(hits),
+        hits,
     )
     var trace_t1 = perf_counter_ns()
     var trace_ns = Int(trace_t1 - trace_t0)

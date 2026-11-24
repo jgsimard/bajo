@@ -246,7 +246,7 @@ def _unfilter_rgb(mut raw: List[UInt8], width: Int, height: Int) raises:
                 and raw[offset + 2 * stride] == 3
                 and raw[offset + 3 * stride] == 3
             ):
-                _undo_average_four(Span(raw), y, width)
+                _undo_average_four(raw, y, width)
                 y += 4
                 continue
         if width >= 4 and y > 0 and y + 4 <= height:
@@ -256,10 +256,10 @@ def _unfilter_rgb(mut raw: List[UInt8], width: Int, height: Int) raises:
                 and raw[offset + 2 * stride] == 4
                 and raw[offset + 3 * stride] == 4
             ):
-                _undo_paeth_four(Span(raw), y, width)
+                _undo_paeth_four(raw, y, width)
                 y += 4
                 continue
-        var row = Span(raw)[offset + 1 : offset + stride]
+        var row = raw[offset + 1 : offset + stride]
         # The immutable previous row is disjoint from the mutable current row.
         # Keep both owning lists alive through the call, including SIMD padding.
         var above_ptr = (

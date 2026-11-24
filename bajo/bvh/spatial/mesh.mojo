@@ -177,7 +177,7 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
                 self._pack_triangle_range_with_winding[update_bounds](
                     count * task // workers,
                     count * (task + 1) // workers,
-                    Span(partials)[task * components : (task + 1) * components],
+                    partials[task * components : (task + 1) * components],
                 )
 
             parallelize(pack, workers, workers)
@@ -200,13 +200,13 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
             if not has_cache:
                 return
         var points = TileTensor(
-            ImmSpan(self.points), row_major(len(self.points) // 3, 3)
+            self.points, row_major(len(self.points) // 3, 3)
         )
         var indices = TileTensor(
-            ImmSpan(self.indices), row_major(len(self.indices) // 3, 3)
+            self.indices, row_major(len(self.indices) // 3, 3)
         )
         var packed = TileTensor(
-            MutSpan(self.packed_triangles),
+            self.packed_triangles,
             row_major(
                 Coord(
                     len(self.packed_triangles) // (9 * Self.storage_width),
@@ -269,13 +269,13 @@ struct SpatialMesh[frame: Frame = .WORLD, storage_width: SIMDLength = 8](
             if not has_cache:
                 return
         var points = TileTensor(
-            ImmSpan(self.points), row_major(len(self.points) // 3, 3)
+            self.points, row_major(len(self.points) // 3, 3)
         )
         var indices = TileTensor(
-            ImmSpan(self.indices), row_major(len(self.indices) // 3, 3)
+            self.indices, row_major(len(self.indices) // 3, 3)
         )
         var packed = TileTensor(
-            MutSpan(self.packed_triangles),
+            self.packed_triangles,
             row_major(
                 Coord(
                     len(self.packed_triangles) // (9 * Self.storage_width),

@@ -157,8 +157,8 @@ def _flatten_triangle_sets[
     )
     var offset = 0
     for vertices in vertex_sets:
-        var words = _packed_point3_span(ImmSpan(vertices))
-        Span(packed_vertices)[offset : offset + len(words)].copy_from(words)
+        var words = _packed_point3_span(vertices)
+        packed_vertices[offset : offset + len(words)].copy_from(words)
         offset += len(words)
     return _TriangleHostSegments(
         SegmentOffsets.from_counts(primitive_counts), packed_vertices^

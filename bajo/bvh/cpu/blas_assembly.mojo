@@ -52,12 +52,12 @@ def _assemble_exact_blases[
         ref local = built[blas_idx]
         var desc = BlasDesc.load(local.descs.unsafe_ptr(), UInt32(0))
         if len(local.nodes) > 0:
-            Span(nodes)[node_base : node_base + len(local.nodes)].copy_from(
-                ImmSpan(local.nodes)
+            nodes[node_base : node_base + len(local.nodes)].copy_from(
+                local.nodes
             )
         if len(local.leaves) > 0:
-            Span(leaves)[leaf_base : leaf_base + len(local.leaves)].copy_from(
-                ImmSpan(local.leaves)
+            leaves[leaf_base : leaf_base + len(local.leaves)].copy_from(
+                local.leaves
             )
         desc.node_f32_base = UInt32(node_base)
         desc.leaf_f32_base = UInt32(leaf_base)
@@ -104,12 +104,12 @@ def _assemble_exact_blases_parallel[
         ref local = built[blas_idx]
         var desc = BlasDesc.load(local.descs.unsafe_ptr(), UInt32(0))
         if len(local.nodes) > 0:
-            Span(nodes)[node_base : node_base + len(local.nodes)].copy_from(
-                ImmSpan(local.nodes)
+            nodes[node_base : node_base + len(local.nodes)].copy_from(
+                local.nodes
             )
         if len(local.leaves) > 0:
-            Span(leaves)[leaf_base : leaf_base + len(local.leaves)].copy_from(
-                ImmSpan(local.leaves)
+            leaves[leaf_base : leaf_base + len(local.leaves)].copy_from(
+                local.leaves
             )
         desc.node_f32_base = UInt32(node_base)
         desc.leaf_f32_base = UInt32(leaf_base)
@@ -188,11 +188,11 @@ def _finish_blas_workspace[
         var node_count = Int(desc.node_count) * node_f32_stride
         var leaf_count = Int(desc.leaf_block_count) * leaf_f32_stride
         if node_count > 0:
-            Span(compact_nodes)[node_out : node_out + node_count].copy_from(
+            compact_nodes[node_out : node_out + node_count].copy_from(
                 nodes[old_node_base : old_node_base + node_count]
             )
         if leaf_count > 0:
-            Span(compact_leaves)[leaf_out : leaf_out + leaf_count].copy_from(
+            compact_leaves[leaf_out : leaf_out + leaf_count].copy_from(
                 leaves[old_leaf_base : old_leaf_base + leaf_count]
             )
         desc.node_f32_base = UInt32(node_out)

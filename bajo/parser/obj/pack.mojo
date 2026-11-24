@@ -33,7 +33,7 @@ def _pack_obj_triangles_serial[
 ](mesh: ObjMesh) -> List[Point3f32[frame]]:
     var counts = _triangle_counts(mesh, 0, len(mesh.face_vertices))
     var out = List[Point3f32[frame]](unsafe_uninit_length=counts[1])
-    _pack_range[frame](mesh, Span(out), 0, len(mesh.face_vertices), 0)
+    _pack_range[frame](mesh, out, 0, len(mesh.face_vertices), 0)
     return out^
 
 
@@ -89,7 +89,7 @@ def _pack_obj_triangles_parallel[
         ref chunk = chunks[task]
         # Each worker owns a contiguous output slice; triangle order follows
         # face order even when workers finish in a different order.
-        var vertices = Span(output)[
+        var vertices = output[
             chunk.output_offset : chunk.output_offset + chunk.output_count
         ]
         _pack_range[frame](

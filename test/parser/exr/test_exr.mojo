@@ -316,7 +316,7 @@ def test_zip_postprocessing_matches_byte_reference_at_vector_boundaries() raises
             var actual = encoded.copy()
             _undo_zip_prediction(actual)
             var guarded = List[UInt8](length=count + 7, fill=UInt8(0xA5))
-            var target = Span(guarded)[3 : 3 + count]
+            var target = guarded[3 : 3 + count]
             for i in range(count):
                 target[i] = encoded[i]
             _undo_zip_prediction(target)
@@ -349,8 +349,8 @@ def test_simd_half_conversion_matches_every_finite_encoding() raises:
     var output = List[Float32](length=3 * len(encodings) + 2, fill=-9.0)
     for lane in range(3):
         _decode_channel[1](
-            Span(bytes)[1:],
-            Span(output)[1 : len(output) - 1],
+            bytes[1:],
+            output[1 : len(output) - 1],
             lane,
             len(encodings),
         )
@@ -382,15 +382,15 @@ def test_simd_uint_and_float_channels_preserve_bits_and_tails() raises:
             _append_u32(floats, bits)
             expected_float.append(bits)
         var output = List[Float32](length=3 * width + 2, fill=-9.0)
-        var target = Span(output)[1 : len(output) - 1]
+        var target = output[1 : len(output) - 1]
         for lane in range(3):
-            _decode_channel[0](Span(integers)[1:], target, lane, width)
+            _decode_channel[0](integers[1:], target, lane, width)
             for x in range(width):
                 assert_equal(
                     bitcast[.uint32](target[3 * x + lane]),
                     bitcast[.uint32](expected_int[x]),
                 )
-            _decode_channel[2](Span(floats)[1:], target, lane, width)
+            _decode_channel[2](floats[1:], target, lane, width)
             for x in range(width):
                 assert_equal(
                     bitcast[.uint32](target[3 * x + lane]), expected_float[x]
@@ -414,7 +414,7 @@ def test_simd_rejects_nonfinite_values_in_vectors_and_tails() raises:
             for byte in range(4):
                 bytes[4 * position + byte] = UInt8(bits >> UInt32(8 * byte))
             with assert_raises():
-                _decode_channel[2](bytes, Span(output), 1, width)
+                _decode_channel[2](bytes, output, 1, width)
         for bits in [
             UInt16(0x7C00),
             UInt16(0xFC00),
@@ -425,7 +425,7 @@ def test_simd_rejects_nonfinite_values_in_vectors_and_tails() raises:
             bytes[2 * position] = UInt8(bits)
             bytes[2 * position + 1] = UInt8(bits >> UInt16(8))
             with assert_raises():
-                _decode_channel[1](bytes, Span(output), 2, width)
+                _decode_channel[1](bytes, output, 2, width)
 
 
 def run_tests[_discovery: Bool = True]() raises:

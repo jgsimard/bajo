@@ -50,16 +50,16 @@ def write_string(mut file: FileHandle, value: String):
 
 
 def dump(mesh: ObjMesh, directory: String) raises:
-    write_values(directory + "/positions.f32", Span(mesh.positions)[3:])
-    write_values(directory + "/texcoords.f32", Span(mesh.texcoords)[2:])
-    write_values(directory + "/normals.f32", Span(mesh.normals)[3:])
-    write_values(directory + "/colors.f32", Span(mesh.colors))
+    write_values(directory + "/positions.f32", mesh.positions[3:])
+    write_values(directory + "/texcoords.f32", mesh.texcoords[2:])
+    write_values(directory + "/normals.f32", mesh.normals[3:])
+    write_values(directory + "/colors.f32", mesh.colors)
     var indices = List[Int32](capacity=3 * len(mesh.indices))
     for index in mesh.indices:
         indices.append(index.p - 1)
         indices.append(index.t - 1)
         indices.append(index.n - 1)
-    write_values(directory + "/indices.i32", Span(indices))
+    write_values(directory + "/indices.i32", indices)
     var faces = List[UInt32](capacity=len(mesh.face_vertices))
     var materials = List[Int32](capacity=len(mesh.face_vertices))
     for face in range(len(mesh.face_vertices)):
@@ -71,8 +71,8 @@ def dump(mesh: ObjMesh, directory: String) raises:
                 -1
             )
         )
-    write_values(directory + "/faces.u32", Span(faces))
-    write_values(directory + "/face_materials.i32", Span(materials))
+    write_values(directory + "/faces.u32", faces)
+    write_values(directory + "/face_materials.i32", materials)
     with open(directory + "/materials.bin", "w") as file:
         for material in mesh.materials:
             write_string(file, material.name)

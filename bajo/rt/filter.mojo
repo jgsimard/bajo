@@ -246,7 +246,7 @@ struct FilterSampler:
         var conditional = rows + ny
         var values = conditional + ny * (nx + 1)
         self.data.resize(values + nx * ny, fill=0)
-        var data = TileTensor(MutSpan(self.data), row_major(len(self.data)))
+        var data = TileTensor(self.data, row_major(len(self.data)))
         var cdfs = TileTensor(
             ptr=data.ptr_at_offset((conditional,)), layout=row_major(ny, nx + 1)
         )

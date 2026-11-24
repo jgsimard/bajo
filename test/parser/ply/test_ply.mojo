@@ -360,7 +360,7 @@ def test_triangle_simd_stores_stay_inside_the_output_span() raises:
             for corner in range(3):
                 _append_u32(bytes, UInt32((3 * face + corner) % 17))
         var output = List[UInt32](length=3 * count + 6, fill=UInt32(0xDEADBEEF))
-        _emit_triangles(Span(bytes)[7:], Span(output)[3 : 3 + 3 * count], 17)
+        _emit_triangles(bytes[7:], output[3 : 3 + 3 * count], 17)
         for index in range(3 * count):
             assert_equal(output[3 + index], UInt32(index % 17))
         for guard in range(3):
@@ -449,7 +449,7 @@ def test_common_simd_preserves_invalid_input_diagnostics() raises:
         var header = _parse_header(good)
         var face_begin = len(good) - 13 * faces
         for length in range(header.data_offset, len(good)):
-            _same_parse_failure(Span(good)[:length])
+            _same_parse_failure(good[:length])
         for face in range(faces):
             for count in [UInt8(0), 1, 2, 18, 255]:
                 var bytes = good.copy()

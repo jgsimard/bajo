@@ -52,7 +52,7 @@ struct GpuOpacityTables:
                         pixels.extend(ImmSpan(image.alpha))
                     else:
                         var rgb = TileTensor(
-                            ImmSpan(image.pixels),
+                            image.pixels,
                             row_major(
                                 Coord(image.width * image.height, Idx[3])
                             ),

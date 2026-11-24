@@ -38,7 +38,7 @@ def reconstruct_frame[
     var bins = stats.bins.unsafe_ptr()
     var meta = stats.meta.unsafe_ptr()
     var fields = TileTensor(
-        ImmSpan(guides.fields),
+        guides.fields,
         layout=row_major(Coord(count, Idx[GuideLayout.STRIDE])),
     )
     var diffuse = frame.diffuse.unsafe_ptr()
@@ -115,7 +115,7 @@ def atrous_denoise[
     workspace.variance.resize(unsafe_uninit_length=count)
     workspace.variance_pong.resize(unsafe_uninit_length=count)
     var fields = TileTensor(
-        ImmSpan(guides.fields),
+        guides.fields,
         layout=row_major(Coord(count, Idx[GuideLayout.STRIDE])),
     )
     var surfaces = guides.surfaces.unsafe_ptr()

@@ -98,7 +98,7 @@ def test_any_hit_continuation_accepts_tagged_leaf_references() raises:
             var hit = trace_bounds_bvh_from_ref[
                 frame=.WORLD, bounds_width=4, leaf_width=4, mode=.ANY_HIT
             ](
-                Span(nodes),
+                nodes,
                 ray,
                 encode_leaf_ref(UInt32(leaf)),
                 Hit[.WORLD].miss(ray.t_max),
@@ -151,7 +151,7 @@ def test_overlapping_wide_frontiers_spill_without_losing_tasks() raises:
         var ray = Rayf32[.WORLD](Point3W(0), Vec3W(0, 0, 1))
         var hit = trace_bounds_bvh_from_ref[
             frame=.WORLD, bounds_width=16, leaf_width=4, mode=mode
-        ](Span(nodes), ray, 0, Hit[.WORLD].miss(ray.t_max), leaf_fn)
+        ](nodes, ray, 0, Hit[.WORLD].miss(ray.t_max), leaf_fn)
         comptime if mode == .CLOSEST_HIT:
             assert_equal(visited, depth * 15 + 1)
             assert_true(not hit.is_hit())

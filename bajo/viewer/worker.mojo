@@ -504,7 +504,7 @@ struct _WorkerState[gpu_enabled: Bool]:
                 )
             var post_t0 = perf_counter_ns()
             self.cpu_preview.value().add(
-                ImmSpan(result.pixels),
+                result.pixels,
                 self.generation,
                 self.settings.samples_per_pixel,
                 result.denoise_samples,

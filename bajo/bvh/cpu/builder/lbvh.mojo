@@ -152,7 +152,7 @@ def _radix_sort_morton_storage_pass[
 ):
     def histogram_worker(task_idx: Int) {imm, mut counts}:
         var counts_base = task_idx * 256
-        Span(counts)[counts_base : counts_base + 256].fill(0)
+        counts[counts_base : counts_base + 256].fill(0)
         var first = count * task_idx // worker_count
         var end = count * (task_idx + 1) // worker_count
         for i in range(first, end):
@@ -419,11 +419,11 @@ def _build_lbvh[
         "LBVH builder arrays have inconsistent lengths",
     )
     if use_parallel_build:
-        _build_lbvh_parallel(builder, Span(pairs))
+        _build_lbvh_parallel(builder, pairs)
     else:
         _ = _build_lbvh_recursive[
             frame, leaf_size, method, hploc_microleaf_size
-        ](builder, Span(pairs), 0, 0, item_count)
+        ](builder, pairs, 0, 0, item_count)
 
 
 @inline(.always)

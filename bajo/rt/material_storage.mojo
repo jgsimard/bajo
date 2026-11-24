@@ -184,11 +184,11 @@ def pack_coated_materials[
     var out = List[Float32](length=count * CoatedDiffuseLayout.STRIDE, fill=0.0)
     var shape = Coord(count, Idx[CoatedDiffuseLayout.STRIDE])
     comptime if COLUMN_MAJOR:
-        var records = TileTensor(Span(out), col_major(shape))
+        var records = TileTensor(out, col_major(shape))
         for idx in range(count):
             store_coated_material(records, idx, surfaces.coated_diffuses[idx])
     else:
-        var records = TileTensor(Span(out), row_major(shape))
+        var records = TileTensor(out, row_major(shape))
         for idx in range(count):
             store_coated_material(records, idx, surfaces.coated_diffuses[idx])
     return out^

@@ -1,6 +1,5 @@
 """Scene-sized target allocation preserves explicit bounds and pixel alignment."""
 
-from test.rt.helpers import assert_pixels_equal
 from std.memory import bitcast
 from std.testing import (
     TestSuite,
@@ -116,7 +115,7 @@ def test_gpu_rgb_entry_points_match_mode_aware_rendering_and_replay() raises:
     var explicit_rgb = render_gpu_configured[.SPHERES, .MIS](
         settings, camera, data
     )
-    assert_pixels_equal(explicit_rgb.pixels, expected.pixels)
+    assert_equal(explicit_rgb.pixels, expected.pixels)
 
     var rgb = GpuRtPreparedRenderer[.SPHERES](settings, camera, data)
     var auto = ModeAwareRenderer[.SPHERES](settings, camera, data)
@@ -124,10 +123,10 @@ def test_gpu_rgb_entry_points_match_mode_aware_rendering_and_replay() raises:
     for _ in range(3):
         var actual = rgb.render[.MIS](settings, camera)
         var reference = auto.render[.MIS](settings, camera)
-        assert_pixels_equal(actual.pixels, reference.pixels)
+        assert_equal(actual.pixels, reference.pixels)
     enqueue_render_gpu_auto[.MIS](rgb.ctx, rgb.target, rgb.scene, settings)
     var general = download_gpu_pixels(rgb.ctx, rgb.target)
-    assert_pixels_equal(general, expected.pixels)
+    assert_equal(general, expected.pixels)
     assert_true(Bool(rgb._render_graph))
     assert_true(Bool(auto._render_graph))
 
@@ -181,8 +180,8 @@ def test_gpu_prepared_renderer_resizes_and_replays() raises:
             kind=.SPHERES, integrator=.NORMALS
         ](resized, camera, data)
         var repeated = renderer.render[.NORMALS](resized, camera)
-        assert_pixels_equal(actual.pixels, expected.pixels)
-        assert_pixels_equal(repeated.pixels, actual.pixels)
+        assert_equal(actual.pixels, expected.pixels)
+        assert_equal(repeated.pixels, actual.pixels)
 
 
 def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() raises:
@@ -256,7 +255,7 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
             if repeat == 0 and phase != 1 and phase != 5 and phase != 18:
                 assert_false(Bool(renderer._render_graph))
             var actual = download_gpu_pixels(renderer.ctx, renderer.target)
-            assert_pixels_equal(actual, expected)
+            assert_equal(actual, expected)
         assert_true(Bool(renderer._render_graph))
     # Estimator switches must invalidate graphs even when tracing is shared.
     comptime for direct_integrator in [
@@ -273,7 +272,7 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
             renderer.enqueue[direct_integrator](settings)
             if repeat == 0:
                 assert_false(Bool(renderer._render_graph))
-            assert_pixels_equal(
+            assert_equal(
                 download_gpu_pixels(renderer.ctx, renderer.target),
                 direct_expected,
             )
@@ -285,7 +284,7 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
     var path_expected = download_gpu_pixels(renderer.ctx, expected_target)
     for _ in range(3):
         renderer.enqueue[.PATH](settings)
-        assert_pixels_equal(
+        assert_equal(
             download_gpu_pixels(renderer.ctx, renderer.target), path_expected
         )
     assert_true(Bool(renderer._render_graph))
@@ -297,7 +296,7 @@ def test_gpu_prepared_graph_replay_tracks_camera_sampling_film_and_integrator() 
         enqueue_render_gpu[.PATH](
             renderer.ctx, expected_target, renderer.scene, settings
         )
-        assert_pixels_equal(
+        assert_equal(
             progressive, download_gpu_pixels(renderer.ctx, expected_target)
         )
         assert_true(Bool(renderer._render_graph))
@@ -314,7 +313,7 @@ def test_gpu_prepared_graph_replays_textured_instances() raises:
         settings, camera, world.scene_data()
     )
     for _ in range(3):
-        assert_pixels_equal(
+        assert_equal(
             renderer.render[.MIS](settings, camera).pixels, expected.pixels
         )
     assert_true(Bool(renderer._render_graph))
@@ -467,7 +466,7 @@ def _assert_unused_geometry_formats[
         blas_format=GPU_RT_BVH_CWBVH8 if kind.has_instances() else GPU_RT_BVH_WIDE4,
     ](settings, camera, data)
     assert_equal(len(actual.pixels), 20)
-    assert_pixels_equal(actual.pixels, expected.pixels)
+    assert_equal(actual.pixels, expected.pixels)
 
 
 def test_gpu_canonical_format_key_identity() raises:

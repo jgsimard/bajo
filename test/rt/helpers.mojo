@@ -29,14 +29,3 @@ def assert_pixels_close(
                     atol=atol,
                     msg=String(t"pixel {i}, component {axis}"),
                 )
-
-
-def assert_pixels_equal(actual: List[Color], expected: List[Color]) raises:
-    assert_equal(len(actual), len(expected))
-    for i in range(len(expected)):
-        for axis in range(3):
-            assert_equal(
-                actual[i][axis],
-                expected[i][axis],
-                msg=String(t"pixel {i}, component {axis}"),
-            )

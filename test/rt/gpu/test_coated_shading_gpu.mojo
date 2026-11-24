@@ -1,6 +1,5 @@
 """Deferred coated shading retains instance UVs and global path IDs."""
 
-from test.rt.helpers import assert_pixels_equal
 from std.testing import TestSuite, assert_almost_equal, assert_true
 from max.gpu.host import DeviceContext
 
@@ -33,7 +32,7 @@ def test_gpu_coated_instance_uvs_are_chunk_invariant() raises:
         var chunked = GpuRtRenderTarget(ctx, settings, camera, 2 * 8)
         enqueue_render_gpu[.MIS](ctx, chunked, scene, settings)
         var actual = download_gpu_pixels(ctx, chunked)
-        assert_pixels_equal(actual, expected)
+        assert_equal(actual, expected)
 
         # Different parts of the triangle must retain different texels when
         # UVs cross the deferred queue. These are interior red/green/blue hits.

@@ -1,6 +1,5 @@
 """A trace grid cap must not omit primary samples."""
 
-from test.rt.helpers import assert_pixels_equal
 from std.testing import TestSuite, assert_almost_equal
 from max.gpu.host import DeviceContext
 
@@ -85,7 +84,7 @@ def test_gpu_capped_mis_coated_instance_matches_uncapped() raises:
             ctx, capped, scene, settings
         )
         var actual = download_gpu_pixels(ctx, capped)
-        assert_pixels_equal(actual, expected)
+        assert_equal(actual, expected)
 
 
 def run_tests[_discovery: Bool = True]() raises:

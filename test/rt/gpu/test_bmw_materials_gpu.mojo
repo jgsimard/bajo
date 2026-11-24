@@ -1,6 +1,6 @@
 """Mixed coated conductors retain instance attributes and chunk invariance."""
 
-from test.rt.helpers import assert_pixels_close, assert_pixels_equal
+from test.rt.helpers import assert_pixels_close
 from std.testing import TestSuite, assert_true
 from max.gpu.host import DeviceContext
 from bajo.parser import MemoryAssetLoader
@@ -56,7 +56,7 @@ Shape "plymesh" "string filename" "mesh.ply"
             var actual = download_gpu_pixels(ctx, chunked)
             for pixel in expected:
                 assert_true(pixel.is_finite()[0])
-            assert_pixels_equal(actual, expected)
+            assert_equal(actual, expected)
             assert_pixels_close(expected, cpu.pixels, atol=1e-3, rtol=1e-3)
 
         # An estimator stream belongs to the absolute pixel sample, even

@@ -15,7 +15,6 @@ from bajo.rt.cpu.wavefront import (
     render_wavefront as render_mode_aware,
     render_wavefront_configured as render_configured_mode_aware,
 )
-from test.rt.helpers import assert_pixels_equal
 
 
 def _world() raises -> CpuScene[16, 16]:
@@ -43,16 +42,16 @@ def test_cpu_rgb_entry_points_match_mode_aware_and_reuse_workspace() raises:
         settings, camera, world
     )
     var rgb = render_wavefront[.MIS, 4, PARALLEL=False](settings, camera, world)
-    assert_pixels_equal(rgb.pixels, expected.pixels)
+    assert_equal(rgb.pixels, expected.pixels)
     var fresh = render_wavefront_configured[
         .AUTO_COHERENT, .MIS, 4, 1024, False, .TASK_PARTITIONS, 16, 16, 16, 8, 4
     ](settings, camera, world)
-    assert_pixels_equal(fresh.pixels, expected.pixels)
+    assert_equal(fresh.pixels, expected.pixels)
     var workspace = CpuWavefrontWorkspace[4, .MIS]()
     var retained = render_wavefront_configured[
         .AUTO_COHERENT, .MIS, 4, 1024, False, .TASK_PARTITIONS, 16, 16, 16, 8, 4
     ](settings, camera, world, workspace)
-    assert_pixels_equal(retained.pixels, expected.pixels)
+    assert_equal(retained.pixels, expected.pixels)
     assert_false(workspace.spectral)
 
     settings.color_mode = .SPECTRAL
@@ -65,7 +64,7 @@ def test_cpu_rgb_entry_points_match_mode_aware_and_reuse_workspace() raises:
     var again = render_wavefront_configured[
         .AUTO_COHERENT, .MIS, 4, 1024, False, .TASK_PARTITIONS, 16, 16, 16, 8, 4
     ](settings, camera, world, workspace)
-    assert_pixels_equal(again.pixels, expected.pixels)
+    assert_equal(again.pixels, expected.pixels)
     assert_true(workspace.spectral)
 
 

@@ -5,7 +5,6 @@ from std.algorithm import vectorize
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.sys import simd_width_of
 from std.sys.info import size_of
-from std.utils import IndexList
 from std.utils.numerics import isfinite
 from std.memory import bitcast
 from bajo.core import dot, Vec3
@@ -21,32 +20,35 @@ from bajo.core.sampled_spectrum import (
 comptime Color = Vec3f32[.WORLD]
 
 
-def _channel_mask[length: Int, channel: Int]() -> IndexList[2 * length]:
-    var mask = IndexList[2 * length]()
+def _channel_mask[length: Int, channel: Int]() -> Array[SIMDLength, 2 * length]:
+    var mask = Array[SIMDLength, 2 * length](fill=0)
     comptime for lane in range(2 * length):
         comptime offset = 3 * lane + channel
-        mask[lane] = (
-            offset if offset < 2 * length else offset + length
-        ) if lane < length else 0
-    return mask
+        mask[lane] = SIMDLength(
+            (offset if offset < 2 * length else offset + length) if lane
+            < length else 0
+        )
+    return mask^
 
 
-def _rg_mask[length: Int, part: Int]() -> IndexList[length]:
-    var mask = IndexList[length]()
+def _rg_mask[length: Int, part: Int]() -> Array[SIMDLength, length]:
+    var mask = Array[SIMDLength, length](fill=0)
     comptime for lane in range(length):
         comptime offset = part * length + lane
-        mask[lane] = (
+        mask[lane] = SIMDLength(
             offset // 3 + (offset % 3) * length if offset % 3 < 2 else 0
         )
-    return mask
+    return mask^
 
 
-def _blue_mask[length: Int, part: Int]() -> IndexList[length]:
-    var mask = IndexList[length]()
+def _blue_mask[length: Int, part: Int]() -> Array[SIMDLength, length]:
+    var mask = Array[SIMDLength, length](fill=0)
     comptime for lane in range(length):
         comptime offset = part * length + lane
-        mask[lane] = length + offset // 3 if offset % 3 == 2 else lane
-    return mask
+        mask[lane] = SIMDLength(
+            length + offset // 3 if offset % 3 == 2 else lane
+        )
+    return mask^
 
 
 struct FilmResponse(Copyable, DevicePassable, Writable):

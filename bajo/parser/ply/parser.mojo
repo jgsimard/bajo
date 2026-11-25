@@ -6,7 +6,6 @@ from std.bit import byte_swap
 from std.math import ceildiv
 from std.memory import bitcast, pack_bits
 from std.sys import Endian, num_logical_cores, simd_width_of
-from std.utils import IndexList
 
 from bajo.parser.ply.types import PlyMesh
 
@@ -518,16 +517,16 @@ def _decode_vertex_property(
 
 def _vertex_permutation[
     record_width: Int, first: Int, components: Int, width: Int
-]() -> IndexList[width]:
-    var result = IndexList[width]()
+]() -> Array[SIMDLength, width]:
+    var result = Array[SIMDLength, width](fill=0)
     comptime for lane in range(width):
-        result[lane] = (
+        result[lane] = SIMDLength(
             record_width * (lane // components)
             + first
             + lane % components if lane
             < components * (width // 8) else width
         )
-    return result
+    return result^
 
 
 def _decode_common_vertices[
@@ -722,15 +721,15 @@ def _triangle_layout(header: _Header) -> Bool:
     )
 
 
-def _triangle_permutation[width: Int]() -> IndexList[width]:
-    var result = IndexList[width]()
+def _triangle_permutation[width: Int]() -> Array[SIMDLength, width]:
+    var result = Array[SIMDLength, width](fill=0)
     comptime for byte in range(width):
         # Drop one count byte from each 13-byte triangle record. Padding
         # selects the zero vector used as the shuffle's second operand.
-        result[byte] = (
+        result[byte] = SIMDLength(
             1 + byte + byte // 12 if byte < 12 * (width // 16) else width
         )
-    return result
+    return result^
 
 
 def _triangle_count_mask[width: Int]() -> UInt64:

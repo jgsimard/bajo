@@ -460,7 +460,7 @@ struct _WorkerState[gpu_enabled: Bool]:
         if not self.trace_requested:
             return
         if self.refresh_requested and self.backend == 0:
-            __guard case .Some(ref preview) = self.cpu_preview;
+            guard case .Some(ref preview) = self.cpu_preview;
               preview.generation == self.generation else:
                 raise Error("CPU preview generation is no longer available")
             self._publish_cpu_preview(

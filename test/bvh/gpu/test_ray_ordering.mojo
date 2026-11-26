@@ -281,11 +281,11 @@ def test_alias_copy_preserves_unaligned_source_words() raises:
                 words.append(bitcast[.float32](value))
             var source = upload_list(ctx, words)
             for offset in range(4):
-                var guard = bitcast[.float32](UInt32(0xDEADBEEF))
+                var guard_value = bitcast[.float32](UInt32(0xDEADBEEF))
                 var output = upload_list(
                     ctx,
                     List[Float32](
-                        length=count * Rayf32.STRIDE + 16, fill=guard
+                        length=count * Rayf32.STRIDE + 16, fill=guard_value
                     ),
                 )
                 ctx.enqueue_function[_copy_at_offset[4]](

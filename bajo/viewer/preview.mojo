@@ -62,7 +62,7 @@ struct CpuPreviewAccumulator:
         self.batches += 1
         self.generation = generation
         try:
-            __guard case .Some(ref batch) = sample_batch;
+            guard case .Some(ref batch) = sample_batch;
               batch.samples_per_pixel == samples else:
                 raise Error("complete camera-sample statistics are unavailable")
             if not self.statistics:
@@ -81,7 +81,7 @@ struct CpuPreviewAccumulator:
                 self.guides = make_cpu_denoise_guides(
                     scene, camera, self.width, self.height
                 )
-            __guard not self.statistics_error;
+            guard not self.statistics_error;
               case .Some(ref statistics) = self.statistics;
               statistics.samples == self.samples else:
                 raise Error(

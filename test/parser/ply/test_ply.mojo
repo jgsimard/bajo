@@ -363,9 +363,11 @@ def test_triangle_simd_stores_stay_inside_the_output_span() raises:
         _emit_triangles(bytes[7:], output[3 : 3 + 3 * count], 17)
         for index in range(3 * count):
             assert_equal(output[3 + index], UInt32(index % 17))
-        for guard in range(3):
-            assert_equal(output[guard], UInt32(0xDEADBEEF))
-            assert_equal(output[3 + 3 * count + guard], UInt32(0xDEADBEEF))
+        for guard_index in range(3):
+            assert_equal(output[guard_index], UInt32(0xDEADBEEF))
+            assert_equal(
+                output[3 + 3 * count + guard_index], UInt32(0xDEADBEEF)
+            )
 
 
 def test_vertex_simd_stores_stay_inside_the_worker_range() raises:
@@ -378,13 +380,15 @@ def test_vertex_simd_stores_stay_inside_the_worker_range() raises:
                 )
                 var header = _parse_header(bytes)
                 var expected = _parse_ply_serial(bytes)
-                var guard = bitcast[.float32](UInt32(0xDEADBEEF))
+                var guard_value = bitcast[.float32](UInt32(0xDEADBEEF))
                 var positions = List[Float32](
-                    length=3 * (count + 6), fill=guard
+                    length=3 * (count + 6), fill=guard_value
                 )
-                var normals = List[Float32](length=3 * (count + 6), fill=guard)
+                var normals = List[Float32](
+                    length=3 * (count + 6), fill=guard_value
+                )
                 var texcoords = List[Float32](
-                    length=2 * (count + 6), fill=guard
+                    length=2 * (count + 6), fill=guard_value
                 )
                 _decode_common_vertices[record_width](
                     bytes,

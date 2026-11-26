@@ -212,7 +212,7 @@ struct GpuSpectralResources:
     def view(
         self, curves: PiecewiseSpectrumView[]
     ) -> Optional[GpuSpectralSceneView]:
-        __guard case .Some(ref device) = self.device else:
+        guard case .Some(ref device) = self.device else:
             return {}
         var bindings = device.bindings.unsafe_ptr().unsafe_origin_cast[
             ImmUntrackedOrigin

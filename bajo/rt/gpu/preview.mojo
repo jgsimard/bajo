@@ -136,7 +136,7 @@ struct GpuRtPreviewAccumulator:
                 != WAVE_STATUS.OK
             ):
                 raise Error("GPU RT wavefront queue overflow")
-            __guard case .Some(ref batch) = target.denoise_samples else:
+            guard case .Some(ref batch) = target.denoise_samples else:
                 raise Error("complete camera-sample statistics are unavailable")
             if not self.statistics:
                 self.statistics = GpuDenoiseStatistics(
@@ -159,9 +159,9 @@ struct GpuRtPreviewAccumulator:
             raise Error("GPU preview has no accumulated samples")
         var blocks = ceildiv(self.pixel_count * 3, 128)
         if denoise:
-            __guard case .Some(ref guides) = self.guides else:
+            guard case .Some(ref guides) = self.guides else:
                 raise Error("GPU denoising requires surface guides")
-            __guard not self.statistics_error;
+            guard not self.statistics_error;
               case .Some(ref statistics) = self.statistics;
               statistics.samples == total else:
                 raise Error(

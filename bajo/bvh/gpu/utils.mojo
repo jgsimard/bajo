@@ -39,7 +39,7 @@ struct SortedKeysValidation(TrivialRegisterPassable):
     var first_bad_value: Int
     var first_code: UInt32
     var last_code: UInt32
-    var guard: UInt64
+    var checksum: UInt64
 
 
 @fieldwise_init
@@ -47,7 +47,7 @@ struct TopologyValidation(TrivialRegisterPassable):
     var ok: Bool
     var root_count: UInt32
     var root_idx: UInt32
-    var guard: UInt64
+    var checksum: UInt64
 
 
 @fieldwise_init
@@ -55,7 +55,7 @@ struct RefitBoundsValidation(TrivialRegisterPassable):
     var ok: Bool
     var diff: Float64
     var root_idx: UInt32
-    var guard: UInt64
+    var checksum: UInt64
 
 
 @fieldwise_init
@@ -68,7 +68,7 @@ struct GpuBVHValidation(TrivialRegisterPassable):
     var bounds_ok: Bool
     var bounds_diff: Float64
     var root_idx: UInt32
-    var guard: UInt64
+    var checksum: UInt64
 
 
 def _download_full_hit_checksum(

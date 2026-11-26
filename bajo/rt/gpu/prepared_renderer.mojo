@@ -498,7 +498,7 @@ struct GpuRtPreparedRenderer[
         mut self, camera: Camera, generation: UInt64, denoise: Bool = False
     ) raises -> GpuRtPreviewResult:
         """Re-present retained samples without submitting transport work."""
-        __guard case .Some(ref preview) = self._preview;
+        guard case .Some(ref preview) = self._preview;
           preview.generation == generation else:
             raise Error("GPU preview generation is no longer available")
         var t0 = perf_counter_ns()

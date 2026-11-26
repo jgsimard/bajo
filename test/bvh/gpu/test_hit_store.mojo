@@ -68,14 +68,14 @@ def test_packed_hit_store_bits_offsets_and_frames() raises:
             for alignment_offset in range(4):
                 var offset = 4 + alignment_offset
                 var length = offset + count * Hit.STRIDE + 4
-                var guard = UInt32(0xDEADBEEF)
+                var guard_value = UInt32(0xDEADBEEF)
                 var output = ctx.enqueue_create_buffer[.uint32](length)
                 comptime for variant in range(3):
                     comptime frame = Frame.LOCAL if variant == 1 else Frame.WORLD
                     comptime vectorized = variant != 2
                     with output.map_to_host() as values:
                         for i in range(length):
-                            values[i] = guard
+                            values[i] = guard_value
                     ctx.enqueue_function[_store_bits[frame, vectorized]](
                         source,
                         output,
@@ -87,7 +87,7 @@ def test_packed_hit_store_bits_offsets_and_frames() raises:
                     ctx.synchronize()
                     with output.map_to_host() as values:
                         for index in range(offset):
-                            assert_equal(values[index], guard)
+                            assert_equal(values[index], guard_value)
                         for index in range(count):
                             var original = count - 1 - index
                             for field in range(Hit.STRIDE):
@@ -96,7 +96,7 @@ def test_packed_hit_store_bits_offsets_and_frames() raises:
                                     words[original * Hit.STRIDE + field],
                                 )
                         for index in range(offset + count * Hit.STRIDE, length):
-                            assert_equal(values[index], guard)
+                            assert_equal(values[index], guard_value)
 
 
 def run_tests[_discovery: Bool = True]() raises:

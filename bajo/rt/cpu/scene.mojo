@@ -896,7 +896,7 @@ struct CpuScene[
         """Use scalar traversal and the same SIMD hit assembly at width one."""
         var hits: Hit[.WORLD]
         comptime if kind == .SPHERE:
-            __guard case .Some(ref sphere_bvh) = self.sphere_bvh else:
+            guard case .Some(ref sphere_bvh) = self.sphere_bvh else:
                 return _WorldHit.miss(ray.t_max)
             if len(self._scene.opacity().records):
                 hits = trace_opacity_spheres[
@@ -910,7 +910,7 @@ struct CpuScene[
                     .WORLD,
                 ](sphere_bvh, UInt32(0), ray)
         elif kind == .TRIANGLE:
-            __guard case .Some(ref triangle_bvh) = self.triangle_bvh else:
+            guard case .Some(ref triangle_bvh) = self.triangle_bvh else:
                 return _WorldHit.miss(ray.t_max)
             if len(self._scene.opacity().records):
                 hits = trace_opacity_triangles[
@@ -925,9 +925,9 @@ struct CpuScene[
                 ](triangle_bvh, UInt32(0), ray)
         else:
             comptime assert kind == .TRIANGLE_INSTANCE
-            __guard case .Some(ref tlas) = self.triangle_tlas else:
+            guard case .Some(ref tlas) = self.triangle_tlas else:
                 return _WorldHit.miss(ray.t_max)
-            __guard case .Some(ref blases) = self.triangle_mesh_blases else:
+            guard case .Some(ref blases) = self.triangle_mesh_blases else:
                 return _WorldHit.miss(ray.t_max)
             if len(self._scene.opacity().records):
                 hits = trace_opacity_instances[

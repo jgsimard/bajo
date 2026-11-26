@@ -98,7 +98,7 @@ def validate_binary_bvh(
             True,
             0.0,
             UInt32(0),
-            sorted_validation.guard,
+            sorted_validation.checksum,
         )
 
     var topology = validate_topology(
@@ -122,5 +122,5 @@ def validate_binary_bvh(
         refit.ok,
         refit.diff,
         refit.root_idx,
-        sorted_validation.guard + topology.guard + refit.guard,
+        sorted_validation.checksum + topology.checksum + refit.checksum,
     )
